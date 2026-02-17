@@ -1,0 +1,18 @@
+[project]
+name = "fair-models"
+version = "0.0.1"
+description = "Collection of GeoAI Models"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "pystac>=1.14.3",
+    "scikit-learn>=1.8.0",
+]
+
+[dependency-groups]
+local = [
+    "zenml[local]>=0.93.2",
+]
+prod = [
+    "zenml[server]>=0.93.2",
+]

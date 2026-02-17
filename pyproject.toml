@@ -5,14 +5,15 @@ description = "Collection of GeoAI Models"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    "matplotlib>=3.10.8", # zenml needs matplotlib for visualizatoin of charts
+    "pandas>=3.0.0",
+    "pyarrow>=23.0.1", # zenml needs pyarrow to pickle the dfs efficiently
     "pystac>=1.14.3",
     "scikit-learn>=1.8.0",
 ]
 
 [dependency-groups]
 local = [
-    "zenml[local]>=0.93.2",
-]
-prod = [
-    "zenml[server]>=0.93.2",
+    "pip>=26.0.1", # Remove this after this fix is released : https://github.com/zenml-io/zenml/pull/4484
+    "zenml[local,server]>=0.93.2",
 ]

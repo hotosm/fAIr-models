@@ -1,0 +1,24 @@
+# source :  https://docs.zenml.io/concepts/steps_and_pipelines/yaml_configuration
+
+# Pipeline-level flags
+enable_artifact_metadata: True # Whether to collect and store metadata for artifacts
+enable_artifact_visualization: True # Whether to generate visualizations for artifacts
+enable_step_logs: True # Whether to capture and store step logs
+run_name: "iris_{date}_{time}"
+
+# Step-specific flags
+steps:
+  preprocess_data:
+    parameters:
+      test_size: 0.2
+      random_state: 42
+  train_model:
+    parameters:
+      n_estimators: 100
+      random_state: 42
+  save_checkpoint:
+    parameters:
+      checkpoint_path: "./model_checkpoint.pkl"
+  load_checkpoint:
+    parameters:
+      checkpoint_path: "./model_checkpoint.pkl"

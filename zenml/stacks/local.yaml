@@ -1,0 +1,25 @@
+stack_name: local
+zenml_version: 0.93.2
+components:
+  orchestrator:
+    name: local_orchestrator
+    flavor: local
+    type: orchestrator
+    configuration: {}
+  artifact_store:
+    name: local_artifacts
+    flavor: local
+    type: artifact_store
+    configuration:
+      path: /Users/krschap/code/hotosm/fAIr-models/artifacts
+  # experiment_tracker:
+  #   # name: wandb_local
+  #   # flavor: wandb
+  #   # type: experiment_tracker
+  #   name: local
+  #   flavor: local
+  #   type: experiment_tracker
+  #   configuration:
+  #     entity: hotosm
+  #     project_name: fair-models-dev
+  # api_key: "{{wandb_secret.api_key}}"

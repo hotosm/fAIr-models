@@ -1,3 +1,7 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
 [project]
 name = "fair-models"
 version = "0.0.1"
@@ -12,8 +16,17 @@ dependencies = [
     "scikit-learn>=1.8.0",
 ]
 
+[tool.hatch.build.targets.wheel]
+packages = ["fair_integrations"]
+
 [dependency-groups]
+dev = [
+    "mypy>=1.19.1",
+]
 local = [
     "pip>=26.0.1", # Remove this after this fix is released : https://github.com/zenml-io/zenml/pull/4484
     "zenml[local,server]>=0.93.2",
 ]
+
+[project.entry-points."zenml.flavors"]
+stac_model_registry = "fair_integrations.registry.flavor:STACModelRegistryFlavor"

@@ -8,9 +8,10 @@ GITHUB_REPO := fAIr-models
 setup-local:
 	uv sync --group local
 	uv run zenml integration install wandb github -y
+	uv run zenml model-registry flavor register fair_integrations.registry.flavor.STACModelRegistryFlavor
 # 	uv run zenml project register $(PROJECT_NAME)
 # 	uv run zenml project set $(PROJECT_NAME)
-	uv run zenml stack import local -f zenml/stacks/local.yaml
+	uv run zenml stack import local -f fair_integrations/stacks/local.yaml
 	uv run zenml stack set local
 	uv run zenml code-repository register github-repo --type=github --owner=$(GITHUB_OWNER) --repository=$(GITHUB_REPO)
 

@@ -12,6 +12,13 @@ components:
     type: artifact_store
     configuration:
       path: /Users/krschap/code/hotosm/fAIr-models/artifacts
+  model_registry:
+    name: fair_model_registry
+    flavor: stac
+    type: model_registry
+    configuration:
+      catalog_path: /Users/krschap/code/hotosm/fAIr-models/artifacts/model_registry
+
   # experiment_tracker:
   #   # name: wandb_local
   #   # flavor: wandb

@@ -5,7 +5,13 @@ GITHUB_REPO := fAIr-models
 
 .PHONY: run setup-local setup-stage clean
 
-setup-local:
+init:
+	uv sync --group local
+	uv run zenml init
+	uv run zenml login --local
+
+setup:
+	mkdir -p .zen artifacts
 	uv sync --group local
 	uv run zenml integration install wandb github -y
 	uv run zenml model-registry flavor register fair_integrations.registry.flavor.STACModelRegistryFlavor
@@ -19,8 +25,11 @@ run:
 # 	uv run zenml login --local --project $(PROJECT_NAME) 
 	uv run zenml login --local 
 
-
 clean:
 	uv run zenml clean -y
 	rm -rf .zen artifacts
+
+example: 
+	uv run examples/iris.py --config examples/iris_train.yaml 
+	uv run examples/iris.py --config examples/iris_inference.yaml inference
 

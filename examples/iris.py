@@ -1,4 +1,4 @@
-from typing import Tuple
+from typing import Annotated, Tuple
 
 import numpy as np
 import pandas as pd
@@ -6,8 +6,8 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import accuracy_score
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
-
-from zenml import pipeline, step
+from zenml import get_pipeline_context, pipeline, step
+from zenml.artifacts.artifact_config import ArtifactConfig
 
 
 @step
@@ -49,7 +49,7 @@ def train_model(
     y_train: pd.Series,
     n_estimators: int = 100,
     random_state: int = 42,
-) -> RandomForestClassifier:
+) -> Annotated[RandomForestClassifier, ArtifactConfig(name="trained_model")]:
     """Train the model."""
     model = RandomForestClassifier(n_estimators=n_estimators, random_state=random_state)
     model.fit(X_train, y_train)
@@ -67,48 +67,16 @@ def evaluate_model(
     return accuracy
 
 
-@step
-def save_checkpoint(
-    model: RandomForestClassifier, checkpoint_path: str = "./model_checkpoint.pkl"
-) -> str:
-    """Save the trained model to disk."""
-    import pickle
-
-    with open(checkpoint_path, "wb") as f:
-        pickle.dump(model, f)
-    print(f"Model checkpoint saved to {checkpoint_path}")
-    return checkpoint_path
-
-
-@step
-def summarize_data(df: pd.DataFrame) -> tuple[int, int]:
-    """Log dataset shape inside a step to avoid StepArtifact access."""
-    shape = df.shape
-    print(f"Dataset shape: {shape}")
-    return shape
-
-
-@pipeline(enable_cache=False, name="rf_iris_classifier_training_pipeline")
+@pipeline(
+    enable_cache=False,
+    name="rf_iris_classifier_training_pipeline",
+)
 def training_pipeline():
     """Define the pipeline steps."""
     df = load_data()
-    summarize_data(df)
     X_train, X_test, y_train, y_test = preprocess_data(df)
     model = train_model(X_train, y_train)
     accuracy = evaluate_model(model, X_test, y_test)
-    save_checkpoint(model)
-
-
-@step
-def load_checkpoint(
-    checkpoint_path: str = "./model_checkpoint.pkl",
-) -> RandomForestClassifier:
-    """Load a trained model from checkpoint."""
-    import pickle
-
-    with open(checkpoint_path, "rb") as f:
-        model = pickle.load(f)
-    return model
 
 
 @step
@@ -121,13 +89,17 @@ def inference(model: RandomForestClassifier, X_data: np.ndarray) -> np.ndarray:
     return predictions
 
 
-@pipeline(enable_cache=False, name="rf_iris_classifier_inference_pipeline")
+@pipeline(
+    enable_cache=False,
+    name="rf_iris_classifier_inference_pipeline",
+)
 def inference_pipeline():
-    """Define the inference pipeline steps."""
+    """Load the trained model via the Model Control Plane and run inference."""
+    # Model version is resolved from YAML config (model.version)
+    model_artifact = get_pipeline_context().model.get_model_artifact("trained_model")
     df = load_data()
     _, X_test, _, _ = preprocess_data(df)
-    model = load_checkpoint()
-    predictions = inference(model, X_test)
+    predictions = inference(model_artifact, X_test)
 
 
 if __name__ == "__main__":
@@ -137,7 +109,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "mode", choices=["train", "inference"], nargs="?", default="train"
     )
-    parser.add_argument("--config", default="iris.yaml")
+    parser.add_argument("--config", required=True)
     args = parser.parse_args()
     if args.mode == "inference":
         inference_pipeline.with_options(config_path=args.config)()

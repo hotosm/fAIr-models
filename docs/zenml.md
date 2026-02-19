@@ -10,5 +10,5 @@ zenml setup
 training
 inference
 pipelines setup
-model registry -> ?
+model registry -> ? auto supports model checkpoint for torch and tf
 stac integration -> ?

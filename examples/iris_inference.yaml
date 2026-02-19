@@ -1,0 +1,17 @@
+# Inference config - references an existing trained model version
+# https://docs.zenml.io/concepts/models#using-models-across-pipelines
+
+model:
+  name: iris_rf_classifier
+  version: latest
+
+enable_artifact_metadata: True
+enable_artifact_visualization: True
+enable_step_logs: True
+run_name: "iris_inference_{date}_{time}"
+
+steps:
+  preprocess_data:
+    parameters:
+      test_size: 0.2
+      random_state: 42

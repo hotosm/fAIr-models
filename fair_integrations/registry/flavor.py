@@ -1,9 +1,12 @@
 """Flavor for Fair STAC Model Registry."""
 
+from typing import Type
+
 from zenml.model_registries.base_model_registry import (
     BaseModelRegistryConfig,
     BaseModelRegistryFlavor,
 )
+from zenml.stack import StackComponent
 
 
 class STACModelRegistryConfig(BaseModelRegistryConfig):
@@ -17,15 +20,14 @@ class STACModelRegistryFlavor(BaseModelRegistryFlavor):
 
     @property
     def name(self) -> str:
-        """Name of the flavor."""
         return "stac"
 
     @property
-    def source(self) -> str:
-        """Module source for the flavor."""
-        return "fair_integrations.registry.stac:STACModelRegistry"
+    def implementation_class(self) -> Type[StackComponent]:
+        from fair_integrations.registry.stac import STACModelRegistry
+
+        return STACModelRegistry
 
     @property
-    def config_class(self):
-        """Config class for the flavor."""
+    def config_class(self) -> Type[STACModelRegistryConfig]:
         return STACModelRegistryConfig

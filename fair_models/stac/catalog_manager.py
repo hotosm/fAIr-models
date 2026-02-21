@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+
 import pystac
 from pystac import CatalogType
 from pystac.catalog import Catalog
@@ -21,7 +23,17 @@ class StacCatalogManager:
         return collection
 
     def _save(self) -> None:
-        self.catalog.normalize_hrefs(self.catalog.self_href.rsplit("/", 1)[0])
+        """Set self_hrefs manually and persist as SELF_CONTAINED JSON.
+
+        Avoids normalize_hrefs() which chokes on cross-reference links
+        (derived_from, version links) that use item IDs as targets.
+        """
+        root = os.path.dirname(self.catalog.self_href)
+        for child in self.catalog.get_children():
+            child_dir = os.path.join(root, child.id)
+            child.set_self_href(os.path.join(child_dir, "collection.json"))
+            for item in child.get_items():
+                item.set_self_href(os.path.join(child_dir, item.id, f"{item.id}.json"))
         self.catalog.save(catalog_type=CatalogType.SELF_CONTAINED)
 
     def publish_item(self, collection_id: str, item: pystac.Item) -> pystac.Item:
@@ -34,7 +46,6 @@ class StacCatalogManager:
         existing: Item | None = collection.get_item(item.id)
 
         if existing is not None:
-            # Bump version on the incoming item
             old_version = int(existing.properties.get("version", "1"))
             item.properties["version"] = str(old_version + 1)
             collection.remove_item(item.id)

@@ -7,11 +7,7 @@ import pystac
 
 
 def validate_mlm_schema(item: pystac.Item) -> list[str]:
-    """Thin wrapper around pystac's built-in item.validate().
-
-    pystac resolves extension schemas (including MLM) automatically.
-    Returns list of error messages (empty = valid).
-    """
+    """Validate item against STAC extension schemas. Returns error messages (empty = valid)."""
     errors: list[str] = []
     try:
         item.validate()
@@ -21,7 +17,6 @@ def validate_mlm_schema(item: pystac.Item) -> list[str]:
 
 
 def _load_keywords_schema() -> dict:
-    """Load keywords.json from fair_models/schemas/."""
     ref = importlib.resources.files("fair_models.schemas").joinpath("keywords.json")
     return json.loads(ref.read_text(encoding="utf-8"))
 
@@ -47,7 +42,6 @@ def validate_compatibility(
     model_keywords = set(base_model_item.properties.get("keywords", []))
     dataset_keywords = set(dataset_item.properties.get("keywords", []))
 
-    # Vocabulary check
     unknown_model = model_keywords - allowed_keywords - allowed_tasks - set(schema.get("allowed_geometry_types", []))
     if unknown_model:
         errors.append(f"Unknown model keywords: {unknown_model}")
@@ -58,11 +52,9 @@ def validate_compatibility(
     if unknown_dataset:
         errors.append(f"Unknown dataset keywords: {unknown_dataset}")
 
-    # Keyword overlap
     if not model_keywords & dataset_keywords:
         errors.append(f"No keywords in common: model={model_keywords}, dataset={dataset_keywords}")
 
-    # Task compatibility via mapping
     model_tasks = set(base_model_item.properties.get("mlm:tasks", []))
     label_tasks = set(dataset_item.properties.get("label:tasks", []))
     mapped_label_tasks = {task_label_mapping.get(t, t) for t in model_tasks}

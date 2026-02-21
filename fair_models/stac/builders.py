@@ -16,11 +16,7 @@ _CONTAINER_REGISTRIES = ("ghcr.io", "docker.io", "quay.io", ".azurecr.io", ".ecr
 
 
 def _infer_runtime_media_type(href: str) -> str:
-    """Infer media type from runtime href.
-
-    OCI for container registry refs, text/x-dockerfile for Dockerfile paths,
-    text/plain for local or unknown refs.
-    """
+    """OCI for container registries, text/x-dockerfile for Dockerfiles, text/plain otherwise."""
     lower = href.lower()
     if any(r in lower for r in _CONTAINER_REGISTRIES):
         return OCI_MEDIA_TYPE
@@ -88,7 +84,7 @@ def build_dataset_item(
 ) -> pystac.Item:
     """Build a dataset STAC item with label + file extensions.
 
-    Computes bbox and geometry automatically from labels_href (reads GeoJSON envelope).
+    Computes bbox and geometry automatically from labels_href.
     """
     geometry, bbox = _geometry_and_bbox_from_geojson(labels_href)
 
@@ -158,11 +154,7 @@ def build_base_model_item(
     training_runtime_href: str,
     inference_runtime_href: str,
 ) -> pystac.Item:
-    """Build a base model STAC item with mlm + version + classification extensions.
-
-    bbox is computed from geometry.
-    file:size / file:checksum added at registration time when model href is a real URL.
-    """
+    """Build a base model STAC item with mlm + version + classification extensions."""
     bbox = _bbox_from_geometry(geometry)
 
     item = pystac.Item(
@@ -250,7 +242,6 @@ def build_local_model_item(
         raise ValueError(msg)
     bbox = _bbox_from_geometry(geom)
 
-    # Copy MLM properties from base model
     base_props = base_model_item.properties
     item = pystac.Item(
         id=item_id,
@@ -275,16 +266,12 @@ def build_local_model_item(
         stac_extensions=MODEL_EXTENSIONS,
     )
 
-    # derived_from links
     item.add_link(pystac.Link(rel="derived_from", target=base_model_item_id))
     item.add_link(pystac.Link(rel="derived_from", target=dataset_item_id))
-
-    # Version Extension links
     item.add_link(pystac.Link(rel="latest-version", target=item_id))
     if predecessor_version_item_id:
         item.add_link(pystac.Link(rel="predecessor-version", target=predecessor_version_item_id))
 
-    # Copy assets from base model, override model href
     for key, asset in base_model_item.assets.items():
         if key == "model":
             item.add_asset(

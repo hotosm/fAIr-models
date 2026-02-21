@@ -34,7 +34,7 @@ Catalog: fair-models
       Training data registered via fAIr UI/backend.
       |
       +-- Item: buildings-kathmandu       category: semantic-segmentation
-      +-- Item: roads-dar-es-salaam       category: object-detection
+      +-- Item: trees-utr-in-masuri       category: object-detection
 ```
 
 ### What STAC Items Contain

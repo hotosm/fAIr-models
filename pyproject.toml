@@ -10,22 +10,26 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "matplotlib>=3.10.8", # zenml needs matplotlib for visualizatoin of charts
-    "pandas>=3.0.0",
     "pyarrow>=23.0.1", # zenml needs pyarrow to pickle the dfs efficiently
     "pystac>=1.14.3",
-    "scikit-learn>=1.8.0",
 ]
 
 [tool.hatch.build.targets.wheel]
 packages = ["fair_integrations"]
+
+[tool.uv.sources]
+torchgeo = { git = "https://github.com/kshitijrajsharma/torchgeo.git", rev = "feature/opeanaerialmap" }
 
 [dependency-groups]
 dev = [
     "mypy>=1.19.1",
 ]
 local = [
-    "pip>=26.0.1", # Remove this after this fix is released : https://github.com/zenml-io/zenml/pull/4484
-    "zenml[local,server]>=0.93.2",
+    "zenml[local,server]>=0.93.3", # uv support is added after this release
+]
+example = [
+    "matplotlib>=3.10.8",
+    "torchgeo",
 ]
 
 [project.entry-points."zenml.flavors"]

@@ -1,0 +1,37 @@
+{
+    "type": "Collection",
+    "id": "datasets",
+    "stac_version": "1.0.0",
+    "description": "Training data registered via fAIr UI/backend.",
+    "license": "various",
+    "extent": {
+        "spatial": {
+            "bbox": [
+                [
+                    -180,
+                    -90,
+                    180,
+                    90
+                ]
+            ]
+        },
+        "temporal": {
+            "interval": [
+                [
+                    "2024-01-01T00:00:00Z",
+                    null
+                ]
+            ]
+        }
+    },
+    "links": [
+        {
+            "rel": "root",
+            "href": "../catalog.json"
+        },
+        {
+            "rel": "parent",
+            "href": "../catalog.json"
+        }
+    ]
+}

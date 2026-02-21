@@ -5,32 +5,39 @@ build-backend = "hatchling.build"
 [project]
 name = "fair-models"
 version = "0.0.1"
-description = "Collection of GeoAI Models"
+description = "Model registry and ML pipeline orchestration for fAIr"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-    "matplotlib>=3.10.8", # zenml needs matplotlib for visualizatoin of charts
-    "pyarrow>=23.0.1", # zenml needs pyarrow to pickle the dfs efficiently
     "pystac>=1.14.3",
+    "zenml>=0.93.3",
 ]
 
 [tool.hatch.build.targets.wheel]
-packages = ["fair_integrations"]
+packages = ["fair_models", "models"]
 
 [tool.uv.sources]
 torchgeo = { git = "https://github.com/kshitijrajsharma/torchgeo.git", rev = "feature/opeanaerialmap" }
 
 [dependency-groups]
 dev = [
-    "mypy>=1.19.1",
+    "ty",
+    "ruff",
+    "pytest>=8.0",
 ]
 local = [
-    "zenml[local,server]>=0.93.3", # uv support is added after this release
+    "zenml[server]>=0.93.3",
 ]
 example = [
     "matplotlib>=3.10.8",
+    "pyarrow>=23.0.1",
+    "torch>=2.0",
     "torchgeo",
 ]
 
-[project.entry-points."zenml.flavors"]
-stac_model_registry = "fair_integrations.registry.flavor:STACModelRegistryFlavor"
+[tool.ruff]
+target-version = "py312"
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]

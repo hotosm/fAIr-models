@@ -1,9 +1,4 @@
-# PROJECT_NAME := fair-models # zenml doesn't support capitals in project name
-
-GITHUB_OWNER := hotosm
-GITHUB_REPO := fAIr-models
-
-.PHONY: run setup-local setup-stage clean
+.PHONY: init setup clean example
 
 init:
 	uv sync --group local
@@ -13,23 +8,36 @@ init:
 setup:
 	mkdir -p .zen artifacts
 	uv sync --group local
-	uv run zenml integration install wandb github -y
-	uv run zenml model-registry flavor register fair_integrations.registry.flavor.STACModelRegistryFlavor
-# 	uv run zenml project register $(PROJECT_NAME)
-# 	uv run zenml project set $(PROJECT_NAME)
-	uv run zenml stack import local -f fair_integrations/stacks/local.yaml
+	uv run zenml integration install wandb -y
+	uv run zenml stack import local -f stacks/local.yaml
 	uv run zenml stack set local
-	uv run zenml code-repository register github-repo --type=github --owner=$(GITHUB_OWNER) --repository=$(GITHUB_REPO)
 
 run:
-# 	uv run zenml login --local --project $(PROJECT_NAME) 
-	uv run zenml login --local 
+	uv run zenml login --local
 
 clean:
 	uv run zenml clean -y
 	rm -rf .zen artifacts
 
-example: 
-	uv run examples/iris.py --config examples/iris_train.yaml 
-	uv run examples/iris.py --config examples/iris_inference.yaml inference
+example:
+	uv run python examples/building_segmentation/download.py
+	uv run python examples/building_segmentation/register_dataset.py
+	uv run python examples/building_segmentation/register_basemodel.py
+	uv run python examples/building_segmentation/finetune.py
+	uv run python examples/building_segmentation/promote.py
+	uv run python examples/building_segmentation/predict.py
+
+lint:
+	uv run ruff check .
+	uv run ruff format --check .
+
+format:
+	uv run ruff check --fix .
+	uv run ruff format .
+
+typecheck:
+	uv run ty check
+
+test:
+	uv run pytest tests/ -v
 

@@ -1,9 +1,3 @@
-"""ZenML model version promotion and STAC catalog synchronization.
-
-Each function pairs a ZenML stage transition with the corresponding
-StacCatalogManager call so the two registries stay in sync.
-"""
-
 from __future__ import annotations
 
 import logging
@@ -49,10 +43,7 @@ def _find_previous_production_item(
 
 
 def promote_model_version(model_name: str, version: Annotated[int, Ge(1)]) -> None:
-    """Set a ZenML model version stage to *production*.
-
-    ZenML automatically archives the previous production version (if any).
-    """
+    # ZenML auto-archives previous production version
     client = Client()
     mv = client.get_model_version(model_name, version)
     mv.set_stage(ModelStages.PRODUCTION, force=True)
@@ -69,13 +60,11 @@ def publish_promoted_model(
     keywords: list[str] | None = None,
     geometry: dict[str, Any] | None = None,
 ) -> pystac.Item:
-    """Read ZenML model version metadata, build + publish a local-model STAC item."""
     client = Client()
     mv = client.get_model_version(model_name, version)
 
-    # Extract mlm:hyperparameters from the training step config.
-    # Exclude infrastructure params (paths, weights ref, class count) — only keep tunable hparams.
-    # pipeline_runs is deprecated but the replacement isn't stable yet in ZenML 0.93.x.
+    # Exclude infra params, keep only tunable hparams.
+    # pipeline_runs is deprecated but replacement isn't stable in ZenML 0.93.x
     _INFRA_KEYS = {"base_model_weights", "dataset_chips", "dataset_labels", "num_classes"}
     hyperparams: dict[str, Any] = {}
     runs = mv.pipeline_runs
@@ -85,7 +74,7 @@ def publish_promoted_model(
         raw_params: dict[str, Any] | None = step.config.parameters if step else run.config.parameters
         hyperparams = {k: v for k, v in (raw_params or {}).items() if k not in _INFRA_KEYS}
 
-    # Weights path: the step return value stored as a data artifact, not a model artifact.
+    # Data artifact, not model artifact — ZenML stores step return values there
     weights_art = mv.get_artifact("training_pipeline::train_model::output")
     if weights_art is None:
         msg = f"No weights artifact found for {model_name} v{version} — training pipeline may not have completed"
@@ -132,7 +121,6 @@ def archive_model_version(
     version: Annotated[int, Ge(1)],
     catalog_manager: StacCatalogManager,
 ) -> pystac.Item:
-    """Archive a ZenML model version and deprecate its STAC item."""
     client = Client()
     mv = client.get_model_version(model_name, version)
     mv.set_stage(ModelStages.ARCHIVED, force=True)
@@ -149,7 +137,6 @@ def delete_model_version(
     version: Annotated[int, Ge(1)],
     catalog_manager: StacCatalogManager,
 ) -> None:
-    """Delete a single ZenML model version and remove its STAC item."""
     client = Client()
     mv = client.get_model_version(model_name, version)
     client.delete_model_version(mv.id)
@@ -164,10 +151,8 @@ def delete_model(
     model_name: str,
     catalog_manager: StacCatalogManager,
 ) -> None:
-    """Delete all versions of a ZenML model and remove all STAC items."""
     client = Client()
-
-    # STAC first so we still have IDs before ZenML deletes the model
+    # STAC first — need IDs before ZenML deletes the model
     items = catalog_manager.list_items(LOCAL_MODELS_COLLECTION)
     for item in items:
         if item.id.startswith(f"{model_name}-v"):

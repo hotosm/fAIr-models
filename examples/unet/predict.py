@@ -1,4 +1,4 @@
-"""Run inference on Banepa OAM imagery using the promoted local model."""
+"""Run inference using the promoted local model."""
 
 from __future__ import annotations
 
@@ -13,8 +13,8 @@ from models.example_unet.pipeline import inference_pipeline
 
 CATALOG_PATH = "stac_catalog/catalog.json"
 LOCAL_MODEL_ID = "example-unet-finetuned-banepa-v9"
-INPUT_IMAGES = "data/banepa_test/oam"
-CONFIG_PATH = "examples/building_segmentation/config/generated_inference.yaml"
+INPUT_IMAGES = "data/sample/predict/oam"
+CONFIG_PATH = "examples/unet/config/generated_inference.yaml"
 
 catalog = StacCatalogManager(CATALOG_PATH)
 model_item = catalog.get_item(LOCAL_MODELS_COLLECTION, LOCAL_MODEL_ID)

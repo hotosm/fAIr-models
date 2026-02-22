@@ -1,8 +1,4 @@
-"""Finetune example-unet on the Banepa buildings dataset.
-
-Reads base model + dataset from catalog, validates compatibility,
-generates a ZenML config, and triggers the training pipeline.
-"""
+"""Finetune example-unet on Banepa buildings dataset."""
 
 from __future__ import annotations
 
@@ -20,7 +16,7 @@ CATALOG_PATH = "stac_catalog/catalog.json"
 BASE_MODEL_ID = "example-unet"
 DATASET_ID = "buildings-banepa"
 MODEL_NAME = "example-unet-finetuned-banepa"
-CONFIG_PATH = Path("examples/building_segmentation/config/generated_train.yaml")
+CONFIG_PATH = Path("examples/unet/config/generated_train.yaml")
 OVERRIDES = {"epochs": 1}  # 1 epoch for quick validation; remove to use default 15
 
 catalog = StacCatalogManager(CATALOG_PATH)

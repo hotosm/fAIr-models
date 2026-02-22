@@ -1,7 +1,4 @@
-"""Download OAM imagery and OSM building labels for Banepa Municipality, Nepal.
-
-Edit constants at the top to adapt to a different area or OAM image.
-"""
+"""Download OAM imagery and OSM building labels for Banepa, Nepal."""
 
 from __future__ import annotations
 
@@ -11,43 +8,62 @@ from torch.utils.data import DataLoader
 from torchgeo.datasets import OpenAerialMap, OpenStreetMap, stack_samples
 from torchgeo.samplers import RandomGeoSampler
 
-# Smaller bbox (~400m x 400m, central Banepa) for fast test runs; extend for production.
-BBOX = (85.519, 27.630, 85.523, 27.634)  # (minx, miny, maxx, maxy)
 ZOOM = 19
 OAM_IMAGE_ID = "62d86c65d8499800053796c4"
 CHIP_SIZE = 512
-WORK_DIR = "data/banepa_test"
 BUILDING_CLASSES = [{"name": "building", "selector": [{"building": "*"}]}]
-SAMPLER_LENGTH = 10
 
-oam_dir = os.path.join(WORK_DIR, "oam")
-osm_dir = os.path.join(WORK_DIR, "osm")
-os.makedirs(oam_dir, exist_ok=True)
-os.makedirs(osm_dir, exist_ok=True)
+# Train area: central Banepa (~400m x 400m)
+TRAIN_BBOX = (85.519, 27.630, 85.523, 27.634)
+TRAIN_DIR = "data/sample/train"
 
-oam = OpenAerialMap(
-    paths=oam_dir,
-    bbox=BBOX,
+# Predict area: shifted east (~200m x 200m), no overlap with train
+PREDICT_BBOX = (85.524, 27.631, 85.526, 27.633)
+PREDICT_DIR = "data/sample/predict"
+
+train_oam_dir = os.path.join(TRAIN_DIR, "oam")
+train_osm_dir = os.path.join(TRAIN_DIR, "osm")
+os.makedirs(train_oam_dir, exist_ok=True)
+os.makedirs(train_osm_dir, exist_ok=True)
+
+print("Downloading training OAM imagery...")
+train_oam = OpenAerialMap(
+    paths=train_oam_dir,
+    bbox=TRAIN_BBOX,
     zoom=ZOOM,
     image_id=OAM_IMAGE_ID,
     download=True,
     tile_size=CHIP_SIZE,
 )
-b = oam.bounds
-osm = OpenStreetMap(
+b = train_oam.bounds
+print("Downloading training OSM labels...")
+train_osm = OpenStreetMap(
     bbox=(b[0].start, b[1].start, b[0].stop, b[1].stop),
     classes=BUILDING_CLASSES,
-    paths=osm_dir,
+    paths=train_osm_dir,
     download=True,
 )
 
-dataset = oam & osm
-sampler = RandomGeoSampler(dataset, size=CHIP_SIZE, length=SAMPLER_LENGTH)
+dataset = train_oam & train_osm
+sampler = RandomGeoSampler(dataset, size=CHIP_SIZE, length=5)
 loader = DataLoader(dataset, sampler=sampler, batch_size=1, collate_fn=stack_samples)
-
 batch = next(iter(loader))
-print(f"OAM dir:   {oam_dir}")
-print(f"OSM dir:   {osm_dir}")
-print(f"Image shape:  {tuple(batch['image'].shape)}")
-print(f"Mask shape:   {tuple(batch['mask'].shape)}")
-print(f"Dataset bounds: {dataset.bounds}")
+print(f"Train OAM:   {train_oam_dir} ({len(os.listdir(train_oam_dir))} files)")
+print(f"Train OSM:   {train_osm_dir}")
+print(f"Image shape: {tuple(batch['image'].shape)}")
+print(f"Mask shape:  {tuple(batch['mask'].shape)}")
+
+predict_oam_dir = os.path.join(PREDICT_DIR, "oam")
+os.makedirs(predict_oam_dir, exist_ok=True)
+
+print("\nDownloading prediction OAM imagery (no labels)...")
+predict_oam = OpenAerialMap(
+    paths=predict_oam_dir,
+    bbox=PREDICT_BBOX,
+    zoom=ZOOM,
+    image_id=OAM_IMAGE_ID,
+    download=True,
+    tile_size=CHIP_SIZE,
+)
+print(f"Predict OAM: {predict_oam_dir} ({len(os.listdir(predict_oam_dir))} files)")
+print("\nDone.")

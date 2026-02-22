@@ -212,5 +212,9 @@ artifacts
 *.pkl
 
 examples/data
+examples/unet/config/generated_*.yaml
 implementation.md
-data
+data/*
+!data/sample/
+
+.DS_Store

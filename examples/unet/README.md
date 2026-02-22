@@ -37,9 +37,9 @@ uv run python examples/unet/predict.py
 
 | After step | Artifact |
 |---|---|
-| `download.py` | `data/banepa/oam/` (image tiles) + `data/banepa/osm/` (label GeoJSON) |
+| `download.py` | `data/sample/train/{oam,osm}` (image tiles + label GeoJSON) + `data/sample/predict/oam/` (prediction images) |
 | `register_dataset.py` | `stac_catalog/datasets/buildings-banepa/buildings-banepa.json` |
 | `register_basemodel.py` | `stac_catalog/base-models/example-unet/example-unet.json` |
 | `finetune.py` | `artifacts/finetuned_weights.pth` + ZenML run logged |
 | `promote.py` | `stac_catalog/local-models/example-unet-finetuned-banepa-v1/` |
-| `predict.py` | `data/banepa/predictions/*.png` |
+| `predict.py` | `data/sample/predict/predictions/*.png` |

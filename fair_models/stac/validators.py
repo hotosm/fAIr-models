@@ -7,7 +7,6 @@ import pystac
 
 
 def validate_mlm_schema(item: pystac.Item) -> list[str]:
-    """Validate item against STAC extension schemas. Returns error messages (empty = valid)."""
     errors: list[str] = []
     try:
         item.validate()
@@ -25,13 +24,6 @@ def validate_compatibility(
     base_model_item: pystac.Item,
     dataset_item: pystac.Item,
 ) -> list[str]:
-    """Check keyword + task compatibility between base model and dataset.
-
-    Rules:
-    - At least one keyword in common
-    - mlm:tasks must intersect with label:tasks (via task_label_mapping)
-    - Keywords must be in allowed vocabulary
-    """
     schema = _load_keywords_schema()
     allowed_keywords = set(schema["allowed_keywords"])
     allowed_tasks = set(schema["allowed_tasks"])

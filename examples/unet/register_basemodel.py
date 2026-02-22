@@ -1,4 +1,4 @@
-"""Register example-unet base model from stac-item.json into the local catalog."""
+"""Register example-unet base model into the local catalog."""
 
 from __future__ import annotations
 

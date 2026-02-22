@@ -1,4 +1,4 @@
-"""Register downloaded Banepa dataset as a STAC item in the local catalog."""
+"""Register downloaded Banepa dataset as a STAC item."""
 
 from __future__ import annotations
 
@@ -11,8 +11,8 @@ from fair_models.stac.constants import DATASETS_COLLECTION
 
 CATALOG_PATH = "stac_catalog/catalog.json"
 ITEM_ID = "buildings-banepa"
-CHIPS_HREF = "data/banepa_test/oam"
-_OSM_DIR = Path("data/banepa_test/osm")
+CHIPS_HREF = "data/sample/train/oam"
+_OSM_DIR = Path("data/sample/train/osm")
 KEYWORDS = ["building", "semantic-segmentation", "polygon"]
 
 _candidates = sorted(_OSM_DIR.glob("*.geojson"))

@@ -1,5 +1,3 @@
-"""Shared constants for STAC extension schema URLs and media types."""
-
 OCI_MEDIA_TYPE = "application/vnd.oci.image.index.v1+json"
 
 MLM_SCHEMA = "https://stac-extensions.github.io/mlm/v1.5.1/schema.json"

@@ -1,5 +1,3 @@
-"""YAML config generation from STAC metadata for ZenML pipeline runs."""
-
 from __future__ import annotations
 
 from typing import Any
@@ -10,7 +8,7 @@ from fair_models.stac.constants import OCI_MEDIA_TYPE
 
 
 def _extract_input_spec(mlm_input: list[dict[str, Any]]) -> dict[str, Any]:
-    """Pull chip_size from mlm:input shape. Band names are model-internal, not pipeline params."""
+    # Band names are model-internal, only chip_size is a pipeline param
     if not mlm_input:
         return {}
     shape = mlm_input[0].get("input", {}).get("shape", [])
@@ -18,7 +16,6 @@ def _extract_input_spec(mlm_input: list[dict[str, Any]]) -> dict[str, Any]:
 
 
 def _extract_num_classes(mlm_output: list[dict[str, Any]]) -> int | None:
-    """Derive num_classes from the first output's classification:classes list."""
     if not mlm_output:
         return None
     classes = mlm_output[0].get("classification:classes", [])
@@ -31,11 +28,7 @@ def generate_training_config(
     model_name: str,
     overrides: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Generate ZenML pipeline run config dict from STAC metadata.
-
-    ZenML YAML config schema ref:
-    https://docs.zenml.io/concepts/steps_and_pipelines/yaml_configuration
-    """
+    # ZenML config schema: https://docs.zenml.io/concepts/steps_and_pipelines/yaml_configuration
     props = base_model_item.properties
 
     hyperparams: dict[str, Any] = dict(props.get("mlm:hyperparameters", {}))
@@ -80,11 +73,7 @@ def generate_inference_config(
     model_item: pystac.Item,
     input_images_path: str,
 ) -> dict[str, Any]:
-    """Generate ZenML inference pipeline run config dict from a STAC model item.
-
-    Works for both base-model and local-model items since both carry the
-    same MLM asset/property structure.
-    """
+    # Works for both base-model and local-model items (same MLM structure)
     props = model_item.properties
     input_spec = _extract_input_spec(props.get("mlm:input", []))
 

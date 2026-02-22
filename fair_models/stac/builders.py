@@ -21,7 +21,6 @@ _SOURCE_CODE_EXTENSIONS = {
 
 
 def _infer_source_code_media_type(href: str) -> str:
-    """text/x-python for .py, text/html for repo URLs, text/plain otherwise."""
     lower = href.lower()
     for ext, mime in _SOURCE_CODE_EXTENSIONS.items():
         if lower.endswith(ext):
@@ -32,7 +31,6 @@ def _infer_source_code_media_type(href: str) -> str:
 
 
 def _infer_runtime_media_type(href: str) -> str:
-    """OCI for container registries, text/x-dockerfile for Dockerfiles, text/plain otherwise."""
     lower = href.lower()
     if any(r in lower for r in _CONTAINER_REGISTRIES):
         return OCI_MEDIA_TYPE
@@ -42,7 +40,6 @@ def _infer_runtime_media_type(href: str) -> str:
 
 
 def _bbox_from_geometry(geometry: dict[str, Any]) -> list[float]:
-    """Compute [west, south, east, north] from a GeoJSON geometry."""
     coords = _flatten_coords(geometry["coordinates"])
     lons = [c[0] for c in coords]
     lats = [c[1] for c in coords]
@@ -50,7 +47,6 @@ def _bbox_from_geometry(geometry: dict[str, Any]) -> list[float]:
 
 
 def _flatten_coords(coords: Any) -> list[list[float]]:
-    """Recursively flatten nested coordinate arrays into a list of [lon, lat] pairs."""
     if isinstance(coords[0], (int, float)):
         return [coords]
     result: list[list[float]] = []
@@ -60,7 +56,6 @@ def _flatten_coords(coords: Any) -> list[list[float]]:
 
 
 def _geometry_and_bbox_from_geojson(labels_href: str) -> tuple[dict[str, Any], list[float]]:
-    """Read a GeoJSON file and derive envelope geometry + bbox."""
     with open(labels_href, encoding="utf-8") as f:
         geojson: Any = json.load(f)
 
@@ -98,10 +93,6 @@ def build_dataset_item(
     labels_href: str,
     download_href: str | None = None,
 ) -> pystac.Item:
-    """Build a dataset STAC item with label + file extensions.
-
-    Computes bbox and geometry automatically from labels_href.
-    """
     geometry, bbox = _geometry_and_bbox_from_geojson(labels_href)
 
     item = pystac.Item(
@@ -179,7 +170,6 @@ def build_base_model_item(
     training_runtime_href: str,
     inference_runtime_href: str,
 ) -> pystac.Item:
-    """Build a base model STAC item with mlm + version + classification extensions."""
     bbox = _bbox_from_geometry(geometry)
 
     item = pystac.Item(
@@ -255,12 +245,6 @@ def build_local_model_item(
     geometry: dict[str, Any] | None = None,
     predecessor_version_item_id: str | None = None,
 ) -> pystac.Item:
-    """Build a local (finetuned) model STAC item.
-
-    Copies MLM fields from base_model_item. Overrides model_href,
-    hyperparameters, keywords, version, and optionally geometry.
-    Adds derived_from links + Version Extension fields.
-    """
     geom = geometry if geometry is not None else base_model_item.geometry
     if geom is None:
         msg = "geometry must be provided when base_model_item.geometry is None"

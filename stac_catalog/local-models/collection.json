@@ -15,6 +15,11 @@
       "type": "application/geo+json"
     },
     {
+      "rel": "item",
+      "href": "./example-unet-finetuned-banepa-v4/example-unet-finetuned-banepa-v4.json",
+      "type": "application/geo+json"
+    },
+    {
       "rel": "parent",
       "href": "../catalog.json",
       "type": "application/json"

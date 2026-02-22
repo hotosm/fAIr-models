@@ -7,7 +7,7 @@
     "https://stac-extensions.github.io/classification/v2.0.0/schema.json",
     "https://stac-extensions.github.io/file/v2.1.0/schema.json"
   ],
-  "id": "example-unet-finetuned-banepa-v9",
+  "id": "example-unet-finetuned-banepa-v4",
   "geometry": {
     "type": "Polygon",
     "coordinates": [
@@ -131,16 +131,17 @@
       "learning_rate": 0.0001,
       "weight_decay": 0.0001,
       "chip_size": 512,
-      "num_classes": 2
+      "optimizer": "AdamW",
+      "loss": "CrossEntropyLoss"
     },
     "keywords": [
       "building",
       "semantic-segmentation",
       "polygon"
     ],
-    "version": "11",
-    "deprecated": true,
-    "datetime": "2026-02-22T00:21:09.560315Z"
+    "version": "4",
+    "deprecated": false,
+    "datetime": "2026-02-22T23:13:45.400164Z"
   },
   "links": [
     {
@@ -153,11 +154,11 @@
     },
     {
       "rel": "latest-version",
-      "href": "example-unet-finetuned-banepa-v9"
+      "href": "example-unet-finetuned-banepa-v4"
     },
     {
-      "rel": "successor-version",
-      "href": "example-unet-finetuned-banepa-v4"
+      "rel": "predecessor-version",
+      "href": "example-unet-finetuned-banepa-v9"
     },
     {
       "rel": "root",

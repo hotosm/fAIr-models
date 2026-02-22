@@ -58,7 +58,7 @@
       "semantic-segmentation",
       "polygon"
     ],
-    "version": "5",
+    "version": "7",
     "mlm:input": [
       {
         "name": "RGB chips",

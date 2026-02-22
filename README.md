@@ -298,7 +298,7 @@ A user might run 10 experiments, promote 3 of them over time. Only those 3 appea
 | **ZenML** | Pipeline orchestration, version tracking | SQLite (`~/.config/zenml/`) | ZenML Server (PostgreSQL) |
 | **Orchestrator** | Runs pipeline steps | `local` | Kubernetes |
 | **Artifact Store** | Weights, datasets, artifacts | local filesystem | S3 |
-| **Experiment Tracker** | Metrics logging | W&B (free tier) | W&B |
+| **Experiment Tracker** | Metrics logging | W&B | W&B |
 | **Container Registry** | Model runtime images | local Docker | ghcr.io |
 | **fAIr Backend** | User-facing orchestration layer | -- | -- |
 
@@ -345,12 +345,12 @@ ZenML stack components NOT used:
 
 1. **STAC replaces ZenML Model Registry**: STAC is a downstream publish target, not a ZenML stack component. A standalone `StacCatalogManager` (plain Python class) handles `publish_item`, `deprecate_item`, `delete_item`, `list_items`. The backend calls these explicitly on promotion/archive/delete -- no automatic sync.
 
-2. **STAC item = self-sufficient contract**: A single STAC item contains everything needed to run training or inference: pipeline entrypoint, Docker image, weights, input/output spec, hyperparameters. Add a new base model item and the system can train/infer with it without code changes.
+2. **STAC item = self-sufficient source of truth**: A single STAC item contains everything needed to run training or inference: pipeline entrypoint, Docker image, weights, input/output spec, hyperparameters. Add a new base model item and the system can train/infer with it without code changes.
 
 3. **Finetuned models share parent pipeline code**: Local model STAC items reference the same `mlm:source_code`, Docker image, and pre/post processing functions as their parent base model. Only weights differ.
 
-4. **Standards over custom fields**: `mlm:tasks`, `keywords`, `classification:classes`, `label:type`/`label:tasks`, `pre_processing_function`/`post_processing_function` instead of custom `fair:*` fields. Backend validates model-dataset compatibility by matching these standard fields.
+4. **Standards over custom fields**: `mlm:tasks`, `keywords`, `classification:classes`, `label:type`/`label:tasks`, `pre_processing_function`/`post_processing_function` instead of custom `fair:*` fields until absolutely necessary. Backend validates model-dataset compatibility by matching these standard fields.
 
-5. **YAML-driven reproducibility**: Every pipeline run is driven by a generated YAML config (STAC defaults + user overrides). Logged as a ZenML artifact. Re-run any experiment by re-running its YAML.
+5. **YAML-based training & inference**: Every pipeline run is driven by a generated YAML config (STAC defaults + user overrides). Logged as a ZenML artifact. Re-run any experiment by re-running its YAML.
 
-6. **MLM Processing Expression for dispatch**: `pre_processing_function` and `post_processing_function` use `format: "python"` with entrypoint strings (e.g., `ramp.pipeline:preprocess`). Each model defines its own pre/post processing; the system does not assume a fixed pipeline shape.
+6. **MLM Processing Expression for dispatch**: `pre_processing_function` and `post_processing_function` use `format: "python"` with entrypoint strings (e.g., `ramp.pipeline:preprocess`). Each model defines its own pre/post processing; the system does not assume a fixed pipeline shape. System considers each model having its own runtime , preprocessing , postprocessing and training pipeline.

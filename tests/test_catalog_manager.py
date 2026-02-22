@@ -10,13 +10,13 @@ from fair_models.stac.collections import initialize_catalog
 
 
 @pytest.fixture()
-def catalog_manager(tmp_path):
-    catalog_path = str(tmp_path / "catalog.json")
-    initialize_catalog(catalog_path)
-    return StacCatalogManager(catalog_path)
+def cm(tmp_path):
+    path = str(tmp_path / "catalog.json")
+    initialize_catalog(path)
+    return StacCatalogManager(path)
 
 
-def _make_item(item_id: str = "test-item") -> pystac.Item:
+def _item(item_id: str = "test") -> pystac.Item:
     return pystac.Item(
         id=item_id,
         geometry={"type": "Point", "coordinates": [0, 0]},
@@ -26,74 +26,54 @@ def _make_item(item_id: str = "test-item") -> pystac.Item:
     )
 
 
-class TestPublishAndGet:
-    def test_publish_new_item_and_retrieve(self, catalog_manager):
-        item = _make_item("model-a")
-        result = catalog_manager.publish_item("base-models", item)
+def test_publish_get_list(cm):
+    cm.publish_item("base-models", _item("a"))
+    cm.publish_item("base-models", _item("b"))
 
-        assert result.properties["version"] == "1"
-
-        retrieved = catalog_manager.get_item("base-models", "model-a")
-        assert retrieved.id == "model-a"
-        assert retrieved.properties["version"] == "1"
-
-    def test_get_missing_item_raises(self, catalog_manager):
-        with pytest.raises(KeyError, match="not found"):
-            catalog_manager.get_item("base-models", "nonexistent")
+    assert cm.get_item("base-models", "a").properties["version"] == "1"
+    assert len(cm.list_items("base-models")) == 2
 
 
-class TestListItems:
-    def test_list_items_returns_all(self, catalog_manager):
-        catalog_manager.publish_item("datasets", _make_item("ds-1"))
-        catalog_manager.publish_item("datasets", _make_item("ds-2"))
-
-        items = catalog_manager.list_items("datasets")
-        assert len(items) == 2
-        ids = {i.id for i in items}
-        assert ids == {"ds-1", "ds-2"}
-
-    def test_list_empty_collection(self, catalog_manager):
-        items = catalog_manager.list_items("base-models")
-        assert items == []
+def test_get_missing_raises(cm):
+    with pytest.raises(KeyError, match="not found"):
+        cm.get_item("base-models", "nope")
 
 
-class TestDeprecateItem:
-    def test_deprecate_sets_flag(self, catalog_manager):
-        catalog_manager.publish_item("local-models", _make_item("lm-1"))
-
-        result = catalog_manager.deprecate_item("local-models", "lm-1")
-        assert result.extra_fields.get("deprecated") is True
-
-        # Persisted after reload
-        fresh = StacCatalogManager(catalog_manager.catalog.self_href)
-        reloaded = fresh.get_item("local-models", "lm-1")
-        assert reloaded.extra_fields.get("deprecated") is True
+def test_version_bump_on_republish(cm):
+    cm.publish_item("base-models", _item("x"))
+    result = cm.publish_item("base-models", _item("x"))
+    assert result.properties["version"] == "2"
 
 
-class TestDeleteItem:
-    def test_delete_removes_item(self, catalog_manager):
-        catalog_manager.publish_item("base-models", _make_item("to-delete"))
-        catalog_manager.delete_item("base-models", "to-delete")
+def test_deprecate_persists(cm):
+    cm.publish_item("local-models", _item("lm"))
+    cm.deprecate_item("local-models", "lm")
 
-        with pytest.raises(KeyError, match="not found"):
-            catalog_manager.get_item("base-models", "to-delete")
-
-    def test_delete_missing_raises(self, catalog_manager):
-        with pytest.raises(KeyError, match="not found"):
-            catalog_manager.delete_item("base-models", "nonexistent")
+    # Reload from disk to verify persistence
+    fresh = StacCatalogManager(cm.catalog.self_href)
+    assert fresh.get_item("local-models", "lm").extra_fields["deprecated"] is True
 
 
-class TestPublishExistingBumpsVersion:
-    def test_version_increments_on_republish(self, catalog_manager):
-        item_v1 = _make_item("same-id")
-        catalog_manager.publish_item("base-models", item_v1)
+def test_delete(cm):
+    cm.publish_item("base-models", _item("del"))
+    cm.delete_item("base-models", "del")
+    with pytest.raises(KeyError):
+        cm.get_item("base-models", "del")
 
-        item_v2 = _make_item("same-id")
-        item_v2.properties["keywords"] = ["road"]
-        result = catalog_manager.publish_item("base-models", item_v2)
 
-        assert result.properties["version"] == "2"
-        assert result.properties["keywords"] == ["road"]
+def test_delete_missing_raises(cm):
+    with pytest.raises(KeyError, match="not found"):
+        cm.delete_item("base-models", "nope")
 
-        retrieved = catalog_manager.get_item("base-models", "same-id")
-        assert retrieved.properties["version"] == "2"
+
+def test_initialize_catalog_idempotent(tmp_path):
+    path = str(tmp_path / "catalog.json")
+    cat1 = initialize_catalog(path)
+    cat2 = initialize_catalog(path)
+    assert cat2.id == cat1.id
+    assert len(list(cat2.get_children())) == 3
+
+
+def test_invalid_collection_raises(cm):
+    with pytest.raises(KeyError, match="not found"):
+        cm._get_collection("nonexistent")

@@ -1,0 +1,221 @@
+{
+  "type": "Feature",
+  "stac_version": "1.1.0",
+  "stac_extensions": [
+    "https://stac-extensions.github.io/mlm/v1.5.1/schema.json",
+    "https://stac-extensions.github.io/version/v1.2.0/schema.json",
+    "https://stac-extensions.github.io/classification/v2.0.0/schema.json",
+    "https://stac-extensions.github.io/file/v2.1.0/schema.json"
+  ],
+  "id": "example-unet-finetuned-banepa-v9",
+  "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+      [
+        [
+          -180,
+          -90
+        ],
+        [
+          180,
+          -90
+        ],
+        [
+          180,
+          90
+        ],
+        [
+          -180,
+          90
+        ],
+        [
+          -180,
+          -90
+        ]
+      ]
+    ]
+  },
+  "bbox": [
+    -180,
+    -90,
+    180,
+    90
+  ],
+  "properties": {
+    "mlm:name": "example-unet",
+    "mlm:architecture": "UNet",
+    "mlm:tasks": [
+      "semantic-segmentation"
+    ],
+    "mlm:framework": "pytorch",
+    "mlm:framework_version": "2.1.0",
+    "mlm:pretrained": true,
+    "mlm:pretrained_source": "example-unet",
+    "mlm:input": [
+      {
+        "name": "RGB chips",
+        "bands": [
+          {
+            "name": "red"
+          },
+          {
+            "name": "green"
+          },
+          {
+            "name": "blue"
+          }
+        ],
+        "input": {
+          "shape": [
+            -1,
+            3,
+            512,
+            512
+          ],
+          "dim_order": [
+            "batch",
+            "bands",
+            "height",
+            "width"
+          ],
+          "data_type": "float32"
+        },
+        "pre_processing_function": {
+          "format": "python",
+          "expression": "models.example_unet.pipeline:preprocess"
+        }
+      }
+    ],
+    "mlm:output": [
+      {
+        "name": "segmentation mask",
+        "tasks": [
+          "semantic-segmentation"
+        ],
+        "result": {
+          "shape": [
+            -1,
+            2,
+            512,
+            512
+          ],
+          "dim_order": [
+            "batch",
+            "channel",
+            "height",
+            "width"
+          ],
+          "data_type": "float32"
+        },
+        "classification:classes": [
+          {
+            "name": "background",
+            "value": 0,
+            "description": "Background pixels"
+          },
+          {
+            "name": "building",
+            "value": 1,
+            "description": "Building footprints"
+          }
+        ],
+        "post_processing_function": {
+          "format": "python",
+          "expression": "models.example_unet.pipeline:postprocess"
+        }
+      }
+    ],
+    "mlm:hyperparameters": {
+      "epochs": 1,
+      "batch_size": 4,
+      "learning_rate": 0.0001,
+      "weight_decay": 0.0001,
+      "chip_size": 512,
+      "num_classes": 2
+    },
+    "keywords": [
+      "building",
+      "semantic-segmentation",
+      "polygon"
+    ],
+    "version": "10",
+    "deprecated": false,
+    "datetime": "2026-02-22T00:21:09.560315Z"
+  },
+  "links": [
+    {
+      "rel": "derived_from",
+      "href": "example-unet"
+    },
+    {
+      "rel": "derived_from",
+      "href": "buildings-banepa"
+    },
+    {
+      "rel": "latest-version",
+      "href": "example-unet-finetuned-banepa-v9"
+    },
+    {
+      "rel": "root",
+      "href": "../../catalog.json",
+      "type": "application/json"
+    },
+    {
+      "rel": "collection",
+      "href": "../collection.json",
+      "type": "application/json"
+    },
+    {
+      "rel": "parent",
+      "href": "../collection.json",
+      "type": "application/json"
+    }
+  ],
+  "assets": {
+    "model": {
+      "href": "./artifacts/finetuned_weights.pth",
+      "type": "application/octet-stream; framework=pytorch",
+      "mlm:artifact_type": "pt",
+      "raster:bands": [
+        {
+          "name": "red"
+        },
+        {
+          "name": "green"
+        },
+        {
+          "name": "blue"
+        }
+      ],
+      "roles": [
+        "mlm:model"
+      ]
+    },
+    "source-code": {
+      "href": "https://github.com/hotosm/fAIr-models/tree/main/models/example_unet",
+      "type": "text/html",
+      "mlm:entrypoint": "models.example_unet.pipeline:training_pipeline",
+      "roles": [
+        "mlm:source_code",
+        "code"
+      ]
+    },
+    "training-runtime": {
+      "href": "../../../models/example_unet/local",
+      "type": "text/plain",
+      "roles": [
+        "mlm:training-runtime",
+        "runtime"
+      ]
+    },
+    "inference-runtime": {
+      "href": "../../../models/example_unet/local",
+      "type": "text/plain",
+      "roles": [
+        "mlm:inference-runtime",
+        "runtime"
+      ]
+    }
+  },
+  "collection": "local-models"
+}

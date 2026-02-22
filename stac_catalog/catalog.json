@@ -1,24 +1,25 @@
 {
-    "type": "Catalog",
-    "id": "fair-models",
-    "stac_version": "1.0.0",
-    "description": "fAIr model registry and dataset catalog",
-    "links": [
-        {
-            "rel": "root",
-            "href": "./catalog.json"
-        },
-        {
-            "rel": "child",
-            "href": "./base-models/collection.json"
-        },
-        {
-            "rel": "child",
-            "href": "./local-models/collection.json"
-        },
-        {
-            "rel": "child",
-            "href": "./datasets/collection.json"
-        }
-    ]
+  "type": "Catalog",
+  "id": "fair-models",
+  "stac_version": "1.1.0",
+  "description": "fAIr model registry and dataset catalog",
+  "links": [
+    {
+      "rel": "root",
+      "href": "./catalog.json",
+      "type": "application/json"
+    },
+    {
+      "rel": "child",
+      "href": "./base-models/collection.json"
+    },
+    {
+      "rel": "child",
+      "href": "./local-models/collection.json"
+    },
+    {
+      "rel": "child",
+      "href": "./datasets/collection.json"
+    }
+  ]
 }

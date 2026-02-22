@@ -1,37 +1,44 @@
 {
-    "type": "Collection",
-    "id": "datasets",
-    "stac_version": "1.0.0",
-    "description": "Training data registered via fAIr UI/backend.",
-    "license": "various",
-    "extent": {
-        "spatial": {
-            "bbox": [
-                [
-                    -180,
-                    -90,
-                    180,
-                    90
-                ]
-            ]
-        },
-        "temporal": {
-            "interval": [
-                [
-                    "2024-01-01T00:00:00Z",
-                    null
-                ]
-            ]
-        }
+  "type": "Collection",
+  "id": "datasets",
+  "stac_version": "1.1.0",
+  "description": "Training data registered via fAIr UI/backend.",
+  "links": [
+    {
+      "rel": "root",
+      "href": "../catalog.json",
+      "type": "application/json"
     },
-    "links": [
-        {
-            "rel": "root",
-            "href": "../catalog.json"
-        },
-        {
-            "rel": "parent",
-            "href": "../catalog.json"
-        }
-    ]
+    {
+      "rel": "item",
+      "href": "./buildings-banepa/buildings-banepa.json",
+      "type": "application/geo+json"
+    },
+    {
+      "rel": "parent",
+      "href": "../catalog.json",
+      "type": "application/json"
+    }
+  ],
+  "extent": {
+    "spatial": {
+      "bbox": [
+        [
+          -180,
+          -90,
+          180,
+          90
+        ]
+      ]
+    },
+    "temporal": {
+      "interval": [
+        [
+          "2024-01-01T00:00:00Z",
+          null
+        ]
+      ]
+    }
+  },
+  "license": "other"
 }

@@ -6,18 +6,15 @@ from typing import Any
 
 import pystac
 
+from fair_models.stac.constants import OCI_MEDIA_TYPE
+
 
 def _extract_input_spec(mlm_input: list[dict[str, Any]]) -> dict[str, Any]:
-    """Pull chip_size, num_bands, and band names from mlm:input."""
+    """Pull chip_size from mlm:input shape. Band names are model-internal, not pipeline params."""
     if not mlm_input:
         return {}
-    first = mlm_input[0]
-    shape = first.get("input", {}).get("shape", [])
-    bands = [b["name"] for b in first.get("bands", [])]
-    spec: dict[str, Any] = {"bands": bands}
-    if len(shape) == 4:
-        spec["chip_size"] = shape[-1]
-    return spec
+    shape = mlm_input[0].get("input", {}).get("shape", [])
+    return {"chip_size": shape[-1]} if len(shape) == 4 else {}
 
 
 def _extract_num_classes(mlm_output: list[dict[str, Any]]) -> int | None:
@@ -41,7 +38,10 @@ def generate_training_config(
     """
     props = base_model_item.properties
 
-    hyperparams: dict[str, Any] = dict(props.get("mlm:hyperparameters", {}))
+    # String values (optimizer name, loss name) are pipeline internals, not configurable params.
+    hyperparams: dict[str, Any] = {
+        k: v for k, v in props.get("mlm:hyperparameters", {}).items() if isinstance(v, (int, float))
+    }
     input_spec = _extract_input_spec(props.get("mlm:input", []))
     num_classes = _extract_num_classes(props.get("mlm:output", []))
 
@@ -67,8 +67,9 @@ def generate_training_config(
         "parameters": parameters,
     }
 
-    if "training-runtime" in base_model_item.assets:
-        config["settings"] = {"docker": {"parent_image": base_model_item.assets["training-runtime"].href}}
+    runtime = base_model_item.assets.get("training-runtime")
+    if runtime and runtime.media_type == OCI_MEDIA_TYPE:
+        config["settings"] = {"docker": {"parent_image": runtime.href}}
 
     return config
 
@@ -95,17 +96,12 @@ def generate_inference_config(
     if num_classes is not None:
         parameters["num_classes"] = num_classes
 
-    mlm_output = props.get("mlm:output", [])
-    if mlm_output:
-        post_fn = mlm_output[0].get("post_processing_function", {})
-        if post_fn.get("expression"):
-            parameters["post_processing"] = post_fn["expression"]
-
     config: dict[str, Any] = {
         "parameters": parameters,
     }
 
-    if "inference-runtime" in model_item.assets:
-        config["settings"] = {"docker": {"parent_image": model_item.assets["inference-runtime"].href}}
+    runtime = model_item.assets.get("inference-runtime")
+    if runtime and runtime.media_type == OCI_MEDIA_TYPE:
+        config["settings"] = {"docker": {"parent_image": runtime.href}}
 
     return config

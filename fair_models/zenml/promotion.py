@@ -72,15 +72,22 @@ def publish_promoted_model(
     client = Client()
     mv = client.get_model_version(model_name, version)
 
-    run_meta: dict[str, Any] = {}
-    if mv.run_metadata:
-        for key, val in mv.run_metadata.items():
-            run_meta[key] = getattr(val, "value", val)
+    # Hyperparams: pull numeric-only params from the training step config (matches mlm:hyperparameters).
+    # pipeline_runs is deprecated but the replacement isn't stable yet in ZenML 0.93.x.
+    hyperparams: dict[str, Any] = {}
+    runs = mv.pipeline_runs
+    if runs:
+        run = next(iter(runs.values()))
+        step = run.steps.get("train_model")
+        raw_params: dict[str, Any] | None = step.config.parameters if step else run.config.parameters
+        hyperparams = {k: v for k, v in (raw_params or {}).items() if isinstance(v, (int, float))}
 
-    hyperparams: dict[str, Any] = run_meta.get("mlm:hyperparameters", run_meta)
-
-    model_artifact = mv.get_model_artifact("trained_model")
-    model_href = model_artifact.uri if model_artifact is not None else ""
+    # Weights path: the step return value stored as a data artifact, not a model artifact.
+    weights_art = mv.get_artifact("training_pipeline::train_model::output")
+    if weights_art is None:
+        msg = f"No weights artifact found for {model_name} v{version} — training pipeline may not have completed"
+        raise RuntimeError(msg)
+    model_href = weights_art.load()
 
     base_model_item = catalog_manager.get_item(BASE_MODELS_COLLECTION, base_model_item_id)
 

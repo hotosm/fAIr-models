@@ -9,7 +9,7 @@ description = "Model registry and ML pipeline orchestration for fAIr"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-    "pystac>=1.14.3",
+    "pystac[validation]>=1.14.3",
     "zenml>=0.93.3",
 ]
 

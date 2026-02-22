@@ -4,6 +4,14 @@ Model registry and ML pipeline orchestration for [fAIr](https://github.com/hotos
 Base models are contributed via GitHub PRs. Finetuned models are produced by
 ZenML pipelines and published to a STAC catalog on promotion.
 
+## Quickstart
+
+```bash
+uv sync --group local --group example
+make init
+# See examples/building_segmentation/README.md for the full walkthrough
+```
+
 ## Architecture
 
 ### STAC Catalog Structure
@@ -44,82 +52,18 @@ custom `fair:*` fields wherever a standard exists.
 
 **Base model item** (contributed by model developer):
 
-```
-stac_extensions:
-  - mlm (v1.5.1)
-  - version (v1.2.0)
-  - classification
-  - file
-  - processing
+See [`models/example_unet/stac-item.json`](models/example_unet/stac-item.json) for a complete example.
 
-properties:
-  mlm:name              "ramp"
-  mlm:architecture      "RAMP"
-  mlm:tasks             ["semantic-segmentation"]
-  mlm:framework         "pytorch"
-  mlm:framework_version "2.1.0"
-  mlm:pretrained        true
-  mlm:pretrained_source "https://fair-dev.hotosm.org/..."
-  keywords              ["building", "semantic-segmentation", "polygon"]
+Key properties: `mlm:name`, `mlm:architecture`, `mlm:tasks`, `mlm:framework`,
+`mlm:input` (with `pre_processing_function`), `mlm:output` (with `post_processing_function`
+and `classification:classes`), `mlm:hyperparameters`, `keywords`.
 
-  mlm:input:
-    - name: "RGB chips"
-      bands: ["red", "green", "blue"]
-      input:
-        shape: [-1, 3, 256, 256]
-        dim_order: ["batch", "channel", "height", "width"]
-        data_type: "float32"
-      pre_processing_function:
-        format: "python"
-        expression: "ramp.pipeline:preprocess"
+Key assets: `model` (weights), `source-code` (with `mlm:entrypoint`),
+`training-runtime` / `inference-runtime` (Docker image or "local").
 
-  mlm:output:
-    - name: "segmentation mask"
-      tasks: ["semantic-segmentation"]
-      result:
-        shape: [-1, 1, 256, 256]
-        dim_order: ["batch", "channel", "height", "width"]
-        data_type: "uint8"
-      classification:classes:
-        - {name: "background", value: 0}
-        - {name: "building",   value: 1}
-      post_processing_function:
-        format: "python"
-        expression: "ramp.pipeline:postprocess"
-
-  mlm:hyperparameters:
-    epochs: 50
-    batch_size: 8
-    learning_rate: 0.001
-
-assets:
-  model:
-    href: "s3://..."  or external URL
-    type: "application/octet-stream; framework=pytorch"
-    roles: ["mlm:model"]
-    mlm:artifact_type: "pt"
-    file:size: ...
-    file:checksum: "..."
-  source-code:
-    href: "https://github.com/hotosm/fAIr-models/tree/main/models/ramp"  # planned path
-    type: "text/html"
-    roles: ["mlm:source_code", "code"]
-    mlm:entrypoint: "ramp.pipeline:train"
-  training-runtime:
-    href: "ghcr.io/hotosm/fair-ramp:v1"
-    type: "application/vnd.oci.image.index.v1+json"
-    roles: ["mlm:training-runtime", "runtime"]
-  inference-runtime:
-    href: "ghcr.io/hotosm/fair-ramp:v1"
-    type: "application/vnd.oci.image.index.v1+json"
-    roles: ["mlm:inference-runtime", "runtime"]
-```
-
-The `mlm:source_code` asset with `mlm:entrypoint` tells the backend which
-Python function to call. The runtime assets specify the Docker image. The
-`pre_processing_function` and `post_processing_function` are standard MLM
-Processing Expression fields (format: `python`, expression: Python entrypoint).
-This makes the system model-agnostic.
+The `mlm:entrypoint` tells the backend which Python function to call.
+`pre_processing_function` / `post_processing_function` are standard MLM
+Processing Expression fields. This makes the system model-agnostic.
 
 **Local model item** (published on promotion):
 
@@ -134,38 +78,8 @@ Same MLM fields as base model, plus:
 
 **Dataset item**:
 
-```
-stac_extensions:
-  - label
-  - file
-
-properties:
-  label:type             "vector"
-  label:tasks            ["segmentation"]
-  label:classes:
-    - {name: "building", classes: ["building"]}
-  keywords               ["building", "semantic-segmentation", "polygon"]
-
-assets:
-  chips:
-    href: "s3://.../chips/"
-    type: "image/png"
-    roles: ["data"]
-  labels:
-    href: "s3://.../labels.geojson"
-    type: "application/geo+json"
-    roles: ["labels"]
-```
-
-Current dataset structure (from fAIr-utilities):
-
-```
-input/
-  OAM-{x}-{y}-{z}.png       256x256 image chips (OAM tile grid)
-  labels.geojson             vector labels
-prediction/input/
-  OAM-{x}-{y}-{z}.png       inference images
-```
+Label + file extensions. Properties: `label:type`, `label:tasks`, `label:classes`, `keywords`.
+Assets: `chips` (image directory), `labels` (GeoJSON).
 
 ### Tagging and Classification (standards used)
 
@@ -394,36 +308,6 @@ ZenML stack components NOT used:
 - **Alerter** -- notifications handled by the fAIr backend
 - **Annotator** -- labeling is external to this system
 - **Feature Store** -- not applicable; raw chips + labels are the training data
-
----
-
-## Repo Structure (target)
-
-```
-models/
-  ramp/
-    pipeline.py           ZenML training + inference steps
-    Dockerfile
-    stac-item.json        MLM item template for base-models collection
-    tests/
-  yolo/
-    pipeline.py
-    Dockerfile
-    stac-item.json
-    tests/
-fair_integrations/
-  stac/
-    catalog_manager.py    StacCatalogManager: publish, deprecate, delete, list STAC items
-  schemas/
-    keywords.json         Allowed keyword vocabulary + valid combinations
-stac_catalog/
-  catalog.json            Local STAC catalog (dev mode)
-docs/
-  zenml.md
-  contributing-model.md   Guide for base model contributors
-examples/
-  ...
-```
 
 ---
 

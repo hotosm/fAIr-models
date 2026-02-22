@@ -1,37 +1,44 @@
 {
-    "type": "Collection",
-    "id": "base-models",
-    "stac_version": "1.0.0",
-    "description": "Model blueprints contributed via PR. Each item is a complete model card.",
-    "license": "various",
-    "extent": {
-        "spatial": {
-            "bbox": [
-                [
-                    -180,
-                    -90,
-                    180,
-                    90
-                ]
-            ]
-        },
-        "temporal": {
-            "interval": [
-                [
-                    "2024-01-01T00:00:00Z",
-                    null
-                ]
-            ]
-        }
+  "type": "Collection",
+  "id": "base-models",
+  "stac_version": "1.1.0",
+  "description": "Model blueprints contributed via PR. Each item is a complete model card.",
+  "links": [
+    {
+      "rel": "root",
+      "href": "../catalog.json",
+      "type": "application/json"
     },
-    "links": [
-        {
-            "rel": "root",
-            "href": "../catalog.json"
-        },
-        {
-            "rel": "parent",
-            "href": "../catalog.json"
-        }
-    ]
+    {
+      "rel": "item",
+      "href": "./example-unet/example-unet.json",
+      "type": "application/geo+json"
+    },
+    {
+      "rel": "parent",
+      "href": "../catalog.json",
+      "type": "application/json"
+    }
+  ],
+  "extent": {
+    "spatial": {
+      "bbox": [
+        [
+          -180,
+          -90,
+          180,
+          90
+        ]
+      ]
+    },
+    "temporal": {
+      "interval": [
+        [
+          "2024-01-01T00:00:00Z",
+          null
+        ]
+      ]
+    }
+  },
+  "license": "other"
 }

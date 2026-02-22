@@ -42,6 +42,21 @@ jobs:
         run: uv sync --group dev
       - name: Run ty checks
         run: uv run ty check --output-format github
+  tests:
+    name: tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Clone repo
+        uses: actions/checkout@v4
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - name: Install dependencies
+        run: uv sync --group dev
+      - name: Run pytest
+        run: uv run pytest --tb=short -q
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.head.label || github.head_ref || github.ref }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/master' }}

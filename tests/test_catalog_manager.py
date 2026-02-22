@@ -51,7 +51,7 @@ def test_deprecate_persists(cm):
 
     # Reload from disk to verify persistence
     fresh = StacCatalogManager(cm.catalog.self_href)
-    assert fresh.get_item("local-models", "lm").extra_fields["deprecated"] is True
+    assert fresh.get_item("local-models", "lm").properties["deprecated"] is True
 
 
 def test_delete(cm):

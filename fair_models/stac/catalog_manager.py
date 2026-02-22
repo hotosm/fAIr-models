@@ -69,7 +69,7 @@ class StacCatalogManager:
     def deprecate_item(self, collection_id: str, item_id: str) -> pystac.Item:
         """Set deprecated=True on item. Returns updated item."""
         item = self.get_item(collection_id, item_id)
-        item.extra_fields["deprecated"] = True
+        item.properties["deprecated"] = True
         self._save()
         return item
 

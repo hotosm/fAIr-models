@@ -185,7 +185,6 @@
       "type": "text/html",
       "mlm:entrypoint": "models.example_unet.pipeline:training_pipeline",
       "roles": [
-        "mlm:source_code",
         "code"
       ]
     },

@@ -101,7 +101,7 @@ def test_publish_and_deprecate_previous(mock_cls, cm):
     assert v1.properties["mlm:architecture"] == "UNet"
 
     _publish(cm, version=2)
-    assert cm.get_item("local-models", "unet-finetuned-banepa-v1").extra_fields["deprecated"] is True
+    assert cm.get_item("local-models", "unet-finetuned-banepa-v1").properties["deprecated"] is True
 
 
 @patch("fair_models.zenml.promotion.Client")
@@ -119,7 +119,7 @@ def test_archive(mock_cls, cm):
     mv = MagicMock()
     mock_cls.return_value.get_model_version.return_value = mv
     result = archive_model_version("unet-finetuned-banepa", 1, cm)
-    assert result.extra_fields["deprecated"] is True
+    assert result.properties["deprecated"] is True
     mv.set_stage.assert_called_once()
 
 

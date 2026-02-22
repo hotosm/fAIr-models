@@ -14,6 +14,22 @@ from fair_models.stac.constants import (
 
 _CONTAINER_REGISTRIES = ("ghcr.io", "docker.io", "quay.io", ".azurecr.io", ".ecr.", ".gcr.io")
 
+_SOURCE_CODE_EXTENSIONS = {
+    ".py": "text/x-python",
+    ".js": "text/javascript",
+}
+
+
+def _infer_source_code_media_type(href: str) -> str:
+    """text/x-python for .py, text/html for repo URLs, text/plain otherwise."""
+    lower = href.lower()
+    for ext, mime in _SOURCE_CODE_EXTENSIONS.items():
+        if lower.endswith(ext):
+            return mime
+    if any(host in lower for host in ("github.com", "gitlab.com", "bitbucket.org")):
+        return "text/html"
+    return "text/plain"
+
 
 def _infer_runtime_media_type(href: str) -> str:
     """OCI for container registries, text/x-dockerfile for Dockerfiles, text/plain otherwise."""
@@ -201,8 +217,8 @@ def build_base_model_item(
         "source-code",
         pystac.Asset(
             href=source_code_href,
-            media_type="text/html",
-            roles=["mlm:source_code", "code"],
+            media_type=_infer_source_code_media_type(source_code_href),
+            roles=["code"],
             extra_fields={"mlm:entrypoint": source_code_entrypoint},
         ),
     )

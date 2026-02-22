@@ -167,7 +167,6 @@
             "href": "https://github.com/hotosm/fAIr-models/tree/main/models/example_unet",
             "type": "text/html",
             "roles": [
-                "mlm:source_code",
                 "code"
             ],
             "mlm:entrypoint": "models.example_unet.pipeline:training_pipeline"

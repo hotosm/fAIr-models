@@ -231,6 +231,8 @@ Archive and delete also propagate:
 
 Works for both base models and local models. The STAC item always has enough
 information to run inference: model weights, inference runtime, input/output spec.
+For each item format like https://onnx.ai/ should be exported (for inference) and 
+linked to assets along with model weights for training.
 
 ```
 Consumer (fAIr UI / API)
@@ -335,6 +337,7 @@ ZenML stack components NOT used:
 - [fAIr](https://github.com/hotosm/fAIr) -- Main fAIr application.
 - [fAIr-utilities](https://github.com/hotosm/fAIr-utilities) -- Utilities for data preparation and model training.
 - [fAIr-utilities sample dataset](https://github.com/hotosm/fAIr-utilities/tree/master/ramp-data/sample_2) -- Current dataset structure: `input/` folder with 256x256 PNG chips (OAM tile naming `OAM-{x}-{y}-{z}.png`) + `labels.geojson`; `prediction/input/` for inference images.
+- [fAIr-predictor](https://github.com/hotosm/fairpredictor) -- Standalone predictor ( That will on future query the stac load .oonx and run prediction alone ) 
 
 ### Architecture Decisions
 

@@ -1,4 +1,4 @@
-name: style
+name: style & tests
 on:
   push:
     branches:
@@ -19,7 +19,7 @@ jobs:
       - name: Set up uv
         uses: astral-sh/setup-uv@v5
         with:
-          python-version: "3.12"
+          python-version: "3.13"
           enable-cache: true
       - name: Install dependencies
         run: uv sync --group dev
@@ -36,10 +36,10 @@ jobs:
       - name: Set up uv
         uses: astral-sh/setup-uv@v5
         with:
-          python-version: "3.12"
+          python-version: "3.13"
           enable-cache: true
       - name: Install dependencies
-        run: uv sync --group dev
+        run: uv sync --group dev example
       - name: Run ty checks
         run: uv run ty check --output-format github
   tests:
@@ -51,7 +51,7 @@ jobs:
       - name: Set up uv
         uses: astral-sh/setup-uv@v5
         with:
-          python-version: "3.12"
+          python-version: "3.13"
           enable-cache: true
       - name: Install dependencies
         run: uv sync --group dev

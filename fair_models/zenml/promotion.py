@@ -72,15 +72,17 @@ def publish_promoted_model(
     client = Client()
     mv = client.get_model_version(model_name, version)
 
-    # Hyperparams: pull numeric-only params from the training step config (matches mlm:hyperparameters).
+    # Extract mlm:hyperparameters from the training step config.
+    # Exclude infrastructure params (paths, weights ref, class count) — only keep tunable hparams.
     # pipeline_runs is deprecated but the replacement isn't stable yet in ZenML 0.93.x.
+    _INFRA_KEYS = {"base_model_weights", "dataset_chips", "dataset_labels", "num_classes"}
     hyperparams: dict[str, Any] = {}
     runs = mv.pipeline_runs
     if runs:
         run = next(iter(runs.values()))
         step = run.steps.get("train_model")
         raw_params: dict[str, Any] | None = step.config.parameters if step else run.config.parameters
-        hyperparams = {k: v for k, v in (raw_params or {}).items() if isinstance(v, (int, float))}
+        hyperparams = {k: v for k, v in (raw_params or {}).items() if k not in _INFRA_KEYS}
 
     # Weights path: the step return value stored as a data artifact, not a model artifact.
     weights_art = mv.get_artifact("training_pipeline::train_model::output")

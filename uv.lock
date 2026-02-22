@@ -599,6 +599,15 @@ dependencies = [
 ]
 
 [package.dev-dependencies]
+ci = [
+    { name = "matplotlib" },
+    { name = "pyarrow" },
+    { name = "pytest" },
+    { name = "ruff" },
+    { name = "torch" },
+    { name = "torchgeo" },
+    { name = "ty" },
+]
 dev = [
     { name = "pytest" },
     { name = "ruff" },
@@ -621,6 +630,15 @@ requires-dist = [
 ]
 
 [package.metadata.requires-dev]
+ci = [
+    { name = "matplotlib", specifier = ">=3.10.8" },
+    { name = "pyarrow", specifier = ">=23.0.1" },
+    { name = "pytest", specifier = ">=8.0" },
+    { name = "ruff" },
+    { name = "torch", specifier = ">=2.0" },
+    { name = "torchgeo", git = "https://github.com/kshitijrajsharma/torchgeo.git?rev=feature%2Fopeanaerialmap" },
+    { name = "ty" },
+]
 dev = [
     { name = "pytest", specifier = ">=8.0" },
     { name = "ruff" },

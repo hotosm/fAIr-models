@@ -35,7 +35,7 @@ item = build_dataset_item(
     labels_href=LABELS_HREF,
 )
 
-catalog.publish_item(DATASETS_COLLECTION, item)
-print(f"Registered dataset: {item.id}")
+published_item = catalog.publish_item(DATASETS_COLLECTION, item)
+print(f"Registered dataset: {published_item.id}, version: {published_item.properties.get('version')}")
 print(f"  chips:  {CHIPS_HREF}")
 print(f"  labels: {LABELS_HREF}")

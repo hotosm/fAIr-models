@@ -18,8 +18,8 @@ if errors:
     raise ValueError(msg)
 
 catalog = StacCatalogManager(CATALOG_PATH)
-catalog.publish_item(BASE_MODELS_COLLECTION, item)
-print(f"Registered base model: {item.id}")
-print(f"  framework:     {item.properties.get('mlm:framework')}")
-print(f"  architecture:  {item.properties.get('mlm:architecture')}")
-print(f"  weights href:  {item.assets['model'].href}")
+published_item = catalog.publish_item(BASE_MODELS_COLLECTION, item)
+print(f"Registered base model: {published_item.id}, version: {published_item.properties.get('version')}")
+print(f"  framework:     {published_item.properties.get('mlm:framework')}")
+print(f"  architecture:  {published_item.properties.get('mlm:architecture')}")
+print(f"  weights href:  {published_item.assets['model'].href}")

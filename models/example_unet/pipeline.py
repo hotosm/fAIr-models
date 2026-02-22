@@ -19,8 +19,10 @@ from torchgeo.models import Unet_Weights, unet
 from torchgeo.samplers import RandomGeoSampler, Units
 from zenml import log_metadata, pipeline, step
 
+_OptimizerFactory = Any  # Callable[[Iterable, ...], Optimizer] — avoids base-class __init__ overload
+_LossFactory = Any  # Callable[[], nn.Module]
+
 DEVICE = "mps" if torch.backends.mps.is_available() else "cuda" if torch.cuda.is_available() else "cpu"
-# Encoder tied to OAM_RGB_RESNET50_TCD pretrained weights — must match when loading saved state_dicts.
 _ENCODER = "resnet50"
 _BUILDING_CLASSES = [{"name": "building", "selector": [{"building": "*"}]}]
 
@@ -53,6 +55,27 @@ def _build_dataset(chips_path: str, labels_path: str, chip_size: int, length: in
     return DataLoader(dataset, sampler=sampler, batch_size=batch_size, collate_fn=stack_samples)
 
 
+# Keep in sync with mlm:hyperparameters in stac-item.json. # TODO: this low bound and high bound should be in stac-item ,
+# so validation can be done prior
+_OPTIMIZERS: dict[str, _OptimizerFactory] = {
+    "Adam": torch.optim.Adam,
+    "AdamW": torch.optim.AdamW,
+    "SGD": torch.optim.SGD,
+}
+_LOSSES: dict[str, _LossFactory] = {
+    "CrossEntropyLoss": nn.CrossEntropyLoss,
+    "BCEWithLogitsLoss": nn.BCEWithLogitsLoss,
+}
+_HPARAM_BOUNDS: dict[str, tuple[float, float]] = {
+    "learning_rate": (1e-6, 1.0),
+    "weight_decay": (0.0, 1.0),
+    "batch_size": (1, 64),
+    "epochs": (1, 1000),
+    "chip_size": (64, 2048),
+    "num_classes": (2, 256),
+}
+
+
 @step
 def train_model(
     dataset_chips: str,
@@ -64,17 +87,28 @@ def train_model(
     weight_decay: float,
     chip_size: int,
     num_classes: int,
+    optimizer: str = "AdamW",
+    loss: str = "CrossEntropyLoss",
 ) -> str:
     """Finetune UNet from OAM-TCD pretrained weights. Returns saved weights path."""
+    if optimizer not in _OPTIMIZERS:
+        raise ValueError(f"optimizer '{optimizer}' not supported. Choose from: {list(_OPTIMIZERS)}")
+    if loss not in _LOSSES:
+        raise ValueError(f"loss '{loss}' not supported. Choose from: {list(_LOSSES)}")
+    for param, (lo, hi) in _HPARAM_BOUNDS.items():
+        val: float = locals()[param]
+        if not (lo <= val <= hi):
+            raise ValueError(f"'{param}' value {val} is outside allowed range [{lo}, {hi}]")
+
     model = unet(weights=_resolve_weights(base_model_weights), classes=num_classes).to(DEVICE)
     loader = _build_dataset(dataset_chips, dataset_labels, chip_size, length=10, batch_size=batch_size)
 
-    criterion = nn.CrossEntropyLoss()
-    optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
+    criterion = _LOSSES[loss]()
+    opt = _OPTIMIZERS[optimizer](model.parameters(), lr=learning_rate, weight_decay=weight_decay)
 
     model.train()
     for epoch in range(epochs):
-        total_loss = sum(_train_step(model, batch, criterion, optimizer) for batch in loader)
+        total_loss = sum(_train_step(model, batch, criterion, opt) for batch in loader)
         log_metadata(metadata={"loss": total_loss / len(loader), "epoch": epoch + 1})
 
     save_path = Path("artifacts") / "finetuned_weights.pth"
@@ -177,6 +211,8 @@ def training_pipeline(
     weight_decay: float,
     chip_size: int,
     num_classes: int,
+    optimizer: str = "AdamW",
+    loss: str = "CrossEntropyLoss",
 ) -> None:
     """Full training pipeline: finetune -> evaluate."""
     model_path = train_model(
@@ -189,6 +225,8 @@ def training_pipeline(
         weight_decay=weight_decay,
         chip_size=chip_size,
         num_classes=num_classes,
+        optimizer=optimizer,
+        loss=loss,
     )
     evaluate_model(
         model_path=model_path,

@@ -38,10 +38,7 @@ def generate_training_config(
     """
     props = base_model_item.properties
 
-    # String values (optimizer name, loss name) are pipeline internals, not configurable params.
-    hyperparams: dict[str, Any] = {
-        k: v for k, v in props.get("mlm:hyperparameters", {}).items() if isinstance(v, (int, float))
-    }
+    hyperparams: dict[str, Any] = dict(props.get("mlm:hyperparameters", {}))
     input_spec = _extract_input_spec(props.get("mlm:input", []))
     num_classes = _extract_num_classes(props.get("mlm:output", []))
 

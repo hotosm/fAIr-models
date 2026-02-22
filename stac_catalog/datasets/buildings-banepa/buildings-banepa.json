@@ -57,8 +57,8 @@
       "semantic-segmentation",
       "polygon"
     ],
-    "version": "6",
-    "datetime": "2026-02-22T19:49:10.684962Z"
+    "version": "7",
+    "datetime": "2026-02-22T23:08:15.259834Z"
   },
   "links": [
     {
@@ -79,14 +79,14 @@
   ],
   "assets": {
     "chips": {
-      "href": "./data/banepa_test/oam",
+      "href": "./data/sample/train/oam",
       "type": "image/png",
       "roles": [
         "data"
       ]
     },
     "labels": {
-      "href": "./data/banepa_test/osm/osm_features_ac7e343eb1faacd2.geojson",
+      "href": "./data/sample/train/osm/osm_features_ac7e343eb1faacd2.geojson",
       "type": "application/geo+json",
       "roles": [
         "labels"

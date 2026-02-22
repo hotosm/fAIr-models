@@ -5,12 +5,13 @@ Pretrained weights: OAM-TCD (arxiv.org/abs/2407.11743).
 """
 
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any, Literal
 
 import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from annotated_types import Ge, Le
 from PIL import Image
 from torch import Tensor
 from torch.utils.data import DataLoader
@@ -22,7 +23,9 @@ from zenml import log_metadata, pipeline, step
 _OptimizerFactory = Any  # Callable[[Iterable, ...], Optimizer] — avoids base-class __init__ overload
 _LossFactory = Any  # Callable[[], nn.Module]
 
-DEVICE = "mps" if torch.backends.mps.is_available() else "cuda" if torch.cuda.is_available() else "cpu"
+DEVICE: Literal["mps", "cuda", "cpu"] = (
+    "mps" if torch.backends.mps.is_available() else "cuda" if torch.cuda.is_available() else "cpu"
+)
 _ENCODER = "resnet50"
 _BUILDING_CLASSES = [{"name": "building", "selector": [{"building": "*"}]}]
 
@@ -55,8 +58,7 @@ def _build_dataset(chips_path: str, labels_path: str, chip_size: int, length: in
     return DataLoader(dataset, sampler=sampler, batch_size=batch_size, collate_fn=stack_samples)
 
 
-# Keep in sync with mlm:hyperparameters in stac-item.json. # TODO: this low bound and high bound should be in stac-item ,
-# so validation can be done prior
+# Keep in sync with mlm:hyperparameters in stac-item.json.
 _OPTIMIZERS: dict[str, _OptimizerFactory] = {
     "Adam": torch.optim.Adam,
     "AdamW": torch.optim.AdamW,
@@ -65,14 +67,6 @@ _OPTIMIZERS: dict[str, _OptimizerFactory] = {
 _LOSSES: dict[str, _LossFactory] = {
     "CrossEntropyLoss": nn.CrossEntropyLoss,
     "BCEWithLogitsLoss": nn.BCEWithLogitsLoss,
-}
-_HPARAM_BOUNDS: dict[str, tuple[float, float]] = {
-    "learning_rate": (1e-6, 1.0),
-    "weight_decay": (0.0, 1.0),
-    "batch_size": (1, 64),
-    "epochs": (1, 1000),
-    "chip_size": (64, 2048),
-    "num_classes": (2, 256),
 }
 
 
@@ -91,15 +85,6 @@ def train_model(
     loss: str = "CrossEntropyLoss",
 ) -> str:
     """Finetune UNet from OAM-TCD pretrained weights. Returns saved weights path."""
-    if optimizer not in _OPTIMIZERS:
-        raise ValueError(f"optimizer '{optimizer}' not supported. Choose from: {list(_OPTIMIZERS)}")
-    if loss not in _LOSSES:
-        raise ValueError(f"loss '{loss}' not supported. Choose from: {list(_LOSSES)}")
-    for param, (lo, hi) in _HPARAM_BOUNDS.items():
-        val: float = locals()[param]
-        if not (lo <= val <= hi):
-            raise ValueError(f"'{param}' value {val} is outside allowed range [{lo}, {hi}]")
-
     model = unet(weights=_resolve_weights(base_model_weights), classes=num_classes).to(DEVICE)
     loader = _build_dataset(dataset_chips, dataset_labels, chip_size, length=10, batch_size=batch_size)
 
@@ -205,14 +190,14 @@ def training_pipeline(
     base_model_weights: str,
     dataset_chips: str,
     dataset_labels: str,
-    epochs: int,
-    batch_size: int,
-    learning_rate: float,
-    weight_decay: float,
-    chip_size: int,
-    num_classes: int,
-    optimizer: str = "AdamW",
-    loss: str = "CrossEntropyLoss",
+    epochs: Annotated[int, Ge(1), Le(1000)],
+    batch_size: Annotated[int, Ge(1), Le(64)],
+    learning_rate: Annotated[float, Ge(1e-6), Le(1.0)],
+    weight_decay: Annotated[float, Ge(0.0), Le(1.0)],
+    chip_size: Annotated[int, Ge(64), Le(2048)],
+    num_classes: Annotated[int, Ge(2), Le(256)],
+    optimizer: Literal["Adam", "AdamW", "SGD"] = "AdamW",
+    loss: Literal["CrossEntropyLoss", "BCEWithLogitsLoss"] = "CrossEntropyLoss",
 ) -> None:
     """Full training pipeline: finetune -> evaluate."""
     model_path = train_model(

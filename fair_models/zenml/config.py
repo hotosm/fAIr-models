@@ -62,6 +62,11 @@ def generate_training_config(
     config: dict[str, Any] = {
         "model": {"name": model_name},
         "parameters": parameters,
+        "tags": [
+            f"model:{model_name}",
+            f"base-model:{base_model_item.id}",
+            f"dataset:{dataset_item.id}",
+        ],
     }
 
     runtime = base_model_item.assets.get("mlm:training")
@@ -95,6 +100,9 @@ def generate_inference_config(
 
     config: dict[str, Any] = {
         "parameters": parameters,
+        "tags": [
+            f"model:{model_item.id}",
+        ],
     }
 
     runtime = model_item.assets.get("mlm:inference")

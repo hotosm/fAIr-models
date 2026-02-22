@@ -258,6 +258,8 @@ Result returned to consumer
 ### 5. YAML-Driven Pipeline Execution
 
 The backend generates a ZenML YAML config from STAC metadata + user overrides.
+Because ZenML doesn't support STAC out of the box we need a bridge in between.
+In this way on future if ZenML would be upgarded with something else would be easier.
 This YAML is the single artifact that drives both training and inference.
 It is logged with each run for full reproducibility.
 

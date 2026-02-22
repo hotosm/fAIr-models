@@ -26,7 +26,7 @@ def _model(keywords=None, tasks=None):
         mlm_hyperparameters={},
         keywords=keywords or ["building", "semantic-segmentation"],
         model_href="w.pt",
-        model_artifact_type="pt",
+        model_artifact_type="torch.save",
         mlm_pretrained=False,
         mlm_pretrained_source=None,
         source_code_href="https://example.com",

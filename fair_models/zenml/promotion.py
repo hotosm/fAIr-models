@@ -8,9 +8,10 @@ from __future__ import annotations
 
 import logging
 from datetime import UTC, datetime
-from typing import Any
+from typing import Annotated, Any
 
 import pystac
+from annotated_types import Ge
 from zenml.client import Client
 from zenml.enums import ModelStages
 
@@ -21,7 +22,7 @@ from fair_models.stac.constants import BASE_MODELS_COLLECTION, LOCAL_MODELS_COLL
 log = logging.getLogger(__name__)
 
 
-def _stac_item_id(model_name: str, version: int) -> str:
+def _stac_item_id(model_name: str, version: Annotated[int, Ge(1)]) -> str:
     return f"{model_name}-v{version}"
 
 
@@ -47,7 +48,7 @@ def _find_previous_production_item(
 # Public API
 
 
-def promote_model_version(model_name: str, version: int) -> None:
+def promote_model_version(model_name: str, version: Annotated[int, Ge(1)]) -> None:
     """Set a ZenML model version stage to *production*.
 
     ZenML automatically archives the previous production version (if any).
@@ -60,7 +61,7 @@ def promote_model_version(model_name: str, version: int) -> None:
 
 def publish_promoted_model(
     model_name: str,
-    version: int,
+    version: Annotated[int, Ge(1)],
     catalog_manager: StacCatalogManager,
     base_model_item_id: str,
     dataset_item_id: str,
@@ -128,7 +129,7 @@ def publish_promoted_model(
 
 def archive_model_version(
     model_name: str,
-    version: int,
+    version: Annotated[int, Ge(1)],
     catalog_manager: StacCatalogManager,
 ) -> pystac.Item:
     """Archive a ZenML model version and deprecate its STAC item."""
@@ -145,7 +146,7 @@ def archive_model_version(
 
 def delete_model_version(
     model_name: str,
-    version: int,
+    version: Annotated[int, Ge(1)],
     catalog_manager: StacCatalogManager,
 ) -> None:
     """Delete a single ZenML model version and remove its STAC item."""

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
 import pystac
 
@@ -74,7 +74,7 @@ def _geometry_and_bbox_from_geojson(labels_href: str) -> tuple[dict[str, Any], l
 def build_dataset_item(
     item_id: str,
     dt: datetime,
-    label_type: str,
+    label_type: Literal["vector", "raster"],
     label_tasks: list[str],
     label_classes: list[dict[str, Any]],
     keywords: list[str],
@@ -146,7 +146,14 @@ def build_base_model_item(
     mlm_hyperparameters: dict[str, Any],
     keywords: list[str],
     model_href: str,
-    model_artifact_type: str,
+    model_artifact_type: Literal[
+        "torch.save",
+        "torch.jit",
+        "onnx",
+        "pickle",
+        "tensorflow.SavedModel",
+        "tensorflow.keras",
+    ],
     mlm_pretrained: bool,
     mlm_pretrained_source: str | None,
     source_code_href: str,

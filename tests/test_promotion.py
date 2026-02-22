@@ -44,7 +44,7 @@ def _base_model_item() -> pystac.Item:
         mlm_hyperparameters={"epochs": 15, "batch_size": 4},
         keywords=["building", "semantic-segmentation"],
         model_href="s3://weights/unet.pt",
-        model_artifact_type="pt",
+        model_artifact_type="torch.save",
         mlm_pretrained=True,
         mlm_pretrained_source="OAM-TCD",
         source_code_href="https://github.com/example",

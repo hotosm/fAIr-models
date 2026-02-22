@@ -78,7 +78,7 @@ def _base_model(**kw: Any) -> pystac.Item:
         mlm_hyperparameters=kw.get("mlm_hyperparameters", {"epochs": 15, "batch_size": 4, "learning_rate": 0.0001}),
         keywords=kw.get("keywords", ["building", "semantic-segmentation", "polygon"]),
         model_href=kw.get("model_href", "weights.pt"),
-        model_artifact_type=kw.get("model_artifact_type", "pt"),
+        model_artifact_type=kw.get("model_artifact_type", "torch.save"),
         mlm_pretrained=kw.get("mlm_pretrained", True),
         mlm_pretrained_source=kw.get("mlm_pretrained_source", "OAM-TCD"),
         source_code_href=kw.get("source_code_href", "https://github.com/example"),

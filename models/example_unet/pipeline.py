@@ -226,8 +226,10 @@ def training_pipeline(
 def inference_pipeline(
     model_weights: str,
     input_images: str,
-    chip_size: int,
-    num_classes: int,
+    chip_size: Annotated[
+        int, Ge(64), Le(1024)
+    ],  # if chip_size is >1024 , we might need to adjust how to handle big images in single chip
+    num_classes: Annotated[int, Ge(1), Le(256)],
 ) -> None:
     """Inference pipeline: predict on input images."""
     run_inference(

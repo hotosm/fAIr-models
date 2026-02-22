@@ -46,7 +46,7 @@ def _base_model(**overrides: Any):
         "mlm_hyperparameters": {"epochs": 15, "batch_size": 4, "learning_rate": 0.0001},
         "keywords": ["building"],
         "model_href": "weights.pt",
-        "model_artifact_type": "pt",
+        "model_artifact_type": "torch.save",
         "mlm_pretrained": True,
         "mlm_pretrained_source": "OAM-TCD",
         "source_code_href": "https://github.com/example",

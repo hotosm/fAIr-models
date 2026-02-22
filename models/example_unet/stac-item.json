@@ -150,7 +150,7 @@
             "roles": [
                 "mlm:model"
             ],
-            "mlm:artifact_type": "pt",
+            "mlm:artifact_type": "torch.save",
             "raster:bands": [
                 {
                     "name": "red"
@@ -172,7 +172,7 @@
             ],
             "mlm:entrypoint": "models.example_unet.pipeline:training_pipeline"
         },
-        "training-runtime": {
+        "mlm:training": {
             "href": "local",
             "type": "text/plain",
             "roles": [
@@ -180,7 +180,7 @@
                 "runtime"
             ]
         },
-        "inference-runtime": {
+        "mlm:inference": {
             "href": "local",
             "type": "text/plain",
             "roles": [

@@ -148,11 +148,13 @@ def build_base_model_item(
     model_href: str,
     model_artifact_type: Literal[
         "torch.save",
-        "torch.jit",
+        "torch.jit.save",
+        "torch.export.save",
         "onnx",
         "pickle",
-        "tensorflow.SavedModel",
-        "tensorflow.keras",
+        "tf.keras.Model.save",
+        "tf.keras.Model.save_weights",
+        "tf.keras.Model.export",
     ],
     mlm_pretrained: bool,
     mlm_pretrained_source: str | None,
@@ -205,7 +207,7 @@ def build_base_model_item(
         ),
     )
     item.add_asset(
-        "training-runtime",
+        "mlm:training",
         pystac.Asset(
             href=training_runtime_href,
             media_type=_infer_runtime_media_type(training_runtime_href),
@@ -213,7 +215,7 @@ def build_base_model_item(
         ),
     )
     item.add_asset(
-        "inference-runtime",
+        "mlm:inference",
         pystac.Asset(
             href=inference_runtime_href,
             media_type=_infer_runtime_media_type(inference_runtime_href),

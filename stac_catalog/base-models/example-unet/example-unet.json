@@ -164,7 +164,7 @@
     "model": {
       "href": "../../../models/example_unet/torchgeo.models.Unet_Weights.OAM_RGB_RESNET50_TCD",
       "type": "application/octet-stream; framework=pytorch",
-      "mlm:artifact_type": "pt",
+      "mlm:artifact_type": "torch.save",
       "raster:bands": [
         {
           "name": "red"
@@ -189,7 +189,7 @@
         "code"
       ]
     },
-    "training-runtime": {
+    "mlm:training": {
       "href": "../../../models/example_unet/local",
       "type": "text/plain",
       "roles": [
@@ -197,7 +197,7 @@
         "runtime"
       ]
     },
-    "inference-runtime": {
+    "mlm:inference": {
       "href": "../../../models/example_unet/local",
       "type": "text/plain",
       "roles": [

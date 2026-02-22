@@ -64,7 +64,7 @@ def generate_training_config(
         "parameters": parameters,
     }
 
-    runtime = base_model_item.assets.get("training-runtime")
+    runtime = base_model_item.assets.get("mlm:training")
     if runtime and runtime.media_type == OCI_MEDIA_TYPE:
         config["settings"] = {"docker": {"parent_image": runtime.href}}
 
@@ -97,7 +97,7 @@ def generate_inference_config(
         "parameters": parameters,
     }
 
-    runtime = model_item.assets.get("inference-runtime")
+    runtime = model_item.assets.get("mlm:inference")
     if runtime and runtime.media_type == OCI_MEDIA_TYPE:
         config["settings"] = {"docker": {"parent_image": runtime.href}}
 

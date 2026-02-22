@@ -39,7 +39,7 @@ jobs:
           python-version: "3.13"
           enable-cache: true
       - name: Install dependencies
-        run: uv sync --group dev example
+        run: uv sync --group ci
       - name: Run ty checks
         run: uv run ty check --output-format github
   tests:

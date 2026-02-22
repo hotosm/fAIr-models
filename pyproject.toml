@@ -25,6 +25,10 @@ dev = [
     "ruff",
     "pytest>=8.0",
 ]
+ci = [
+    {include-group = "dev"},
+    {include-group = "example"},
+]
 local = [
     "zenml[server]>=0.93.3",
 ]

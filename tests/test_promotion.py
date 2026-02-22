@@ -71,18 +71,17 @@ def _mock_mv(params: dict[str, Any] | None = None, *, weights_found: bool = True
     return mv
 
 
-def _publish(cm, version=1, **kw):
+def _publish(cm: StacCatalogManager, version: int = 1, **kw: Any) -> pystac.Item:
     """Shortcut for publish_promoted_model with common defaults."""
-    defaults = {
-        "model_name": "unet-finetuned-banepa",
-        "version": version,
-        "catalog_manager": cm,
-        "base_model_item_id": "example-unet",
-        "dataset_item_id": "buildings-banepa",
-        "keywords": ["building"],
-    }
-    defaults.update(kw)
-    return publish_promoted_model(**defaults)
+    return publish_promoted_model(
+        model_name=kw.get("model_name", "unet-finetuned-banepa"),
+        version=kw.get("version", version),
+        catalog_manager=kw.get("catalog_manager", cm),
+        base_model_item_id=kw.get("base_model_item_id", "example-unet"),
+        dataset_item_id=kw.get("dataset_item_id", "buildings-banepa"),
+        keywords=kw.get("keywords", ["building"]),
+        geometry=kw.get("geometry"),
+    )
 
 
 @patch("fair_models.zenml.promotion.Client")

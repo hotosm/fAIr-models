@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import json
 from datetime import UTC, datetime
+from typing import Any
 
+import pystac
 import pytest
 
 from fair_models.stac.builders import (
@@ -61,31 +63,29 @@ def geojson_path(tmp_path):
     return str(path)
 
 
-def _base_model(**kw):
-    defaults = {
-        "item_id": "example-unet",
-        "geometry": _GEOM,
-        "dt": _DT,
-        "mlm_name": "example-unet",
-        "mlm_architecture": "UNet",
-        "mlm_tasks": ["semantic-segmentation"],
-        "mlm_framework": "pytorch",
-        "mlm_framework_version": "2.1.0",
-        "mlm_input": _MLM_INPUT,
-        "mlm_output": _MLM_OUTPUT,
-        "mlm_hyperparameters": {"epochs": 15, "batch_size": 4, "learning_rate": 0.0001},
-        "keywords": ["building", "semantic-segmentation", "polygon"],
-        "model_href": "weights.pt",
-        "model_artifact_type": "pt",
-        "mlm_pretrained": True,
-        "mlm_pretrained_source": "OAM-TCD",
-        "source_code_href": "https://github.com/example",
-        "source_code_entrypoint": "mod:train",
-        "training_runtime_href": "local",
-        "inference_runtime_href": "local",
-    }
-    defaults.update(kw)
-    return build_base_model_item(**defaults)
+def _base_model(**kw: Any) -> pystac.Item:
+    return build_base_model_item(
+        item_id=kw.get("item_id", "example-unet"),
+        geometry=kw.get("geometry", _GEOM),
+        dt=kw.get("dt", _DT),
+        mlm_name=kw.get("mlm_name", "example-unet"),
+        mlm_architecture=kw.get("mlm_architecture", "UNet"),
+        mlm_tasks=kw.get("mlm_tasks", ["semantic-segmentation"]),
+        mlm_framework=kw.get("mlm_framework", "pytorch"),
+        mlm_framework_version=kw.get("mlm_framework_version", "2.1.0"),
+        mlm_input=kw.get("mlm_input", _MLM_INPUT),
+        mlm_output=kw.get("mlm_output", _MLM_OUTPUT),
+        mlm_hyperparameters=kw.get("mlm_hyperparameters", {"epochs": 15, "batch_size": 4, "learning_rate": 0.0001}),
+        keywords=kw.get("keywords", ["building", "semantic-segmentation", "polygon"]),
+        model_href=kw.get("model_href", "weights.pt"),
+        model_artifact_type=kw.get("model_artifact_type", "pt"),
+        mlm_pretrained=kw.get("mlm_pretrained", True),
+        mlm_pretrained_source=kw.get("mlm_pretrained_source", "OAM-TCD"),
+        source_code_href=kw.get("source_code_href", "https://github.com/example"),
+        source_code_entrypoint=kw.get("source_code_entrypoint", "mod:train"),
+        training_runtime_href=kw.get("training_runtime_href", "local"),
+        inference_runtime_href=kw.get("inference_runtime_href", "local"),
+    )
 
 
 class TestBuildDatasetItem:
@@ -104,7 +104,9 @@ class TestBuildDatasetItem:
         assert item.properties["label:type"] == "vector"
         assert item.assets["chips"].href == "chips/"
         assert item.assets["download"].media_type == "application/zip"
-        assert pytest.approx(item.bbox[0], abs=0.01) == 85.51
+        bbox = item.bbox
+        assert bbox is not None
+        assert pytest.approx(bbox[0], abs=0.01) == 85.51
 
     def test_empty_geojson_raises(self, tmp_path):
         path = tmp_path / "empty.geojson"
@@ -129,11 +131,15 @@ class TestBuildBaseModelItem:
         assert item.properties["mlm:hyperparameters"]["epochs"] == 15
         assert item.properties["version"] == "1"
         assert item.assets["model"].extra_fields["mlm:artifact_type"] == "pt"
-        assert item.bbox[0] == 0 and item.bbox[2] == 180
+        bbox = item.bbox
+        assert bbox is not None
+        assert bbox[0] == 0 and bbox[2] == 180
 
     def test_framework_in_media_type(self):
         item = _base_model(mlm_framework="tensorflow")
-        assert "framework=tensorflow" in item.assets["model"].media_type
+        media_type = item.assets["model"].media_type
+        assert media_type is not None
+        assert "framework=tensorflow" in media_type
 
 
 class TestBuildLocalModelItem:

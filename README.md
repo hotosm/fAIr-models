@@ -184,7 +184,7 @@ ZenML Pipeline (runs in base model's Docker)
   +-- evaluate_model
   |     +-- log_metadata({accuracy, f1, iou, ...}, infer_model=True)
   v
-ZenML MCP Database
+ZenML MCP (Model Control Plane) Database
   |
   | Model: ramp-finetuned-nepal
   |   v1 (stage: None) -- first run
@@ -231,7 +231,7 @@ Archive and delete also propagate:
 
 Works for both base models and local models. The STAC item always has enough
 information to run inference: model weights, inference runtime, input/output spec.
-For each item format like https://onnx.ai/ should be exported (for inference) and 
+For each item format like <https://onnx.ai/> should be exported (for inference) and
 linked to assets along with model weights for training.
 
 ```
@@ -310,7 +310,7 @@ ZenML stack components NOT used:
 - **Image Builder** -- Docker images are built in CI, not by ZenML
 - **Data Validator** -- validation is done by the backend before pipeline trigger (keyword + task matching)
 - **Alerter** -- notifications handled by the fAIr backend
-- **Annotator** -- labeling is external to this system
+- **Annotator** -- labeling is external to this system (mainly OSM)
 - **Feature Store** -- not applicable; raw chips + labels are the training data
 
 ---
@@ -339,7 +339,7 @@ ZenML stack components NOT used:
 - [fAIr](https://github.com/hotosm/fAIr) -- Main fAIr application.
 - [fAIr-utilities](https://github.com/hotosm/fAIr-utilities) -- Utilities for data preparation and model training.
 - [fAIr-utilities sample dataset](https://github.com/hotosm/fAIr-utilities/tree/master/ramp-data/sample_2) -- Current dataset structure: `input/` folder with 256x256 PNG chips (OAM tile naming `OAM-{x}-{y}-{z}.png`) + `labels.geojson`; `prediction/input/` for inference images.
-- [fAIr-predictor](https://github.com/hotosm/fairpredictor) -- Standalone predictor ( That will on future query the stac load .oonx and run prediction alone ) 
+- [fAIr-predictor](https://github.com/hotosm/fairpredictor) -- Standalone predictor ( That will on future query the stac load .oonx and run prediction alone )
 
 ### Architecture Decisions
 

@@ -22,17 +22,20 @@ def get_changed_models() -> set[str] | None:
     head_sha = os.getenv("HEAD_SHA")
     if not base_sha or not head_sha:
         return None
-    result = subprocess.run(
-        ["git", "diff", "--name-only", base_sha, head_sha],
-        capture_output=True,
-        text=True,
-        check=True,
-    )
-    return {
-        Path(f).parts[0] + "/" + Path(f).parts[1]
-        for f in result.stdout.splitlines()
-        if f.startswith("models/") and len(Path(f).parts) > 1
-    }
+    try:
+        result = subprocess.run(
+            ["git", "diff", "--name-only", base_sha, head_sha],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        return {
+            Path(f).parts[0] + "/" + Path(f).parts[1]
+            for f in result.stdout.splitlines()
+            if f.startswith("models/") and len(Path(f).parts) > 1
+        }
+    except subprocess.CalledProcessError:
+        return None
 
 
 def find_models() -> list[ModelInfo]:

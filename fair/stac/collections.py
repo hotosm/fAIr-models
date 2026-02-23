@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 import pystac
 from pystac import CatalogType
 
-from src.stac.constants import (
+from fair.stac.constants import (
     BASE_MODELS_COLLECTION,
     DATASET_EXTENSIONS,
     DATASETS_COLLECTION,

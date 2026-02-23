@@ -9,9 +9,9 @@ from annotated_types import Ge
 from zenml.client import Client
 from zenml.enums import ModelStages
 
-from src.stac.builders import build_local_model_item
-from src.stac.catalog_manager import StacCatalogManager
-from src.stac.constants import BASE_MODELS_COLLECTION, LOCAL_MODELS_COLLECTION
+from fair.stac.builders import build_local_model_item
+from fair.stac.catalog_manager import StacCatalogManager
+from fair.stac.constants import BASE_MODELS_COLLECTION, LOCAL_MODELS_COLLECTION
 
 log = logging.getLogger(__name__)
 

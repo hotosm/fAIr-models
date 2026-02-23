@@ -220,3 +220,6 @@ implementation.md
 
 data
 stac_catalog
+
+# hatch-vcs generated version file
+fair/_version.py

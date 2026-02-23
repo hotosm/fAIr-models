@@ -1,4 +1,4 @@
-.PHONY: init setup clean example
+.PHONY: init setup clean example lint format typecheck test build bump pre-commit
 
 init:
 	uv sync --group local
@@ -17,7 +17,7 @@ run:
 
 clean:
 	uv run zenml clean -y
-	rm -rf .zen artifacts
+	rm -rf .zen artifacts dist *.egg-info
 
 example:
 	uv run python examples/unet/download.py
@@ -40,4 +40,13 @@ typecheck:
 
 test:
 	uv run pytest tests/ -v
+
+build:
+	uv build
+
+bump:
+	uv run cz bump --changelog
+
+pre-commit:
+	uv run pre-commit install --hook-type commit-msg --hook-type pre-commit
 

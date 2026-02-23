@@ -20,12 +20,12 @@ clean:
 	rm -rf .zen artifacts
 
 example:
-	uv run python examples/building_segmentation/download.py
-	uv run python examples/building_segmentation/register_dataset.py
-	uv run python examples/building_segmentation/register_basemodel.py
-	uv run python examples/building_segmentation/finetune.py
-	uv run python examples/building_segmentation/promote.py
-	uv run python examples/building_segmentation/predict.py
+	uv run python examples/unet/download.py
+	uv run python examples/unet/register_dataset.py
+	uv run python examples/unet/register_basemodel.py
+	uv run python examples/unet/finetune.py
+	uv run python examples/unet/promote.py
+	uv run python examples/unet/predict.py
 
 lint:
 	uv run ruff check .

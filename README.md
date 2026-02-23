@@ -9,7 +9,7 @@ ZenML pipelines and published to a STAC catalog on promotion.
 ```bash
 uv sync --group local --group example
 make init
-# See examples/building_segmentation/README.md for the full walkthrough
+# See examples/unet/README.md for the full walkthrough
 ```
 
 ## Architecture
@@ -341,7 +341,7 @@ ZenML stack components NOT used:
 - [fAIr](https://github.com/hotosm/fAIr) -- Main fAIr application.
 - [fAIr-utilities](https://github.com/hotosm/fAIr-utilities) -- Utilities for data preparation and model training.
 - [fAIr-utilities sample dataset](https://github.com/hotosm/fAIr-utilities/tree/master/ramp-data/sample_2) -- Current dataset structure: `input/` folder with 256x256 PNG chips (OAM tile naming `OAM-{x}-{y}-{z}.png`) + `labels.geojson`; `prediction/input/` for inference images.
-- [fAIr-predictor](https://github.com/hotosm/fairpredictor) -- Standalone predictor ( That will on future query the stac load .oonx and run prediction alone )
+- [fAIr-predictor](https://github.com/hotosm/fairpredictor) -- Standalone predictor (planned to query STAC, load ONNX artifacts, and run inference independently).
 
 ### Architecture Decisions
 

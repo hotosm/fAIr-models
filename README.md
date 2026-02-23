@@ -113,6 +113,8 @@ the request fails schema validation.
 
 ## Flows
 
+![fAIr-models workflow](docs/workflows/userflow.jpg)
+
 ### 1. Base Model Registration (PR workflow)
 
 ```
@@ -254,8 +256,6 @@ ZenML Inference Pipeline
   v
 Result returned to consumer
 ```
-
-![fAIr-models workflow](docs/workflows/userflow.jpg)
 
 ### 5. YAML-Driven Pipeline Execution
 

@@ -18,12 +18,18 @@ jobs:
       matrix: ${{ steps.models.outputs.matrix }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: ${{ github.event_name == 'pull_request' && 0 || 1 }}
       - uses: actions/setup-python@v5
         with:
           python-version: "3.13"
       - run: pip install pystac
       - id: models
         run: echo "matrix=$(python .github/scripts/detect_models.py)" >> $GITHUB_OUTPUT
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.sha }}
 
   build:
     needs: detect

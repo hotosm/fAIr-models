@@ -54,8 +54,6 @@ include = ["fair/", "models/", "LICENSE", "README.md"]
 [tool.hatch.build.targets.wheel]
 packages = ["fair", "models"]
 
-[tool.uv.sources]
-torchgeo = { git = "https://github.com/kshitijrajsharma/torchgeo.git", rev = "feature/opeanaerialmap" }
 
 [dependency-groups]
 dev = [
@@ -66,17 +64,11 @@ dev = [
     "pre-commit>=4.0",
 ]
 ci = [
-    {include-group = "dev"},
-    {include-group = "example"},
+    {include-group = "dev"}
+,
 ]
 local = [
     "zenml[server]>=0.93.3",
-]
-example = [
-    "matplotlib>=3.10.8",
-    "pyarrow>=23.0.1",
-    "torch>=2.0",
-    "torchgeo",
 ]
 
 [tool.ruff]

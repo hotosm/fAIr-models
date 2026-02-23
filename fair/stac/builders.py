@@ -9,7 +9,7 @@ import pystac
 from fair.stac.constants import (
     DATASET_EXTENSIONS,
     MODEL_EXTENSIONS,
-    OCI_MEDIA_TYPE,
+    OCI_IMAGE_INDEX_TYPE,
 )
 
 _CONTAINER_REGISTRIES = ("ghcr.io", "docker.io", "quay.io", ".azurecr.io", ".ecr.", ".gcr.io")
@@ -33,7 +33,7 @@ def _infer_source_code_media_type(href: str) -> str:
 def _infer_runtime_media_type(href: str) -> str:
     lower = href.lower()
     if any(r in lower for r in _CONTAINER_REGISTRIES):
-        return OCI_MEDIA_TYPE
+        return OCI_IMAGE_INDEX_TYPE
     if "dockerfile" in lower:
         return "text/x-dockerfile"
     return "text/plain"
@@ -217,7 +217,7 @@ def build_base_model_item(
         pystac.Asset(
             href=training_runtime_href,
             media_type=_infer_runtime_media_type(training_runtime_href),
-            roles=["mlm:training-runtime", "runtime"],
+            roles=["mlm:training-runtime"],
         ),
     )
     item.add_asset(
@@ -225,7 +225,7 @@ def build_base_model_item(
         pystac.Asset(
             href=inference_runtime_href,
             media_type=_infer_runtime_media_type(inference_runtime_href),
-            roles=["mlm:inference-runtime", "runtime"],
+            roles=["mlm:inference-runtime"],
         ),
     )
 

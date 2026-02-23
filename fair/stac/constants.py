@@ -1,4 +1,4 @@
-OCI_MEDIA_TYPE = "application/vnd.oci.image.index.v1+json"
+OCI_IMAGE_INDEX_TYPE = "application/vnd.oci.image.index.v1+json"
 
 MLM_SCHEMA = "https://stac-extensions.github.io/mlm/v1.5.1/schema.json"
 VERSION_SCHEMA = "https://stac-extensions.github.io/version/v1.2.0/schema.json"

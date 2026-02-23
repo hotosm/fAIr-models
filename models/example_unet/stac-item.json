@@ -172,19 +172,19 @@
             "mlm:entrypoint": "models.example_unet.pipeline:training_pipeline"
         },
         "mlm:training": {
-            "href": "local",
-            "type": "text/plain",
+            "href": "ghcr.io/hotosm/fair-models/example-unet:v1",
+            "type": "application/vnd.oci.image.index.v1+json",
+            "title": "Training Docker Image",
             "roles": [
-                "mlm:training-runtime",
-                "runtime"
+                "mlm:training-runtime"
             ]
         },
         "mlm:inference": {
-            "href": "local",
-            "type": "text/plain",
+            "href": "ghcr.io/hotosm/fair-models/example-unet:v1",
+            "type": "application/vnd.oci.image.index.v1+json",
+            "title": "Inference Docker Image",
             "roles": [
-                "mlm:inference-runtime",
-                "runtime"
+                "mlm:inference-runtime"
             ]
         }
     },

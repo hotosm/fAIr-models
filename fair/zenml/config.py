@@ -4,7 +4,7 @@ from typing import Any
 
 import pystac
 
-from fair.stac.constants import OCI_MEDIA_TYPE
+from fair.stac.constants import OCI_IMAGE_INDEX_TYPE
 
 
 def _extract_input_spec(mlm_input: list[dict[str, Any]]) -> dict[str, Any]:
@@ -63,7 +63,7 @@ def generate_training_config(
     }
 
     runtime = base_model_item.assets.get("mlm:training")
-    if runtime and runtime.media_type == OCI_MEDIA_TYPE:
+    if runtime and runtime.media_type == OCI_IMAGE_INDEX_TYPE:
         config["settings"] = {"docker": {"parent_image": runtime.href}}
 
     return config
@@ -105,7 +105,7 @@ def generate_inference_config(
     }
 
     runtime = model_item.assets.get("mlm:inference")
-    if runtime and runtime.media_type == OCI_MEDIA_TYPE:
+    if runtime and runtime.media_type == OCI_IMAGE_INDEX_TYPE:
         config["settings"] = {"docker": {"parent_image": runtime.href}}
 
     return config

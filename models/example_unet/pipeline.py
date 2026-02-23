@@ -4,46 +4,54 @@ Entrypoints referenced by models/example_unet/stac-item.json.
 Pretrained weights: OAM-TCD (arxiv.org/abs/2407.11743).
 """
 
+from __future__ import annotations
+
 from pathlib import Path
-from typing import Annotated, Any, Literal
+from typing import TYPE_CHECKING, Annotated, Any, Literal
 
 import numpy as np
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
 from annotated_types import Ge, Le
 from PIL import Image
-from torch import Tensor
-from torch.utils.data import DataLoader
-from torchgeo.datasets import OpenAerialMap, OpenStreetMap, stack_samples
-from torchgeo.models import Unet_Weights, unet
-from torchgeo.samplers import RandomGeoSampler, Units
 from zenml import log_metadata, pipeline, step
 
 from fair.zenml.steps import load_model
 
-_OptimizerFactory = Any  # Callable[[Iterable, ...], Optimizer] — avoids base-class __init__ overload
-_LossFactory = Any  # Callable[[], nn.Module]
+if TYPE_CHECKING:
+    import torch.nn as nn
+    from torch import Tensor
+    from torch.utils.data import DataLoader
+    from torchgeo.models import Unet_Weights
 
-DEVICE: Literal["mps", "cuda", "cpu"] = (
-    "mps" if torch.backends.mps.is_available() else "cuda" if torch.cuda.is_available() else "cpu"
-)
-_ENCODER = "resnet50"
+
 _BUILDING_CLASSES = [{"name": "building", "selector": [{"building": "*"}]}]
+
+
+def _get_device() -> Literal["mps", "cuda", "cpu"]:
+    """Detect compute device at runtime."""
+    import torch
+
+    return "mps" if torch.backends.mps.is_available() else "cuda" if torch.cuda.is_available() else "cpu"
+
+
+DEVICE: Literal["mps", "cuda", "cpu"] = _get_device()
 
 
 def _resolve_weights(weight_id: str) -> Unet_Weights:
     """Map 'torchgeo.models.Unet_Weights.MEMBER' or bare MEMBER name to enum."""
+    from torchgeo.models import Unet_Weights
+
     return Unet_Weights[weight_id.rsplit(".", 1)[-1]]
 
 
 def preprocess(batch: dict[str, Tensor]) -> tuple[Tensor, Tensor]:
+    """Preprocess batch: normalize images, extract masks."""
     images = batch["image"].float() / 255.0
     masks = batch["mask"].long().squeeze(1)
     return images, masks
 
 
 def postprocess(logits: Tensor) -> np.ndarray:
+    """Convert logits to class predictions."""
     return logits.argmax(dim=1).cpu().numpy().astype(np.uint8)
 
 
@@ -51,6 +59,10 @@ def _build_dataset(chips_path: str, labels_path: str, chip_size: int, length: in
     """Intersect OAM + OSM GeoDatasets. chip_size in pixels; bounds are slices per torchgeo 0.10.x dev.
     labels_path is the exact GeoJSON file path stored in STAC; OpenStreetMap.paths requires its parent dir.
     """
+    from torch.utils.data import DataLoader
+    from torchgeo.datasets import OpenAerialMap, OpenStreetMap, stack_samples
+    from torchgeo.samplers import RandomGeoSampler, Units
+
     oam = OpenAerialMap(paths=chips_path, download=False)
     b = oam.bounds
     bbox = (b[0].start, b[1].start, b[0].stop, b[1].stop)
@@ -60,16 +72,25 @@ def _build_dataset(chips_path: str, labels_path: str, chip_size: int, length: in
     return DataLoader(dataset, sampler=sampler, batch_size=batch_size, collate_fn=stack_samples)
 
 
-# Keep in sync with mlm:hyperparameters in stac-item.json.
-_OPTIMIZERS: dict[str, _OptimizerFactory] = {
-    "Adam": torch.optim.Adam,
-    "AdamW": torch.optim.AdamW,
-    "SGD": torch.optim.SGD,
-}
-_LOSSES: dict[str, _LossFactory] = {
-    "CrossEntropyLoss": nn.CrossEntropyLoss,
-    "BCEWithLogitsLoss": nn.BCEWithLogitsLoss,
-}
+def _get_optimizers() -> dict[str, Any]:
+    """Get available optimizers. Keep in sync with mlm:hyperparameters in stac-item.json."""
+    import torch
+
+    return {
+        "Adam": torch.optim.Adam,
+        "AdamW": torch.optim.AdamW,
+        "SGD": torch.optim.SGD,
+    }
+
+
+def _get_losses() -> dict[str, Any]:
+    """Get available loss functions. Keep in sync with mlm:hyperparameters in stac-item.json."""
+    import torch.nn as nn
+
+    return {
+        "CrossEntropyLoss": nn.CrossEntropyLoss,
+        "BCEWithLogitsLoss": nn.BCEWithLogitsLoss,
+    }
 
 
 @step
@@ -86,11 +107,16 @@ def train_model(
     optimizer: str = "AdamW",
     loss: str = "CrossEntropyLoss",
 ) -> nn.Module:
+    """Train UNet model on dataset."""
+    from torchgeo.models import unet
+
     model = unet(weights=_resolve_weights(base_model_weights), classes=num_classes).to(DEVICE)
     loader = _build_dataset(dataset_chips, dataset_labels, chip_size, length=10, batch_size=batch_size)
 
-    criterion = _LOSSES[loss]()
-    opt = _OPTIMIZERS[optimizer](model.parameters(), lr=learning_rate, weight_decay=weight_decay)
+    losses = _get_losses()
+    optimizers = _get_optimizers()
+    criterion = losses[loss]()
+    opt = optimizers[optimizer](model.parameters(), lr=learning_rate, weight_decay=weight_decay)
 
     model.train()
     for epoch in range(epochs):
@@ -104,8 +130,9 @@ def _train_step(
     model: nn.Module,
     batch: dict[str, Tensor],
     criterion: nn.Module,
-    optimizer: torch.optim.Optimizer,
+    optimizer: Any,
 ) -> float:
+    """Single training step."""
     images, masks = preprocess(batch)
     images, masks = images.to(DEVICE), masks.to(DEVICE)
     loss = criterion(model(images), masks)
@@ -123,6 +150,9 @@ def evaluate_model(
     chip_size: int = 512,
     num_classes: int = 2,
 ) -> dict[str, Any]:
+    """Evaluate model on validation set."""
+    import torch
+
     model = trained_model.to(DEVICE)
     model.eval()
 
@@ -157,6 +187,8 @@ def load_base_model(
     num_classes: int,
 ) -> nn.Module:
     """Instantiate model from pretrained weights enum. Model-specific: each developer implements their own."""
+    from torchgeo.models import unet
+
     return unet(weights=_resolve_weights(model_uri), classes=num_classes).cpu()
 
 
@@ -167,6 +199,9 @@ def run_inference(
     chip_size: int,
     num_classes: int,
 ) -> str:
+    import torch
+    import torch.nn.functional as F
+
     model = model.to(DEVICE)
     model.eval()
 

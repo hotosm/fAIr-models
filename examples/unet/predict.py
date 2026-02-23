@@ -12,7 +12,7 @@ from fair_models.zenml.config import generate_inference_config
 from models.example_unet.pipeline import inference_pipeline
 
 CATALOG_PATH = "stac_catalog/catalog.json"
-LOCAL_MODEL_ID = "example-unet-finetuned-banepa-v4"
+LOCAL_MODEL_ID = "example-unet-finetuned-banepa-v5"
 INPUT_IMAGES = "data/sample/predict/oam"
 CONFIG_PATH = "examples/unet/config/generated_inference.yaml"
 

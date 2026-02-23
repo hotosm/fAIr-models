@@ -64,7 +64,8 @@ def _mock_mv(params: dict[str, Any] | None = None, *, weights_found: bool = True
     mv.pipeline_runs = {"run-1": run}
     if weights_found:
         art = MagicMock()
-        art.load.return_value = "artifacts/finetuned_weights.pth"
+        art.uri = "s3://artifact-store/model/output/abc123"
+        art.id = "artifact-version-uuid-001"
         mv.get_artifact.return_value = art
     else:
         mv.get_artifact.return_value = None
@@ -105,9 +106,19 @@ def test_publish_and_deprecate_previous(mock_cls, cm):
 
 
 @patch("fair_models.zenml.promotion.Client")
+def test_publish_stores_artifact_metadata(mock_cls, cm):
+    """Model asset must carry both the artifact URI and ZenML artifact version ID."""
+    mock_cls.return_value.get_model_version.return_value = _mock_mv({"epochs": 1})
+    item = _publish(cm, version=1)
+    model_asset = item.assets["model"]
+    assert model_asset.href == "s3://artifact-store/model/output/abc123"
+    assert model_asset.extra_fields["zenml:artifact_version_id"] == "artifact-version-uuid-001"
+
+
+@patch("fair_models.zenml.promotion.Client")
 def test_missing_weights_raises(mock_cls, cm):
     mock_cls.return_value.get_model_version.return_value = _mock_mv(weights_found=False)
-    with pytest.raises(RuntimeError, match="No weights artifact"):
+    with pytest.raises(RuntimeError, match="No model artifact"):
         _publish(cm)
 
 

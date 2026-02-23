@@ -7,7 +7,7 @@ from fair_models.zenml.promotion import promote_model_version, publish_promoted_
 
 CATALOG_PATH = "stac_catalog/catalog.json"
 MODEL_NAME = "example-unet-finetuned-banepa"
-VERSION = 4
+VERSION = 5
 BASE_MODEL_ID = "example-unet"
 DATASET_ID = "buildings-banepa"
 

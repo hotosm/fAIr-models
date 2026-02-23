@@ -7,7 +7,7 @@
     "https://stac-extensions.github.io/classification/v2.0.0/schema.json",
     "https://stac-extensions.github.io/file/v2.1.0/schema.json"
   ],
-  "id": "example-unet-finetuned-banepa-v4",
+  "id": "example-unet-finetuned-banepa-v5",
   "geometry": {
     "type": "Polygon",
     "coordinates": [
@@ -139,9 +139,9 @@
       "semantic-segmentation",
       "polygon"
     ],
-    "version": "5",
-    "deprecated": true,
-    "datetime": "2026-02-22T23:13:45.400164Z"
+    "version": "7",
+    "deprecated": false,
+    "datetime": "2026-02-22T23:52:14.778308Z"
   },
   "links": [
     {
@@ -154,14 +154,6 @@
     },
     {
       "rel": "latest-version",
-      "href": "example-unet-finetuned-banepa-v4"
-    },
-    {
-      "rel": "predecessor-version",
-      "href": "example-unet-finetuned-banepa-v9"
-    },
-    {
-      "rel": "successor-version",
       "href": "example-unet-finetuned-banepa-v5"
     },
     {
@@ -182,7 +174,7 @@
   ],
   "assets": {
     "model": {
-      "href": "./artifacts/finetuned_weights.pth",
+      "href": "/Users/krschap/Library/Application Support/zenml/local_stores/db819277-776f-483d-aa14-291f0a15a9aa/train_model/output/fb687bcf-b282-4c51-b8b3-a5a02bf375a3/556a09d7",
       "type": "application/octet-stream; framework=pytorch",
       "mlm:artifact_type": "torch.save",
       "raster:bands": [
@@ -196,6 +188,7 @@
           "name": "blue"
         }
       ],
+      "zenml:artifact_version_id": "ce5b4d5f-f881-4a7c-9ab4-9941d2d1efb7",
       "roles": [
         "mlm:model"
       ]

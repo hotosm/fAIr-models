@@ -74,12 +74,13 @@ def publish_promoted_model(
         raw_params: dict[str, Any] | None = step.config.parameters if step else run.config.parameters
         hyperparams = {k: v for k, v in (raw_params or {}).items() if k not in _INFRA_KEYS}
 
-    # Data artifact, not model artifact — ZenML stores step return values there
     weights_art = mv.get_artifact("training_pipeline::train_model::output")
     if weights_art is None:
-        msg = f"No weights artifact found for {model_name} v{version} — training pipeline may not have completed"
+        msg = f"No model artifact found for {model_name} v{version}"
         raise RuntimeError(msg)
-    model_href = weights_art.load()
+    # URI = artifact store directory; materializer handles framework-specific files within
+    model_href = weights_art.uri
+    artifact_version_id = str(weights_art.id)
 
     base_model_item = catalog_manager.get_item(BASE_MODELS_COLLECTION, base_model_item_id)
 
@@ -103,6 +104,7 @@ def publish_promoted_model(
         version=version_str,
         geometry=geometry,
         predecessor_version_item_id=predecessor_id,
+        zenml_artifact_version_id=artifact_version_id,
     )
 
     if prev_item:

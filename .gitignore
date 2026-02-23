@@ -216,5 +216,6 @@ examples/unet/config/generated_*.yaml
 implementation.md
 data/*
 !data/sample/
+data/sample/predict/predictions
 
 .DS_Store

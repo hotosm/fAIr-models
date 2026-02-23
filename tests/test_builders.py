@@ -164,6 +164,37 @@ class TestBuildLocalModelItem:
         assert "example-unet" in derived and "ds-1" in derived
         assert any(lnk.rel == "predecessor-version" for lnk in local.links)
 
+    def test_zenml_artifact_version_id_stored_on_asset(self):
+        base = _base_model()
+        local = build_local_model_item(
+            base_model_item=base,
+            item_id="local-v1",
+            dt=_DT,
+            model_href="s3://store/model/abc",
+            mlm_hyperparameters={},
+            keywords=["building"],
+            base_model_item_id="example-unet",
+            dataset_item_id="ds-1",
+            version="1",
+            zenml_artifact_version_id="aaaa-bbbb-cccc",
+        )
+        assert local.assets["model"].extra_fields["zenml:artifact_version_id"] == "aaaa-bbbb-cccc"
+
+    def test_zenml_artifact_version_id_absent_when_none(self):
+        base = _base_model()
+        local = build_local_model_item(
+            base_model_item=base,
+            item_id="local-v1",
+            dt=_DT,
+            model_href="weights.pth",
+            mlm_hyperparameters={},
+            keywords=["building"],
+            base_model_item_id="example-unet",
+            dataset_item_id="ds-1",
+            version="1",
+        )
+        assert "zenml:artifact_version_id" not in local.assets["model"].extra_fields
+
     def test_none_geometry_raises(self):
         base = _base_model()
         base.geometry = None

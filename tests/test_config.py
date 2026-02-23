@@ -111,7 +111,31 @@ def test_training_overrides(tmp_path):
 def test_inference_config():
     cfg = generate_inference_config(_base_model(), "/data/input/")
     p = cfg["parameters"]
-    assert p["model_weights"] == "weights.pt"
+    assert p["model_uri"] == "weights.pt"
     assert p["input_images"] == "/data/input/"
     assert p["chip_size"] == 512 and p["num_classes"] == 2
     assert cfg["settings"]["docker"]["parent_image"] == "ghcr.io/hotosm/fair-unet:v1"
+    assert "zenml_artifact_version_id" not in p
+
+
+def test_inference_config_with_artifact_id():
+    """When model asset has fair:zenml_artifact_version_id, it flows into config."""
+    from fair_models.stac.builders import build_local_model_item
+
+    base = _base_model()
+    local = build_local_model_item(
+        base_model_item=base,
+        item_id="local-v1",
+        dt=datetime(2024, 6, 1, tzinfo=UTC),
+        model_href="s3://store/model/abc",
+        mlm_hyperparameters={},
+        keywords=["building"],
+        base_model_item_id="unet",
+        dataset_item_id="ds-1",
+        version="1",
+        zenml_artifact_version_id="uuid-123",
+    )
+    cfg = generate_inference_config(local, "/data/input/")
+    p = cfg["parameters"]
+    assert p["model_uri"] == "s3://store/model/abc"
+    assert p["zenml_artifact_version_id"] == "uuid-123"

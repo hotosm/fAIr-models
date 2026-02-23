@@ -20,6 +20,8 @@ from torchgeo.models import Unet_Weights, unet
 from torchgeo.samplers import RandomGeoSampler, Units
 from zenml import log_metadata, pipeline, step
 
+from fair_models.zenml.steps import load_model
+
 _OptimizerFactory = Any  # Callable[[Iterable, ...], Optimizer] — avoids base-class __init__ overload
 _LossFactory = Any  # Callable[[], nn.Module]
 
@@ -83,8 +85,7 @@ def train_model(
     num_classes: int,
     optimizer: str = "AdamW",
     loss: str = "CrossEntropyLoss",
-) -> str:
-    """Finetune UNet from OAM-TCD pretrained weights. Returns saved weights path."""
+) -> nn.Module:
     model = unet(weights=_resolve_weights(base_model_weights), classes=num_classes).to(DEVICE)
     loader = _build_dataset(dataset_chips, dataset_labels, chip_size, length=10, batch_size=batch_size)
 
@@ -96,10 +97,7 @@ def train_model(
         total_loss = sum(_train_step(model, batch, criterion, opt) for batch in loader)
         log_metadata(metadata={"loss": total_loss / len(loader), "epoch": epoch + 1})
 
-    save_path = Path("artifacts") / "finetuned_weights.pth"
-    save_path.parent.mkdir(parents=True, exist_ok=True)
-    torch.save(model.state_dict(), save_path)
-    return str(save_path)
+    return model.cpu()
 
 
 def _train_step(
@@ -119,15 +117,13 @@ def _train_step(
 
 @step
 def evaluate_model(
-    model_path: str,
+    trained_model: nn.Module,
     dataset_chips: str,
     dataset_labels: str,
     chip_size: int = 512,
     num_classes: int = 2,
 ) -> dict[str, Any]:
-    """Pixel accuracy and per-class IoU on the dataset."""
-    model = unet(encoder_name=_ENCODER, classes=num_classes).to(DEVICE)
-    model.load_state_dict(torch.load(model_path, map_location=DEVICE, weights_only=True))
+    model = trained_model.to(DEVICE)
     model.eval()
 
     loader = _build_dataset(dataset_chips, dataset_labels, chip_size, length=5)
@@ -156,15 +152,22 @@ def evaluate_model(
 
 
 @step
+def load_base_model(
+    model_uri: str,
+    num_classes: int,
+) -> nn.Module:
+    """Instantiate model from pretrained weights enum. Model-specific: each developer implements their own."""
+    return unet(weights=_resolve_weights(model_uri), classes=num_classes).cpu()
+
+
+@step
 def run_inference(
-    model_weights: str,
+    model: Any,
     input_images: str,
     chip_size: int,
     num_classes: int,
 ) -> str:
-    """Run inference on PNG images in input dir. Returns predictions dir path."""
-    model = unet(encoder_name=_ENCODER, classes=num_classes).to(DEVICE)
-    model.load_state_dict(torch.load(model_weights, map_location=DEVICE, weights_only=True))
+    model = model.to(DEVICE)
     model.eval()
 
     input_dir = Path(input_images)
@@ -200,7 +203,7 @@ def training_pipeline(
     loss: Literal["CrossEntropyLoss", "BCEWithLogitsLoss"] = "CrossEntropyLoss",
 ) -> None:
     """Full training pipeline: finetune -> evaluate."""
-    model_path = train_model(
+    trained_model = train_model(
         dataset_chips=dataset_chips,
         dataset_labels=dataset_labels,
         base_model_weights=base_model_weights,
@@ -214,7 +217,7 @@ def training_pipeline(
         loss=loss,
     )
     evaluate_model(
-        model_path=model_path,
+        trained_model=trained_model,
         dataset_chips=dataset_chips,
         dataset_labels=dataset_labels,
         chip_size=chip_size,
@@ -224,16 +227,22 @@ def training_pipeline(
 
 @pipeline
 def inference_pipeline(
-    model_weights: str,
+    model_uri: str,
     input_images: str,
     chip_size: Annotated[
         int, Ge(64), Le(1024)
     ],  # if chip_size is >1024 , we might need to adjust how to handle big images in single chip
     num_classes: Annotated[int, Ge(1), Le(256)],
+    zenml_artifact_version_id: str = "",
+    use_base_model: bool = False,
 ) -> None:
-    """Inference pipeline: predict on input images."""
+    """Inference pipeline: load model then predict. Supports both base and finetuned models."""
+    if use_base_model:
+        model = load_base_model(model_uri=model_uri, num_classes=num_classes)
+    else:
+        model = load_model(model_uri=model_uri, zenml_artifact_version_id=zenml_artifact_version_id)
     run_inference(
-        model_weights=model_weights,
+        model=model,
         input_images=input_images,
         chip_size=chip_size,
         num_classes=num_classes,

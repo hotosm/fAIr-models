@@ -77,11 +77,21 @@ def generate_inference_config(
     props = model_item.properties
     input_spec = _extract_input_spec(props.get("mlm:input", []))
 
+    model_asset = model_item.assets["model"]
+    zenml_art_id = model_asset.extra_fields.get("zenml:artifact_version_id")
+
     parameters: dict[str, Any] = {
-        "model_weights": model_item.assets["model"].href,
+        "model_uri": model_asset.href,
         "input_images": input_images_path,
         **input_spec,
     }
+
+    # Base model: no ZenML artifact, load from pretrained weights directly
+    # Finetuned model: resolve from artifact store via ID (fast) or URI (fallback)
+    if zenml_art_id:
+        parameters["zenml_artifact_version_id"] = zenml_art_id
+    else:
+        parameters["use_base_model"] = True
 
     num_classes = _extract_num_classes(props.get("mlm:output", []))
     if num_classes is not None:

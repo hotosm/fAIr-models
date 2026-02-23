@@ -244,6 +244,7 @@ def build_local_model_item(
     version: str,
     geometry: dict[str, Any] | None = None,
     predecessor_version_item_id: str | None = None,
+    zenml_artifact_version_id: str | None = None,
 ) -> pystac.Item:
     geom = geometry if geometry is not None else base_model_item.geometry
     if geom is None:
@@ -283,13 +284,16 @@ def build_local_model_item(
 
     for key, asset in base_model_item.assets.items():
         if key == "model":
+            model_extra = {k: v for k, v in asset.extra_fields.items() if k != "href"}
+            if zenml_artifact_version_id:
+                model_extra["zenml:artifact_version_id"] = zenml_artifact_version_id
             item.add_asset(
                 "model",
                 pystac.Asset(
                     href=model_href,
                     media_type=asset.media_type,
                     roles=asset.roles,
-                    extra_fields={k: v for k, v in asset.extra_fields.items() if k != "href"},
+                    extra_fields=model_extra,
                 ),
             )
         else:

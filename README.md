@@ -255,6 +255,8 @@ ZenML Inference Pipeline
 Result returned to consumer
 ```
 
+![fAIr-models workflow](docs/workflows/userflow.jpg)
+
 ### 5. YAML-Driven Pipeline Execution
 
 The backend generates a ZenML YAML config from STAC metadata + user overrides.

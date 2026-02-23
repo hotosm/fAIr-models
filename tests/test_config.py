@@ -4,8 +4,8 @@ import json
 from datetime import UTC, datetime
 from typing import Any
 
-from fair_models.stac.builders import build_base_model_item, build_dataset_item
-from fair_models.zenml.config import generate_inference_config, generate_training_config
+from fair.stac.builders import build_base_model_item, build_dataset_item
+from fair.zenml.config import generate_inference_config, generate_training_config
 
 
 def _base_model(**overrides: Any):
@@ -120,7 +120,7 @@ def test_inference_config():
 
 def test_inference_config_with_artifact_id():
     """When model asset has fair:zenml_artifact_version_id, it flows into config."""
-    from fair_models.stac.builders import build_local_model_item
+    from fair.stac.builders import build_local_model_item
 
     base = _base_model()
     local = build_local_model_item(

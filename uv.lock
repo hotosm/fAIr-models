@@ -590,7 +590,7 @@ wheels = [
 ]
 
 [[package]]
-name = "fair-models"
+name = "fair"
 version = "0.0.1"
 source = { editable = "." }
 dependencies = [

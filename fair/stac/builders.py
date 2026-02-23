@@ -6,7 +6,7 @@ from typing import Any, Literal
 
 import pystac
 
-from fair_models.stac.constants import (
+from src.stac.constants import (
     DATASET_EXTENSIONS,
     MODEL_EXTENSIONS,
     OCI_MEDIA_TYPE,

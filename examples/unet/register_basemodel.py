@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import pystac
 
-from fair_models.stac.catalog_manager import StacCatalogManager
-from fair_models.stac.constants import BASE_MODELS_COLLECTION
-from fair_models.stac.validators import validate_mlm_schema
+from fair.stac.catalog_manager import StacCatalogManager
+from fair.stac.constants import BASE_MODELS_COLLECTION
+from fair.stac.validators import validate_mlm_schema
 
 CATALOG_PATH = "stac_catalog/catalog.json"
 STAC_ITEM_JSON = "models/example_unet/stac-item.json"

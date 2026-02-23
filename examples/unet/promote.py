@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from fair_models.stac.catalog_manager import StacCatalogManager
-from fair_models.zenml.promotion import promote_model_version, publish_promoted_model
+from fair.stac.catalog_manager import StacCatalogManager
+from fair.zenml.promotion import promote_model_version, publish_promoted_model
 
 CATALOG_PATH = "stac_catalog/catalog.json"
 MODEL_NAME = "example-unet-finetuned-banepa"

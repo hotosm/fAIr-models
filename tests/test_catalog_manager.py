@@ -5,8 +5,8 @@ from datetime import UTC, datetime
 import pystac
 import pytest
 
-from fair_models.stac.catalog_manager import StacCatalogManager
-from fair_models.stac.collections import initialize_catalog
+from fair.stac.catalog_manager import StacCatalogManager
+from fair.stac.collections import initialize_catalog
 
 
 @pytest.fixture()

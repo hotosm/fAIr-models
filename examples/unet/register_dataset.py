@@ -5,9 +5,9 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from pathlib import Path
 
-from fair_models.stac.builders import build_dataset_item
-from fair_models.stac.catalog_manager import StacCatalogManager
-from fair_models.stac.constants import DATASETS_COLLECTION
+from fair.stac.builders import build_dataset_item
+from fair.stac.catalog_manager import StacCatalogManager
+from fair.stac.constants import DATASETS_COLLECTION
 
 CATALOG_PATH = "stac_catalog/catalog.json"
 ITEM_ID = "buildings-banepa"

@@ -7,7 +7,7 @@ from typing import Any
 import pystac
 import pytest
 
-from fair_models.stac.builders import (
+from fair.stac.builders import (
     _infer_runtime_media_type,
     build_base_model_item,
     build_dataset_item,

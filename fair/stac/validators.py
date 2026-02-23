@@ -16,7 +16,7 @@ def validate_mlm_schema(item: pystac.Item) -> list[str]:
 
 
 def _load_keywords_schema() -> dict:
-    ref = importlib.resources.files("fair_models.schemas").joinpath("keywords.json")
+    ref = importlib.resources.files("src.schemas").joinpath("keywords.json")
     return json.loads(ref.read_text(encoding="utf-8"))
 
 

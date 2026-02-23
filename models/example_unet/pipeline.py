@@ -20,7 +20,7 @@ from torchgeo.models import Unet_Weights, unet
 from torchgeo.samplers import RandomGeoSampler, Units
 from zenml import log_metadata, pipeline, step
 
-from fair_models.zenml.steps import load_model
+from fair.zenml.steps import load_model
 
 _OptimizerFactory = Any  # Callable[[Iterable, ...], Optimizer] — avoids base-class __init__ overload
 _LossFactory = Any  # Callable[[], nn.Module]

@@ -7,10 +7,10 @@ from unittest.mock import MagicMock, patch
 import pystac
 import pytest
 
-from fair_models.stac.builders import build_base_model_item
-from fair_models.stac.catalog_manager import StacCatalogManager
-from fair_models.stac.collections import initialize_catalog
-from fair_models.zenml.promotion import (
+from fair.stac.builders import build_base_model_item
+from fair.stac.catalog_manager import StacCatalogManager
+from fair.stac.collections import initialize_catalog
+from fair.zenml.promotion import (
     archive_model_version,
     delete_model,
     delete_model_version,
@@ -85,7 +85,7 @@ def _publish(cm: StacCatalogManager, version: int = 1, **kw: Any) -> pystac.Item
     )
 
 
-@patch("fair_models.zenml.promotion.Client")
+@patch("fair.zenml.promotion.Client")
 def test_promote_sets_stage(mock_cls):
     mv = MagicMock()
     mock_cls.return_value.get_model_version.return_value = mv
@@ -93,7 +93,7 @@ def test_promote_sets_stage(mock_cls):
     mv.set_stage.assert_called_once()
 
 
-@patch("fair_models.zenml.promotion.Client")
+@patch("fair.zenml.promotion.Client")
 def test_publish_and_deprecate_previous(mock_cls, cm):
     mock_cls.return_value.get_model_version.return_value = _mock_mv({"epochs": 1})
 
@@ -105,7 +105,7 @@ def test_publish_and_deprecate_previous(mock_cls, cm):
     assert cm.get_item("local-models", "unet-finetuned-banepa-v1").properties["deprecated"] is True
 
 
-@patch("fair_models.zenml.promotion.Client")
+@patch("fair.zenml.promotion.Client")
 def test_publish_stores_artifact_metadata(mock_cls, cm):
     """Model asset must carry both the artifact URI and ZenML artifact version ID."""
     mock_cls.return_value.get_model_version.return_value = _mock_mv({"epochs": 1})
@@ -115,14 +115,14 @@ def test_publish_stores_artifact_metadata(mock_cls, cm):
     assert model_asset.extra_fields["zenml:artifact_version_id"] == "artifact-version-uuid-001"
 
 
-@patch("fair_models.zenml.promotion.Client")
+@patch("fair.zenml.promotion.Client")
 def test_missing_weights_raises(mock_cls, cm):
     mock_cls.return_value.get_model_version.return_value = _mock_mv(weights_found=False)
     with pytest.raises(RuntimeError, match="No model artifact"):
         _publish(cm)
 
 
-@patch("fair_models.zenml.promotion.Client")
+@patch("fair.zenml.promotion.Client")
 def test_archive(mock_cls, cm):
     mock_cls.return_value.get_model_version.return_value = _mock_mv()
     _publish(cm, version=1)
@@ -134,14 +134,14 @@ def test_archive(mock_cls, cm):
     mv.set_stage.assert_called_once()
 
 
-@patch("fair_models.zenml.promotion.Client")
+@patch("fair.zenml.promotion.Client")
 def test_archive_missing_raises(mock_cls, cm):
     mock_cls.return_value.get_model_version.return_value = MagicMock()
     with pytest.raises(KeyError):
         archive_model_version("nope", 99, cm)
 
 
-@patch("fair_models.zenml.promotion.Client")
+@patch("fair.zenml.promotion.Client")
 def test_delete_version(mock_cls, cm):
     mock_cls.return_value.get_model_version.return_value = _mock_mv()
     _publish(cm, version=1)
@@ -154,7 +154,7 @@ def test_delete_version(mock_cls, cm):
         cm.get_item("local-models", "unet-finetuned-banepa-v1")
 
 
-@patch("fair_models.zenml.promotion.Client")
+@patch("fair.zenml.promotion.Client")
 def test_delete_model(mock_cls, cm):
     mock_cls.return_value.get_model_version.return_value = _mock_mv()
     for v in (1, 2):

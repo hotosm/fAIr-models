@@ -6,9 +6,9 @@ from pathlib import Path
 
 import yaml
 
-from fair_models.stac.catalog_manager import StacCatalogManager
-from fair_models.stac.constants import LOCAL_MODELS_COLLECTION
-from fair_models.zenml.config import generate_inference_config
+from fair.stac.catalog_manager import StacCatalogManager
+from fair.stac.constants import LOCAL_MODELS_COLLECTION
+from fair.zenml.config import generate_inference_config
 from models.example_unet.pipeline import inference_pipeline
 
 CATALOG_PATH = "stac_catalog/catalog.json"

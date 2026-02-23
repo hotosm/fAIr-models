@@ -7,8 +7,8 @@ from unittest.mock import patch
 import pystac
 import pytest
 
-from fair_models.stac.builders import build_base_model_item, build_dataset_item
-from fair_models.stac.validators import validate_compatibility, validate_mlm_schema
+from fair.stac.builders import build_base_model_item, build_dataset_item
+from fair.stac.validators import validate_compatibility, validate_mlm_schema
 
 
 def _model(keywords=None, tasks=None):

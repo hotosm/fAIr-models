@@ -4,7 +4,7 @@ from typing import Any
 
 import pystac
 
-from fair_models.stac.constants import OCI_MEDIA_TYPE
+from src.stac.constants import OCI_MEDIA_TYPE
 
 
 def _extract_input_spec(mlm_input: list[dict[str, Any]]) -> dict[str, Any]:

@@ -6,10 +6,10 @@ from pathlib import Path
 
 import yaml
 
-from fair_models.stac.catalog_manager import StacCatalogManager
-from fair_models.stac.constants import BASE_MODELS_COLLECTION, DATASETS_COLLECTION
-from fair_models.stac.validators import validate_compatibility
-from fair_models.zenml.config import generate_training_config
+from fair.stac.catalog_manager import StacCatalogManager
+from fair.stac.constants import BASE_MODELS_COLLECTION, DATASETS_COLLECTION
+from fair.stac.validators import validate_compatibility
+from fair.zenml.config import generate_training_config
 from models.example_unet.pipeline import training_pipeline
 
 CATALOG_PATH = "stac_catalog/catalog.json"

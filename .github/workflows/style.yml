@@ -44,7 +44,7 @@ jobs:
       - name: Install dependencies
         run: uv sync --group ci
       - name: Run ty checks
-        run: uv run ty check  --ignore-unresolved-imports --output-format github # TODO : figure out way for this ignore unresolved imports in models repo
+        run: uv run ty check  --ignore unresolved-import --output-format github # TODO : figure out way for this ignore unresolved imports in models repo
   tests:
     name: tests
     runs-on: ubuntu-latest

@@ -40,6 +40,7 @@ CONFIG_DIR = Path("examples/unet/config")
 
 def init() -> None:
     subprocess.run(["zenml", "init"], check=True, capture_output=True)
+    Path("artifacts").mkdir(exist_ok=True)
     initialize_catalog(CATALOG_PATH)
     print("init: ok")
 
@@ -119,7 +120,7 @@ def predict() -> None:
     cfg = CONFIG_DIR / "generated_inference.yaml"
     cfg.write_text(yaml.dump(cfg_data, sort_keys=False))
 
-    run = inference_pipeline.with_options(config_path=str(cfg))()
+    run = inference_pipeline.with_options(config_path=str(cfg), enable_cache=False)()
     assert run is not None
     print(f"predict: {run.id} ({run.status})")
 

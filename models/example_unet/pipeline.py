@@ -55,7 +55,7 @@ def _build_dataset(chips_path: str, labels_path: str, chip_size: int, length: in
     labels_path is the exact GeoJSON file path stored in STAC; OpenStreetMap.paths requires its parent dir.
     """
 
-    class _OAMDataset(RasterDataset):
+    class _OAMDataset(RasterDataset):  # TODO : After OAM is released , replace this with OAM dataset directly
         filename_glob = "OAM-*.tif"
         filename_regex = r"^OAM-(?P<x>\d+)-(?P<y>\d+)-(?P<z>\d+)\.tif$"
         is_image = True

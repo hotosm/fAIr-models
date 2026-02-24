@@ -218,7 +218,8 @@ implementation.md
 
 .DS_Store
 
-data
+# data
+data/sample/predict/predictions
 stac_catalog
 
 # hatch-vcs generated version file

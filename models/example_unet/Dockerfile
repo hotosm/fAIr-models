@@ -8,7 +8,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 RUN uv venv /opt/venv
 RUN . /opt/venv/bin/activate && \
-    uv pip install --no-cache torch==2.10.0 torchgeo==0.9.0 "pystac[validation]==1.14.3" zenml==0.93.3
+    uv pip install torch==2.10.0 torchgeo==0.9.0 "pystac[validation]==1.14.3" zenml==0.93.3
 
 # Runtime stage: minimal image
 FROM python:3.13-slim-trixie

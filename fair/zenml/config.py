@@ -6,6 +6,16 @@ import pystac
 
 from fair.stac.constants import OCI_IMAGE_INDEX_TYPE
 
+_CONTAINER_REGISTRIES = ("ghcr.io", "docker.io", "quay.io", ".azurecr.io", ".ecr.", ".gcr.io")
+
+
+def _normalize_container_href(href: str) -> str:
+    """Fix container registry URLs that PySTAC made relative."""
+    for registry in _CONTAINER_REGISTRIES:
+        if (idx := href.find(registry)) != -1:
+            return href[idx:]
+    return href
+
 
 def _extract_input_spec(mlm_input: list[dict[str, Any]]) -> dict[str, Any]:
     # Band names are model-internal, only chip_size is a pipeline param
@@ -64,7 +74,7 @@ def generate_training_config(
 
     runtime = base_model_item.assets.get("mlm:training")
     if runtime and runtime.media_type == OCI_IMAGE_INDEX_TYPE:
-        config["settings"] = {"docker": {"parent_image": runtime.href}}
+        config["settings"] = {"docker": {"parent_image": _normalize_container_href(runtime.href)}}
 
     return config
 
@@ -106,6 +116,6 @@ def generate_inference_config(
 
     runtime = model_item.assets.get("mlm:inference")
     if runtime and runtime.media_type == OCI_IMAGE_INDEX_TYPE:
-        config["settings"] = {"docker": {"parent_image": runtime.href}}
+        config["settings"] = {"docker": {"parent_image": _normalize_container_href(runtime.href)}}
 
     return config

@@ -54,14 +54,28 @@ def _base_model_item() -> pystac.Item:
     )
 
 
-def _mock_mv(params: dict[str, Any] | None = None, *, weights_found: bool = True) -> MagicMock:
+def _mock_mv(params: dict[str, Any] | None = None, *, weights_found: bool = True) -> tuple[MagicMock, MagicMock]:
+    """Create a mock model version and client with pipeline run links.
+
+    Returns:
+        Tuple of (model_version, client) mocks
+    """
     mv = MagicMock()
     mv.id = "fake-uuid"
+
     step = MagicMock()
     step.config.parameters = params or {}
     run = MagicMock()
     run.steps.get.return_value = step
-    mv.pipeline_runs = {"run-1": run}
+    run.config.parameters = params or {}
+
+    client = MagicMock()
+    run_link = MagicMock()
+    run_link.pipeline_run = run
+    page = MagicMock()
+    page.items = [run_link]
+    client.list_model_version_pipeline_run_links.return_value = page
+
     if weights_found:
         art = MagicMock()
         art.uri = "s3://artifact-store/model/output/abc123"
@@ -69,7 +83,7 @@ def _mock_mv(params: dict[str, Any] | None = None, *, weights_found: bool = True
         mv.get_artifact.return_value = art
     else:
         mv.get_artifact.return_value = None
-    return mv
+    return mv, client
 
 
 def _publish(cm: StacCatalogManager, version: int = 1, **kw: Any) -> pystac.Item:
@@ -95,7 +109,9 @@ def test_promote_sets_stage(mock_cls):
 
 @patch("fair.zenml.promotion.Client")
 def test_publish_and_deprecate_previous(mock_cls, cm):
-    mock_cls.return_value.get_model_version.return_value = _mock_mv({"epochs": 1})
+    mv, client = _mock_mv({"epochs": 1})
+    mock_cls.return_value = client
+    client.get_model_version.return_value = mv
 
     v1 = _publish(cm, version=1)
     assert v1.id == "unet-finetuned-banepa-v1"
@@ -108,7 +124,9 @@ def test_publish_and_deprecate_previous(mock_cls, cm):
 @patch("fair.zenml.promotion.Client")
 def test_publish_stores_artifact_metadata(mock_cls, cm):
     """Model asset must carry both the artifact URI and ZenML artifact version ID."""
-    mock_cls.return_value.get_model_version.return_value = _mock_mv({"epochs": 1})
+    mv, client = _mock_mv({"epochs": 1})
+    mock_cls.return_value = client
+    client.get_model_version.return_value = mv
     item = _publish(cm, version=1)
     model_asset = item.assets["model"]
     assert model_asset.href == "s3://artifact-store/model/output/abc123"
@@ -117,14 +135,18 @@ def test_publish_stores_artifact_metadata(mock_cls, cm):
 
 @patch("fair.zenml.promotion.Client")
 def test_missing_weights_raises(mock_cls, cm):
-    mock_cls.return_value.get_model_version.return_value = _mock_mv(weights_found=False)
+    mv, client = _mock_mv(weights_found=False)
+    mock_cls.return_value = client
+    client.get_model_version.return_value = mv
     with pytest.raises(RuntimeError, match="No model artifact"):
         _publish(cm)
 
 
 @patch("fair.zenml.promotion.Client")
 def test_archive(mock_cls, cm):
-    mock_cls.return_value.get_model_version.return_value = _mock_mv()
+    mv, client = _mock_mv()
+    mock_cls.return_value = client
+    client.get_model_version.return_value = mv
     _publish(cm, version=1)
 
     mv = MagicMock()
@@ -143,7 +165,9 @@ def test_archive_missing_raises(mock_cls, cm):
 
 @patch("fair.zenml.promotion.Client")
 def test_delete_version(mock_cls, cm):
-    mock_cls.return_value.get_model_version.return_value = _mock_mv()
+    mv, client = _mock_mv()
+    mock_cls.return_value = client
+    client.get_model_version.return_value = mv
     _publish(cm, version=1)
 
     mv = MagicMock()
@@ -156,7 +180,9 @@ def test_delete_version(mock_cls, cm):
 
 @patch("fair.zenml.promotion.Client")
 def test_delete_model(mock_cls, cm):
-    mock_cls.return_value.get_model_version.return_value = _mock_mv()
+    mv, client = _mock_mv()
+    mock_cls.return_value = client
+    client.get_model_version.return_value = mv
     for v in (1, 2):
         _publish(cm, version=v)
 

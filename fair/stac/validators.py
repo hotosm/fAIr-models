@@ -5,6 +5,9 @@ import json
 
 import pystac
 
+## TODO : add fAIr specific validation rules here , mainly for existence of those keys which are required to integrate
+# basemodels
+
 
 def validate_mlm_schema(item: pystac.Item) -> list[str]:
     errors: list[str] = []

@@ -64,12 +64,11 @@ def publish_promoted_model(
     mv = client.get_model_version(model_name, version)
 
     # Exclude infra params, keep only tunable hparams.
-    # pipeline_runs is deprecated but replacement isn't stable in ZenML 0.93.x
     _INFRA_KEYS = {"base_model_weights", "dataset_chips", "dataset_labels", "num_classes"}
     hyperparams: dict[str, Any] = {}
-    runs = mv.pipeline_runs
-    if runs:
-        run = next(iter(runs.values()))
+    run_links = client.list_model_version_pipeline_run_links(model_version_id=mv.id)
+    if run_links.items:
+        run = run_links.items[0].pipeline_run
         step = run.steps.get("train_model")
         raw_params: dict[str, Any] | None = step.config.parameters if step else run.config.parameters
         hyperparams = {k: v for k, v in (raw_params or {}).items() if k not in _INFRA_KEYS}

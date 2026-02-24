@@ -1,0 +1,11 @@
+parameters:
+  model_uri: /home/krschap/.config/zenml/local_stores/95dba83e-f1d1-4bf5-a193-6275461ae03e/train_model/output/5d51aeed-56f1-47fa-9e87-ba2a4e4a213b/65106189
+  input_images: data/sample/predict/oam
+  chip_size: 512
+  zenml_artifact_version_id: a71e3018-9bac-401c-b7a7-4f705a4b56e9
+  num_classes: 2
+tags:
+- model:example-unet-finetuned-banepa-v12
+settings:
+  docker:
+    parent_image: ../../../models/example_unet/ghcr.io/hotosm/fair-models/example-unet:v1

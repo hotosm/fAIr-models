@@ -1,0 +1,97 @@
+{
+  "type": "Feature",
+  "stac_version": "1.1.0",
+  "stac_extensions": [
+    "https://stac-extensions.github.io/label/v1.0.1/schema.json",
+    "https://stac-extensions.github.io/file/v2.1.0/schema.json"
+  ],
+  "id": "buildings-banepa",
+  "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+      [
+        [
+          85.5187821,
+          27.6291926
+        ],
+        [
+          85.5232631,
+          27.6291926
+        ],
+        [
+          85.5232631,
+          27.6343511
+        ],
+        [
+          85.5187821,
+          27.6343511
+        ],
+        [
+          85.5187821,
+          27.6291926
+        ]
+      ]
+    ]
+  },
+  "bbox": [
+    85.5187821,
+    27.6291926,
+    85.5232631,
+    27.6343511
+  ],
+  "properties": {
+    "label:type": "vector",
+    "label:tasks": [
+      "segmentation"
+    ],
+    "label:classes": [
+      {
+        "name": "building",
+        "classes": [
+          "building"
+        ]
+      }
+    ],
+    "keywords": [
+      "building",
+      "semantic-segmentation",
+      "polygon"
+    ],
+    "version": "1",
+    "datetime": "2026-02-24T09:45:24.957673Z"
+  },
+  "links": [
+    {
+      "rel": "root",
+      "href": "../../catalog.json",
+      "type": "application/json"
+    },
+    {
+      "rel": "collection",
+      "href": "../collection.json",
+      "type": "application/json"
+    },
+    {
+      "rel": "parent",
+      "href": "../collection.json",
+      "type": "application/json"
+    }
+  ],
+  "assets": {
+    "chips": {
+      "href": "./data/sample/train/oam",
+      "type": "image/png",
+      "roles": [
+        "data"
+      ]
+    },
+    "labels": {
+      "href": "./data/sample/train/osm/osm_features_ac7e343eb1faacd2.geojson",
+      "type": "application/geo+json",
+      "roles": [
+        "labels"
+      ]
+    }
+  },
+  "collection": "datasets"
+}

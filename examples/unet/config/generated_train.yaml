@@ -1,0 +1,21 @@
+model:
+  name: example-unet-finetuned-banepa
+parameters:
+  base_model_weights: ../../../models/example_unet/torchgeo.models.Unet_Weights.OAM_RGB_RESNET50_TCD
+  dataset_chips: ./data/sample/train/oam
+  dataset_labels: ./data/sample/train/osm/osm_features_ac7e343eb1faacd2.geojson
+  epochs: 1
+  batch_size: 4
+  learning_rate: 0.0001
+  weight_decay: 0.0001
+  chip_size: 512
+  optimizer: AdamW
+  loss: CrossEntropyLoss
+  num_classes: 2
+tags:
+- model:example-unet-finetuned-banepa
+- base-model:example-unet
+- dataset:buildings-banepa
+settings:
+  docker:
+    parent_image: ../../../models/example_unet/ghcr.io/hotosm/fair-models/example-unet:v1

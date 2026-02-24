@@ -64,11 +64,14 @@ dev = [
     "pre-commit>=4.0",
 ]
 ci = [
-    {include-group = "dev"}
-,
+    {include-group = "dev"},
 ]
 local = [
     "zenml[server]>=0.93.3",
+]
+example = [
+    "torch",
+    "torchgeo",
 ]
 
 [tool.ruff]

@@ -20,12 +20,8 @@ clean:
 	rm -rf .zen artifacts dist *.egg-info
 
 example:
-	uv run python examples/unet/download.py
-	uv run python examples/unet/register_dataset.py
-	uv run python examples/unet/register_basemodel.py
-	uv run python examples/unet/finetune.py
-	uv run python examples/unet/promote.py
-	uv run python examples/unet/predict.py
+	uv run python examples/unet/run.py clean
+	uv run python examples/unet/run.py all
 
 lint:
 	uv run ruff check .

@@ -1,8 +1,12 @@
 # fAIr-models
 
 Model registry and ML pipeline orchestration for [fAIr](https://github.com/hotosm/fAIr).
-Base models are contributed via GitHub PRs. Finetuned models are produced by
-ZenML pipelines and published to a STAC catalog on promotion.
+`fair-ops` is the Python package model developers install to build ZenML
+pipelines, validate STAC items, and test the full workflow locally before
+submitting to the fAIr platform. The `models/` directory is the single source
+of truth for base model contributions -- each subdirectory is one base model.
+Finetuned models are produced by ZenML pipelines and published to a STAC
+catalog on promotion.
 
 ## Quickstart
 
@@ -257,7 +261,7 @@ ZenML Inference Pipeline
 Result returned to consumer
 ```
 
-### 5. YAML-Driven Pipeline Execution
+### 5. YAML-based Pipeline Execution
 
 The backend generates a ZenML YAML config from STAC metadata + user overrides.
 Because ZenML doesn't support STAC out of the box we need a bridge in between.

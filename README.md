@@ -1,7 +1,7 @@
 # fAIr-models
 
 Model registry and ML pipeline orchestration for [fAIr](https://github.com/hotosm/fAIr).
-`fair-ops` is the Python package model developers install to build ZenML
+`fair-py-ops` is the Python package model developers install to build ZenML
 pipelines, validate STAC items, and test the full workflow locally before
 submitting to the fAIr platform. The `models/` directory is the single source
 of truth for base model contributions -- each subdirectory is one base model.

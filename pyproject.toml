@@ -3,7 +3,7 @@ requires = ["hatchling", "hatch-vcs"]
 build-backend = "hatchling.build"
 
 [project]
-name = "fair-ops"
+name = "fair-py-ops"
 dynamic = ["version"]
 description = "Model registry and ML pipeline orchestration for fAIr"
 readme = "README.md"

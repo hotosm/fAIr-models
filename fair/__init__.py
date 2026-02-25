@@ -1,8 +1,8 @@
-"""fair-ops: Model registry and ML pipeline orchestration for fAIr."""
+"""fair-py-ops: Model registry and ML pipeline orchestration for fAIr."""
 
 from importlib.metadata import PackageNotFoundError, version
 
 try:
-    __version__ = version("fair-ops")
+    __version__ = version("fair-py-ops")
 except PackageNotFoundError:
     __version__ = "0.0.0.dev0"

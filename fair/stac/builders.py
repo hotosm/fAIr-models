@@ -12,7 +12,7 @@ from fair.stac.constants import (
     OCI_IMAGE_INDEX_TYPE,
 )
 
-_CONTAINER_REGISTRIES = ("ghcr.io", "docker.io", "quay.io", ".azurecr.io", ".ecr.", ".gcr.io")
+_CONTAINER_REGISTRIES = ("ghcr.io", "docker.io", "quay.io")
 
 _SOURCE_CODE_EXTENSIONS = {
     ".py": "text/x-python",

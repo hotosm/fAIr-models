@@ -1,4 +1,3 @@
 # BuildKit uses <Dockerfile>.dockerignore automatically (no repo-level side effects) 
 *
-!fair/
 !models/example_unet/

@@ -43,6 +43,9 @@ build:
 bump:
 	uv run cz bump --changelog
 
+commit:
+	uv run cz commit
+
 pre-commit:
 	uv run pre-commit install --hook-type commit-msg --hook-type pre-commit
 

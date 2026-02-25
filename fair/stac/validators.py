@@ -5,8 +5,8 @@ import json
 
 import pystac
 
-## TODO : add fAIr specific validation rules here , mainly for existence of those keys which are required to integrate
-# basemodels
+# TODO : extend the validation with complete set of requirements based on the prod stac , currently only handful checks
+#  are in place
 
 
 def validate_mlm_schema(item: pystac.Item) -> list[str]:
@@ -21,6 +21,85 @@ def validate_mlm_schema(item: pystac.Item) -> list[str]:
 def _load_keywords_schema() -> dict:
     ref = importlib.resources.files("fair.schemas").joinpath("keywords.json")
     return json.loads(ref.read_text(encoding="utf-8"))
+
+
+def _load_base_model_requirements() -> dict:
+    ref = importlib.resources.files("fair.schemas").joinpath("base_model_requirements.json")
+    return json.loads(ref.read_text(encoding="utf-8"))
+
+
+def _check_processing_fn(fn: object, path: str, required_fields: list[str], errors: list[str]) -> None:
+    if not isinstance(fn, dict):
+        errors.append(f"{path} must be an object")
+        return
+    for field in required_fields:
+        if field not in fn:
+            errors.append(f"{path} missing field: {field}")
+
+
+def validate_base_model_item(item: pystac.Item) -> list[str]:
+    """Validate a base-model STAC item against fAIr requirements from base_model_requirements.json."""
+    reqs = _load_base_model_requirements()
+    kw_schema = _load_keywords_schema()
+    errors: list[str] = []
+
+    declared = set(item.stac_extensions)
+    for ext in reqs["required_extensions"]:
+        if ext not in declared:
+            errors.append(f"Missing extension: {ext}")
+
+    props = item.properties
+    for prop in reqs["required_properties"]:
+        if prop not in props or props[prop] is None:
+            errors.append(f"Missing property: {prop}")
+
+    for prop in reqs["non_empty_list_properties"]:
+        val = props.get(prop)
+        if isinstance(val, list) and len(val) == 0:
+            errors.append(f"Property must be non-empty list: {prop}")
+
+    allowed_kw = (
+        set(kw_schema["allowed_keywords"])
+        | set(kw_schema["allowed_tasks"])
+        | set(kw_schema.get("allowed_geometry_types", []))
+    )
+    unknown_kw = set(props.get("keywords", [])) - allowed_kw
+    if unknown_kw:
+        errors.append(f"Unknown keywords: {unknown_kw}")
+
+    for prop, allowed in reqs.get("allowed_values", {}).items():
+        val = props.get(prop)
+        if val is None:
+            continue
+        items = val if isinstance(val, list) else [val]
+        invalid = set(items) - set(allowed)
+        if invalid:
+            errors.append(f"Invalid {prop} values: {invalid}. Allowed: {allowed}")
+
+    proc_fields = reqs["processing_function_fields"]
+    for i, inp in enumerate(props.get("mlm:input") or []):
+        for field in reqs["input_required_fields"]:
+            if field not in inp:
+                errors.append(f"mlm:input[{i}] missing: {field}")
+            elif field == "pre_processing_function":
+                _check_processing_fn(inp[field], f"mlm:input[{i}].{field}", proc_fields, errors)
+
+    for i, out in enumerate(props.get("mlm:output") or []):
+        for field in reqs["output_required_fields"]:
+            if field not in out:
+                errors.append(f"mlm:output[{i}] missing: {field}")
+            elif field == "post_processing_function":
+                _check_processing_fn(out[field], f"mlm:output[{i}].{field}", proc_fields, errors)
+
+    for asset_key, required_fields in reqs["required_assets"].items():
+        if asset_key not in item.assets:
+            errors.append(f"Missing asset: {asset_key}")
+            continue
+        for field in required_fields:
+            if field not in item.assets[asset_key].extra_fields:
+                errors.append(f"Asset '{asset_key}' missing field: {field}")
+
+    return errors
 
 
 def validate_compatibility(

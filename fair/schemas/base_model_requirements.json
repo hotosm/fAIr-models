@@ -1,0 +1,68 @@
+{
+    "required_extensions": [
+        "https://stac-extensions.github.io/mlm/v1.5.1/schema.json",
+        "https://stac-extensions.github.io/version/v1.2.0/schema.json",
+        "https://stac-extensions.github.io/classification/v2.0.0/schema.json",
+        "https://stac-extensions.github.io/file/v2.1.0/schema.json",
+        "https://stac-extensions.github.io/raster/v1.1.0/schema.json"
+    ],
+    "required_properties": [
+        "mlm:name",
+        "mlm:architecture",
+        "mlm:tasks",
+        "mlm:framework",
+        "mlm:framework_version",
+        "mlm:pretrained",
+        "mlm:input",
+        "mlm:output",
+        "mlm:hyperparameters",
+        "keywords",
+        "version",
+        "license"
+    ],
+    "non_empty_list_properties": [
+        "mlm:tasks",
+        "mlm:input",
+        "mlm:output",
+        "keywords"
+    ],
+    "required_assets": {
+        "model": [
+            "mlm:artifact_type"
+        ],
+        "source-code": [
+            "mlm:entrypoint"
+        ],
+        "mlm:training": [],
+        "mlm:inference": []
+    },
+    "input_required_fields": [
+        "pre_processing_function"
+    ],
+    "output_required_fields": [
+        "post_processing_function",
+        "classification:classes"
+    ],
+    "processing_function_fields": [
+        "format",
+        "expression"
+    ],
+    "allowed_values": {
+        "license": [
+            "GPL-3.0-only",
+            "MIT",
+            "Apache-2.0",
+            "BSD-3-Clause"
+        ],
+        "mlm:framework": [
+            "PyTorch",
+            "TensorFlow"
+        ],
+        "mlm:tasks": [
+            "semantic-segmentation",
+            "instance-segmentation",
+            "object-detection",
+            "classification"
+        ]
+    }
+}

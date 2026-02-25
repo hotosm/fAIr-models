@@ -27,12 +27,13 @@ jobs:
       - name: Fetch base ref
         if: github.event_name == 'pull_request'
         run: git fetch origin ${{ github.event.pull_request.base.ref }}
-      - uses: actions/setup-python@v5
+      - uses: astral-sh/setup-uv@v5
         with:
           python-version: "3.13"
-      - run: pip install pystac
+          enable-cache: true
+      - run: uv add pystac
       - id: models
-        run: echo "matrix=$(python .github/scripts/detect_models.py)" >> $GITHUB_OUTPUT
+        run: echo "matrix=$(uv run python .github/scripts/detect_models.py)" >> $GITHUB_OUTPUT
         env:
           EVENT_NAME: ${{ github.event_name }}
           BASE_SHA: ${{ github.event.pull_request.base.sha }}

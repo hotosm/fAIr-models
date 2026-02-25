@@ -55,7 +55,7 @@ jobs:
     name: publish (PyPI)
     needs: [build, test]
     runs-on: ubuntu-latest
-    environment: pypi
+    environment: publish-pypi
     permissions:
       id-token: write
     steps:

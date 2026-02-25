@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## v0.1.0 (2026-02-25)
 
+## v0.1.0 (2026-02-25)
+
 ### Feat
 
 - infer source code media type and update deprecation handling in STAC items

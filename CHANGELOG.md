@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## v0.1.0 (2026-02-25)
 
+### Fix
+
+- **pkg-name**: fix package name being too similar
+
+## v0.1.0 (2026-02-25)
+
 ## v0.1.0 (2026-02-25)
 
 ### Feat

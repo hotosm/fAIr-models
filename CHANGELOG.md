@@ -11,3 +11,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - infer source code media type and update deprecation handling in STAC items
 - add ZenML integration for model promotion and STAC catalog synchronization
 - implement STAC catalog management and builders for datasets and models
+
+## v0.0.1 (2026-02-25)
+
+### Feat
+
+- infer source code media type and update deprecation handling in STAC items
+- add ZenML integration for model promotion and STAC catalog synchronization
+- implement STAC catalog management and builders for datasets and models
+
+### Fix
+
+- **pkg-name**: fix package name being too similar

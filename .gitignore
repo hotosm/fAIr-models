@@ -205,3 +205,22 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+
+.zen
+artifacts
+*.pkl
+
+examples/data
+examples/unet/config/generated_*.yaml
+implementation.md
+
+
+.DS_Store
+
+# data
+data/sample/predict/predictions
+stac_catalog
+
+# hatch-vcs generated version file
+fair/_version.py

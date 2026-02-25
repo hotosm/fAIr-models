@@ -1,0 +1,84 @@
+name: style & tests
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+    branches:
+      - master
+defaults:
+  run:
+    shell: bash
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  ruff:
+    name: ruff
+    runs-on: ubuntu-latest
+    steps:
+      - name: Clone repo
+        uses: actions/checkout@v4
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.13"
+          enable-cache: true
+      - name: Install dependencies
+        run: uv sync --group dev
+      - name: Run ruff checks
+        run: |
+          uv run ruff check --output-format=github --no-fix .
+          uv run ruff format --diff
+  ty:
+    name: ty
+    runs-on: ubuntu-latest
+    steps:
+      - name: Clone repo
+        uses: actions/checkout@v4
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.13"
+          enable-cache: true
+      - name: Install dependencies
+        run: uv sync --group ci
+      - name: Run ty checks
+        run: uv run ty check  --ignore unresolved-import --output-format github # TODO : figure out way for this ignore unresolved imports in models repo
+  tests:
+    name: tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Clone repo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.13"
+          enable-cache: true
+      - name: Install dependencies
+        run: uv sync --group dev
+      - name: Run pytest
+        run: uv run pytest --tb=short -q
+  build:
+    name: build check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Clone repo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.13"
+          enable-cache: true
+      - name: Build package
+        run: uv build
+      - name: Verify wheel contents
+        run: |
+          uv venv /tmp/verify-env
+          VIRTUAL_ENV=/tmp/verify-env uv pip install dist/*.whl
+          /tmp/verify-env/bin/python -c "import fair; print(fair.__version__)"

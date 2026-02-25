@@ -1,0 +1,93 @@
+[build-system]
+requires = ["hatchling", "hatch-vcs"]
+build-backend = "hatchling.build"
+
+[project]
+name = "fair-ops"
+dynamic = ["version"]
+description = "Model registry and ML pipeline orchestration for fAIr"
+readme = "README.md"
+requires-python = ">=3.12"
+license = "GPL-3.0-only"
+authors = [{name = "HOTOSM", email = "sysadmin@hotosm.org"}]
+maintainers = [{ name = "Kshitij Raj Sharma", email = "krschap@duck.com" }]
+keywords = [
+    "machine-learning",
+    "geospatial",
+    "stac",
+    "openstreetmap",
+    "humanitarian",
+    "model-registry",
+    "mlops",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Scientific/Engineering :: GIS",
+    "Typing :: Typed",
+]
+dependencies = [
+    "pystac[validation]>=1.14.3",
+    "zenml>=0.93.3",
+]
+
+[project.urls]
+Homepage = "https://github.com/hotosm/fAIr-models"
+Documentation = "https://github.com/hotosm/fAIr-models#readme"
+Repository = "https://github.com/hotosm/fAIr-models"
+Issues = "https://github.com/hotosm/fAIr-models/issues"
+Changelog = "https://github.com/hotosm/fAIr-models/blob/master/CHANGELOG.md"
+
+[tool.hatch.version]
+source = "vcs"
+
+[tool.hatch.build.targets.sdist]
+include = ["fair/", "models/", "LICENSE", "README.md"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["fair", "models"]
+
+
+[dependency-groups]
+dev = [
+    "ty",
+    "ruff",
+    "pytest>=8.0",
+    "commitizen>=4.1",
+    "pre-commit>=4.0",
+]
+ci = [
+    {include-group = "dev"},
+]
+local = [
+    "zenml[server]>=0.93.3",
+]
+example = [
+    "torch",
+    "torchgeo",
+]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.commitizen]
+name = "cz_conventional_commits"
+tag_format = "v$version"
+version_scheme = "semver"
+version_provider = "scm"
+update_changelog_on_bump = true
+major_version_zero = true

@@ -1,0 +1,48 @@
+name: build & integration of zenml workflow
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+    branches:
+      - master
+defaults:
+  run:
+    shell: bash
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  example:
+    name: example workflow
+    runs-on: ubuntu-latest
+    steps:
+      - name: Clone repo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.13"
+          enable-cache: true
+      - name: Install dependencies
+        run: uv sync --group example --group local
+      - name: Start ZenML server
+        run: |
+          uv run zenml init
+          uv run zenml up --blocking &
+          sleep 10
+          uv run zenml status
+      - name: Run example workflow
+        run: uv run python examples/unet/run.py all
+      - name: Verify artifacts
+        run: |
+          test -d stac_catalog || { echo "STAC catalog not created"; exit 1; }
+          test -f stac_catalog/base-models/example-unet/example-unet.json || { echo "Base model not registered"; exit 1; }
+          test -f stac_catalog/datasets/buildings-banepa/buildings-banepa.json || { echo "Dataset not registered"; exit 1; }
+          ls -1 stac_catalog/local-models/ | grep -q "example-unet-finetuned-banepa-v" || { echo "Local model not published"; exit 1; }
+          test -d artifacts || { echo "Artifacts directory not created"; exit 1; }
+          test -d data/sample/predict/predictions || { echo "Predictions directory not created"; exit 1; }
+          test -n "$(find data/sample/predict/predictions -name '*.tif' -o -name '*.png' 2>/dev/null)" || { echo "No prediction files found"; exit 1; }
+          echo "All workflow outputs verified: STAC catalog + artifacts + predictions"

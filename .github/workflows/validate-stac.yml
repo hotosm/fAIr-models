@@ -1,0 +1,38 @@
+name: validate STAC items
+on:
+  push:
+    branches:
+      - master
+    paths:
+      - "models/**/stac-item.json"
+      - "fair/schemas/**"
+      - "fair/stac/validators.py"
+  pull_request:
+    branches:
+      - master
+    paths:
+      - "models/**/stac-item.json"
+      - "fair/schemas/**"
+      - "fair/stac/validators.py"
+defaults:
+  run:
+    shell: bash
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  validate:
+    name: validate stac items
+    runs-on: ubuntu-latest
+    steps:
+      - name: Clone repo
+        uses: actions/checkout@v4
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.13"
+          enable-cache: true
+      - name: Install dependencies
+        run: uv sync --group dev
+      - name: Validate STAC items
+        run: make validate-stac

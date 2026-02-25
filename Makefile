@@ -1,4 +1,4 @@
-.PHONY: init setup clean example lint format typecheck test build bump pre-commit
+.PHONY: init setup clean example lint format typecheck test build bump pre-commit validate-stac
 
 init:
 	uv sync --group local
@@ -45,4 +45,7 @@ bump:
 
 pre-commit:
 	uv run pre-commit install --hook-type commit-msg --hook-type pre-commit
+
+validate-stac:
+	uv run python scripts/validate_stac_items.py
 

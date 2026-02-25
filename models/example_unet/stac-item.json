@@ -49,7 +49,7 @@
         "mlm:tasks": [
             "semantic-segmentation"
         ],
-        "mlm:framework": "pytorch",
+        "mlm:framework": "PyTorch",
         "mlm:framework_version": "2.1.0",
         "mlm:pretrained": true,
         "mlm:pretrained_source": "OAM-TCD (NeurIPS 2024, arxiv.org/abs/2407.11743)",
@@ -58,6 +58,7 @@
             "semantic-segmentation",
             "polygon"
         ],
+        "license": "GPL-3.0-only",
         "version": "1",
         "mlm:input": [
             {

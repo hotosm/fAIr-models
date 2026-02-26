@@ -304,7 +304,7 @@ A user might run 10 experiments, promote 3 of them over time. Only those 3 appea
 | **ZenML** | Pipeline orchestration, version tracking | SQLite (`~/.config/zenml/`) | ZenML Server (PostgreSQL) |
 | **Orchestrator** | Runs pipeline steps | `local` | Kubernetes |
 | **Artifact Store** | Weights, datasets, artifacts | local filesystem | S3 |
-| **Experiment Tracker** | Metrics logging | W&B | W&B |
+| **Experiment Tracker** | Metrics logging | Mlflow | Mlflow |
 | **Container Registry** | Model runtime images | local Docker | ghcr.io |
 | **fAIr Backend** | User-facing orchestration layer | -- | -- |
 
@@ -360,3 +360,5 @@ ZenML stack components NOT used:
 5. **YAML-based training & inference**: Every pipeline run is driven by a generated YAML config (STAC defaults + user overrides). Logged as a ZenML artifact. Re-run any experiment by re-running its YAML.
 
 6. **MLM Processing Expression for dispatch**: `pre_processing_function` and `post_processing_function` use `format: "python"` with entrypoint strings (e.g., `ramp.pipeline:preprocess`). Each model defines its own pre/post processing; the system does not assume a fixed pipeline shape. System considers each model having its own runtime , preprocessing , postprocessing and training pipeline.
+
+7. W&B self-hosted requires MySQL + Redis + a commercial license for team use. Mlflow is fully open source.

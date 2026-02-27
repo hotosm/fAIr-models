@@ -13,10 +13,19 @@ uv sync --group example --group k8s
 cd infra/dev
 make up            # cluster + infra + port-forwards + seed data + zenml stack
 make run-example   # init -> register -> finetune -> promote -> predict
-make teardown      # destroy everything
+make teardown      # destroy everything (kills port-forwards, removes cluster)
 ```
 
 Individual targets: `make help`.
+
+### ZenML Stacks
+
+`make stack-register` creates two stacks:
+
+| Stack | Orchestrator | S3 Endpoint | MLflow | Use |
+|-------|-------------|-------------|--------|-----|
+| `dev` (active) | `default` (local) | `localhost:9000` | `localhost:5000` | Local runs via port-forward (`make run-example`) |
+| `k8s` | `k8s_orchestrator` | `minio.fair.svc:9000` | `mlflow.fair.svc:80` | In-cluster jobs |
 
 ## Architecture
 

@@ -76,6 +76,8 @@ example = [
 k8s = [
     "pypgstac[psycopg]>=0.9",
     "pystac-client>=0.9",
+    "mlflow>=2.1.1,<4",
+    "zenml[connectors-kubernetes,s3fs]>=0.93.3",
 ]
 
 [tool.ruff]

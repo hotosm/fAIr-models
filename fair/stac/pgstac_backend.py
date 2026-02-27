@@ -44,6 +44,7 @@ class PgStacBackend:
             )
 
     def publish_item(self, collection_id: str, item: pystac.Item) -> pystac.Item:
+        item.properties.setdefault("version", "1")
         item_dict = item.to_dict()
         item_dict["collection"] = collection_id
         with self._get_db() as db:

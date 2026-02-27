@@ -63,29 +63,32 @@ def geojson_path(tmp_path):
     return str(path)
 
 
+_BASE_DEFAULTS: dict[str, Any] = {
+    "item_id": "example-unet",
+    "geometry": _GEOM,
+    "dt": _DT,
+    "mlm_name": "example-unet",
+    "mlm_architecture": "UNet",
+    "mlm_tasks": ["semantic-segmentation"],
+    "mlm_framework": "pytorch",
+    "mlm_framework_version": "2.1.0",
+    "mlm_input": _MLM_INPUT,
+    "mlm_output": _MLM_OUTPUT,
+    "mlm_hyperparameters": {"epochs": 15, "batch_size": 4, "learning_rate": 0.0001},
+    "keywords": ["building", "semantic-segmentation", "polygon"],
+    "model_href": "weights.pt",
+    "model_artifact_type": "torch.save",
+    "mlm_pretrained": True,
+    "mlm_pretrained_source": "OAM-TCD",
+    "source_code_href": "https://github.com/example",
+    "source_code_entrypoint": "mod:train",
+    "training_runtime_href": "local",
+    "inference_runtime_href": "local",
+}
+
+
 def _base_model(**kw: Any) -> pystac.Item:
-    return build_base_model_item(
-        item_id=kw.get("item_id", "example-unet"),
-        geometry=kw.get("geometry", _GEOM),
-        dt=kw.get("dt", _DT),
-        mlm_name=kw.get("mlm_name", "example-unet"),
-        mlm_architecture=kw.get("mlm_architecture", "UNet"),
-        mlm_tasks=kw.get("mlm_tasks", ["semantic-segmentation"]),
-        mlm_framework=kw.get("mlm_framework", "pytorch"),
-        mlm_framework_version=kw.get("mlm_framework_version", "2.1.0"),
-        mlm_input=kw.get("mlm_input", _MLM_INPUT),
-        mlm_output=kw.get("mlm_output", _MLM_OUTPUT),
-        mlm_hyperparameters=kw.get("mlm_hyperparameters", {"epochs": 15, "batch_size": 4, "learning_rate": 0.0001}),
-        keywords=kw.get("keywords", ["building", "semantic-segmentation", "polygon"]),
-        model_href=kw.get("model_href", "weights.pt"),
-        model_artifact_type=kw.get("model_artifact_type", "torch.save"),
-        mlm_pretrained=kw.get("mlm_pretrained", True),
-        mlm_pretrained_source=kw.get("mlm_pretrained_source", "OAM-TCD"),
-        source_code_href=kw.get("source_code_href", "https://github.com/example"),
-        source_code_entrypoint=kw.get("source_code_entrypoint", "mod:train"),
-        training_runtime_href=kw.get("training_runtime_href", "local"),
-        inference_runtime_href=kw.get("inference_runtime_href", "local"),
-    )
+    return build_base_model_item(**{**_BASE_DEFAULTS, **kw})
 
 
 class TestBuildDatasetItem:

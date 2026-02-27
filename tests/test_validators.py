@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import json
 from datetime import UTC, datetime
 from unittest.mock import patch
@@ -152,8 +153,8 @@ def _valid_base_model():
         mlm_tasks=["semantic-segmentation"],
         mlm_framework="PyTorch",
         mlm_framework_version="2.1.0",
-        mlm_input=json.loads(json.dumps(_MLM_INPUT)),
-        mlm_output=json.loads(json.dumps(_MLM_OUTPUT)),
+        mlm_input=copy.deepcopy(_MLM_INPUT),
+        mlm_output=copy.deepcopy(_MLM_OUTPUT),
         mlm_hyperparameters={"epochs": 10, "batch_size": 4},
         keywords=["building", "semantic-segmentation", "polygon"],
         model_href="weights.pt",

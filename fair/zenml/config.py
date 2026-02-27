@@ -4,14 +4,12 @@ from typing import Any
 
 import pystac
 
-from fair.stac.constants import OCI_IMAGE_INDEX_TYPE
-
-_CONTAINER_REGISTRIES = ("ghcr.io", "docker.io", "quay.io", ".azurecr.io", ".ecr.", ".gcr.io")
+from fair.stac.constants import CONTAINER_REGISTRIES, OCI_IMAGE_INDEX_TYPE
 
 
 def _normalize_container_href(href: str) -> str:
     """Fix container registry URLs that PySTAC made relative."""
-    for registry in _CONTAINER_REGISTRIES:
+    for registry in CONTAINER_REGISTRIES:
         if (idx := href.find(registry)) != -1:
             return href[idx:]
     return href

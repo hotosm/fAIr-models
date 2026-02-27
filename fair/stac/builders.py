@@ -7,12 +7,11 @@ from typing import Any, Literal
 import pystac
 
 from fair.stac.constants import (
+    CONTAINER_REGISTRIES,
     DATASET_EXTENSIONS,
     MODEL_EXTENSIONS,
     OCI_IMAGE_INDEX_TYPE,
 )
-
-_CONTAINER_REGISTRIES = ("ghcr.io", "docker.io", "quay.io")
 
 _SOURCE_CODE_EXTENSIONS = {
     ".py": "text/x-python",
@@ -32,18 +31,21 @@ def _infer_source_code_media_type(href: str) -> str:
 
 def _infer_runtime_media_type(href: str) -> str:
     lower = href.lower()
-    if any(r in lower for r in _CONTAINER_REGISTRIES):
+    if any(r in lower for r in CONTAINER_REGISTRIES):
         return OCI_IMAGE_INDEX_TYPE
     if "dockerfile" in lower:
         return "text/x-dockerfile"
     return "text/plain"
 
 
-def _bbox_from_geometry(geometry: dict[str, Any]) -> list[float]:
-    coords = _flatten_coords(geometry["coordinates"])
+def _bbox_from_coords(coords: list[list[float]]) -> list[float]:
     lons = [c[0] for c in coords]
     lats = [c[1] for c in coords]
     return [min(lons), min(lats), max(lons), max(lats)]
+
+
+def _bbox_from_geometry(geometry: dict[str, Any]) -> list[float]:
+    return _bbox_from_coords(_flatten_coords(geometry["coordinates"]))
 
 
 def _flatten_coords(coords: Any) -> list[list[float]]:
@@ -71,10 +73,7 @@ def _geometry_and_bbox_from_geojson(labels_href: str) -> tuple[dict[str, Any], l
         msg = f"No coordinates found in {labels_href}"
         raise ValueError(msg)
 
-    lons = [c[0] for c in all_coords]
-    lats = [c[1] for c in all_coords]
-    west, south, east, north = min(lons), min(lats), max(lons), max(lats)
-
+    west, south, east, north = _bbox_from_coords(all_coords)
     geometry = {
         "type": "Polygon",
         "coordinates": [[[west, south], [east, south], [east, north], [west, north], [west, south]]],

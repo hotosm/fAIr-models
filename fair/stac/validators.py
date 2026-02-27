@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import functools
 import importlib.resources
 import json
 
@@ -18,11 +19,13 @@ def validate_mlm_schema(item: pystac.Item) -> list[str]:
     return errors
 
 
+@functools.cache
 def _load_keywords_schema() -> dict:
     ref = importlib.resources.files("fair.schemas").joinpath("keywords.json")
     return json.loads(ref.read_text(encoding="utf-8"))
 
 
+@functools.cache
 def _load_base_model_requirements() -> dict:
     ref = importlib.resources.files("fair.schemas").joinpath("base_model_requirements.json")
     return json.loads(ref.read_text(encoding="utf-8"))
@@ -55,7 +58,7 @@ def validate_base_model_item(item: pystac.Item) -> list[str]:
 
     for prop in reqs["non_empty_list_properties"]:
         val = props.get(prop)
-        if isinstance(val, list) and len(val) == 0:
+        if isinstance(val, list) and not val:
             errors.append(f"Property must be non-empty list: {prop}")
 
     allowed_kw = (

@@ -1,0 +1,70 @@
+# eoapi-k8s dev values -- STAC API only, external Postgres
+
+postgresql:
+  type: "external-plaintext"
+  external:
+    host: postgres.fair.svc
+    port: "5432"
+    database: fair_models
+    credentials:
+      username: postgres
+      password: postgres
+
+postgrescluster:
+  enabled: false
+
+pgstacBootstrap:
+  enabled: true
+  image:
+    name: ghcr.io/stac-utils/pgstac-pypgstac
+    tag: v0.9.9
+  settings:
+    loadSamples: false
+    queryables: []
+    user: postgres
+    database: fair_models
+
+apiServices:
+  - stac
+
+stac:
+  enabled: true
+  ingress:
+    enabled: false
+  overrideRootPath: ""
+  settings:
+    envVars:
+      HOST: "0.0.0.0"
+      PORT: "8080"
+      WEB_CONCURRENCY: "2"
+      DB_MIN_CONN_SIZE: "1"
+      DB_MAX_CONN_SIZE: "3"
+      STAC_FASTAPI_TITLE: "fAIr STAC Catalog (dev)"
+      STAC_FASTAPI_DESCRIPTION: "Local dev STAC API for fAIr model metadata."
+      ENABLE_TRANSACTIONS_EXTENSIONS: "true"
+
+# Everything else off
+browser:
+  enabled: false
+docServer:
+  enabled: false
+raster:
+  enabled: false
+multidim:
+  enabled: false
+stac-auth-proxy:
+  enabled: false
+vector:
+  enabled: false
+eoapi-notifier:
+  enabled: false
+monitoring:
+  metricsServer:
+    enabled: false
+  prometheus:
+    enabled: false
+observability:
+  grafana:
+    enabled: false
+ingress:
+  enabled: false

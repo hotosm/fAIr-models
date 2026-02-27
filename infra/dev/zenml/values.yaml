@@ -1,0 +1,30 @@
+# ZenML server Helm values for local dev (kind cluster)
+# Chart: oci://public.ecr.aws/zenml/zenml
+
+zenml:
+  image:
+    repository: ghcr.io/hotosm/zenml-postgres
+    tag: "0.93.3"
+    pullPolicy: IfNotPresent
+
+  debug: true
+  analyticsOptIn: false
+
+  ingress:
+    enabled: false
+
+  database:
+    url: "postgresql://postgres:postgres@postgres.fair.svc:5432/zenml"
+    backupStrategy: disabled
+
+  # Auto-activate server on first boot (skip browser activation step)
+  environment:
+    ZENML_SERVER_AUTO_ACTIVATE: "1"
+
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi

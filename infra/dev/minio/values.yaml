@@ -1,0 +1,18 @@
+rootUser: minioadmin
+rootPassword: minioadmin
+mode: standalone
+resources:
+  requests:
+    memory: 256Mi
+    cpu: 100m
+  limits:
+    memory: 512Mi
+persistence:
+  size: 5Gi
+buckets:
+  - name: fair-data
+    policy: none
+  - name: mlflow
+    policy: none
+  - name: zenml
+    policy: none

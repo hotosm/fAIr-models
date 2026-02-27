@@ -1,0 +1,19 @@
+backendStore:
+  databaseMigration: true
+  postgres:
+    enabled: true
+    host: postgres.fair.svc
+    port: 5432
+    database: mlflow
+    user: postgres
+    password: postgres
+
+artifactRoot:
+  s3:
+    enabled: true
+    bucket: mlflow
+    awsAccessKeyId: minioadmin
+    awsSecretAccessKey: minioadmin
+
+extraEnvVars:
+  MLFLOW_S3_ENDPOINT_URL: http://minio.fair.svc:9000

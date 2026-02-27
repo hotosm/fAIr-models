@@ -45,7 +45,7 @@ Port-forwards (via `make port-forward`):
 ## Decisions
 
 **kind over minikube/k3s** -- `hotosm/k8s-infra` runs upstream K8s (EKS). kind runs
-upstream K8s in Docker containers with guaranteed API compatibility. Lightweight, no VM. ( this can be revised in know that tailos is recommended in our docs, i wanted something up and running fast)
+upstream K8s in Docker containers with guaranteed API compatibility. Lightweight, no VM. ( this can be revised in know that talos is recommended in our docs, it is mainly becuase of learning curve with talos..)
 
 **Single PostgreSQL, three databases** -- ZenML, pgstac, and MLflow all need Postgres.
 One StatefulSet with init SQL (`CREATE DATABASE zenml; fair_models; mlflow`). Mirrors

@@ -11,12 +11,10 @@ components:
     flavor: local
     type: artifact_store
     configuration:
-      path: /home/krschap/code/hotosm/fAIr-models/artifacts
+      path: artifacts
   # experiment_tracker:
-  #   name: wandb_tracker
-  #   flavor: wandb
+  #   name: mlflow_tracker
+  #   flavor: mlflow
   #   type: experiment_tracker
   #   configuration:
-  #     entity: hotosm
-  #     project_name: fair-models-dev
-  #     api_key: "{{wandb_secret.api_key}}"
+  #     tracking_uri: "${MLFLOW_TRACKING_URI}"

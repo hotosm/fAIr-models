@@ -73,6 +73,10 @@ example = [
     "torch",
     "torchgeo",
 ]
+k8s = [
+    "pypgstac[psycopg]>=0.9",
+    "pystac-client>=0.9",
+]
 
 [tool.ruff]
 target-version = "py312"

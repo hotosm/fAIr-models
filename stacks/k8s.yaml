@@ -1,0 +1,28 @@
+stack_name: k8s
+components:
+  orchestrator:
+    name: k8s_orchestrator
+    flavor: kubernetes
+    type: orchestrator
+    configuration:
+      kubernetes_context: "${K8S_CONTEXT}"
+      kubernetes_namespace: fair
+  artifact_store:
+    name: s3_artifacts
+    flavor: s3
+    type: artifact_store
+    configuration:
+      path: s3://zenml
+      authentication_secret: s3_secret
+  container_registry:
+    name: ghcr
+    flavor: default
+    type: container_registry
+    configuration:
+      uri: ghcr.io/hotosm
+  experiment_tracker:
+    name: mlflow_tracker
+    flavor: mlflow
+    type: experiment_tracker
+    configuration:
+      tracking_uri: "${MLFLOW_TRACKING_URI}"

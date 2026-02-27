@@ -53,6 +53,8 @@
         "mlm:framework_version": "2.1.0",
         "mlm:pretrained": true,
         "mlm:pretrained_source": "OAM-TCD (NeurIPS 2024, arxiv.org/abs/2407.11743)",
+        "mlm:accelerator": "cuda",
+        "mlm:accelerator_count": 1,
         "keywords": [
             "building",
             "semantic-segmentation",

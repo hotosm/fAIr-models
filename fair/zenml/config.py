@@ -32,6 +32,25 @@ def _extract_num_classes(mlm_output: list[dict[str, Any]]) -> int | None:
     return len(classes) if classes else None
 
 
+def _build_k8s_settings(item: pystac.Item) -> dict[str, Any]:
+    """Build K8s pod settings from STAC item MLM metadata."""
+    accelerator = item.properties.get("mlm:accelerator")
+    if not accelerator or accelerator in ("amd64", "cpu"):
+        return {}
+    count = str(item.properties.get("mlm:accelerator_count", 1))
+    return {
+        "orchestrator.kubernetes": {
+            "pod_settings": {
+                "resources": {
+                    "requests": {"nvidia.com/gpu": count},
+                    "limits": {"nvidia.com/gpu": count},
+                },
+                "tolerations": [{"key": "nvidia.com/gpu", "operator": "Exists", "effect": "NoSchedule"}],
+            }
+        }
+    }
+
+
 def generate_training_config(
     base_model_item: pystac.Item,
     dataset_item: pystac.Item,
@@ -76,6 +95,10 @@ def generate_training_config(
     if runtime and runtime.media_type == OCI_IMAGE_INDEX_TYPE:
         config["settings"] = {"docker": {"parent_image": _normalize_container_href(runtime.href)}}
 
+    k8s_settings = _build_k8s_settings(base_model_item)
+    if k8s_settings:
+        config.setdefault("settings", {}).update(k8s_settings)
+
     return config
 
 
@@ -117,5 +140,9 @@ def generate_inference_config(
     runtime = model_item.assets.get("mlm:inference")
     if runtime and runtime.media_type == OCI_IMAGE_INDEX_TYPE:
         config["settings"] = {"docker": {"parent_image": _normalize_container_href(runtime.href)}}
+
+    k8s_settings = _build_k8s_settings(model_item)
+    if k8s_settings:
+        config.setdefault("settings", {}).update(k8s_settings)
 
     return config

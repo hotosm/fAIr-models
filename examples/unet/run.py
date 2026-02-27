@@ -18,6 +18,7 @@ import pystac
 import yaml
 from zenml.client import Client
 
+from fair.stac.backend import StacBackend
 from fair.stac.builders import build_dataset_item
 from fair.stac.catalog_manager import StacCatalogManager
 from fair.stac.collections import initialize_catalog
@@ -37,16 +38,28 @@ TRAIN_OSM = "data/sample/train/osm"
 PREDICT_OAM = "data/sample/predict/oam"
 CONFIG_DIR = Path("examples/unet/config")
 
+# Set via argparse; module-level so command functions can access them
+_args: argparse.Namespace
+
+
+def _get_backend() -> StacBackend:
+    if _args.stac_api_url:
+        from fair.stac.pgstac_backend import PgStacBackend
+
+        return PgStacBackend(dsn=_args.dsn, stac_api_url=_args.stac_api_url)
+    return StacCatalogManager(CATALOG_PATH)
+
 
 def init() -> None:
     subprocess.run(["zenml", "init"], check=True, capture_output=True)
     Path("artifacts").mkdir(exist_ok=True)
-    initialize_catalog(CATALOG_PATH)
+    if not _args.stac_api_url:
+        initialize_catalog(CATALOG_PATH)
     print("init: ok")
 
 
 def register() -> None:
-    cat = StacCatalogManager(CATALOG_PATH)
+    cat = _get_backend()
 
     base = pystac.Item.from_file(STAC_ITEM)
     if errs := validate_mlm_schema(base):
@@ -72,7 +85,7 @@ def register() -> None:
 
 
 def finetune() -> None:
-    cat = StacCatalogManager(CATALOG_PATH)
+    cat = _get_backend()
     base = cat.get_item(BASE_MODELS_COLLECTION, BASE_MODEL_ID)
     ds = cat.get_item(DATASETS_COLLECTION, DATASET_ID)
     if errs := validate_compatibility(base, ds):
@@ -97,7 +110,7 @@ def promote() -> None:
 
     promote_model_version(MODEL_NAME, latest)
 
-    cat = StacCatalogManager(CATALOG_PATH)
+    cat = _get_backend()
     item = publish_promoted_model(
         model_name=MODEL_NAME,
         version=latest,
@@ -109,7 +122,7 @@ def promote() -> None:
 
 
 def predict() -> None:
-    cat = StacCatalogManager(CATALOG_PATH)
+    cat = _get_backend()
     items = cat.list_items(LOCAL_MODELS_COLLECTION)
     active = [i for i in items if not i.properties.get("deprecated")]
     if not active:
@@ -156,4 +169,7 @@ COMMANDS: dict[str, Callable[[], None]] = {
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(prog="run.py", description="fAIr-models UNet CI workflow")
     parser.add_argument("command", choices=COMMANDS)
-    COMMANDS[parser.parse_args().command]()
+    parser.add_argument("--stac-api-url", help="STAC API URL (enables PgStacBackend)")
+    parser.add_argument("--dsn", help="Postgres DSN for pgstac writes (default: PG env vars)")
+    _args = parser.parse_args()
+    COMMANDS[_args.command]()

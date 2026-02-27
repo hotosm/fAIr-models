@@ -9,8 +9,8 @@ from annotated_types import Ge
 from zenml.client import Client
 from zenml.enums import ModelStages
 
+from fair.stac.backend import StacBackend
 from fair.stac.builders import build_local_model_item
-from fair.stac.catalog_manager import StacCatalogManager
 from fair.stac.constants import BASE_MODELS_COLLECTION, LOCAL_MODELS_COLLECTION
 
 log = logging.getLogger(__name__)
@@ -21,7 +21,7 @@ def _stac_item_id(model_name: str, version: Annotated[int, Ge(1)]) -> str:
 
 
 def _find_previous_production_item(
-    catalog_manager: StacCatalogManager,
+    catalog_manager: StacBackend,
     model_name: str,
     exclude_version: int,
 ) -> pystac.Item | None:
@@ -53,7 +53,7 @@ def promote_model_version(model_name: str, version: Annotated[int, Ge(1)]) -> No
 def publish_promoted_model(
     model_name: str,
     version: Annotated[int, Ge(1)],
-    catalog_manager: StacCatalogManager,
+    catalog_manager: StacBackend,
     base_model_item_id: str,
     dataset_item_id: str,
     *,
@@ -120,7 +120,7 @@ def publish_promoted_model(
 def archive_model_version(
     model_name: str,
     version: Annotated[int, Ge(1)],
-    catalog_manager: StacCatalogManager,
+    catalog_manager: StacBackend,
 ) -> pystac.Item:
     client = Client()
     mv = client.get_model_version(model_name, version)
@@ -136,7 +136,7 @@ def archive_model_version(
 def delete_model_version(
     model_name: str,
     version: Annotated[int, Ge(1)],
-    catalog_manager: StacCatalogManager,
+    catalog_manager: StacBackend,
 ) -> None:
     client = Client()
     mv = client.get_model_version(model_name, version)
@@ -150,7 +150,7 @@ def delete_model_version(
 
 def delete_model(
     model_name: str,
-    catalog_manager: StacCatalogManager,
+    catalog_manager: StacBackend,
 ) -> None:
     client = Client()
     # STAC first — need IDs before ZenML deletes the model

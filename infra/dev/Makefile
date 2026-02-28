@@ -12,7 +12,6 @@ CLUSTER := fair-dev
 PATCH   := https://raw.githubusercontent.com/hotosm/fAIr/develop/infra/zenml/patch_zenml.py
 PGSTAC_DSN ?= postgresql://postgres:postgres@localhost:5432/fair_models
 PID_FILE := .port-forward.pids
-MC       ?= mc
 
 .PHONY: helm-repos cluster-up cluster-down infra-up infra-down \
         port-forward kill-port-forward seed-data client-patch \
@@ -45,12 +44,13 @@ infra-down:
 	-kubectl delete -n $(NS) -f postgres/
 
 port-forward: kill-port-forward
-	@kubectl port-forward -n $(NS) svc/zenml 8080:80 & echo $$! >> $(PID_FILE)
-	@kubectl port-forward -n $(NS) svc/stac-stac 8082:8080 & echo $$! >> $(PID_FILE)
-	@kubectl port-forward -n $(NS) svc/minio 9000:9000 & echo $$! >> $(PID_FILE)
-	@kubectl port-forward -n $(NS) svc/mlflow 5000:80 & echo $$! >> $(PID_FILE)
-	@kubectl port-forward -n $(NS) svc/postgres 5432:5432 & echo $$! >> $(PID_FILE)
-	@for port in 8080 8082 9000 5000 5432; do \
+	@kubectl port-forward -n $(NS) svc/zenml 8080:80 >/dev/null 2>&1 & echo $$! >> $(PID_FILE)
+	@kubectl port-forward -n $(NS) svc/stac-stac 8082:8080 >/dev/null 2>&1 & echo $$! >> $(PID_FILE)
+	@kubectl port-forward -n $(NS) svc/minio 9000:9000 >/dev/null 2>&1 & echo $$! >> $(PID_FILE)
+	@kubectl port-forward -n $(NS) svc/minio-console 9001:9001 >/dev/null 2>&1 & echo $$! >> $(PID_FILE)
+	@kubectl port-forward -n $(NS) svc/mlflow 5000:80 >/dev/null 2>&1 & echo $$! >> $(PID_FILE)
+	@kubectl port-forward -n $(NS) svc/postgres 5432:5432 >/dev/null 2>&1 & echo $$! >> $(PID_FILE)
+	@for port in 8080 8082 9000 9001 5000 5432; do \
 		for i in $$(seq 1 30); do nc -z localhost $$port 2>/dev/null && break; sleep 1; done; \
 	done
 
@@ -61,8 +61,7 @@ kill-port-forward:
 	fi
 
 seed-data:
-	$(MC) alias set fair http://localhost:9000 minioadmin minioadmin
-	$(MC) cp --recursive ../../data/sample/ fair/fair-data/sample/ --quiet
+	@uv run --with minio python -c "from pathlib import Path; from minio import Minio; c = Minio('localhost:9000', 'minioadmin', 'minioadmin', secure=False); root = Path('../../data/sample'); files = [f for f in root.rglob('*') if f.is_file()]; print(f'Uploading {len(files)} files to fair-data/sample/'); [c.fput_object('fair-data', f'sample/{f.relative_to(root)}', str(f)) for f in files]; print('Done')"
 
 client-patch:
 	@curl -sO $(PATCH) && uv run python patch_zenml.py && rm patch_zenml.py

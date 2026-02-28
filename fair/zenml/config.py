@@ -54,6 +54,7 @@ def generate_training_config(
     dataset_item: pystac.Item,
     model_name: str,
     overrides: dict[str, Any] | None = None,
+    experiment_tracker: str | None = None,
 ) -> dict[str, Any]:
     # ZenML config schema: https://docs.zenml.io/concepts/steps_and_pipelines/yaml_configuration
     props = base_model_item.properties
@@ -92,6 +93,15 @@ def generate_training_config(
     runtime = base_model_item.assets.get("mlm:training")
     if runtime and runtime.media_type == OCI_IMAGE_INDEX_TYPE:
         config["settings"] = {"docker": {"parent_image": _normalize_container_href(runtime.href)}}
+
+    if experiment_tracker:
+        config["steps"] = {
+            "train_model": {"experiment_tracker": experiment_tracker},
+            "evaluate_model": {"experiment_tracker": experiment_tracker},
+        }
+        config.setdefault("settings", {})["experiment_tracker.mlflow"] = {
+            "experiment_name": model_name,
+        }
 
     k8s_settings = _build_k8s_settings(base_model_item)
     if k8s_settings:

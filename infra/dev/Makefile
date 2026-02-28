@@ -62,7 +62,7 @@ kill-port-forward:
 
 seed-data:
 	$(MC) alias set fair http://localhost:9000 minioadmin minioadmin
-	$(MC) cp --recursive ../../data/sample/ fair/fair-data/sample/
+	$(MC) cp --recursive ../../data/sample/ fair/fair-data/sample/ --quiet
 
 client-patch:
 	@curl -sO $(PATCH) && uv run python patch_zenml.py && rm patch_zenml.py

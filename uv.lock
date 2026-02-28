@@ -784,6 +784,7 @@ wheels = [
 name = "fair-py-ops"
 source = { editable = "." }
 dependencies = [
+    { name = "mlflow" },
     { name = "pystac", extra = ["validation"] },
     { name = "zenml" },
 ]
@@ -808,7 +809,6 @@ example = [
     { name = "torchgeo" },
 ]
 k8s = [
-    { name = "mlflow" },
     { name = "pypgstac", extra = ["psycopg"] },
     { name = "pystac-client" },
     { name = "zenml", extra = ["connectors-aws", "connectors-kubernetes", "s3fs"] },
@@ -819,6 +819,7 @@ local = [
 
 [package.metadata]
 requires-dist = [
+    { name = "mlflow", specifier = ">=2.1.1,<4" },
     { name = "pystac", extras = ["validation"], specifier = ">=1.14.3" },
     { name = "zenml", specifier = ">=0.93.3" },
 ]
@@ -843,7 +844,6 @@ example = [
     { name = "torchgeo" },
 ]
 k8s = [
-    { name = "mlflow", specifier = ">=2.1.1,<4" },
     { name = "pypgstac", extras = ["psycopg"], specifier = ">=0.9" },
     { name = "pystac-client", specifier = ">=0.9" },
     { name = "zenml", extras = ["connectors-aws", "connectors-kubernetes", "s3fs"], specifier = ">=0.93.3" },

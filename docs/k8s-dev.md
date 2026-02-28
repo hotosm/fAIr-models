@@ -18,6 +18,17 @@ make teardown      # destroy everything (kills port-forwards, removes cluster)
 
 Individual targets: `make help`.
 
+### Verifying results
+
+After `make run-example` completes, inspect outputs at:
+
+| What | URL |
+|------|-----|
+| ZenML dashboard (pipelines, steps, artifacts) | <http://localhost:8080> (login: `default` / empty password) |
+| STAC collections (registered & promoted models) | <http://localhost:8082/collections> |
+| MLflow experiments (training metrics, model registry) | <http://localhost:5000> |
+| MinIO browser (raw S3 objects) | <http://localhost:9000> (login: `minioadmin` / `minioadmin`) |
+
 ### ZenML Stacks
 
 `make stack-register` creates two stacks:

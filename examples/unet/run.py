@@ -91,7 +91,14 @@ def finetune() -> None:
     if errs := validate_compatibility(base, ds):
         sys.exit(f"Incompatible: {errs}")
 
-    cfg_data = generate_training_config(base, ds, MODEL_NAME, {"epochs": 1})
+    tracker = Client().active_stack.experiment_tracker
+    cfg_data = generate_training_config(
+        base,
+        ds,
+        MODEL_NAME,
+        {"epochs": 1},
+        experiment_tracker=tracker.name if tracker else None,
+    )
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
     cfg = CONFIG_DIR / "generated_train.yaml"
     cfg.write_text(yaml.dump(cfg_data, sort_keys=False))

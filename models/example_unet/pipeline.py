@@ -7,6 +7,7 @@ Pretrained weights: OAM-TCD (arxiv.org/abs/2407.11743).
 from pathlib import Path
 from typing import Annotated, Any, Literal
 
+import mlflow
 import numpy as np
 import torch
 import torch.nn as nn
@@ -102,6 +103,20 @@ def train_model(
     loss: str = "CrossEntropyLoss",
 ) -> nn.Module:
     """Train UNet model on dataset."""
+    mlflow.autolog()
+    mlflow.log_params(
+        {
+            "epochs": epochs,
+            "batch_size": batch_size,
+            "learning_rate": learning_rate,
+            "weight_decay": weight_decay,
+            "optimizer": optimizer,
+            "loss": loss,
+            "chip_size": chip_size,
+            "num_classes": num_classes,
+        }
+    )
+
     model = unet(weights=_resolve_weights(base_model_weights), classes=num_classes).to(DEVICE)
     loader = _build_dataset(dataset_chips, dataset_labels, chip_size, length=10, batch_size=batch_size)
 
@@ -113,7 +128,9 @@ def train_model(
     model.train()
     for epoch in range(epochs):
         total_loss = sum(_train_step(model, batch, criterion, opt) for batch in loader)
-        log_metadata(metadata={"loss": total_loss / len(loader), "epoch": epoch + 1})
+        avg_loss = total_loss / len(loader)
+        mlflow.log_metric("train_loss", avg_loss, step=epoch)
+        log_metadata(metadata={"loss": avg_loss, "epoch": epoch + 1})
 
     return model.cpu()
 
@@ -167,6 +184,7 @@ def evaluate_model(
         "mean_iou": sum(intersection[c] / max(union[c], 1) for c in range(num_classes)) / num_classes,
         **{f"iou_class_{c}": intersection[c] / max(union[c], 1) for c in range(num_classes)},
     }
+    mlflow.log_metrics(metrics)
     log_metadata(metadata=metrics)
     return metrics
 

@@ -47,6 +47,7 @@
         "format",
         "expression"
     ],
+    "require_geometry_keyword": true,
     "allowed_values": {
         "license": [
             "GPL-3.0-only",

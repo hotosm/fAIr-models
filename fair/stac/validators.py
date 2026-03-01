@@ -70,6 +70,11 @@ def validate_base_model_item(item: pystac.Item) -> list[str]:
     if unknown_kw:
         errors.append(f"Unknown keywords: {unknown_kw}")
 
+    if reqs.get("require_geometry_keyword"):
+        geom_types = set(kw_schema.get("allowed_geometry_types", []))
+        if not geom_types & set(props.get("keywords", [])):
+            errors.append(f"keywords must include at least one geometry type: {sorted(geom_types)}")
+
     for prop, allowed in reqs.get("allowed_values", {}).items():
         val = props.get(prop)
         if val is None:

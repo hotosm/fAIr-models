@@ -33,10 +33,6 @@ COPY --from=builder /usr/local/bin /usr/local/bin
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1
 
-# ZenML 0.93.3: ServerDatabaseType enum lacks "postgresql" variant, TODO : need to find a stable solution for this , can't keep patching it in the dockerfile
-RUN sed -i 's/OTHER = "other"/OTHER = "other"\n    POSTGRESQL = "postgresql"/' \
-    /usr/local/lib/python3.13/site-packages/zenml/models/v2/misc/server_models.py
-
 COPY models/example_unet models/example_unet
 
 ENTRYPOINT ["/usr/local/bin/python"]

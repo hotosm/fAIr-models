@@ -6,18 +6,7 @@ Pretrained weights: OAM-TCD (arxiv.org/abs/2407.11743).
 
 from typing import Annotated, Any, Literal
 
-import mlflow
-import numpy as np
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
 from annotated_types import Ge, Le
-from PIL import Image
-from torch import Tensor
-from torch.utils.data import DataLoader
-from torchgeo.datasets import OpenStreetMap, RasterDataset, stack_samples
-from torchgeo.models import Unet_Weights, unet
-from torchgeo.samplers import RandomGeoSampler, Units
 from zenml import log_metadata, pipeline, step
 
 from fair.zenml.steps import load_model
@@ -26,32 +15,38 @@ _BUILDING_CLASSES = [{"name": "building", "selector": [{"building": "*"}]}]
 
 
 def _get_device() -> Literal["mps", "cuda", "cpu"]:
-    """Detect compute device at runtime (called inside each step, not at import time)."""
+    import torch
+
     return "mps" if torch.backends.mps.is_available() else "cuda" if torch.cuda.is_available() else "cpu"
 
 
-def _resolve_weights(weight_id: str) -> "Unet_Weights":
-    """Map 'torchgeo.models.Unet_Weights.MEMBER' or bare MEMBER name to enum."""
+def _resolve_weights(weight_id: str) -> Any:
+    from torchgeo.models import Unet_Weights
+
     return Unet_Weights[weight_id.rsplit(".", 1)[-1]]
 
 
-def preprocess(batch: dict[str, Tensor]) -> tuple[Tensor, Tensor]:
-    """Preprocess batch: normalize images, extract masks."""
+def preprocess(batch: dict[str, Any]) -> tuple[Any, Any]:
     images = batch["image"].float() / 255.0
     masks = batch["mask"].long().squeeze(1)
     return images, masks
 
 
-def postprocess(logits: Tensor) -> np.ndarray:
-    """Convert logits to class predictions."""
+def postprocess(logits: Any) -> Any:
+    import numpy as np
+
     return logits.argmax(dim=1).cpu().numpy().astype(np.uint8)
 
 
-def _build_dataset(chips_path: str, labels_path: str, chip_size: int, length: int, batch_size: int = 4) -> "DataLoader":
+def _build_dataset(chips_path: str, labels_path: str, chip_size: int, length: int, batch_size: int = 4) -> Any:
     """Intersect OAM + OSM GeoDatasets. chip_size in pixels; bounds are slices per torchgeo 0.10.x dev.
     labels_path is the exact GeoJSON file path stored in STAC; OpenStreetMap.paths requires its parent dir.
     Downloads chips and labels to local cache via UPath/fsspec.
     """
+    from torch.utils.data import DataLoader
+    from torchgeo.datasets import OpenStreetMap, RasterDataset, stack_samples
+    from torchgeo.samplers import RandomGeoSampler, Units
+
     from fair.utils.data import resolve_directory, resolve_path
 
     local_chips = str(resolve_directory(chips_path, "OAM-*.tif"))
@@ -73,7 +68,8 @@ def _build_dataset(chips_path: str, labels_path: str, chip_size: int, length: in
 
 
 def _get_optimizers() -> dict[str, Any]:
-    """Get available optimizers. Keep in sync with mlm:hyperparameters in stac-item.json."""
+    import torch
+
     return {
         "Adam": torch.optim.Adam,
         "AdamW": torch.optim.AdamW,
@@ -82,7 +78,8 @@ def _get_optimizers() -> dict[str, Any]:
 
 
 def _get_losses() -> dict[str, Any]:
-    """Get available loss functions. Keep in sync with mlm:hyperparameters in stac-item.json."""
+    import torch.nn as nn
+
     return {
         "CrossEntropyLoss": nn.CrossEntropyLoss,
         "BCEWithLogitsLoss": nn.BCEWithLogitsLoss,
@@ -102,8 +99,10 @@ def train_model(
     num_classes: int,
     optimizer: str = "AdamW",
     loss: str = "CrossEntropyLoss",
-) -> nn.Module:
-    """Train UNet model on dataset."""
+) -> Any:
+    import mlflow
+    from torchgeo.models import unet
+
     mlflow.autolog()
     mlflow.log_params(
         {
@@ -138,13 +137,12 @@ def train_model(
 
 
 def _train_step(
-    model: nn.Module,
-    batch: dict[str, Tensor],
-    criterion: nn.Module,
+    model: Any,
+    batch: dict[str, Any],
+    criterion: Any,
     optimizer: Any,
     device: str,
 ) -> float:
-    """Single training step."""
     images, masks = preprocess(batch)
     images, masks = images.to(device), masks.to(device)
     loss = criterion(model(images), masks)
@@ -156,13 +154,15 @@ def _train_step(
 
 @step
 def evaluate_model(
-    trained_model: nn.Module,
+    trained_model: Any,
     dataset_chips: str,
     dataset_labels: str,
     chip_size: int = 512,
     num_classes: int = 2,
 ) -> dict[str, Any]:
-    """Evaluate model on validation set."""
+    import mlflow
+    import torch
+
     device = _get_device()
     model = trained_model.to(device)
     model.eval()
@@ -197,8 +197,9 @@ def evaluate_model(
 def load_base_model(
     model_uri: str,
     num_classes: int,
-) -> nn.Module:
-    """Instantiate model from pretrained weights enum. Model-specific: each developer implements their own."""
+) -> Any:
+    from torchgeo.models import unet
+
     return unet(weights=_resolve_weights(model_uri), classes=num_classes).cpu()
 
 
@@ -209,6 +210,11 @@ def run_inference(
     chip_size: int,
     num_classes: int,
 ) -> str:
+    import numpy as np
+    import torch
+    import torch.nn.functional as F
+    from PIL import Image
+
     from fair.utils.data import resolve_directory
 
     device = _get_device()

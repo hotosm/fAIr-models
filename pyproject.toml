@@ -51,10 +51,13 @@ Changelog = "https://github.com/hotosm/fAIr-models/blob/master/CHANGELOG.md"
 source = "vcs"
 
 [tool.hatch.build.targets.sdist]
-include = ["fair/", "LICENSE", "README.md"]
+include = ["fair/", "fair_zenml_patch.pth", "LICENSE", "README.md"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["fair"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"fair_zenml_patch.pth" = "fair_zenml_patch.pth"
 
 
 [dependency-groups]

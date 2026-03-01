@@ -27,7 +27,6 @@ from fair.stac.constants import BASE_MODELS_COLLECTION, DATASETS_COLLECTION, LOC
 from fair.stac.validators import validate_compatibility, validate_mlm_schema
 from fair.zenml.config import generate_inference_config, generate_training_config
 from fair.zenml.promotion import promote_model_version, publish_promoted_model
-from models.example_unet.pipeline import inference_pipeline, training_pipeline
 
 CATALOG_PATH = "stac_catalog/catalog.json"
 BASE_MODEL_ID = "example-unet"
@@ -108,6 +107,8 @@ def finetune() -> None:
     cfg = CONFIG_DIR / "generated_train.yaml"
     cfg.write_text(yaml.dump(cfg_data, sort_keys=False))
 
+    from models.example_unet.pipeline import training_pipeline
+
     run = training_pipeline.with_options(config_path=str(cfg))()
     assert run is not None
     print(f"finetune: {run.id} ({run.status})")
@@ -147,6 +148,8 @@ def predict() -> None:
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
     cfg = CONFIG_DIR / "generated_inference.yaml"
     cfg.write_text(yaml.dump(cfg_data, sort_keys=False))
+
+    from models.example_unet.pipeline import inference_pipeline
 
     run = inference_pipeline.with_options(config_path=str(cfg), enable_cache=False)()
     assert run is not None

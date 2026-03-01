@@ -9,7 +9,6 @@ export DOCKER_HOST
 
 NS      := fair
 CLUSTER := fair-dev
-PATCH   := https://raw.githubusercontent.com/hotosm/fAIr/develop/infra/zenml/patch_zenml.py
 PGSTAC_DSN ?= postgresql://postgres:postgres@localhost:5432/fair_models
 PID_FILE := .port-forward.pids
 NVKIND  := $(shell command -v nvkind 2>/dev/null || echo $(HOME)/go/bin/nvkind)
@@ -17,7 +16,7 @@ NVKIND  := $(shell command -v nvkind 2>/dev/null || echo $(HOME)/go/bin/nvkind)
 IMAGE ?= ghcr.io/hotosm/fair-models/example-unet:v1
 
 .PHONY: cluster-up cluster-down infra-up infra-down \
-        port-forward kill-port-forward seed-data client-patch \
+        port-forward kill-port-forward seed-data \
         stack-register run-example build-image run-example-k8s \
         up teardown help
 
@@ -55,9 +54,6 @@ kill-port-forward:
 seed-data:
 	@uv run --with minio python -c "from pathlib import Path; from minio import Minio; c = Minio('localhost:9000', 'minioadmin', 'minioadmin', secure=False); root = Path('../../data/sample'); files = [f for f in root.rglob('*') if f.is_file()]; print(f'Uploading {len(files)} files to fair-data/sample/'); [c.fput_object('fair-data', f'sample/{f.relative_to(root)}', str(f)) for f in files]; print('Done')"
 
-client-patch:
-	@curl -sO $(PATCH) && uv run python patch_zenml.py && rm patch_zenml.py
-
 stack-register:
 	uv run zenml connect --url http://localhost:8080 --username default --password '' --no-verify-ssl
 	-uv run zenml stack import dev -f ../../stacks/local.yaml --ignore-version-mismatch
@@ -76,7 +72,7 @@ run-example-k8s:
 	cd ../.. && AWS_ENDPOINT_URL=http://localhost:9000 uv run python examples/unet/run.py all \
 		--stac-api-url http://localhost:8082 --dsn $(PGSTAC_DSN)
 
-up: cluster-up infra-up port-forward seed-data client-patch stack-register
+up: cluster-up infra-up port-forward seed-data stack-register
 teardown: kill-port-forward infra-down cluster-down
 
 help:
@@ -87,7 +83,6 @@ help:
 	@echo "port-forward        Forward services to localhost"
 	@echo "kill-port-forward   Stop port-forwards"
 	@echo "seed-data           Upload sample data to MinIO"
-	@echo "client-patch        Patch ZenML client for Postgres"
 	@echo "stack-register      Register ZenML stacks"
 	@echo "build-image         Build & load Docker image into kind workers"
 	@echo "run-example         Run UNet example E2E (local stack)"

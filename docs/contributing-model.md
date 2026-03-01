@@ -5,6 +5,96 @@ blueprint that users can finetune on their own datasets through the fAIr
 platform. See [`models/example_unet/`](../models/example_unet/) for a complete
 reference implementation.
 
+## Model Scope
+
+fAIr targets feature extraction from **very high resolution (VHR) aerial and
+satellite imagery** ; typically ≥50 cm ground sample distance (GSD), RGB only.
+All imagery is sourced from [OpenAerialMap](https://openaerialmap.org/).
+
+### Supported Tasks
+
+| Task | STAC value | Label mapping | Typical output |
+|---|---|---|---|
+| Semantic segmentation | `semantic-segmentation` | `segmentation` | polygons |
+| Instance segmentation | `instance-segmentation` | `segmentation` | polygons |
+| Object detection | `object-detection` | `detection` | boxes or polygons |
+| Classification | `classification` | `classification` | existing geometries with attributes |
+
+Your `mlm:tasks` must use one or more of these exact values. CI rejects
+anything else.
+
+### Supported Feature Categories
+
+fAIr is a humanitarian mapping platform. Models should prioritise features
+that support disaster response, infrastructure mapping, and environmental
+monitoring. Core categories:
+
+| Keyword | Examples |
+|---|---|
+| `building` | Residential, commercial, industrial footprints; damaged vs. undamaged assessment |
+| `road` | Highway classification (primary, secondary, tertiary); paved vs. unpaved surface detection |
+| `tree` | Individual canopy, tree cover areas |
+| `water` | Rivers, lakes, ponds, reservoirs |
+
+Other OpenStreetMap feature categories (`landuse`, `bridge`, etc.) are
+welcome as long as they are compatible with the platform's RGB input and
+vector output constraints. To add a new keyword, include it in
+[`keywords.json`](../fair/schemas/keywords.json) as part of your PR.
+
+### Input Requirements
+
+All models receive **3-band RGB GeoTIFF chips** as input. The expected tensor
+layout for the `mlm:input` specification:
+
+| Field | Value |
+|---|---|
+| Bands | `red`, `green`, `blue` (3 channels, RGB) |
+| Shape | `[-1, 3, H, W]` where H and W are the chip size |
+| Dimension order | `["batch", "bands", "height", "width"]` |
+| Data type | `float32` |
+
+Models must normalize the uint8 pixel values (0-255) to float32 (0.0-1.0)
+in their `preprocess` function. The platform does **not** accept non-RGB
+inputs (e.g. multispectral, SAR, DEM).
+
+### Output Requirements
+
+fAIr only supports **vector output**. Your model's final output must produce
+GeoJSON geometries of one of these types:
+
+| Geometry type | Keyword | Typical task |
+|---|---|---|
+| `Polygon` | `polygon` | Building footprints, land parcels |
+| `LineString` | `line` | Roads, waterways |
+| `Point` | `point` | Tree detection, POI extraction |
+
+Your `stac-item.json` must declare exactly which geometry type the model
+produces via the `keywords` array. CI enforces that at least one of `polygon`,
+`line`, or `point` is present.
+
+Raster-only output (e.g. raw segmentation masks without vectorization) is
+acceptable as an intermediate step, but the `post_processing_function` must
+ultimately convert to one of the supported geometry types for downstream
+consumption.
+
+### Sample Data Layout
+
+The sample data in `data/sample/` demonstrates the expected layout:
+
+```
+data/sample/
+  train/
+    oam/             # RGB GeoTIFF chips (OAM-{x}-{y}-{z}.tif, ≥50cm GSD)
+    osm/             # GeoJSON labels (osm_features_*.geojson)
+  predict/
+    oam/             # Input chips for inference
+    predictions/     # Output directory (model writes here)
+```
+
+Chip filenames follow the pattern `OAM-{x}-{y}-{z}.tif` where x, y, z are
+tile coordinates. Your model must accept these as input during both training
+and inference.
+
 ## Prerequisites
 
 Before starting, ensure you have:
@@ -79,12 +169,17 @@ These are referenced as Python entrypoints in the STAC item (e.g.
 ### Training Pipeline
 
 The `training_pipeline` receives its parameters from a generated YAML config
-(STAC defaults merged with user overrides). Typical parameters:
+(STAC `mlm:hyperparameters` merged with user overrides via
+`fair.zenml.config.generate_training_config`). Typical parameters:
 
 - `dataset_chips` / `dataset_labels` -- S3 or local paths to training data
 - `base_model_weights` -- pretrained weight reference (URL, enum, local path)
 - `epochs`, `batch_size`, `learning_rate`, `weight_decay` -- training hyperparameters
 - `chip_size`, `num_classes` -- model-specific configuration
+
+All hyperparameters must have validation constraints in the function
+signature (see [Hyperparameters](#hyperparameters)). The platform rejects
+invalid values at submission time, before any pod is scheduled.
 
 Use `mlflow.log_params()` and `mlflow.log_metrics()` for experiment tracking.
 Use `zenml.log_metadata()` to attach metrics to the ZenML model version.
@@ -128,46 +223,6 @@ local_labels = resolve_path(labels_path)
 
 Never hardcode paths. Never bake data into Docker images.
 
-## Input Format
-
-Models receive [OpenAerialMap](https://openaerialmap.org/) imagery as
-georeferenced chips (GeoTIFF). The sample data in `data/sample/` demonstrates
-the expected layout:
-
-```
-data/sample/
-  train/
-    oam/             # RGB GeoTIFF chips (OAM-{x}-{y}-{z}.tif)
-    osm/             # GeoJSON labels (osm_features_*.geojson)
-  predict/
-    oam/             # Input chips for inference
-    predictions/     # Output directory (model writes here)
-```
-
-Chip filenames follow the pattern `OAM-{x}-{y}-{z}.tif` where x, y, z are
-tile coordinates. Your model must accept these as input during both training
-and inference.
-
-## Output Format
-
-fAIr only supports vector output. Your model's final output must produce
-GeoJSON geometries of one of these types:
-
-| Geometry type | Keyword | Typical task |
-|---|---|---|
-| `Polygon` | `polygon` | Building footprints, land parcels |
-| `LineString` | `line` | Roads, waterways |
-| `Point` | `point` | Tree detection, POI extraction |
-
-Your `stac-item.json` must declare exactly which geometry type the model
-produces via the `keywords` array. CI enforces that at least one of `polygon`,
-`line`, or `point` is present.
-
-Raster-only output (e.g. raw segmentation masks without vectorization) is
-acceptable as an intermediate step, but the platform expects the
-`post_processing_function` to ultimately convert to one of the supported
-geometry types for downstream consumption.
-
 ## Dockerfile
 
 Your Dockerfile must be **self-contained**: building and running the image
@@ -193,10 +248,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv pip install \
     your-ml-framework \
-    fair-py-ops \
-    "mlflow>=2.1.1,<4" \
-    "universal-pathlib>=0.3.10" \
-    "zenml[connectors-aws,connectors-kubernetes,s3fs]>=0.93.3"
+    fair-py-ops 
 
 FROM python:3.13-slim-trixie
 WORKDIR /app
@@ -260,10 +312,66 @@ The `keywords` array must include:
 
 Example: `["building", "semantic-segmentation", "polygon"]`
 
+### Hyperparameters
+
+The `mlm:hyperparameters` object in your STAC item declares the **default
+training configuration**. When users finetune your model, the platform reads
+these defaults and merges any user overrides into a generated YAML config
+(via `fair.zenml.config.generate_training_config`). This YAML is then passed
+to your `training_pipeline`.
+
+Every key in `mlm:hyperparameters` becomes a pipeline parameter. Your
+`training_pipeline` signature **must** accept all of them and apply
+validation constraints using `typing.Annotated` and `typing.Literal`:
+
+```python
+from typing import Annotated, Literal
+from annotated_types import Ge, Le
+
+@pipeline
+def training_pipeline(
+    # ...dataset and model params...
+    epochs: Annotated[int, Ge(1), Le(1000)],
+    batch_size: Annotated[int, Ge(1), Le(64)],
+    learning_rate: Annotated[float, Ge(1e-6), Le(1.0)],
+    weight_decay: Annotated[float, Ge(0.0), Le(1.0)],
+    chip_size: Annotated[int, Ge(64), Le(2048)],
+    num_classes: Annotated[int, Ge(2), Le(256)],
+    optimizer: Literal["Adam", "AdamW", "SGD"] = "AdamW",
+    loss: Literal["CrossEntropyLoss", "BCEWithLogitsLoss"] = "CrossEntropyLoss",
+) -> None:
+    ...
+```
+
+This serves two purposes:
+
+1. **ZenML validates inputs** at submission time — invalid overrides are
+   rejected before any pod is scheduled
+2. **STAC item documents the contract** — users and the platform know
+   exactly what hyperparameters your model accepts and their valid ranges
+
+Example `mlm:hyperparameters`:
+
+```json
+"mlm:hyperparameters": {
+    "epochs": 15,
+    "batch_size": 4,
+    "learning_rate": 0.0001,
+    "weight_decay": 0.0001,
+    "chip_size": 512,
+    "optimizer": "AdamW",
+    "loss": "CrossEntropyLoss"
+}
+```
+
+The platform auto-extracts `chip_size` from `mlm:input[0].input.shape[-1]`
+and `num_classes` from `classification:classes` length, so those don't need
+to be duplicated in `mlm:hyperparameters` unless your defaults differ.
+
 ### Input Specification
 
-Each entry in `mlm:input` must include a `pre_processing_function` with
-`format` and `expression` fields:
+Each entry in `mlm:input` must declare exactly 3 RGB bands and include a
+`pre_processing_function` with `format` and `expression` fields:
 
 ```json
 "mlm:input": [{
@@ -327,11 +435,14 @@ Before submitting your pull request:
 - [ ] Directory created at `models/your-model/` with `pipeline.py`, `Dockerfile`, `stac-item.json`
 - [ ] `pipeline.py` exports `training_pipeline` and `inference_pipeline` as `@pipeline`-decorated functions
 - [ ] `pipeline.py` defines `preprocess` and `postprocess` functions matching STAC entrypoints
+- [ ] Pipeline parameters use `Annotated` bounds and `Literal` for constrained choices
+- [ ] `mlm:hyperparameters` in STAC item matches pipeline parameter names and defaults
+- [ ] `mlm:input` declares exactly 3 RGB bands with `float32` data type
 - [ ] Dockerfile builds successfully and is self-contained
 - [ ] `stac-item.json` passes `make validate-stac`
 - [ ] Model passes `make validate-models`
 - [ ] License is one of: `GPL-3.0-only`, `MIT`, `Apache-2.0`, `BSD-3-Clause`
-- [ ] Keywords include at least one geometry type (`polygon`, `line`, or `point`)
+- [ ] Keywords include a feature category, task, and geometry type (`polygon`, `line`, or `point`)
 - [ ] Model weights are publicly accessible or included in the weight loading code
 - [ ] Model can run training on sample data in `data/sample/train/`
 - [ ] Model can run inference on sample data in `data/sample/predict/`

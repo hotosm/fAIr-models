@@ -362,3 +362,7 @@ ZenML stack components NOT used:
 6. **MLM Processing Expression for dispatch**: `pre_processing_function` and `post_processing_function` use `format: "python"` with entrypoint strings (e.g., `ramp.pipeline:preprocess`). Each model defines its own pre/post processing; the system does not assume a fixed pipeline shape. System considers each model having its own runtime , preprocessing , postprocessing and training pipeline.
 
 7. W&B self-hosted requires MySQL + Redis + a commercial license for team use. Mlflow is fully open source.
+
+8. **Pipeline contract**: Every model under `models/` must export `training_pipeline` and `inference_pipeline` as `@pipeline`-decorated functions in its `pipeline.py`. CI validates this via AST parsing (`scripts/validate_model.py`) — no runtime dependencies required. This ensures the orchestration layer can discover and dispatch any contributed model uniformly.
+
+9. **S3 data resolution via UPath/fsspec**: Production training data lives in S3 (MinIO in dev, AWS in prod). `fair/utils/data.py` provides helpers (`list_files`, `resolve_path`, `resolve_directory`) built on `universal-pathlib` (UPath) over fsspec/s3fs — no boto3 or GDAL env vars. fsspec reads `AWS_ENDPOINT_URL` natively for MinIO. Caching is available via fsspec URL-chaining (`simplecache::s3://`, `filecache::s3://`, `blockcache::s3://`) — model developers opt in as needed. Local paths pass through unchanged. Data is never baked into Docker images.

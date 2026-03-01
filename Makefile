@@ -52,3 +52,6 @@ pre-commit:
 validate-stac:
 	uv run python scripts/validate_stac_items.py
 
+validate-models:
+	uv run python scripts/validate_model.py
+

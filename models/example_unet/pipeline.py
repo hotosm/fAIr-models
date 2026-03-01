@@ -4,7 +4,6 @@ Entrypoints referenced by models/example_unet/stac-item.json.
 Pretrained weights: OAM-TCD (arxiv.org/abs/2407.11743).
 """
 
-from pathlib import Path
 from typing import Annotated, Any, Literal
 
 import mlflow
@@ -51,7 +50,12 @@ def postprocess(logits: Tensor) -> np.ndarray:
 def _build_dataset(chips_path: str, labels_path: str, chip_size: int, length: int, batch_size: int = 4) -> "DataLoader":
     """Intersect OAM + OSM GeoDatasets. chip_size in pixels; bounds are slices per torchgeo 0.10.x dev.
     labels_path is the exact GeoJSON file path stored in STAC; OpenStreetMap.paths requires its parent dir.
+    Downloads chips and labels to local cache via UPath/fsspec.
     """
+    from fair.utils.data import resolve_directory, resolve_path
+
+    local_chips = str(resolve_directory(chips_path, "OAM-*.tif"))
+    local_labels = resolve_path(labels_path)
 
     class _OAMDataset(RasterDataset):  # TODO : After OAM is released , replace this with OAM dataset directly
         filename_glob = "OAM-*.tif"
@@ -59,10 +63,10 @@ def _build_dataset(chips_path: str, labels_path: str, chip_size: int, length: in
         is_image = True
         separate_files = False
 
-    oam = _OAMDataset(paths=chips_path)
+    oam = _OAMDataset(paths=local_chips)
     b = oam.bounds
     bbox = (b[0].start, b[1].start, b[0].stop, b[1].stop)
-    osm = OpenStreetMap(bbox=bbox, classes=_BUILDING_CLASSES, paths=str(Path(labels_path).parent), download=False)
+    osm = OpenStreetMap(bbox=bbox, classes=_BUILDING_CLASSES, paths=str(local_labels.parent), download=False)
     dataset = oam & osm
     sampler = RandomGeoSampler(dataset, size=chip_size, length=length, units=Units.PIXELS)
     return DataLoader(dataset, sampler=sampler, batch_size=batch_size, collate_fn=stack_samples)
@@ -205,11 +209,13 @@ def run_inference(
     chip_size: int,
     num_classes: int,
 ) -> str:
+    from fair.utils.data import resolve_directory
+
     device = _get_device()
     model = model.to(device)
     model.eval()
 
-    input_dir = Path(input_images)
+    input_dir = resolve_directory(input_images)
     output_dir = input_dir.parent / "predictions"
     output_dir.mkdir(parents=True, exist_ok=True)
 

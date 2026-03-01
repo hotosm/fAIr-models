@@ -67,7 +67,7 @@ Port-forwards (via `make port-forward`):
 
 Follow the [nvkind prerequisites and setup guide](https://github.com/NVIDIA/nvkind#prerequisites) to install the NVIDIA driver, nvidia-container-toolkit, and nvkind on your host. Once `nvkind` is on `$PATH`, `make up` handles the rest.
 
-**What `make up` does**: `kind-config.yaml` marks `worker2` with `extraMounts` that signal GPU presence to nvkind. `make cluster-up` runs nvkind (installs toolkit inside the node, configures containerd). `make infra-up` creates the `nvidia` RuntimeClass, labels the GPU node, and deploys the device plugin.
+**What `make up` does**: `kind-config.yaml` labels workers as `inference` and `train`, with the train node getting `extraMounts` that signal GPU presence to nvkind. `make cluster-up` runs nvkind (installs toolkit inside the node, configures containerd). `make infra-up` creates the `nvidia` RuntimeClass, labels the GPU node, and deploys the device plugin.
 
 **Caveats**:
 

@@ -6,7 +6,11 @@ apiVersion: kind.x-k8s.io/v1alpha4
 nodes:
   - role: control-plane
   - role: worker
+    labels:
+      fair.hotosm.org/role: inference
   - role: worker
+    labels:
+      fair.hotosm.org/role: train
     extraMounts:
       - hostPath: /dev/null
         containerPath: /var/run/nvidia-container-devices/all

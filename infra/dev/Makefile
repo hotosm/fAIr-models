@@ -32,7 +32,7 @@ infra-up:
 	@kubectl create ns $(NS) --dry-run=client -o yaml | kubectl apply -f -
 	kubectl apply -n $(NS) -f postgres/
 	kubectl rollout status -n $(NS) statefulset/postgres --timeout=120s
-	@kubectl label node $(CLUSTER)-worker2 nvidia.com/gpu.present=true --overwrite >/dev/null
+	@kubectl label node -l fair.hotosm.org/role=train nvidia.com/gpu.present=true --overwrite >/dev/null
 	helmfile apply
 	kubectl rollout status -n $(NS) deployment/stac-stac --timeout=300s
 
@@ -59,9 +59,7 @@ client-patch:
 	@curl -sO $(PATCH) && uv run python patch_zenml.py && rm patch_zenml.py
 
 stack-register:
-	@uv run python -c "from zenml.config.global_config import GlobalConfiguration as GC; \
-		from zenml.zen_stores.rest_zen_store import RestZenStoreConfiguration as RSC; \
-		gc = GC(); gc.set_store(RSC(url='http://localhost:8080', username='default', password='', verify_ssl=False))"
+	uv run zenml connect --url http://localhost:8080 --username default --password '' --no-verify-ssl
 	-uv run zenml stack import dev -f ../../stacks/local.yaml --ignore-version-mismatch
 	-uv run zenml stack import k8s -f ../../stacks/k8s.yaml --ignore-version-mismatch
 	-uv run zenml stack set dev
@@ -71,7 +69,7 @@ run-example:
 
 build-image:
 	cd ../.. && docker buildx build -f models/example_unet/Dockerfile -t $(IMAGE) --platform linux/amd64 --load --no-cache .
-	kind load docker-image $(IMAGE) --name $(CLUSTER)
+	kind load docker-image $(IMAGE) --name $(CLUSTER) --nodes $(CLUSTER)-worker,$(CLUSTER)-worker2
 
 run-example-k8s:
 	cd ../.. && uv run zenml stack set k8s

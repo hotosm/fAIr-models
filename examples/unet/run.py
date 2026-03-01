@@ -11,6 +11,7 @@ import shutil
 import subprocess
 import sys
 from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -38,28 +39,31 @@ TRAIN_OSM = "data/sample/train/osm"
 PREDICT_OAM = "data/sample/predict/oam"
 CONFIG_DIR = Path("examples/unet/config")
 
-# Set via argparse; module-level so command functions can access them
-_args: argparse.Namespace
+
+@dataclass
+class RunConfig:
+    stac_api_url: str | None = None
+    dsn: str | None = None
 
 
-def _get_backend() -> StacBackend:
-    if _args.stac_api_url:
+def _get_backend(cfg: RunConfig) -> StacBackend:
+    if cfg.stac_api_url:
         from fair.stac.pgstac_backend import PgStacBackend
 
-        return PgStacBackend(dsn=_args.dsn, stac_api_url=_args.stac_api_url)
+        return PgStacBackend(dsn=cfg.dsn, stac_api_url=cfg.stac_api_url)
     return StacCatalogManager(CATALOG_PATH)
 
 
-def init() -> None:
+def init(cfg: RunConfig) -> None:
     subprocess.run(["zenml", "init"], check=True, capture_output=True)
     Path("artifacts").mkdir(exist_ok=True)
-    if not _args.stac_api_url:
+    if not cfg.stac_api_url:
         initialize_catalog(CATALOG_PATH)
     print("init: ok")
 
 
-def register() -> None:
-    cat = _get_backend()
+def register(cfg: RunConfig) -> None:
+    cat = _get_backend(cfg)
 
     base = pystac.Item.from_file(STAC_ITEM)
     if errs := validate_mlm_schema(base):
@@ -84,8 +88,8 @@ def register() -> None:
     print(f"register: dataset {pub.id} v{pub.properties['version']}")
 
 
-def finetune() -> None:
-    cat = _get_backend()
+def finetune(cfg: RunConfig) -> None:
+    cat = _get_backend(cfg)
     base = cat.get_item(BASE_MODELS_COLLECTION, BASE_MODEL_ID)
     ds = cat.get_item(DATASETS_COLLECTION, DATASET_ID)
     if errs := validate_compatibility(base, ds):
@@ -104,17 +108,17 @@ def finetune() -> None:
         experiment_tracker=tracker_name,
     )
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-    cfg = CONFIG_DIR / "generated_train.yaml"
-    cfg.write_text(yaml.dump(cfg_data, sort_keys=False))
+    train_cfg = CONFIG_DIR / "generated_train.yaml"
+    train_cfg.write_text(yaml.dump(cfg_data, sort_keys=False))
 
     from models.example_unet.pipeline import training_pipeline
 
-    run = training_pipeline.with_options(config_path=str(cfg))()
+    run = training_pipeline.with_options(config_path=str(train_cfg))()
     assert run is not None
     print(f"finetune: {run.id} ({run.status})")
 
 
-def promote() -> None:
+def promote(cfg: RunConfig) -> None:
     client = Client()
     versions = client.list_model_versions(model=MODEL_NAME, sort_by="desc:created")
     if not versions:
@@ -123,7 +127,7 @@ def promote() -> None:
 
     promote_model_version(MODEL_NAME, latest)
 
-    cat = _get_backend()
+    cat = _get_backend(cfg)
     item = publish_promoted_model(
         model_name=MODEL_NAME,
         version=latest,
@@ -134,8 +138,8 @@ def promote() -> None:
     print(f"promote: {item.id}")
 
 
-def predict() -> None:
-    cat = _get_backend()
+def predict(cfg: RunConfig) -> None:
+    cat = _get_backend(cfg)
     items = cat.list_items(LOCAL_MODELS_COLLECTION)
     active = [i for i in items if not i.properties.get("deprecated")]
     if not active:
@@ -146,22 +150,22 @@ def predict() -> None:
         PREDICT_OAM,
     )
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-    cfg = CONFIG_DIR / "generated_inference.yaml"
-    cfg.write_text(yaml.dump(cfg_data, sort_keys=False))
+    inf_cfg = CONFIG_DIR / "generated_inference.yaml"
+    inf_cfg.write_text(yaml.dump(cfg_data, sort_keys=False))
 
     from models.example_unet.pipeline import inference_pipeline
 
-    run = inference_pipeline.with_options(config_path=str(cfg), enable_cache=False)()
+    run = inference_pipeline.with_options(config_path=str(inf_cfg), enable_cache=False)()
     assert run is not None
     print(f"predict: {run.id} ({run.status})")
 
 
-def all_steps() -> None:
+def all_steps(cfg: RunConfig) -> None:
     for step in (init, register, finetune, promote, predict):
-        step()
+        step(cfg)
 
 
-def clean() -> None:
+def clean(cfg: RunConfig) -> None:
     for d in ("stac_catalog", "artifacts"):
         if (p := Path(d)).exists():
             shutil.rmtree(p)
@@ -174,7 +178,7 @@ def clean() -> None:
     print("clean: ok")
 
 
-COMMANDS: dict[str, Callable[[], None]] = {
+COMMANDS: dict[str, Callable[[RunConfig], None]] = {
     "init": init,
     "register": register,
     "finetune": finetune,
@@ -189,5 +193,6 @@ if __name__ == "__main__":
     parser.add_argument("command", choices=COMMANDS)
     parser.add_argument("--stac-api-url", help="STAC API URL (enables PgStacBackend)")
     parser.add_argument("--dsn", help="Postgres DSN for pgstac writes (default: PG env vars)")
-    _args = parser.parse_args()
-    COMMANDS[_args.command]()
+    args = parser.parse_args()
+    run_config = RunConfig(stac_api_url=args.stac_api_url, dsn=args.dsn)
+    COMMANDS[args.command](run_config)

@@ -279,3 +279,26 @@ class TestValidateBaseModelItem:
         item.properties["keywords"] = ["tree", "object-detection", "point"]
         item.properties["mlm:tasks"] = ["object-detection"]
         assert validate_base_model_item(item) == []
+
+
+class TestGeometryTypeCompatibility:
+    def test_matching_geometry_types(self, tmp_path):
+        errors = validate_compatibility(
+            _model(keywords=["building", "polygon", "semantic-segmentation"]),
+            _dataset(tmp_path, keywords=["building", "polygon", "semantic-segmentation"]),
+        )
+        assert not any("Geometry type mismatch" in e for e in errors)
+
+    def test_mismatched_geometry_types(self, tmp_path):
+        errors = validate_compatibility(
+            _model(keywords=["building", "polygon", "semantic-segmentation"]),
+            _dataset(tmp_path, keywords=["building", "point", "semantic-segmentation"]),
+        )
+        assert any("Geometry type mismatch" in e for e in errors)
+
+    def test_no_geometry_in_either_skips_check(self, tmp_path):
+        errors = validate_compatibility(
+            _model(keywords=["building", "semantic-segmentation"]),
+            _dataset(tmp_path, keywords=["building", "semantic-segmentation"]),
+        )
+        assert not any("Geometry type mismatch" in e for e in errors)

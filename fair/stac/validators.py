@@ -147,4 +147,10 @@ def validate_compatibility(
             f"(mapped to {mapped_label_tasks}), dataset label:tasks={label_tasks}"
         )
 
+    geom_types = set(schema.get("allowed_geometry_types", []))
+    model_geom = model_keywords & geom_types
+    dataset_geom = dataset_keywords & geom_types
+    if model_geom and dataset_geom and not model_geom & dataset_geom:
+        errors.append(f"Geometry type mismatch: model={sorted(model_geom)}, dataset={sorted(dataset_geom)}")
+
     return errors

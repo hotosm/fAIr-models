@@ -76,3 +76,11 @@ class TestZenMLPostgresPatch:
 
         assert ServerDatabaseType("postgresql").value == "postgresql"
         assert len([m for m in ServerDatabaseType if m.value == "postgresql"]) == 1
+
+    def test_env_var_skips_patch(self, monkeypatch):
+        monkeypatch.setenv("FAIR_SKIP_ZENML_PATCH", "1")
+        import fair._patch_zenml
+
+        # Patch was already applied in this process, but _apply should return early
+        # without error when the env var is set
+        fair._patch_zenml._apply()

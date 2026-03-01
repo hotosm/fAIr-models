@@ -3,6 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from fair.utils.data import _is_remote, list_files, resolve_directory, resolve_path
 
 
@@ -118,3 +120,12 @@ class TestResolveDirectory:
         mock_upath_cls.side_effect = [mock_remote, f1]
         resolve_directory("s3://bucket/d", local_dir=tmp_path)
         f1.read_bytes.assert_not_called()
+
+    @patch("fair.utils.data.UPath")
+    def test_raises_on_empty_prefix(self, mock_upath_cls: MagicMock, tmp_path: Path) -> None:
+        mock_remote = MagicMock()
+        mock_remote.glob.return_value = []
+        mock_upath_cls.return_value = mock_remote
+
+        with pytest.raises(FileNotFoundError, match="No files matching"):
+            resolve_directory("s3://bucket/empty-prefix", local_dir=tmp_path)

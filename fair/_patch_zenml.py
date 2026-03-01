@@ -2,13 +2,19 @@
 
 Triggered at interpreter startup via .pth before any ZenML import.
 https://docs.python.org/3/library/site.html
+Set FAIR_SKIP_ZENML_PATCH=1 to disable.
 """
+
+import os
 
 
 def _apply() -> None:
+    if os.environ.get("FAIR_SKIP_ZENML_PATCH"):
+        return
+
     try:
         from zenml.models.v2.misc.server_models import ServerDatabaseType
-    except Exception:
+    except (ImportError, ModuleNotFoundError):
         return
 
     if any(m.value == "postgresql" for m in ServerDatabaseType):

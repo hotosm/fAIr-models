@@ -10,6 +10,8 @@ blockcache::s3://) — model developers opt in as needed.
 from __future__ import annotations
 
 import logging
+import os
+import tempfile
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -17,7 +19,8 @@ from upath import UPath
 
 logger = logging.getLogger(__name__)
 
-_DEFAULT_CACHE = Path("/tmp/fair-data")
+
+_DEFAULT_CACHE = Path(os.environ.get("FAIR_CACHE_DIR", Path(tempfile.gettempdir()) / "fair-data"))
 
 
 def _is_remote(href: str) -> bool:
@@ -71,6 +74,10 @@ def resolve_directory(href: str, pattern: str = "*", local_dir: Path | None = No
         return Path(href)
 
     uris = list_files(href, pattern)
+    if not uris:
+        msg = f"No files matching '{pattern}' found at {href}"
+        raise FileNotFoundError(msg)
+
     cache = local_dir or _DEFAULT_CACHE
     dest_dir: Path | None = None
 
@@ -79,10 +86,5 @@ def resolve_directory(href: str, pattern: str = "*", local_dir: Path | None = No
         if dest_dir is None:
             dest_dir = local.parent
 
-    # Ensure a valid directory even when prefix is empty
-    if dest_dir is None:
-        rel = urlparse(href).path.lstrip("/")
-        dest_dir = cache / rel
-        dest_dir.mkdir(parents=True, exist_ok=True)
-
+    assert dest_dir is not None  # guaranteed by non-empty uris
     return dest_dir

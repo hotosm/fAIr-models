@@ -27,11 +27,8 @@ _BUILDING_CLASSES = [{"name": "building", "selector": [{"building": "*"}]}]
 
 
 def _get_device() -> Literal["mps", "cuda", "cpu"]:
-    """Detect compute device at runtime."""
+    """Detect compute device at runtime (called inside each step, not at import time)."""
     return "mps" if torch.backends.mps.is_available() else "cuda" if torch.cuda.is_available() else "cpu"
-
-
-DEVICE: Literal["mps", "cuda", "cpu"] = _get_device()
 
 
 def _resolve_weights(weight_id: str) -> "Unet_Weights":
@@ -117,7 +114,8 @@ def train_model(
         }
     )
 
-    model = unet(weights=_resolve_weights(base_model_weights), classes=num_classes).to(DEVICE)
+    device = _get_device()
+    model = unet(weights=_resolve_weights(base_model_weights), classes=num_classes).to(device)
     loader = _build_dataset(dataset_chips, dataset_labels, chip_size, length=10, batch_size=batch_size)
 
     losses = _get_losses()
@@ -127,7 +125,7 @@ def train_model(
 
     model.train()
     for epoch in range(epochs):
-        total_loss = sum(_train_step(model, batch, criterion, opt) for batch in loader)
+        total_loss = sum(_train_step(model, batch, criterion, opt, device) for batch in loader)
         avg_loss = total_loss / len(loader)
         mlflow.log_metric("train_loss", avg_loss, step=epoch)
         log_metadata(metadata={"loss": avg_loss, "epoch": epoch + 1})
@@ -140,10 +138,11 @@ def _train_step(
     batch: dict[str, Tensor],
     criterion: nn.Module,
     optimizer: Any,
+    device: str,
 ) -> float:
     """Single training step."""
     images, masks = preprocess(batch)
-    images, masks = images.to(DEVICE), masks.to(DEVICE)
+    images, masks = images.to(device), masks.to(device)
     loss = criterion(model(images), masks)
     optimizer.zero_grad()
     loss.backward()
@@ -160,7 +159,8 @@ def evaluate_model(
     num_classes: int = 2,
 ) -> dict[str, Any]:
     """Evaluate model on validation set."""
-    model = trained_model.to(DEVICE)
+    device = _get_device()
+    model = trained_model.to(device)
     model.eval()
 
     loader = _build_dataset(dataset_chips, dataset_labels, chip_size, length=5)
@@ -171,7 +171,7 @@ def evaluate_model(
     with torch.no_grad():
         for batch in loader:
             images, masks = preprocess(batch)
-            images, masks = images.to(DEVICE), masks.to(DEVICE)
+            images, masks = images.to(device), masks.to(device)
             preds = model(images).argmax(dim=1)
             total_correct += (preds == masks).sum().item()
             total_pixels += masks.numel()
@@ -205,7 +205,8 @@ def run_inference(
     chip_size: int,
     num_classes: int,
 ) -> str:
-    model = model.to(DEVICE)
+    device = _get_device()
+    model = model.to(device)
     model.eval()
 
     input_dir = Path(input_images)
@@ -220,7 +221,7 @@ def run_inference(
             tensor = torch.from_numpy(img).permute(2, 0, 1).unsqueeze(0).float() / 255.0
             if tensor.shape[-2:] != (chip_size, chip_size):
                 tensor = F.interpolate(tensor, size=(chip_size, chip_size), mode="bilinear", align_corners=False)
-            mask = postprocess(model(tensor.to(DEVICE)))[0]
+            mask = postprocess(model(tensor.to(device)))[0]
             Image.fromarray(mask).save(output_dir / img_path.name)
 
     return str(output_dir)

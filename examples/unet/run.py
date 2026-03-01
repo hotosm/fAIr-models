@@ -17,6 +17,7 @@ from pathlib import Path
 import pystac
 import yaml
 from zenml.client import Client
+from zenml.enums import StackComponentType
 
 from fair.stac.backend import StacBackend
 from fair.stac.builders import build_dataset_item
@@ -91,13 +92,17 @@ def finetune() -> None:
     if errs := validate_compatibility(base, ds):
         sys.exit(f"Incompatible: {errs}")
 
-    tracker = Client().active_stack.experiment_tracker
+    trackers = Client().active_stack_model.components.get(
+        StackComponentType.EXPERIMENT_TRACKER,
+        [],
+    )
+    tracker_name = trackers[0].name if trackers else None
     cfg_data = generate_training_config(
         base,
         ds,
         MODEL_NAME,
         {"epochs": 1},
-        experiment_tracker=tracker.name if tracker else None,
+        experiment_tracker=tracker_name,
     )
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
     cfg = CONFIG_DIR / "generated_train.yaml"

@@ -50,10 +50,10 @@ Changelog = "https://github.com/hotosm/fAIr-models/blob/master/CHANGELOG.md"
 source = "vcs"
 
 [tool.hatch.build.targets.sdist]
-include = ["fair/", "models/", "LICENSE", "README.md"]
+include = ["fair/", "LICENSE", "README.md"]
 
 [tool.hatch.build.targets.wheel]
-packages = ["fair", "models"]
+packages = ["fair"]
 
 
 [dependency-groups]

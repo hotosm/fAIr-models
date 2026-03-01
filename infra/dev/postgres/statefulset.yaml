@@ -15,6 +15,13 @@ spec:
       labels:
         app: postgres
     spec:
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: nvidia.com/gpu.present
+                    operator: DoesNotExist
       containers:
         - name: postgres
           image: imresamu/postgis:17-3.5
@@ -66,3 +73,7 @@ data:
     CREATE DATABASE zenml;
     CREATE DATABASE fair_models;
     CREATE DATABASE mlflow;
+
+    \c fair_models
+    CREATE EXTENSION IF NOT EXISTS postgis;
+    CREATE EXTENSION IF NOT EXISTS btree_gist;

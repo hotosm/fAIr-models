@@ -7,6 +7,7 @@ resources:
     cpu: 100m
   limits:
     memory: 512Mi
+    cpu: 500m
 persistence:
   size: 5Gi
 buckets:

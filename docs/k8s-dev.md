@@ -10,11 +10,18 @@ Prerequisites: [kind](https://kind.sigs.k8s.io/), kubectl, helm, [helmfile](http
 For GPU support: [nvkind](https://github.com/NVIDIA/nvkind), NVIDIA driver, [nvidia-container-toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html). See [GPU Support](#gpu-support-optional) below.
 
 ```bash
-uv sync --group example --group k8s
+uv sync --group k8s
 cd infra/dev
 make up            # cluster + infra + port-forwards + seed data + zenml stack
-make run-example   # init -> register -> finetune -> promote -> predict
+make run-example   # init -> register -> finetune -> promote -> predict (local orchestrator)
 make teardown      # destroy everything (kills port-forwards, removes cluster)
+```
+
+To run pipelines on the **k8s orchestrator** (steps execute as pods):
+
+```bash
+make build-image       # build Docker image + load into kind workers
+make run-example-k8s   # same workflow but steps run as k8s pods
 ```
 
 Individual targets: `make help`.
@@ -92,12 +99,13 @@ requires MySQL + Redis + commercial license.
 (`k8s-infra/apps/fair/eoapi/values.yaml`). Dev uses the same chart (v0.12.0)
 with `external-plaintext` DB.
 
-**ZenML Postgres patch** -- OSS ZenML only supports MySQL/SQLite. The patched image
-at [`ghcr.io/hotosm/zenml-postgres`](https://github.com/hotosm/fAIr/tree/develop/infra/zenml)
-replaces MySQL dialect (`MEDIUMTEXT`) with Postgres equivalents. Both server image
-and client need patching -- `make client-patch` handles the client side via the same
-[`patch_zenml.py`](https://github.com/hotosm/fAIr/blob/develop/infra/zenml/patch_zenml.py)
-used in the Dockerfile.
+**ZenML Postgres patch** -- OSS ZenML only supports MySQL/SQLite. The patched server
+image at [`ghcr.io/hotosm/zenml-postgres`](https://github.com/hotosm/fAIr/tree/develop/infra/zenml)
+replaces MySQL dialect (`MEDIUMTEXT`) with Postgres equivalents. The client side is
+handled automatically by `fair-py-ops`: a `.pth` startup hook
+(`fair/_patch_zenml.py`) adds the `POSTGRESQL` enum variant to
+`ServerDatabaseType` at interpreter startup, before any ZenML import. No manual
+client patching is needed.
 
 **StacBackend Protocol** -- `StacCatalogManager` writes local JSON files.
 `PgStacBackend` writes to pgstac via pypgstac. Both conform to the `StacBackend`

@@ -6,12 +6,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential libgdal-dev \
     && rm -rf /var/lib/apt/lists/*
 
+# TODO: remove universal-pathlib once fair-py-ops is published with it as a dependency
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv pip install \
     torch==2.10.0 \
     torchgeo==0.9.0 \
     fair-py-ops \
     "mlflow>=2.1.1,<4" \
+    "universal-pathlib>=0.3.10" \
     "pypgstac[psycopg]>=0.9" \
     "pystac-client>=0.9" \
     "zenml[connectors-aws,connectors-kubernetes,s3fs]>=0.93.3"
@@ -36,7 +38,6 @@ RUN sed -i 's/OTHER = "other"/OTHER = "other"\n    POSTGRESQL = "postgresql"/' \
     /usr/local/lib/python3.13/site-packages/zenml/models/v2/misc/server_models.py
 
 COPY models/example_unet models/example_unet
-COPY data/sample data/sample
 
 ENTRYPOINT ["/usr/local/bin/python"]
 

@@ -1,0 +1,154 @@
+{
+    "type": "Feature",
+    "stac_version": "1.0.0",
+    "stac_extensions": [
+        "https://stac-extensions.github.io/mlm/v1.5.1/schema.json",
+        "https://stac-extensions.github.io/version/v1.2.0/schema.json",
+        "https://stac-extensions.github.io/classification/v2.0.0/schema.json",
+        "https://stac-extensions.github.io/file/v2.1.0/schema.json",
+        "https://stac-extensions.github.io/raster/v1.1.0/schema.json"
+    ],
+    "id": "ramp-v1",
+    "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+            [
+                [-180, -90],
+                [180, -90],
+                [180, 90],
+                [-180, 90],
+                [-180, -90]
+            ]
+        ]
+    },
+    "bbox": [-180, -90, 180, 90],
+    "properties": {
+        "datetime": "2024-01-01T00:00:00Z",
+        "mlm:name": "ramp-v1",
+        "mlm:architecture": "EffUnet",
+        "mlm:tasks": [
+            "semantic-segmentation"
+        ],
+        "mlm:framework": "tensorflow",
+        "mlm:framework_version": "2.9.3",
+        "mlm:pretrained": false,
+        "mlm:pretrained_source": null,
+        "keywords": [
+            "building",
+            "semantic-segmentation",
+            "multimask",
+            "efficientnet",
+            "unet"
+        ],
+        "version": "1",
+        "mlm:input": [
+            {
+                "name": "RGB GeoTIFF chips",
+                "bands": [
+                    {"name": "red"},
+                    {"name": "green"},
+                    {"name": "blue"}
+                ],
+                "input": {
+                    "shape": [-1, 256, 256, 3],
+                    "dim_order": ["batch", "height", "width", "bands"],
+                    "data_type": "float32"
+                },
+                "norm_by_channel": false,
+                "norm_clip": [0.0, 1.0],
+                "pre_processing_function": {
+                    "format": "python",
+                    "expression": "models.ramp.pipeline:preprocess"
+                }
+            }
+        ],
+        "mlm:output": [
+            {
+                "name": "4-class sparse categorical multimask",
+                "tasks": ["semantic-segmentation"],
+                "result": {
+                    "shape": [-1, 256, 256, 1],
+                    "dim_order": ["batch", "height", "width", "channel"],
+                    "data_type": "uint8"
+                },
+                "classification:classes": [
+                    {
+                        "name": "background",
+                        "value": 0,
+                        "description": "Non-building pixels"
+                    },
+                    {
+                        "name": "building",
+                        "value": 1,
+                        "description": "Building interior pixels"
+                    },
+                    {
+                        "name": "boundary",
+                        "value": 2,
+                        "description": "Building boundary pixels (helps separate adjacent buildings)"
+                    },
+                    {
+                        "name": "contact",
+                        "value": 3,
+                        "description": "Close-contact points between neighbouring buildings"
+                    }
+                ],
+                "post_processing_function": {
+                    "format": "python",
+                    "expression": "models.ramp.pipeline:postprocess"
+                }
+            }
+        ],
+        "mlm:hyperparameters": {
+            "backbone": "efficientnetb0",
+            "num_classes": 4,
+            "epochs": 100,
+            "batch_size": 16,
+            "learning_rate": 0.0003,
+            "loss": "sparse_categorical_crossentropy",
+            "optimizer": "adam",
+            "input_img_shape": [256, 256],
+            "output_img_shape": [256, 256],
+            "boundary_width": 3,
+            "contact_spacing": 8,
+            "val_fraction": 0.15,
+            "early_stopping_patience": 35,
+            "augmentation": false
+        }
+    },
+    "assets": {
+        "model": {
+            "href": "https://drive.google.com/drive/folders/1VHFPkAWVtI5UEyzbD6e1uZlqe80YtQpn",
+            "type": "application/octet-stream; framework=tensorflow",
+            "title": "RAMP EfficientNetB0 U-Net weights (Keras SavedModel)",
+            "roles": ["mlm:model"],
+            "mlm:artifact_type": "tf.keras.Model",
+            "raster:bands": [
+                {"name": "red"},
+                {"name": "green"},
+                {"name": "blue"}
+            ]
+        },
+        "source-code": {
+            "href": "https://github.com/hotosm/fAIr-models/tree/main/models/ramp",
+            "type": "text/html",
+            "title": "RAMP model pack source",
+            "roles": ["code"],
+            "mlm:entrypoint": "models.ramp.pipeline:training_pipeline",
+            "mlm:inference_entrypoint": "models.ramp.pipeline:inference_pipeline"
+        },
+        "mlm:training": {
+            "href": "local",
+            "type": "text/plain",
+            "title": "Training runtime (Docker)",
+            "roles": ["mlm:training-runtime", "runtime"]
+        },
+        "mlm:inference": {
+            "href": "local",
+            "type": "text/plain",
+            "title": "Inference runtime (Docker)",
+            "roles": ["mlm:inference-runtime", "runtime"]
+        }
+    },
+    "links": []
+}

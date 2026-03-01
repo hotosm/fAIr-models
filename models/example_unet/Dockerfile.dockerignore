@@ -1,3 +1,4 @@
-# BuildKit uses <Dockerfile>.dockerignore automatically (no repo-level side effects) 
+# BuildKit uses <Dockerfile>.dockerignore automatically (no repo-level side effects)
 *
 !models/example_unet/
+!data/sample/

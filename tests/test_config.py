@@ -8,7 +8,7 @@ import pystac
 
 from fair.stac.builders import build_base_model_item, build_dataset_item
 from fair.zenml.config import (
-    _build_k8s_settings,
+    _gpu_settings,
     generate_inference_config,
     generate_training_config,
 )
@@ -147,7 +147,7 @@ def test_inference_config_with_artifact_id():
     assert p["zenml_artifact_version_id"] == "uuid-123"
 
 
-# --- _build_k8s_settings tests ---
+# --- _gpu_settings tests ---
 
 
 def _item_with_accelerator(accelerator: str | None = None, count: int | None = None) -> pystac.Item:
@@ -162,7 +162,7 @@ def _item_with_accelerator(accelerator: str | None = None, count: int | None = N
 
 def test_k8s_settings_cuda():
     item = _item_with_accelerator("cuda", 2)
-    settings = _build_k8s_settings(item)
+    settings = _gpu_settings(item)
     pod = settings["orchestrator.kubernetes"]["pod_settings"]
     assert pod["resources"]["requests"]["nvidia.com/gpu"] == "2"
     assert pod["resources"]["limits"]["nvidia.com/gpu"] == "2"
@@ -171,21 +171,20 @@ def test_k8s_settings_cuda():
 
 def test_k8s_settings_cpu_returns_empty():
     item = _item_with_accelerator()
-    settings = _build_k8s_settings(item)
-    assert settings == {}
+    assert _gpu_settings(item) == {}
 
 
 def test_k8s_settings_explicit_cpu():
-    assert _build_k8s_settings(_item_with_accelerator("cpu")) == {}
+    assert _gpu_settings(_item_with_accelerator("cpu")) == {}
 
 
 def test_k8s_settings_amd64():
-    assert _build_k8s_settings(_item_with_accelerator("amd64")) == {}
+    assert _gpu_settings(_item_with_accelerator("amd64")) == {}
 
 
 def test_k8s_settings_default_count():
     item = _item_with_accelerator("cuda")
-    settings = _build_k8s_settings(item)
+    settings = _gpu_settings(item)
     assert settings["orchestrator.kubernetes"]["pod_settings"]["resources"]["limits"]["nvidia.com/gpu"] == "1"
 
 

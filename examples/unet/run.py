@@ -135,7 +135,10 @@ def predict() -> None:
     if not active:
         sys.exit("No active local model")
 
-    cfg_data = generate_inference_config(active[-1], PREDICT_OAM)
+    cfg_data = generate_inference_config(
+        active[-1],
+        PREDICT_OAM,
+    )
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
     cfg = CONFIG_DIR / "generated_inference.yaml"
     cfg.write_text(yaml.dump(cfg_data, sort_keys=False))

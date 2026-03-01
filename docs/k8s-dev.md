@@ -7,6 +7,7 @@ the same infrastructure surface as production before code is merged.
 ## Quickstart
 
 Prerequisites: [kind](https://kind.sigs.k8s.io/), kubectl, helm, [mc](https://min.io/docs/minio/linux/reference/minio-mc.html) (minio client), [colima](https://github.com/abiosoft/colima) (macOS) or Docker Engine (Linux).
+For GPU support: [nvkind](https://github.com/NVIDIA/nvkind), NVIDIA driver, [nvidia-container-toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html). See [GPU Support](#gpu-support-optional) below.
 
 ```bash
 uv sync --group example --group k8s
@@ -61,6 +62,17 @@ Port-forwards (via `make port-forward`):
 | MinIO    | localhost:9000  | minio.fair.svc:9000         |
 | MLflow   | localhost:5000  | mlflow.fair.svc:80          |
 | Postgres | localhost:5432  | postgres.fair.svc:5432      |
+
+## GPU Support (optional)
+
+Follow the [nvkind prerequisites and setup guide](https://github.com/NVIDIA/nvkind#prerequisites) to install the NVIDIA driver, nvidia-container-toolkit, and nvkind on your host. Once `nvkind` is on `$PATH`, `make up` handles the rest.
+
+**What `make up` does**: `kind-config.yaml` marks `worker2` with `extraMounts` that signal GPU presence to nvkind. `make cluster-up` runs nvkind (installs toolkit inside the node, configures containerd). `make infra-up` creates the `nvidia` RuntimeClass, labels the GPU node, and deploys the device plugin.
+
+**Caveats**:
+- `PatchProcDriverNvidia` may fail on non-MIG single-GPU hosts — non-critical, the Makefile tolerates it.
+- nvkind restarts containerd on the GPU node, briefly disrupting colocated pods.
+- Device plugin uses `--set deviceDiscoveryStrategy=nvml` (default `auto` fails inside kind).
 
 ## Decisions
 

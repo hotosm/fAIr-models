@@ -12,19 +12,26 @@ CLUSTER := fair-dev
 PATCH   := https://raw.githubusercontent.com/hotosm/fAIr/develop/infra/zenml/patch_zenml.py
 PGSTAC_DSN ?= postgresql://postgres:postgres@localhost:5432/fair_models
 PID_FILE := .port-forward.pids
+NVKIND  := $(shell command -v nvkind 2>/dev/null || echo $(HOME)/go/bin/nvkind)
+
+IMAGE ?= ghcr.io/hotosm/fair-models/example-unet:v1
 
 .PHONY: helm-repos cluster-up cluster-down infra-up infra-down \
         port-forward kill-port-forward seed-data client-patch \
-        stack-register run-example up teardown help
+        stack-register run-example build-image run-example-k8s \
+        up teardown help
 
 helm-repos:
 	@helm repo add eoapi https://devseed.com/eoapi-k8s/ 2>/dev/null || true
 	@helm repo add community-charts https://community-charts.github.io/helm-charts 2>/dev/null || true
 	@helm repo add minio https://charts.min.io/ 2>/dev/null || true
+	@helm repo add nvdp https://nvidia.github.io/k8s-device-plugin 2>/dev/null || true
 	@helm repo update
 
 cluster-up:
-	kind create cluster --name $(CLUSTER) --config kind-config.yaml
+	-$(NVKIND) cluster create --name $(CLUSTER) --config-template kind-config.yaml
+	@# nvkind may fail at PatchProcDriverNvidia (not needed for single-GPU); ensure RuntimeClass exists
+	@kubectl apply -f - <<< '{"apiVersion":"node.k8s.io/v1","kind":"RuntimeClass","handler":"nvidia","metadata":{"name":"nvidia"}}' 2>/dev/null || true
 
 cluster-down:
 	kind delete cluster --name $(CLUSTER)
@@ -38,8 +45,17 @@ infra-up: helm-repos
 	helm upgrade --install minio minio/minio -n $(NS) -f minio/values.yaml --wait --timeout 5m
 	helm upgrade --install mlflow community-charts/mlflow -n $(NS) -f mlflow/values.yaml --wait --timeout 5m
 	helm upgrade --install zenml oci://public.ecr.aws/zenml/zenml --version 0.93.3 -n $(NS) -f zenml/values.yaml --wait --timeout 8m
+	@# GPU: nvkind installed toolkit + configured containerd; label node and deploy device plugin
+	@kubectl label node $(CLUSTER)-worker2 nvidia.com/gpu.present=true --overwrite >/dev/null
+	helm upgrade --install nvidia-device-plugin nvdp/nvidia-device-plugin \
+		-n nvidia --create-namespace \
+		--set runtimeClassName=nvidia \
+		--set deviceDiscoveryStrategy=nvml \
+		--wait --timeout 5m
 
 infra-down:
+	-helm uninstall nvidia-device-plugin -n nvidia
+	-kubectl delete ns nvidia --ignore-not-found
 	-helm uninstall zenml mlflow minio stac -n $(NS)
 	-kubectl delete -n $(NS) -f postgres/
 
@@ -70,7 +86,10 @@ stack-register:
 	@uv run python -c "from zenml.config.global_config import GlobalConfiguration as GC; \
 		from zenml.zen_stores.rest_zen_store import RestZenStoreConfiguration as RSC; \
 		gc = GC(); gc.set_store(RSC(url='http://localhost:8080', username='default', password='', verify_ssl=False))"
-	-uv run zenml orchestrator register k8s_orchestrator --flavor kubernetes --kubernetes_namespace=$(NS)
+	-uv run zenml orchestrator register k8s_orchestrator --flavor kubernetes \
+		--kubernetes_namespace=$(NS) --kubernetes_context=kind-$(CLUSTER) \
+		--pod_settings='{"env": [{"name": "ZENML_STORE_URL", "value": "http://zenml.$(NS).svc:80"}, {"name": "AWS_ENDPOINT_URL", "value": "http://minio.$(NS).svc:9000"}, {"name": "AWS_ACCESS_KEY_ID", "value": "minioadmin"}, {"name": "AWS_SECRET_ACCESS_KEY", "value": "minioadmin"}]}' \
+		--orchestrator_pod_settings='{"env": [{"name": "ZENML_STORE_URL", "value": "http://zenml.$(NS).svc:80"}, {"name": "AWS_ENDPOINT_URL", "value": "http://minio.$(NS).svc:9000"}, {"name": "AWS_ACCESS_KEY_ID", "value": "minioadmin"}, {"name": "AWS_SECRET_ACCESS_KEY", "value": "minioadmin"}]}'
 	-uv run zenml artifact-store register s3_artifacts --flavor s3 --path=s3://zenml \
 		--client_kwargs='{"endpoint_url": "http://minio.$(NS).svc:9000", "aws_access_key_id": "minioadmin", "aws_secret_access_key": "minioadmin"}'
 	-uv run zenml artifact-store register s3_local --flavor s3 --path=s3://zenml \
@@ -86,6 +105,15 @@ stack-register:
 run-example:
 	cd ../.. && uv run python examples/unet/run.py all --stac-api-url http://localhost:8082 --dsn $(PGSTAC_DSN)
 
+build-image:
+	cd ../.. && docker buildx build -f models/example_unet/Dockerfile -t $(IMAGE) --platform linux/amd64 --load --no-cache .
+	kind load docker-image $(IMAGE) --name $(CLUSTER)
+
+run-example-k8s:
+	cd ../.. && uv run zenml stack set k8s
+	cd ../.. && uv run python examples/unet/run.py all \
+		--stac-api-url http://localhost:8082 --dsn $(PGSTAC_DSN)
+
 up: cluster-up infra-up port-forward seed-data client-patch stack-register
 teardown: kill-port-forward infra-down cluster-down
 
@@ -99,6 +127,8 @@ help:
 	@echo "seed-data           Upload sample data to MinIO"
 	@echo "client-patch        Patch ZenML client for Postgres"
 	@echo "stack-register      Register ZenML stacks"
-	@echo "run-example         Run UNet example E2E"
+	@echo "build-image         Build & load Docker image into kind workers"
+	@echo "run-example         Run UNet example E2E (local stack)"
+	@echo "run-example-k8s     Run UNet example E2E (k8s stack)"
 	@echo "up                  Full setup"
 	@echo "teardown            Full teardown"

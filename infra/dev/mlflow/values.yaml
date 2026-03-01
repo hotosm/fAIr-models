@@ -17,3 +17,4 @@ artifactRoot:
 
 extraEnvVars:
   MLFLOW_S3_ENDPOINT_URL: http://minio.fair.svc:9000
+  MLFLOW_SERVER_ALLOWED_HOSTS: "*"

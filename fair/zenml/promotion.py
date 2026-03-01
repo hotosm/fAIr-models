@@ -107,7 +107,7 @@ def publish_promoted_model(
     )
 
     if prev_item:
-        catalog_manager.deprecate_item(LOCAL_MODELS_COLLECTION, prev_item.id)
+        prev_item = catalog_manager.deprecate_item(LOCAL_MODELS_COLLECTION, prev_item.id)
         prev_item.add_link(pystac.Link(rel="successor-version", target=new_item_id))
         catalog_manager.publish_item(LOCAL_MODELS_COLLECTION, prev_item)
         log.info("STAC: deprecated %s, added successor-version -> %s", prev_item.id, new_item_id)

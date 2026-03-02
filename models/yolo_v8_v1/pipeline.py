@@ -5,10 +5,14 @@ Implements fAIr 3.0 contract (FAIr_3.0_Optimized_Pipeline.md).
 
 Model weights (model_uri): From STAC assets.model.href.
 Supports local path, HTTP(S) URL, Google Drive. Resolved on first use.
+
+Hyperparameters (epochs, batch_size, pc, multimasks, p_val): Loaded from STAC
+properties.mlm:hyperparameters. Use stac_item_path to point at the Item JSON.
 """
 
 from __future__ import annotations
 
+import json
 import re
 from pathlib import Path
 from typing import Annotated
@@ -66,12 +70,57 @@ def resolve_model_href(model_uri: str, cache_dir: Path | None = None) -> str:
     return str(dest)
 
 
+def _load_hyperparams_from_stac(stac_item_path: str) -> dict:
+    """Load mlm:hyperparameters from a STAC Item JSON file.
+
+    Relative paths are resolved against /workspace (container) or cwd (local).
+    """
+    path = Path(stac_item_path)
+    if not path.is_absolute():
+        for base in (Path("/workspace"), Path.cwd()):
+            candidate = base / path
+            if candidate.is_file():
+                path = candidate
+                break
+        else:
+            path = Path("/workspace") / path
+    with open(path, encoding="utf-8") as f:
+        item = json.load(f)
+    return dict(item.get("properties", {}).get("mlm:hyperparameters", {}))
+
+
+def _get_model_href_from_stac(stac_item_path: str) -> str:
+    """Load assets.model.href from a STAC Item JSON file."""
+    path = Path(stac_item_path)
+    if not path.is_absolute():
+        for base in (Path("/workspace"), Path.cwd()):
+            candidate = base / path
+            if candidate.is_file():
+                path = candidate
+                break
+        else:
+            path = Path("/workspace") / path
+    with open(path, encoding="utf-8") as f:
+        item = json.load(f)
+    assets = item.get("assets", {})
+    model_asset = assets.get("model", {})
+    href = model_asset.get("href")
+    if not href:
+        raise ValueError(f"No assets.model.href found in STAC Item at {stac_item_path}")
+    return href
+
+
 # ---------------------------------------------------------------------------
 # Processing-expression callables (referenced by STAC MLM items)
 # ---------------------------------------------------------------------------
 
 
-def preprocess(input_path: str, output_path: str, multimasks: bool = True) -> str:
+def preprocess(
+    input_path: str,
+    output_path: str,
+    multimasks: bool = True,
+    p_val: float = 0.05,
+) -> str:
     """Preprocess OAM chips + labels, then convert to YOLO dataset format.
 
     Step 1 — hot_fair_utilities.preprocess:
@@ -103,7 +152,7 @@ def preprocess(input_path: str, output_path: str, multimasks: bool = True) -> st
         preprocessed_dirs=preprocessed_path,
         yolo_dir=yolo_dir,
         multimask=multimasks,
-        p_val=0.05,
+        p_val=p_val,
     )
     return yolo_dir
 
@@ -136,9 +185,10 @@ def run_preprocessing(
     input_path: str,
     output_path: str,
     multimasks: bool = True,
+    p_val: float = 0.05,
 ) -> str:
     """Preprocess raw chips + labels and write a YOLO dataset. Returns yolo_dir."""
-    return preprocess(input_path, output_path, multimasks)
+    return preprocess(input_path, output_path, multimasks, p_val)
 
 
 @step
@@ -214,17 +264,28 @@ def run_postprocessing(
 def training_pipeline(
     input_path: str,
     output_path: str,
-    weights_path: str,
-    epochs: Annotated[int, Ge(1), Le(500)] = 20,
-    batch_size: Annotated[int, Ge(1), Le(64)] = 16,
-    pc: Annotated[float, Ge(0.0), Le(10.0)] = 2.0,
-    multimasks: bool = True,
+    stac_item_path: str = "models/yolo_v8_v1/stac-item.json",
 ) -> None:
-    """Full training run: preprocess → YOLO format → fine-tune → log IoU."""
+    """Full training run: preprocess → YOLO format → fine-tune → log IoU.
+
+    Hyperparameters (epochs, batch_size, pc, multimasks, p_val) and base model
+    weights (assets.model.href) are loaded from the STAC Item at stac_item_path.
+    """
+    hyperparams = _load_hyperparams_from_stac(stac_item_path)
+    model_href = _get_model_href_from_stac(stac_item_path)
+    weights_path = resolve_model_href(model_href)
+
+    epochs = hyperparams.get("epochs", 20)
+    batch_size = hyperparams.get("batch_size", 16)
+    pc = hyperparams.get("pc", 2.0)
+    multimasks = hyperparams.get("multimasks", True)
+    p_val = hyperparams.get("p_val", 0.05)
+
     yolo_dir = run_preprocessing(
         input_path=input_path,
         output_path=output_path,
         multimasks=multimasks,
+        p_val=p_val,
     )
     train_model(
         data_base_path=output_path,

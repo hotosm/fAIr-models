@@ -29,7 +29,7 @@
         "mlm:tasks": [
             "instance-segmentation"
         ],
-        "mlm:framework": "pytorch",
+        "mlm:framework": "PyTorch",
         "mlm:framework_version": "2.1.0",
         "mlm:pretrained": true,
         "mlm:pretrained_source": "https://github.com/hotosm/fAIr-utilities/raw/refs/heads/master/yolov8s_v2-seg.pt",
@@ -39,6 +39,49 @@
             "polygon"
         ],
         "version": "2",
+        "status": "active",
+        "mlm:total_parameters": 11000000,
+        "mlm:memory_size": 536870912,
+        "mlm:accelerator": null,
+        "mlm:accelerator_constrained": false,
+        "licenses": {
+            "model": "Apache-2.0",
+            "data": "ODbL-1.0",
+            "code": "Apache-2.0"
+        },
+        "inference_time_per_256x256": {
+            "value": 25,
+            "unit": "ms"
+        },
+        "pipeline_input": {
+            "type": "directory",
+            "description": "Directory of raw PNG/TIF chips and labels.geojson (OAM format)",
+            "expected_files": "*.png",
+            "required_params": ["input_path", "model_uri"]
+        },
+        "pipeline_output": {
+            "type": "file",
+            "description": "Single GeoJSON file with merged building footprints (EPSG:4326)",
+            "expected_files": "*.geojson",
+            "geometry_types": ["Polygon", "MultiPolygon"]
+        },
+        "evaluation_metrics": [
+            {
+                "metric": "iou_accuracy_pct",
+                "definition": "IoU-based accuracy from Ultralytics YOLOv8 validation",
+                "value": 0.85
+            }
+        ],
+        "zenml_entrypoints": {
+            "preprocessing": "models.yolo_v8_v2.pipeline:run_preprocessing",
+            "inference": "models.yolo_v8_v2.pipeline:inference_pipeline",
+            "postprocessing": "models.yolo_v8_v2.pipeline:run_postprocessing",
+            "training": "models.yolo_v8_v2.pipeline:train_model"
+        },
+        "training_time": {
+            "value": 2.0,
+            "unit": "hours"
+        },
         "mlm:input": [
             {
                 "name": "RGB chips",
@@ -117,20 +160,19 @@
             "type": "text/html",
             "title": "YOLOv8-v2 model pack source",
             "roles": ["code"],
-            "mlm:entrypoint": "models.yolo_v8_v2.pipeline:training_pipeline",
-            "mlm:inference_entrypoint": "models.yolo_v8_v2.pipeline:inference_pipeline"
+            "mlm:entrypoint": "models.yolo_v8_v2.pipeline:training_pipeline"
         },
-        "mlm:training": {
+        "training-runtime": {
             "href": "local",
             "type": "text/plain",
             "title": "Training runtime (Docker)",
-            "roles": ["mlm:training-runtime", "runtime"]
+            "roles": ["training-runtime", "runtime"]
         },
-        "mlm:inference": {
+        "inference-runtime": {
             "href": "local",
             "type": "text/plain",
             "title": "Inference runtime (Docker)",
-            "roles": ["mlm:inference-runtime", "runtime"]
+            "roles": ["inference-runtime", "runtime"]
         }
     },
     "links": []

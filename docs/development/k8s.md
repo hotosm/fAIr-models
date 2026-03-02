@@ -1,8 +1,6 @@
 # Kubernetes Dev Stack
 
-Local kind cluster mirroring the production EKS deployment from `hotosm/k8s-infra`.
-Validates the full pipeline lifecycle (register -> train -> promote -> predict) against
-the same infrastructure surface as production before code is merged.
+Local kind cluster mirroring the EKS deployment from `hotosm/k8s-infra`.
 
 ## Quickstart
 

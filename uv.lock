@@ -802,6 +802,7 @@ wheels = [
 name = "fair-py-ops"
 source = { editable = "." }
 dependencies = [
+    { name = "kubernetes" },
     { name = "mlflow" },
     { name = "pystac", extra = ["validation"] },
     { name = "universal-pathlib" },
@@ -846,6 +847,7 @@ local = [
 
 [package.metadata]
 requires-dist = [
+    { name = "kubernetes", specifier = ">=35.0.0" },
     { name = "mlflow", specifier = ">=2.1.1,<4" },
     { name = "pystac", extras = ["validation"], specifier = ">=1.14.3" },
     { name = "universal-pathlib", specifier = ">=0.3.10" },

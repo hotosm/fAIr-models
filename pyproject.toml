@@ -40,6 +40,13 @@ dependencies = [
     "zenml>=0.93.3",
 ]
 
+[project.optional-dependencies]
+k8s = [
+    "pypgstac[psycopg]>=0.9",
+    "pystac-client>=0.9",
+    "zenml[connectors-aws,connectors-kubernetes,s3fs]>=0.93.3",
+]
+
 [project.urls]
 Homepage = "https://github.com/hotosm/fAIr-models"
 Documentation = "https://hotosm.github.io/fAIr-models"
@@ -85,11 +92,6 @@ local = [
 example = [
     "torch",
     "torchgeo",
-]
-k8s = [
-    "pypgstac[psycopg]>=0.9",
-    "pystac-client>=0.9",
-    "zenml[connectors-aws,connectors-kubernetes,s3fs]>=0.93.3",
 ]
 
 [tool.ruff]

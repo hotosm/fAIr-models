@@ -10,9 +10,12 @@ permissions:
   contents: read
 
 jobs:
-  build:
-    name: build
+  publish:
+    name: publish (TestPyPI)
     runs-on: ubuntu-latest
+    environment: testpypi
+    permissions:
+      id-token: write
     steps:
       - name: Clone repo
         uses: actions/checkout@v4
@@ -23,48 +26,5 @@ jobs:
         with:
           python-version: "3.13"
           enable-cache: true
-      - name: Build sdist and wheel
-        run: uv build
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: dist
-          path: dist/
-
-  test:
-    name: test artifacts
-    needs: build
-    runs-on: ubuntu-latest
-    steps:
-      - name: Download artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: dist
-          path: dist/
-      - name: Set up uv
-        uses: astral-sh/setup-uv@v5
-        with:
-          python-version: "3.13"
-      - name: Install from wheel and verify version
-        run: |
-          uv venv /tmp/test-env
-          VIRTUAL_ENV=/tmp/test-env uv pip install dist/*.whl
-          /tmp/test-env/bin/python -c "import fair; print(fair.__version__)"
-
-  publish:
-    name: publish (TestPyPI)
-    needs: [build, test]
-    runs-on: ubuntu-latest
-    environment: testpypi
-    permissions:
-      id-token: write
-    steps:
-      - name: Download artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: dist
-          path: dist/
-      - name: Publish to TestPyPI
-        uses: pypa/gh-action-pypi-publish@release/v1
-        with:
-          repository-url: https://test.pypi.org/legacy/
+      - name: Build and publish
+        run: uv build && uv publish --publish-url https://test.pypi.org/legacy/

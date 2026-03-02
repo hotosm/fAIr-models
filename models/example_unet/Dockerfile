@@ -11,10 +11,10 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     uv pip install \
     torch==2.10.0 \
     torchgeo==0.9.0 \
-    fair-py-ops==0.0.4 \
+    fair-py-ops==0.0.4
 
-    # Runtime stage: minimal image
-    FROM python:3.13-slim-trixie
+# Runtime stage: minimal image
+FROM python:3.13-slim-trixie
 
 WORKDIR /app
 

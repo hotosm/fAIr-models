@@ -50,6 +50,9 @@ def _get_backend(cfg: RunConfig) -> StacBackend:
     if cfg.stac_api_url:
         from fair.stac.pgstac_backend import PgStacBackend
 
+        if not cfg.dsn:
+            msg = "--dsn is required when --stac-api-url is set"
+            raise ValueError(msg)
         return PgStacBackend(dsn=cfg.dsn, stac_api_url=cfg.stac_api_url)
     return StacCatalogManager(CATALOG_PATH)
 

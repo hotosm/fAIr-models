@@ -802,11 +802,17 @@ wheels = [
 name = "fair-py-ops"
 source = { editable = "." }
 dependencies = [
-    { name = "kubernetes" },
     { name = "mlflow" },
     { name = "pystac", extra = ["validation"] },
     { name = "universal-pathlib" },
     { name = "zenml" },
+]
+
+[package.optional-dependencies]
+k8s = [
+    { name = "pypgstac", extra = ["psycopg"] },
+    { name = "pystac-client" },
+    { name = "zenml", extra = ["connectors-aws", "connectors-kubernetes", "s3fs"] },
 ]
 
 [package.dev-dependencies]
@@ -836,23 +842,21 @@ example = [
     { name = "torch" },
     { name = "torchgeo" },
 ]
-k8s = [
-    { name = "pypgstac", extra = ["psycopg"] },
-    { name = "pystac-client" },
-    { name = "zenml", extra = ["connectors-aws", "connectors-kubernetes", "s3fs"] },
-]
 local = [
     { name = "zenml", extra = ["server"] },
 ]
 
 [package.metadata]
 requires-dist = [
-    { name = "kubernetes", specifier = ">=35.0.0" },
     { name = "mlflow", specifier = ">=2.1.1,<4" },
+    { name = "pypgstac", extras = ["psycopg"], marker = "extra == 'k8s'", specifier = ">=0.9" },
     { name = "pystac", extras = ["validation"], specifier = ">=1.14.3" },
+    { name = "pystac-client", marker = "extra == 'k8s'", specifier = ">=0.9" },
     { name = "universal-pathlib", specifier = ">=0.3.10" },
     { name = "zenml", specifier = ">=0.93.3" },
+    { name = "zenml", extras = ["connectors-aws", "connectors-kubernetes", "s3fs"], marker = "extra == 'k8s'", specifier = ">=0.93.3" },
 ]
+provides-extras = ["k8s"]
 
 [package.metadata.requires-dev]
 ci = [
@@ -880,11 +884,6 @@ docs = [
 example = [
     { name = "torch" },
     { name = "torchgeo" },
-]
-k8s = [
-    { name = "pypgstac", extras = ["psycopg"], specifier = ">=0.9" },
-    { name = "pystac-client", specifier = ">=0.9" },
-    { name = "zenml", extras = ["connectors-aws", "connectors-kubernetes", "s3fs"], specifier = ">=0.93.3" },
 ]
 local = [{ name = "zenml", extras = ["server"], specifier = ">=0.93.3" }]
 

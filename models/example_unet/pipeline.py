@@ -4,20 +4,9 @@ Entrypoints referenced by models/example_unet/stac-item.json.
 Pretrained weights: OAM-TCD (arxiv.org/abs/2407.11743).
 """
 
-from pathlib import Path
 from typing import Annotated, Any, Literal
 
-import numpy as np
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
 from annotated_types import Ge, Le
-from PIL import Image
-from torch import Tensor
-from torch.utils.data import DataLoader
-from torchgeo.datasets import OpenStreetMap, RasterDataset, stack_samples
-from torchgeo.models import Unet_Weights, unet
-from torchgeo.samplers import RandomGeoSampler, Units
 from zenml import log_metadata, pipeline, step
 
 from fair.zenml.steps import load_model
@@ -26,34 +15,42 @@ _BUILDING_CLASSES = [{"name": "building", "selector": [{"building": "*"}]}]
 
 
 def _get_device() -> Literal["mps", "cuda", "cpu"]:
-    """Detect compute device at runtime."""
+    import torch
+
     return "mps" if torch.backends.mps.is_available() else "cuda" if torch.cuda.is_available() else "cpu"
 
 
-DEVICE: Literal["mps", "cuda", "cpu"] = _get_device()
+def _resolve_weights(weight_id: str) -> Any:
+    from torchgeo.models import Unet_Weights
 
-
-def _resolve_weights(weight_id: str) -> "Unet_Weights":
-    """Map 'torchgeo.models.Unet_Weights.MEMBER' or bare MEMBER name to enum."""
     return Unet_Weights[weight_id.rsplit(".", 1)[-1]]
 
 
-def preprocess(batch: dict[str, Tensor]) -> tuple[Tensor, Tensor]:
-    """Preprocess batch: normalize images, extract masks."""
+def preprocess(batch: dict[str, Any]) -> tuple[Any, Any]:
     images = batch["image"].float() / 255.0
     masks = batch["mask"].long().squeeze(1)
     return images, masks
 
 
-def postprocess(logits: Tensor) -> np.ndarray:
-    """Convert logits to class predictions."""
+def postprocess(logits: Any) -> Any:
+    import numpy as np
+
     return logits.argmax(dim=1).cpu().numpy().astype(np.uint8)
 
 
-def _build_dataset(chips_path: str, labels_path: str, chip_size: int, length: int, batch_size: int = 4) -> "DataLoader":
+def _build_dataset(chips_path: str, labels_path: str, chip_size: int, length: int, batch_size: int = 4) -> Any:
     """Intersect OAM + OSM GeoDatasets. chip_size in pixels; bounds are slices per torchgeo 0.10.x dev.
     labels_path is the exact GeoJSON file path stored in STAC; OpenStreetMap.paths requires its parent dir.
+    Downloads chips and labels to local cache via UPath/fsspec.
     """
+    from torch.utils.data import DataLoader
+    from torchgeo.datasets import OpenStreetMap, RasterDataset, stack_samples
+    from torchgeo.samplers import RandomGeoSampler, Units
+
+    from fair.utils.data import resolve_directory, resolve_path
+
+    local_chips = str(resolve_directory(chips_path, "OAM-*.tif"))
+    local_labels = resolve_path(labels_path)
 
     class _OAMDataset(RasterDataset):  # TODO : After OAM is released , replace this with OAM dataset directly
         filename_glob = "OAM-*.tif"
@@ -61,17 +58,18 @@ def _build_dataset(chips_path: str, labels_path: str, chip_size: int, length: in
         is_image = True
         separate_files = False
 
-    oam = _OAMDataset(paths=chips_path)
+    oam = _OAMDataset(paths=local_chips)
     b = oam.bounds
     bbox = (b[0].start, b[1].start, b[0].stop, b[1].stop)
-    osm = OpenStreetMap(bbox=bbox, classes=_BUILDING_CLASSES, paths=str(Path(labels_path).parent), download=False)
+    osm = OpenStreetMap(bbox=bbox, classes=_BUILDING_CLASSES, paths=str(local_labels.parent), download=False)
     dataset = oam & osm
     sampler = RandomGeoSampler(dataset, size=chip_size, length=length, units=Units.PIXELS)
     return DataLoader(dataset, sampler=sampler, batch_size=batch_size, collate_fn=stack_samples)
 
 
 def _get_optimizers() -> dict[str, Any]:
-    """Get available optimizers. Keep in sync with mlm:hyperparameters in stac-item.json."""
+    import torch
+
     return {
         "Adam": torch.optim.Adam,
         "AdamW": torch.optim.AdamW,
@@ -80,7 +78,8 @@ def _get_optimizers() -> dict[str, Any]:
 
 
 def _get_losses() -> dict[str, Any]:
-    """Get available loss functions. Keep in sync with mlm:hyperparameters in stac-item.json."""
+    import torch.nn as nn
+
     return {
         "CrossEntropyLoss": nn.CrossEntropyLoss,
         "BCEWithLogitsLoss": nn.BCEWithLogitsLoss,
@@ -100,9 +99,26 @@ def train_model(
     num_classes: int,
     optimizer: str = "AdamW",
     loss: str = "CrossEntropyLoss",
-) -> nn.Module:
-    """Train UNet model on dataset."""
-    model = unet(weights=_resolve_weights(base_model_weights), classes=num_classes).to(DEVICE)
+) -> Any:
+    import mlflow
+    from torchgeo.models import unet
+
+    mlflow.autolog()
+    mlflow.log_params(
+        {
+            "epochs": epochs,
+            "batch_size": batch_size,
+            "learning_rate": learning_rate,
+            "weight_decay": weight_decay,
+            "optimizer": optimizer,
+            "loss": loss,
+            "chip_size": chip_size,
+            "num_classes": num_classes,
+        }
+    )
+
+    device = _get_device()
+    model = unet(weights=_resolve_weights(base_model_weights), classes=num_classes).to(device)
     loader = _build_dataset(dataset_chips, dataset_labels, chip_size, length=10, batch_size=batch_size)
 
     losses = _get_losses()
@@ -112,21 +128,23 @@ def train_model(
 
     model.train()
     for epoch in range(epochs):
-        total_loss = sum(_train_step(model, batch, criterion, opt) for batch in loader)
-        log_metadata(metadata={"loss": total_loss / len(loader), "epoch": epoch + 1})
+        total_loss = sum(_train_step(model, batch, criterion, opt, device) for batch in loader)
+        avg_loss = total_loss / len(loader)
+        mlflow.log_metric("train_loss", avg_loss, step=epoch)
+        log_metadata(metadata={"loss": avg_loss, "epoch": epoch + 1})
 
     return model.cpu()
 
 
 def _train_step(
-    model: nn.Module,
-    batch: dict[str, Tensor],
-    criterion: nn.Module,
+    model: Any,
+    batch: dict[str, Any],
+    criterion: Any,
     optimizer: Any,
+    device: str,
 ) -> float:
-    """Single training step."""
     images, masks = preprocess(batch)
-    images, masks = images.to(DEVICE), masks.to(DEVICE)
+    images, masks = images.to(device), masks.to(device)
     loss = criterion(model(images), masks)
     optimizer.zero_grad()
     loss.backward()
@@ -136,14 +154,17 @@ def _train_step(
 
 @step
 def evaluate_model(
-    trained_model: nn.Module,
+    trained_model: Any,
     dataset_chips: str,
     dataset_labels: str,
     chip_size: int = 512,
     num_classes: int = 2,
 ) -> dict[str, Any]:
-    """Evaluate model on validation set."""
-    model = trained_model.to(DEVICE)
+    import mlflow
+    import torch
+
+    device = _get_device()
+    model = trained_model.to(device)
     model.eval()
 
     loader = _build_dataset(dataset_chips, dataset_labels, chip_size, length=5)
@@ -154,7 +175,7 @@ def evaluate_model(
     with torch.no_grad():
         for batch in loader:
             images, masks = preprocess(batch)
-            images, masks = images.to(DEVICE), masks.to(DEVICE)
+            images, masks = images.to(device), masks.to(device)
             preds = model(images).argmax(dim=1)
             total_correct += (preds == masks).sum().item()
             total_pixels += masks.numel()
@@ -167,6 +188,7 @@ def evaluate_model(
         "mean_iou": sum(intersection[c] / max(union[c], 1) for c in range(num_classes)) / num_classes,
         **{f"iou_class_{c}": intersection[c] / max(union[c], 1) for c in range(num_classes)},
     }
+    mlflow.log_metrics(metrics)
     log_metadata(metadata=metrics)
     return metrics
 
@@ -175,8 +197,9 @@ def evaluate_model(
 def load_base_model(
     model_uri: str,
     num_classes: int,
-) -> nn.Module:
-    """Instantiate model from pretrained weights enum. Model-specific: each developer implements their own."""
+) -> Any:
+    from torchgeo.models import unet
+
     return unet(weights=_resolve_weights(model_uri), classes=num_classes).cpu()
 
 
@@ -187,10 +210,18 @@ def run_inference(
     chip_size: int,
     num_classes: int,
 ) -> str:
-    model = model.to(DEVICE)
+    import numpy as np
+    import torch
+    import torch.nn.functional as F
+    from PIL import Image
+
+    from fair.utils.data import resolve_directory
+
+    device = _get_device()
+    model = model.to(device)
     model.eval()
 
-    input_dir = Path(input_images)
+    input_dir = resolve_directory(input_images)
     output_dir = input_dir.parent / "predictions"
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -202,7 +233,7 @@ def run_inference(
             tensor = torch.from_numpy(img).permute(2, 0, 1).unsqueeze(0).float() / 255.0
             if tensor.shape[-2:] != (chip_size, chip_size):
                 tensor = F.interpolate(tensor, size=(chip_size, chip_size), mode="bilinear", align_corners=False)
-            mask = postprocess(model(tensor.to(DEVICE)))[0]
+            mask = postprocess(model(tensor.to(device)))[0]
             Image.fromarray(mask).save(output_dir / img_path.name)
 
     return str(output_dir)

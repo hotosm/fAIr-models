@@ -1,0 +1,52 @@
+stack_name: k8s
+zenml_version: 0.93.3
+components:
+  orchestrator:
+    name: k8s_orchestrator
+    flavor: kubernetes
+    type: orchestrator
+    configuration:
+      kubernetes_context: kind-fair-dev
+      kubernetes_namespace: fair
+      pod_settings:
+        env:
+          - name: ZENML_STORE_URL
+            value: "http://zenml.fair.svc:80"
+          - name: AWS_ENDPOINT_URL
+            value: "http://minio.fair.svc:9000"
+          - name: AWS_ACCESS_KEY_ID
+            value: minioadmin
+          - name: AWS_SECRET_ACCESS_KEY
+            value: minioadmin
+      orchestrator_pod_settings:
+        env:
+          - name: ZENML_STORE_URL
+            value: "http://zenml.fair.svc:80"
+          - name: AWS_ENDPOINT_URL
+            value: "http://minio.fair.svc:9000"
+          - name: AWS_ACCESS_KEY_ID
+            value: minioadmin
+          - name: AWS_SECRET_ACCESS_KEY
+            value: minioadmin
+  artifact_store:
+    name: s3_artifacts
+    flavor: s3
+    type: artifact_store
+    configuration:
+      path: s3://zenml
+      key: minioadmin
+      secret: minioadmin
+  container_registry:
+    name: ghcr
+    flavor: default
+    type: container_registry
+    configuration:
+      uri: ghcr.io/hotosm
+  experiment_tracker:
+    name: mlflow_tracker
+    flavor: mlflow
+    type: experiment_tracker
+    configuration:
+      tracking_uri: "http://mlflow.fair.svc:80"
+      tracking_username: admin
+      tracking_password: admin

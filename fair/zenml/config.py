@@ -4,14 +4,12 @@ from typing import Any
 
 import pystac
 
-from fair.stac.constants import OCI_IMAGE_INDEX_TYPE
-
-_CONTAINER_REGISTRIES = ("ghcr.io", "docker.io", "quay.io", ".azurecr.io", ".ecr.", ".gcr.io")
+from fair.stac.constants import CONTAINER_REGISTRIES, OCI_IMAGE_INDEX_TYPE
 
 
 def _normalize_container_href(href: str) -> str:
     """Fix container registry URLs that PySTAC made relative."""
-    for registry in _CONTAINER_REGISTRIES:
+    for registry in CONTAINER_REGISTRIES:
         if (idx := href.find(registry)) != -1:
             return href[idx:]
     return href
@@ -32,11 +30,28 @@ def _extract_num_classes(mlm_output: list[dict[str, Any]]) -> int | None:
     return len(classes) if classes else None
 
 
+def _gpu_settings(item: pystac.Item) -> dict[str, Any]:
+    """Return K8s GPU resource requests + tolerations from STAC mlm:accelerator."""
+    accelerator = item.properties.get("mlm:accelerator")
+    if not accelerator or accelerator in ("amd64", "cpu"):
+        return {}
+    count = str(item.properties.get("mlm:accelerator_count", 1))
+    return {
+        "orchestrator.kubernetes": {
+            "pod_settings": {
+                "resources": {"requests": {"nvidia.com/gpu": count}, "limits": {"nvidia.com/gpu": count}},
+                "tolerations": [{"key": "nvidia.com/gpu", "operator": "Exists", "effect": "NoSchedule"}],
+            }
+        }
+    }
+
+
 def generate_training_config(
     base_model_item: pystac.Item,
     dataset_item: pystac.Item,
     model_name: str,
     overrides: dict[str, Any] | None = None,
+    experiment_tracker: str | None = None,
 ) -> dict[str, Any]:
     # ZenML config schema: https://docs.zenml.io/concepts/steps_and_pipelines/yaml_configuration
     props = base_model_item.properties
@@ -74,7 +89,24 @@ def generate_training_config(
 
     runtime = base_model_item.assets.get("mlm:training")
     if runtime and runtime.media_type == OCI_IMAGE_INDEX_TYPE:
-        config["settings"] = {"docker": {"parent_image": _normalize_container_href(runtime.href)}}
+        docker_cfg: dict[str, Any] = {
+            "parent_image": _normalize_container_href(runtime.href),
+            "skip_build": True,
+        }
+        config["settings"] = {"docker": docker_cfg}
+
+    if experiment_tracker:
+        config["steps"] = {
+            "train_model": {"experiment_tracker": experiment_tracker},
+            "evaluate_model": {"experiment_tracker": experiment_tracker},
+        }
+        config.setdefault("settings", {})["experiment_tracker.mlflow"] = {
+            "experiment_name": model_name,
+        }
+
+    k8s = _gpu_settings(base_model_item)
+    if k8s:
+        config.setdefault("settings", {}).update(k8s)
 
     return config
 
@@ -116,6 +148,14 @@ def generate_inference_config(
 
     runtime = model_item.assets.get("mlm:inference")
     if runtime and runtime.media_type == OCI_IMAGE_INDEX_TYPE:
-        config["settings"] = {"docker": {"parent_image": _normalize_container_href(runtime.href)}}
+        docker_cfg: dict[str, Any] = {
+            "parent_image": _normalize_container_href(runtime.href),
+            "skip_build": True,
+        }
+        config["settings"] = {"docker": docker_cfg}
+
+    k8s = _gpu_settings(model_item)
+    if k8s:
+        config.setdefault("settings", {}).update(k8s)
 
     return config

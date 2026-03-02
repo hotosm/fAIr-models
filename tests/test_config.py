@@ -4,8 +4,14 @@ import json
 from datetime import UTC, datetime
 from typing import Any
 
+import pystac
+
 from fair.stac.builders import build_base_model_item, build_dataset_item
-from fair.zenml.config import generate_inference_config, generate_training_config
+from fair.zenml.config import (
+    _gpu_settings,
+    generate_inference_config,
+    generate_training_config,
+)
 
 
 def _base_model(**overrides: Any):
@@ -139,3 +145,57 @@ def test_inference_config_with_artifact_id():
     p = cfg["parameters"]
     assert p["model_uri"] == "s3://store/model/abc"
     assert p["zenml_artifact_version_id"] == "uuid-123"
+
+
+# --- _gpu_settings tests ---
+
+
+def _item_with_accelerator(accelerator: str | None = None, count: int | None = None) -> pystac.Item:
+    """Build a base model item and inject mlm:accelerator properties."""
+    item = _base_model()
+    if accelerator is not None:
+        item.properties["mlm:accelerator"] = accelerator
+    if count is not None:
+        item.properties["mlm:accelerator_count"] = count
+    return item
+
+
+def test_k8s_settings_cuda():
+    item = _item_with_accelerator("cuda", 2)
+    settings = _gpu_settings(item)
+    pod = settings["orchestrator.kubernetes"]["pod_settings"]
+    assert pod["resources"]["requests"]["nvidia.com/gpu"] == "2"
+    assert pod["resources"]["limits"]["nvidia.com/gpu"] == "2"
+    assert len(pod["tolerations"]) == 1
+
+
+def test_k8s_settings_cpu_returns_empty():
+    item = _item_with_accelerator()
+    assert _gpu_settings(item) == {}
+
+
+def test_k8s_settings_explicit_cpu():
+    assert _gpu_settings(_item_with_accelerator("cpu")) == {}
+
+
+def test_k8s_settings_amd64():
+    assert _gpu_settings(_item_with_accelerator("amd64")) == {}
+
+
+def test_k8s_settings_default_count():
+    item = _item_with_accelerator("cuda")
+    settings = _gpu_settings(item)
+    assert settings["orchestrator.kubernetes"]["pod_settings"]["resources"]["limits"]["nvidia.com/gpu"] == "1"
+
+
+def test_training_config_includes_k8s_settings(tmp_path):
+    item = _item_with_accelerator("cuda", 1)
+    ds = _dataset(tmp_path)
+    cfg = generate_training_config(item, ds, model_name="gpu-test")
+    assert "orchestrator.kubernetes" in cfg["settings"]
+
+
+def test_inference_config_includes_k8s_settings():
+    item = _item_with_accelerator("cuda")
+    cfg = generate_inference_config(item, "/images/")
+    assert "orchestrator.kubernetes" in cfg["settings"]

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import functools
 import importlib.resources
 import json
 
@@ -18,11 +19,13 @@ def validate_mlm_schema(item: pystac.Item) -> list[str]:
     return errors
 
 
+@functools.cache
 def _load_keywords_schema() -> dict:
     ref = importlib.resources.files("fair.schemas").joinpath("keywords.json")
     return json.loads(ref.read_text(encoding="utf-8"))
 
 
+@functools.cache
 def _load_base_model_requirements() -> dict:
     ref = importlib.resources.files("fair.schemas").joinpath("base_model_requirements.json")
     return json.loads(ref.read_text(encoding="utf-8"))
@@ -55,7 +58,7 @@ def validate_base_model_item(item: pystac.Item) -> list[str]:
 
     for prop in reqs["non_empty_list_properties"]:
         val = props.get(prop)
-        if isinstance(val, list) and len(val) == 0:
+        if isinstance(val, list) and not val:
             errors.append(f"Property must be non-empty list: {prop}")
 
     allowed_kw = (
@@ -66,6 +69,11 @@ def validate_base_model_item(item: pystac.Item) -> list[str]:
     unknown_kw = set(props.get("keywords", [])) - allowed_kw
     if unknown_kw:
         errors.append(f"Unknown keywords: {unknown_kw}")
+
+    if reqs.get("require_geometry_keyword"):
+        geom_types = set(kw_schema.get("allowed_geometry_types", []))
+        if not geom_types & set(props.get("keywords", [])):
+            errors.append(f"keywords must include at least one geometry type: {sorted(geom_types)}")
 
     for prop, allowed in reqs.get("allowed_values", {}).items():
         val = props.get(prop)
@@ -138,5 +146,11 @@ def validate_compatibility(
             f"No task overlap: model mlm:tasks={model_tasks} "
             f"(mapped to {mapped_label_tasks}), dataset label:tasks={label_tasks}"
         )
+
+    geom_types = set(schema.get("allowed_geometry_types", []))
+    model_geom = model_keywords & geom_types
+    dataset_geom = dataset_keywords & geom_types
+    if model_geom and dataset_geom and not model_geom & dataset_geom:
+        errors.append(f"Geometry type mismatch: model={sorted(model_geom)}, dataset={sorted(dataset_geom)}")
 
     return errors

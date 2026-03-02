@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import json
 from datetime import UTC, datetime
 from unittest.mock import patch
@@ -152,8 +153,8 @@ def _valid_base_model():
         mlm_tasks=["semantic-segmentation"],
         mlm_framework="PyTorch",
         mlm_framework_version="2.1.0",
-        mlm_input=json.loads(json.dumps(_MLM_INPUT)),
-        mlm_output=json.loads(json.dumps(_MLM_OUTPUT)),
+        mlm_input=copy.deepcopy(_MLM_INPUT),
+        mlm_output=copy.deepcopy(_MLM_OUTPUT),
         mlm_hyperparameters={"epochs": 10, "batch_size": 4},
         keywords=["building", "semantic-segmentation", "polygon"],
         model_href="weights.pt",
@@ -256,3 +257,48 @@ class TestValidateBaseModelItem:
         item.properties["mlm:framework"] = "jax"
         errors = validate_base_model_item(item)
         assert any("Invalid mlm:framework" in e for e in errors)
+
+    def test_missing_geometry_keyword(self):
+        item = _valid_base_model()
+        item.properties["keywords"] = ["building", "semantic-segmentation"]
+        errors = validate_base_model_item(item)
+        assert any("geometry type" in e for e in errors)
+
+    def test_geometry_keyword_present(self):
+        item = _valid_base_model()
+        item.properties["keywords"] = ["building", "semantic-segmentation", "polygon"]
+        assert validate_base_model_item(item) == []
+
+    def test_line_geometry_keyword(self):
+        item = _valid_base_model()
+        item.properties["keywords"] = ["road", "semantic-segmentation", "line"]
+        assert validate_base_model_item(item) == []
+
+    def test_point_geometry_keyword(self):
+        item = _valid_base_model()
+        item.properties["keywords"] = ["tree", "object-detection", "point"]
+        item.properties["mlm:tasks"] = ["object-detection"]
+        assert validate_base_model_item(item) == []
+
+
+class TestGeometryTypeCompatibility:
+    def test_matching_geometry_types(self, tmp_path):
+        errors = validate_compatibility(
+            _model(keywords=["building", "polygon", "semantic-segmentation"]),
+            _dataset(tmp_path, keywords=["building", "polygon", "semantic-segmentation"]),
+        )
+        assert not any("Geometry type mismatch" in e for e in errors)
+
+    def test_mismatched_geometry_types(self, tmp_path):
+        errors = validate_compatibility(
+            _model(keywords=["building", "polygon", "semantic-segmentation"]),
+            _dataset(tmp_path, keywords=["building", "point", "semantic-segmentation"]),
+        )
+        assert any("Geometry type mismatch" in e for e in errors)
+
+    def test_no_geometry_in_either_skips_check(self, tmp_path):
+        errors = validate_compatibility(
+            _model(keywords=["building", "semantic-segmentation"]),
+            _dataset(tmp_path, keywords=["building", "semantic-segmentation"]),
+        )
+        assert not any("Geometry type mismatch" in e for e in errors)

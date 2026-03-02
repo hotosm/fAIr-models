@@ -13,3 +13,5 @@ DATASET_EXTENSIONS = [LABEL_SCHEMA, FILE_SCHEMA]
 BASE_MODELS_COLLECTION = "base-models"
 LOCAL_MODELS_COLLECTION = "local-models"
 DATASETS_COLLECTION = "datasets"
+
+CONTAINER_REGISTRIES = ("ghcr.io", "docker.io", "quay.io")

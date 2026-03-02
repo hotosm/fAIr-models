@@ -12,19 +12,18 @@ For GPU support: [nvkind](https://github.com/NVIDIA/nvkind), NVIDIA driver, [nvi
 ```bash
 uv sync --group k8s
 cd infra/dev
-make up            # cluster + infra + port-forwards + seed data + zenml stack
-make run-example   # init -> register -> finetune -> promote -> predict (local orchestrator)
-make teardown      # destroy everything (kills port-forwards, removes cluster)
+make up      # smart: creates cluster if missing, deploys infra, starts port-forwards
+make status  # show cluster, pods, port-forward health
+make down    # stop port-forwards (cluster stays for fast restart)
+make tear    # destroy everything
 ```
 
-To run pipelines on the **k8s orchestrator** (steps execute as pods):
+Run pipelines:
 
 ```bash
-make build-image       # build Docker image + load into kind workers
-make run-example-k8s   # same workflow but steps run as k8s pods
+make run-example       # E2E with local orchestrator
+make run-example-k8s   # E2E with k8s orchestrator (pods pull image from ghcr.io)
 ```
-
-Individual targets: `make help`.
 
 ### Verifying results
 
@@ -39,12 +38,12 @@ After `make run-example` completes, inspect outputs at:
 
 ### ZenML Stacks
 
-`make stack-register` creates two stacks:
+`make up` registers two stacks:
 
 | Stack | Orchestrator | S3 Endpoint | MLflow | Use |
 |-------|-------------|-------------|--------|-----|
 | `dev` (active) | `default` (local) | `localhost:9000` | `localhost:5000` | Local runs via port-forward (`make run-example`) |
-| `k8s` | `k8s_orchestrator` | `minio.fair.svc:9000` | `mlflow.fair.svc:80` | In-cluster jobs |
+| `k8s` | `k8s_orchestrator` | `minio.fair.svc:9000` | `mlflow.fair.svc:80` | In-cluster jobs (`make run-example-k8s`) |
 
 ## Architecture
 
@@ -60,7 +59,7 @@ postgres (PG 17 + PostGIS)           zenml (ghcr.io/hotosm/zenml-postgres:0.93.3
         +--- minio (s3://fair-data, s3://mlflow, s3://zenml)
 ```
 
-Port-forwards (via `make port-forward`):
+Port-forwards (managed by `make up` / `make down`):
 
 | Service  | Local           | Cluster                     |
 |----------|-----------------|-----------------------------|
@@ -74,13 +73,31 @@ Port-forwards (via `make port-forward`):
 
 Follow the [nvkind prerequisites and setup guide](https://github.com/NVIDIA/nvkind#prerequisites) to install the NVIDIA driver, nvidia-container-toolkit, and nvkind on your host. Once `nvkind` is on `$PATH`, `make up` handles the rest.
 
-**What `make up` does**: `kind-config.yaml` labels workers as `inference` and `train`, with the train node getting `extraMounts` that signal GPU presence to nvkind. `make cluster-up` runs nvkind (installs toolkit inside the node, configures containerd). `make infra-up` creates the `nvidia` RuntimeClass, labels the GPU node, and deploys the device plugin.
+**What `make up` does**: `kind-config.yaml` labels workers as `inference` and `train`, with the train node getting `extraMounts` that signal GPU presence to nvkind. The cluster creation step runs nvkind (installs toolkit inside the node, configures containerd). The infra step creates the `nvidia` RuntimeClass, labels the GPU node, and deploys the device plugin.
 
 **Caveats**:
 
 - `PatchProcDriverNvidia` may fail on non-MIG single-GPU hosts — non-critical, the Makefile tolerates it.
 - nvkind restarts containerd on the GPU node, briefly disrupting colocated pods.
 - Device plugin uses `--set deviceDiscoveryStrategy=nvml` (default `auto` fails inside kind).
+
+## Configuration
+
+### `FAIR_LABEL_DOMAIN`
+
+Node labels and taints use a configurable domain prefix (default `fair-dev.hotosm.org`).
+Override via environment variable:
+
+```bash
+export FAIR_LABEL_DOMAIN=fair-dev.hotosm.org  # dev
+make up
+```
+
+Consumed in three places:
+
+- **`kind-config.yaml`** — node labels (`${FAIR_LABEL_DOMAIN}/role`) and taints (`${FAIR_LABEL_DOMAIN}/workload`), resolved via `envsubst` at cluster creation
+- **`stacks/k8s.yaml`** — pod `node_selectors` and `tolerations`, resolved via `envsubst` at stack registration
+- **`fair/zenml/config.py`** — reads `FAIR_LABEL_DOMAIN` at runtime (default `fair.hotosm.org`) for pipeline pod scheduling
 
 ## Decisions
 

@@ -1,7 +1,6 @@
 SHELL := /bin/bash
-.DEFAULT_GOAL := help
+.DEFAULT_GOAL := status
 
-# Docker socket auto-detect
 DOCKER_HOST ?= $(if $(wildcard /var/run/docker.sock),,\
   $(if $(wildcard $(HOME)/.colima/default/docker.sock),unix://$(HOME)/.colima/default/docker.sock,\
   $(if $(wildcard $(HOME)/.docker/run/docker.sock),unix://$(HOME)/.docker/run/docker.sock,)))
@@ -18,34 +17,74 @@ export FAIR_LABEL_DOMAIN
 
 IMAGE ?= ghcr.io/hotosm/fair-models/example-unet:v1
 
-.PHONY: cluster-up cluster-down infra-up infra-down \
-        port-forward kill-port-forward seed-data \
-        stack-register run-example build-image run-example-k8s \
-        up teardown help
+CLUSTER_EXISTS := $(shell kind get clusters 2>/dev/null | grep -qx $(CLUSTER) && echo 1)
+INFRA_RUNNING  := $(shell kubectl get statefulset/postgres -n $(NS) -o jsonpath='{.status.readyReplicas}' 2>/dev/null)
+PF_RUNNING     := $(shell test -f $(PID_FILE) && kill -0 $$(head -1 $(PID_FILE)) 2>/dev/null && echo 1)
 
-cluster-up:
-	-envsubst '$$FAIR_LABEL_DOMAIN' < kind-config.yaml > .kind-config-resolved.yaml
-	-$(NVKIND) cluster create --name $(CLUSTER) --config-template .kind-config-resolved.yaml
-	@rm -f .kind-config-resolved.yaml
-	@kubectl apply -f - <<< '{"apiVersion":"node.k8s.io/v1","kind":"RuntimeClass","handler":"nvidia","metadata":{"name":"nvidia"}}' 2>/dev/null || true
+.PHONY: up down tear status run-example run-example-k8s
 
-cluster-down:
-	kind delete cluster --name $(CLUSTER)
+up: _ensure-cluster _ensure-infra _ensure-port-forward _seed-data _stack-register
+	@echo "Ready."
 
-infra-up:
-	@kubectl create ns $(NS) --dry-run=client -o yaml | kubectl apply -f -
-	@kubectl label node -l $(FAIR_LABEL_DOMAIN)/role=train nvidia.com/gpu.present=true --overwrite >/dev/null 2>/dev/null || true
-	envsubst '$$FAIR_LABEL_DOMAIN' < postgres/statefulset.yaml | kubectl apply -n $(NS) -f postgres/service.yaml -f -
-	kubectl rollout status -n $(NS) statefulset/postgres --timeout=120s
-	helmfile apply
-	kubectl rollout status -n $(NS) deployment/stac-stac --timeout=300s
+down: _kill-port-forward
+	@echo "Port-forwards stopped. 'make up' to resume."
 
-infra-down:
+tear: _kill-port-forward
 	-helmfile destroy
 	-kubectl delete ns nvidia --ignore-not-found
 	-kubectl delete -n $(NS) -f postgres/
+	kind delete cluster --name $(CLUSTER)
 
-port-forward: kill-port-forward
+status:
+	@echo "Cluster:       $(if $(CLUSTER_EXISTS),running,not found)"
+	@echo "Infra:         $(if $(INFRA_RUNNING),running,not ready)"
+	@echo "Port-forwards: $(if $(PF_RUNNING),active,inactive)"
+	@echo ""
+	@if [ "$(CLUSTER_EXISTS)" = "1" ]; then \
+		echo "Nodes:"; kubectl get nodes -o wide --no-headers 2>/dev/null | sed 's/^/  /'; echo ""; \
+		echo "Pods ($(NS)):"; kubectl get pods -n $(NS) --no-headers 2>/dev/null | sed 's/^/  /'; echo ""; \
+		echo "Ports:"; while read svc ports; do \
+			local_port=$${ports%%:*}; \
+			if nc -z localhost $$local_port 2>/dev/null; then \
+				echo "  $$svc localhost:$$local_port ok"; \
+			else \
+				echo "  $$svc localhost:$$local_port down"; \
+			fi; \
+		done < ports.conf; \
+	fi
+
+run-example:
+	cd ../.. && uv run python examples/unet/run.py all --stac-api-url http://localhost:8082 --dsn $(PGSTAC_DSN)
+
+run-example-k8s:
+	cd ../.. && uv run zenml stack set k8s
+	cd ../.. && AWS_ENDPOINT_URL=http://localhost:9000 uv run python examples/unet/run.py all \
+		--stac-api-url http://localhost:8082 --dsn $(PGSTAC_DSN)
+
+_ensure-cluster:
+ifeq ($(CLUSTER_EXISTS),)
+	@envsubst '$$FAIR_LABEL_DOMAIN' < kind-config.yaml > .kind-config-resolved.yaml
+	-$(NVKIND) cluster create --name $(CLUSTER) --config-template .kind-config-resolved.yaml
+	@rm -f .kind-config-resolved.yaml
+	@kubectl apply -f - <<< '{"apiVersion":"node.k8s.io/v1","kind":"RuntimeClass","handler":"nvidia","metadata":{"name":"nvidia"}}' 2>/dev/null || true
+endif
+
+_ensure-infra:
+ifneq ($(INFRA_RUNNING),1)
+	@kubectl create ns $(NS) --dry-run=client -o yaml | kubectl apply -f -
+	@kubectl label node -l $(FAIR_LABEL_DOMAIN)/role=train nvidia.com/gpu.present=true --overwrite >/dev/null 2>/dev/null || true
+	@envsubst '$$FAIR_LABEL_DOMAIN' < postgres/statefulset.yaml | kubectl apply -n $(NS) -f postgres/service.yaml -f -
+	@kubectl rollout status -n $(NS) statefulset/postgres --timeout=120s
+	@helmfile apply
+	@kubectl rollout status -n $(NS) deployment/stac-stac --timeout=300s
+endif
+
+_ensure-port-forward:
+ifneq ($(PF_RUNNING),1)
+	@$(MAKE) --no-print-directory _port-forward
+endif
+
+_port-forward: _kill-port-forward
 	@mkdir -p .pf-logs
 	@while read svc ports; do \
 		( while true; do \
@@ -57,7 +96,7 @@ port-forward: kill-port-forward
 		for i in $$(seq 1 30); do nc -z localhost $${ports%%:*} 2>/dev/null && break; sleep 1; done; \
 	done < ports.conf
 
-kill-port-forward:
+_kill-port-forward:
 	@if test -f $(PID_FILE); then \
 		while read pid; do \
 			kill -- -$$pid 2>/dev/null || kill $$pid 2>/dev/null || true; \
@@ -66,10 +105,10 @@ kill-port-forward:
 	fi
 	@rm -rf .pf-logs
 
-seed-data:
-	@uv run --with minio python -c "from pathlib import Path; from minio import Minio; c = Minio('localhost:9000', 'minioadmin', 'minioadmin', secure=False); root = Path('../../data/sample'); files = [f for f in root.rglob('*') if f.is_file()]; print(f'Uploading {len(files)} files to fair-data/sample/'); [c.fput_object('fair-data', f'sample/{f.relative_to(root)}', str(f)) for f in files]; print('Done')"
+_seed-data:
+	@uv run --with minio python scripts/seed_data.py
 
-stack-register:
+_stack-register:
 	@for i in 1 2 3 4 5; do \
 		uv run zenml connect --url http://localhost:8080 --username default --password '' --no-verify-ssl && break; \
 		echo "zenml connect: attempt $$i failed, retrying in 5s..." >&2; sleep 5; \
@@ -79,33 +118,3 @@ stack-register:
 	-uv run zenml stack import k8s -f .k8s-stack-resolved.yaml --ignore-version-mismatch
 	@rm -f .k8s-stack-resolved.yaml
 	-uv run zenml stack set dev
-
-run-example:
-	cd ../.. && uv run python examples/unet/run.py all --stac-api-url http://localhost:8082 --dsn $(PGSTAC_DSN)
-
-build-image:
-	cd ../.. && docker buildx build -f models/example_unet/Dockerfile -t $(IMAGE) --platform linux/amd64 --load --no-cache .
-	kind load docker-image $(IMAGE) --name $(CLUSTER) --nodes $(CLUSTER)-worker,$(CLUSTER)-worker2
-
-run-example-k8s:
-	cd ../.. && uv run zenml stack set k8s
-	cd ../.. && AWS_ENDPOINT_URL=http://localhost:9000 uv run python examples/unet/run.py all \
-		--stac-api-url http://localhost:8082 --dsn $(PGSTAC_DSN)
-
-up: cluster-up infra-up port-forward seed-data stack-register
-teardown: kill-port-forward infra-down cluster-down
-
-help:
-	@echo "cluster-up          Create kind cluster"
-	@echo "cluster-down        Delete kind cluster"
-	@echo "infra-up            Deploy postgres + helmfile apply"
-	@echo "infra-down          Helmfile destroy + remove postgres"
-	@echo "port-forward        Forward services to localhost (auto-reconnect)"
-	@echo "kill-port-forward   Stop port-forwards"
-	@echo "seed-data           Upload sample data to MinIO"
-	@echo "stack-register      Register ZenML stacks"
-	@echo "build-image         Build & load Docker image into kind workers"
-	@echo "run-example         Run UNet example E2E (local stack)"
-	@echo "run-example-k8s     Run UNet example E2E (k8s stack)"
-	@echo "up                  Full setup"
-	@echo "teardown            Full teardown"

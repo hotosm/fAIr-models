@@ -2,13 +2,13 @@
 
 Guide for contributing a base model to fAIr. A base model is a reusable ML
 blueprint that users can finetune on their own datasets through the fAIr
-platform. See [`models/example_unet/`](../models/example_unet/) for a complete
+platform. See [`models/example_unet/`](https://github.com/hotosm/fAIr-models/tree/master/models/example_unet) for a complete
 reference implementation.
 
 ## Model Scope
 
 fAIr targets feature extraction from **very high resolution (VHR) aerial and
-satellite imagery** ; typically ≥50 cm ground sample distance (GSD), RGB only.
+satellite imagery** ; typically ~ > 30 cm ground sample distance (GSD), RGB only.
 All imagery is sourced from [OpenAerialMap](https://openaerialmap.org/).
 
 ### Supported Tasks
@@ -39,7 +39,7 @@ monitoring. Core categories:
 Other OpenStreetMap feature categories (`landuse`, `bridge`, etc.) are
 welcome as long as they are compatible with the platform's RGB input and
 vector output constraints. To add a new keyword, include it in
-[`keywords.json`](../fair/schemas/keywords.json) as part of your PR.
+[`keywords.json`](https://github.com/hotosm/fAIr-models/blob/master/fair/schemas/keywords.json) as part of your PR.
 
 ### Input Requirements
 
@@ -84,7 +84,7 @@ The sample data in `data/sample/` demonstrates the expected layout:
 ```
 data/sample/
   train/
-    oam/             # RGB GeoTIFF chips (OAM-{x}-{y}-{z}.tif, ≥50cm GSD)
+    oam/             # RGB GeoTIFF chips (OAM-{x}-{y}-{z}.tif, ≥30cm GSD)
     osm/             # GeoJSON labels (osm_features_*.geojson)
   predict/
     oam/             # Input chips for inference
@@ -482,5 +482,5 @@ python examples/unet/run.py all
 
 - [STAC MLM Extension](https://github.com/stac-extensions/mlm)
 - [MLM Best Practices](https://github.com/stac-extensions/mlm/blob/main/best-practices.md)
-- [Example UNet model](../models/example_unet/) -- complete reference implementation
-- [Example UNet STAC item](../models/example_unet/stac-item.json) -- valid STAC item template
+- [Example UNet model](https://github.com/hotosm/fAIr-models/tree/master/models/example_unet) -- complete reference implementation
+- [Example UNet STAC item](https://github.com/hotosm/fAIr-models/blob/master/models/example_unet/stac-item.json) -- valid STAC item template

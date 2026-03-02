@@ -1,4 +1,4 @@
-.PHONY: init setup clean example lint format typecheck test build bump pre-commit validate-stac
+.PHONY: init setup clean example lint format typecheck test build bump pre-commit validate-stac docs docs-serve
 
 init:
 	uv sync --group local
@@ -54,4 +54,12 @@ validate-stac:
 
 validate-models:
 	uv run python scripts/validate_model.py
+
+docs:
+	uv sync --group docs
+	uv run zensical build
+
+docs-serve:
+	uv sync --group docs
+	uv run zensical serve
 

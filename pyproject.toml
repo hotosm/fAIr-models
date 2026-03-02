@@ -42,7 +42,7 @@ dependencies = [
 
 [project.urls]
 Homepage = "https://github.com/hotosm/fAIr-models"
-Documentation = "https://github.com/hotosm/fAIr-models#readme"
+Documentation = "https://hotosm.github.io/fAIr-models"
 Repository = "https://github.com/hotosm/fAIr-models"
 Issues = "https://github.com/hotosm/fAIr-models/issues"
 Changelog = "https://github.com/hotosm/fAIr-models/blob/master/CHANGELOG.md"
@@ -70,6 +70,14 @@ dev = [
 ]
 ci = [
     {include-group = "dev"},
+]
+docs = [
+    "zensical>=0.0.24",
+    "mkdocstrings[python]>=0.29",
+    "mkdocs-section-index>=0.3",
+    "mkdocs-git-revision-date-localized-plugin>=1.4",
+    "mkdocs-git-authors-plugin>=0.9",
+    "mkdocs-glightbox>=0.4",
 ]
 local = [
     "zenml[server]>=0.93.3",

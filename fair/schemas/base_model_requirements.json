@@ -34,7 +34,8 @@
             "mlm:entrypoint"
         ],
         "mlm:training": [],
-        "mlm:inference": []
+        "mlm:inference": [],
+        "readme": []
     },
     "input_required_fields": [
         "pre_processing_function"

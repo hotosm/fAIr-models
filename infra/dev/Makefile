@@ -29,9 +29,9 @@ cluster-down:
 
 infra-up:
 	@kubectl create ns $(NS) --dry-run=client -o yaml | kubectl apply -f -
+	@kubectl label node -l fair.hotosm.org/role=train nvidia.com/gpu.present=true --overwrite >/dev/null 2>/dev/null || true
 	kubectl apply -n $(NS) -f postgres/
 	kubectl rollout status -n $(NS) statefulset/postgres --timeout=120s
-	@kubectl label node -l fair.hotosm.org/role=train nvidia.com/gpu.present=true --overwrite >/dev/null
 	helmfile apply
 	kubectl rollout status -n $(NS) deployment/stac-stac --timeout=300s
 
@@ -41,21 +41,34 @@ infra-down:
 	-kubectl delete -n $(NS) -f postgres/
 
 port-forward: kill-port-forward
+	@mkdir -p .pf-logs
 	@while read svc ports; do \
-		kubectl port-forward -n $(NS) svc/$$svc $$ports >/dev/null 2>&1 & echo $$! >> $(PID_FILE); \
+		( while true; do \
+			kubectl port-forward -n $(NS) svc/$$svc $$ports >>.pf-logs/$$svc.log 2>&1 || true; \
+			sleep 2; \
+		done ) & echo $$! >> $(PID_FILE); \
 	done < ports.conf
-	@while read -r _ ports; do \
+	@while read -r svc ports; do \
 		for i in $$(seq 1 30); do nc -z localhost $${ports%%:*} 2>/dev/null && break; sleep 1; done; \
 	done < ports.conf
 
 kill-port-forward:
-	@test -f $(PID_FILE) && xargs kill < $(PID_FILE) 2>/dev/null; rm -f $(PID_FILE)
+	@if test -f $(PID_FILE); then \
+		while read pid; do \
+			kill -- -$$pid 2>/dev/null || kill $$pid 2>/dev/null || true; \
+		done < $(PID_FILE); \
+		rm -f $(PID_FILE); \
+	fi
+	@rm -rf .pf-logs
 
 seed-data:
 	@uv run --with minio python -c "from pathlib import Path; from minio import Minio; c = Minio('localhost:9000', 'minioadmin', 'minioadmin', secure=False); root = Path('../../data/sample'); files = [f for f in root.rglob('*') if f.is_file()]; print(f'Uploading {len(files)} files to fair-data/sample/'); [c.fput_object('fair-data', f'sample/{f.relative_to(root)}', str(f)) for f in files]; print('Done')"
 
 stack-register:
-	uv run zenml connect --url http://localhost:8080 --username default --password '' --no-verify-ssl
+	@for i in 1 2 3 4 5; do \
+		uv run zenml connect --url http://localhost:8080 --username default --password '' --no-verify-ssl && break; \
+		echo "zenml connect: attempt $$i failed, retrying in 5s..." >&2; sleep 5; \
+	done
 	-uv run zenml stack import dev -f ../../stacks/local.yaml --ignore-version-mismatch
 	-uv run zenml stack import k8s -f ../../stacks/k8s.yaml --ignore-version-mismatch
 	-uv run zenml stack set dev
@@ -80,7 +93,7 @@ help:
 	@echo "cluster-down        Delete kind cluster"
 	@echo "infra-up            Deploy postgres + helmfile apply"
 	@echo "infra-down          Helmfile destroy + remove postgres"
-	@echo "port-forward        Forward services to localhost"
+	@echo "port-forward        Forward services to localhost (auto-reconnect)"
 	@echo "kill-port-forward   Stop port-forwards"
 	@echo "seed-data           Upload sample data to MinIO"
 	@echo "stack-register      Register ZenML stacks"

@@ -18,6 +18,13 @@ components:
             value: minioadmin
           - name: AWS_SECRET_ACCESS_KEY
             value: minioadmin
+        node_selectors:
+          fair.hotosm.org/workload: ml
+        tolerations:
+          - key: fair.hotosm.org/workload
+            operator: Equal
+            value: ml
+            effect: NoSchedule
       orchestrator_pod_settings:
         env:
           - name: ZENML_STORE_URL
@@ -28,6 +35,13 @@ components:
             value: minioadmin
           - name: AWS_SECRET_ACCESS_KEY
             value: minioadmin
+        node_selectors:
+          fair.hotosm.org/workload: ml
+        tolerations:
+          - key: fair.hotosm.org/workload
+            operator: Equal
+            value: ml
+            effect: NoSchedule
   artifact_store:
     name: s3_artifacts
     flavor: s3

@@ -5,12 +5,37 @@ kind: Cluster
 apiVersion: kind.x-k8s.io/v1alpha4
 nodes:
   - role: control-plane
+    labels:
+      fair.hotosm.org/role: infra
+    kubeadmConfigPatches:
+      - |
+        kind: InitConfiguration
+        nodeRegistration:
+          taints: []
   - role: worker
     labels:
       fair.hotosm.org/role: inference
+      fair.hotosm.org/workload: ml
+    kubeadmConfigPatches:
+      - |
+        kind: JoinConfiguration
+        nodeRegistration:
+          taints:
+            - key: fair.hotosm.org/workload
+              value: ml
+              effect: NoSchedule
   - role: worker
     labels:
       fair.hotosm.org/role: train
+      fair.hotosm.org/workload: ml
+    kubeadmConfigPatches:
+      - |
+        kind: JoinConfiguration
+        nodeRegistration:
+          taints:
+            - key: fair.hotosm.org/workload
+              value: ml
+              effect: NoSchedule
     extraMounts:
       - hostPath: /dev/null
         containerPath: /var/run/nvidia-container-devices/all

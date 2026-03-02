@@ -8,6 +8,8 @@ import pystac
 
 from fair.stac.builders import build_base_model_item, build_dataset_item
 from fair.zenml.config import (
+    _WORKER_NODE_SELECTOR,
+    _WORKER_TOLERATION,
     _gpu_settings,
     generate_inference_config,
     generate_training_config,
@@ -166,20 +168,34 @@ def test_k8s_settings_cuda():
     pod = settings["orchestrator.kubernetes"]["pod_settings"]
     assert pod["resources"]["requests"]["nvidia.com/gpu"] == "2"
     assert pod["resources"]["limits"]["nvidia.com/gpu"] == "2"
-    assert len(pod["tolerations"]) == 1
+    assert len(pod["tolerations"]) == 2
+    assert _WORKER_TOLERATION in pod["tolerations"]
+    assert pod["node_selectors"] == _WORKER_NODE_SELECTOR
 
 
-def test_k8s_settings_cpu_returns_empty():
+def test_k8s_settings_cpu_returns_worker_toleration():
     item = _item_with_accelerator()
-    assert _gpu_settings(item) == {}
+    settings = _gpu_settings(item)
+    pod = settings["orchestrator.kubernetes"]["pod_settings"]
+    assert pod["tolerations"] == [_WORKER_TOLERATION]
+    assert pod["node_selectors"] == _WORKER_NODE_SELECTOR
+    assert "resources" not in pod
 
 
 def test_k8s_settings_explicit_cpu():
-    assert _gpu_settings(_item_with_accelerator("cpu")) == {}
+    settings = _gpu_settings(_item_with_accelerator("cpu"))
+    pod = settings["orchestrator.kubernetes"]["pod_settings"]
+    assert pod["tolerations"] == [_WORKER_TOLERATION]
+    assert pod["node_selectors"] == _WORKER_NODE_SELECTOR
+    assert "resources" not in pod
 
 
 def test_k8s_settings_amd64():
-    assert _gpu_settings(_item_with_accelerator("amd64")) == {}
+    settings = _gpu_settings(_item_with_accelerator("amd64"))
+    pod = settings["orchestrator.kubernetes"]["pod_settings"]
+    assert pod["tolerations"] == [_WORKER_TOLERATION]
+    assert pod["node_selectors"] == _WORKER_NODE_SELECTOR
+    assert "resources" not in pod
 
 
 def test_k8s_settings_default_count():

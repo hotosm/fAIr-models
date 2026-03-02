@@ -134,6 +134,8 @@ class TestBuildBaseModelItem:
         assert item.properties["mlm:hyperparameters"]["epochs"] == 15
         assert item.properties["version"] == "1"
         assert item.assets["model"].extra_fields["mlm:artifact_type"] == "torch.save"
+        assert "readme" in item.assets
+        assert item.assets["readme"].media_type == "text/markdown"
         bbox = item.bbox
         assert bbox is not None
         assert bbox[0] == 0 and bbox[2] == 180

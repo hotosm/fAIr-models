@@ -55,6 +55,7 @@ releases:
   - name: nvidia-device-plugin
     namespace: nvidia
     chart: nvdp/nvidia-device-plugin
+    wait: false
     timeout: 300
     values:
       - runtimeClassName: nvidia

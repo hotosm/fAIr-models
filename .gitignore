@@ -227,6 +227,7 @@ fair/_version.py
 
 # dev infra
 infra/dev/.port-forward.pids
+infra/dev/.pf-logs/
 
 # mkdocs build output
 site/

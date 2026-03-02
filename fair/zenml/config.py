@@ -30,17 +30,34 @@ def _extract_num_classes(mlm_output: list[dict[str, Any]]) -> int | None:
     return len(classes) if classes else None
 
 
+# Workers are tainted fair.hotosm.org/workload=ml:NoSchedule so only ML pods
+# land there.  Every pipeline pod needs this toleration + node selector.
+_WORKER_TOLERATION = {"key": "fair.hotosm.org/workload", "operator": "Equal", "value": "ml", "effect": "NoSchedule"}
+_WORKER_NODE_SELECTOR = {"fair.hotosm.org/workload": "ml"}
+
+
 def _gpu_settings(item: pystac.Item) -> dict[str, Any]:
     """Return K8s GPU resource requests + tolerations from STAC mlm:accelerator."""
     accelerator = item.properties.get("mlm:accelerator")
     if not accelerator or accelerator in ("amd64", "cpu"):
-        return {}
+        return {
+            "orchestrator.kubernetes": {
+                "pod_settings": {
+                    "node_selectors": _WORKER_NODE_SELECTOR,
+                    "tolerations": [_WORKER_TOLERATION],
+                }
+            }
+        }
     count = str(item.properties.get("mlm:accelerator_count", 1))
     return {
         "orchestrator.kubernetes": {
             "pod_settings": {
+                "node_selectors": _WORKER_NODE_SELECTOR,
                 "resources": {"requests": {"nvidia.com/gpu": count}, "limits": {"nvidia.com/gpu": count}},
-                "tolerations": [{"key": "nvidia.com/gpu", "operator": "Exists", "effect": "NoSchedule"}],
+                "tolerations": [
+                    _WORKER_TOLERATION,
+                    {"key": "nvidia.com/gpu", "operator": "Exists", "effect": "NoSchedule"},
+                ],
             }
         }
     }

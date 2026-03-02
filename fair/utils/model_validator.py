@@ -11,6 +11,7 @@ import ast
 from pathlib import Path
 
 REQUIRED_PIPELINES = frozenset({"training_pipeline", "inference_pipeline"})
+REQUIRED_FILES = frozenset({"pipeline.py", "README.md", "stac-item.json"})
 
 
 def _has_pipeline_decorator(func: ast.FunctionDef) -> bool:
@@ -45,10 +46,13 @@ def validate_model(model_dir: Path) -> list[str]:
         List of error strings. Empty means valid.
     """
     errors: list[str] = []
-    pipeline_file = model_dir / "pipeline.py"
 
+    for filename in sorted(REQUIRED_FILES):
+        if not (model_dir / filename).exists():
+            errors.append(f"{model_dir.name}: missing {filename}")
+
+    pipeline_file = model_dir / "pipeline.py"
     if not pipeline_file.exists():
-        errors.append(f"{model_dir.name}: missing pipeline.py")
         return errors
 
     try:

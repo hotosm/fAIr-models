@@ -189,6 +189,13 @@
             "roles": [
                 "mlm:inference-runtime"
             ]
+        },
+        "readme": {
+            "href": "./README.md",
+            "type": "text/markdown",
+            "roles": [
+                "metadata"
+            ]
         }
     },
     "links": [

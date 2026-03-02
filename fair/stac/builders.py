@@ -168,6 +168,7 @@ def build_base_model_item(
     source_code_entrypoint: str,
     training_runtime_href: str,
     inference_runtime_href: str,
+    readme_href: str = "./README.md",
 ) -> pystac.Item:
     bbox = _bbox_from_geometry(geometry)
 
@@ -225,6 +226,14 @@ def build_base_model_item(
             href=inference_runtime_href,
             media_type=_infer_runtime_media_type(inference_runtime_href),
             roles=["mlm:inference-runtime"],
+        ),
+    )
+    item.add_asset(
+        "readme",
+        pystac.Asset(
+            href=readme_href,
+            media_type="text/markdown",
+            roles=["metadata"],
         ),
     )
 

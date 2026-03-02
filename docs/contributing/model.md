@@ -127,6 +127,7 @@ models/your-model/
   pipeline.py          # ZenML pipeline with training + inference
   Dockerfile           # Self-contained runtime environment
   stac-item.json       # STAC MLM item (model metadata)
+  README.md            # Model overview, limitations, citation
 ```
 
 ## pipeline.py
@@ -419,20 +420,51 @@ Each entry in `mlm:output` must include `post_processing_function` and
 | Asset key | Purpose | Required fields |
 | --- | --- | --- |
 | `model` | Pretrained weights | `mlm:artifact_type` (e.g. `torch.save`, `onnx`) |
-| `source-code` | Link to model code | `mlm:entrypoint` (e.g. `models.your_model.pipeline:training_pipeline`) |
+| `source-code` | Link to model source code (git URL) | `mlm:entrypoint` (e.g. `models.your_model.pipeline:training_pipeline`) |
 | `mlm:training` | Training Docker image | `href` = Docker image reference |
 | `mlm:inference` | Inference Docker image | `href` = Docker image reference |
+| `readme` | Model documentation (README.md) | _(none)_ |
 
 Model weights must be downloadable from the `model` asset `href`. This can be
 a direct URL, S3 path, or a framework-specific weight enum (e.g.
 `torchgeo.models.Unet_Weights.OAM_RGB_RESNET50_TCD`). Your `pipeline.py` is
 responsible for resolving and loading the weights at runtime.
 
+The `source-code` asset `href` must point to the git repository (or tree URL)
+where the model's source code lives. This is validated by CI and displayed on
+the model's catalog page.
+
+## README.md
+
+Every model **must** include a `README.md` in its directory. This is the
+human-readable documentation for your model — it covers context that the STAC
+MLM item cannot express.
+
+The README is referenced as a `readme` asset in `stac-item.json` (with
+`href: "./README.md"`) and validated by both `make validate-models` (file
+existence) and `make validate-stac` (asset presence).
+
+### What to include
+
+| Section | Content |
+| --- | --- |
+| **Overview** | One-paragraph summary: what the model does, target geography, intended use |
+| **Architecture** | Model type, backbone, input/output shapes, key design choices |
+| **Pretrained source** | Training dataset, paper reference, data license |
+| **Limitations** | Known failure modes, geographic bias, resolution constraints |
+| **Usage** | How to run training/inference locally, example commands |
+| **Citation** | BibTeX or reference if the model or weights come from published work |
+| **License** | License name (must match `properties.license` in `stac-item.json`) |
+
+Keep it concise. The STAC item already captures hyperparameters, input/output
+specs, and keywords — the README is for everything else.
+
 ## PR Checklist
 
 Before submitting your pull request:
 
-- [ ] Directory created at `models/your-model/` with `pipeline.py`, `Dockerfile`, `stac-item.json`
+- [ ] Directory created at `models/your-model/` with `pipeline.py`, `Dockerfile`, `stac-item.json`, `README.md`
+- [ ] `README.md` describes the model (architecture, limitations, usage, citation)
 - [ ] `pipeline.py` exports `training_pipeline` and `inference_pipeline` as `@pipeline`-decorated functions
 - [ ] `pipeline.py` defines `preprocess` and `postprocess` functions matching STAC entrypoints
 - [ ] Pipeline parameters use `Annotated` bounds and `Literal` for constrained choices

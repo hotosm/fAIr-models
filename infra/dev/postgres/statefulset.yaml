@@ -15,13 +15,8 @@ spec:
       labels:
         app: postgres
     spec:
-      affinity:
-        nodeAffinity:
-          requiredDuringSchedulingIgnoredDuringExecution:
-            nodeSelectorTerms:
-              - matchExpressions:
-                  - key: nvidia.com/gpu.present
-                    operator: DoesNotExist
+      nodeSelector:
+        fair.hotosm.org/role: infra
       containers:
         - name: postgres
           image: imresamu/postgis:17-3.5

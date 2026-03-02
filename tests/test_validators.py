@@ -186,6 +186,12 @@ class TestValidateBaseModelItem:
         errors = validate_base_model_item(item)
         assert any("source-code" in e for e in errors)
 
+    def test_missing_readme_asset(self):
+        item = _valid_base_model()
+        del item.assets["readme"]
+        errors = validate_base_model_item(item)
+        assert any("readme" in e for e in errors)
+
     def test_missing_asset_field(self):
         item = _valid_base_model()
         del item.assets["model"].extra_fields["mlm:artifact_type"]

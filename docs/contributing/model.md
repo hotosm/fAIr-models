@@ -109,7 +109,7 @@ Your model **must** use one of these open-source licenses:
 
 | License | SPDX identifier |
 | --- | --- |
-| GNU GPL v3 | `GPL-3.0-only` |
+| GNU AGPL v3 | `AGPL-3.0-only` |
 | MIT | `MIT` |
 | Apache 2.0 | `Apache-2.0` |
 | BSD 3-Clause | `BSD-3-Clause` |
@@ -441,7 +441,7 @@ Before submitting your pull request:
 - [ ] Dockerfile builds successfully and is self-contained
 - [ ] `stac-item.json` passes `make validate-stac`
 - [ ] Model passes `make validate-models`
-- [ ] License is one of: `GPL-3.0-only`, `MIT`, `Apache-2.0`, `BSD-3-Clause`
+- [ ] License is one of: `AGPL-3.0-only`, `MIT`, `Apache-2.0`, `BSD-3-Clause`
 - [ ] Keywords include a feature category, task, and geometry type (`polygon`, `line`, or `point`)
 - [ ] Model weights are publicly accessible or included in the weight loading code
 - [ ] Model can run training on sample data in `data/sample/train/`

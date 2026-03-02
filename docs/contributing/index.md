@@ -62,4 +62,4 @@ make pre-commit
 ## License
 
 By contributing, you agree that your contributions will be licensed under the
-[GPL-3.0](https://www.gnu.org/licenses/gpl-3.0.en.html) license.
+[AGPL-3.0](https://www.gnu.org/licenses/agpl-3.0.html) license.

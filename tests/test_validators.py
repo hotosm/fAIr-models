@@ -166,7 +166,7 @@ def _valid_base_model():
         training_runtime_href="ghcr.io/hotosm/test:v1",
         inference_runtime_href="ghcr.io/hotosm/test:v1",
     )
-    item.properties["license"] = "GPL-3.0-only"
+    item.properties["license"] = "AGPL-3.0-only"
     return item
 
 

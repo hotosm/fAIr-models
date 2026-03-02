@@ -48,7 +48,7 @@ python examples/unet/run.py predict    # Run inference
 After the pipeline completes:
 
 | Artifact | Location |
-|---|---|
+| --- | --- |
 | STAC catalog | `stac_catalog/` (3 collections) |
 | Trained weights | `artifacts/` |
 | Predictions | `data/sample/predict/predictions/` |
@@ -56,7 +56,7 @@ After the pipeline completes:
 
 ## Project Structure
 
-```
+```text
 fair/                  # Core library (pip-installable as fair-py-ops)
   stac/                # STAC catalog management, builders, validators
   utils/               # Data helpers, model validation

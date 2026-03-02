@@ -14,7 +14,7 @@ All imagery is sourced from [OpenAerialMap](https://openaerialmap.org/).
 ### Supported Tasks
 
 | Task | STAC value | Label mapping | Typical output |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | Semantic segmentation | `semantic-segmentation` | `segmentation` | polygons |
 | Instance segmentation | `instance-segmentation` | `segmentation` | polygons |
 | Object detection | `object-detection` | `detection` | boxes or polygons |
@@ -30,7 +30,7 @@ that support disaster response, infrastructure mapping, and environmental
 monitoring. Core categories:
 
 | Keyword | Examples |
-|---|---|
+| --- | --- |
 | `building` | Residential, commercial, industrial footprints; damaged vs. undamaged assessment |
 | `road` | Highway classification (primary, secondary, tertiary); paved vs. unpaved surface detection |
 | `tree` | Individual canopy, tree cover areas |
@@ -47,7 +47,7 @@ All models receive **3-band RGB GeoTIFF chips** as input. The expected tensor
 layout for the `mlm:input` specification:
 
 | Field | Value |
-|---|---|
+| --- | --- |
 | Bands | `red`, `green`, `blue` (3 channels, RGB) |
 | Shape | `[-1, 3, H, W]` where H and W are the chip size |
 | Dimension order | `["batch", "bands", "height", "width"]` |
@@ -63,7 +63,7 @@ fAIr only supports **vector output**. Your model's final output must produce
 GeoJSON geometries of one of these types:
 
 | Geometry type | Keyword | Typical task |
-|---|---|---|
+| --- | --- | --- |
 | `Polygon` | `polygon` | Building footprints, land parcels |
 | `LineString` | `line` | Roads, waterways |
 | `Point` | `point` | Tree detection, POI extraction |
@@ -81,7 +81,7 @@ consumption.
 
 The sample data in `data/sample/` demonstrates the expected layout:
 
-```
+```text
 data/sample/
   train/
     oam/             # RGB GeoTIFF chips (OAM-{x}-{y}-{z}.tif, ≥30cm GSD)
@@ -108,7 +108,7 @@ Before starting, ensure you have:
 Your model **must** use one of these open-source licenses:
 
 | License | SPDX identifier |
-|---|---|
+| --- | --- |
 | GNU GPL v3 | `GPL-3.0-only` |
 | MIT | `MIT` |
 | Apache 2.0 | `Apache-2.0` |
@@ -122,7 +122,7 @@ CI rejects any other license value.
 Create a subdirectory under `models/` named after your model (lowercase,
 hyphens for spaces):
 
-```
+```text
 models/your-model/
   pipeline.py          # ZenML pipeline with training + inference
   Dockerfile           # Self-contained runtime environment
@@ -158,7 +158,7 @@ no runtime dependencies are needed for the check to pass.
 Your `pipeline.py` must also define:
 
 | Function | Role | Referenced by |
-|---|---|---|
+| --- | --- | --- |
 | `preprocess` | Normalize/transform input data before the model | `stac-item.json` `mlm:input[].pre_processing_function` |
 | `postprocess` | Convert raw model output to usable predictions | `stac-item.json` `mlm:output[].post_processing_function` |
 
@@ -287,7 +287,7 @@ validated by CI against the platform's requirements schema.
 ### Required Properties
 
 | Property | Type | Description |
-|---|---|---|
+| --- | --- | --- |
 | `mlm:name` | string | Model identifier (matches directory name) |
 | `mlm:architecture` | string | Architecture name (e.g. `UNet`, `YOLOv8`) |
 | `mlm:tasks` | string[] | One or more of: `semantic-segmentation`, `instance-segmentation`, `object-detection`, `classification` |
@@ -417,7 +417,7 @@ Each entry in `mlm:output` must include `post_processing_function` and
 ### Required Assets
 
 | Asset key | Purpose | Required fields |
-|---|---|---|
+| --- | --- | --- |
 | `model` | Pretrained weights | `mlm:artifact_type` (e.g. `torch.save`, `onnx`) |
 | `source-code` | Link to model code | `mlm:entrypoint` (e.g. `models.your_model.pipeline:training_pipeline`) |
 | `mlm:training` | Training Docker image | `href` = Docker image reference |

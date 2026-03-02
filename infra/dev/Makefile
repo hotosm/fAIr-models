@@ -13,6 +13,9 @@ PGSTAC_DSN ?= postgresql://postgres:postgres@localhost:5432/fair_models
 PID_FILE := .port-forward.pids
 NVKIND  := $(shell command -v nvkind 2>/dev/null || echo $(HOME)/go/bin/nvkind)
 
+FAIR_LABEL_DOMAIN ?= fair-dev.hotosm.org
+export FAIR_LABEL_DOMAIN
+
 IMAGE ?= ghcr.io/hotosm/fair-models/example-unet:v1
 
 .PHONY: cluster-up cluster-down infra-up infra-down \
@@ -21,7 +24,9 @@ IMAGE ?= ghcr.io/hotosm/fair-models/example-unet:v1
         up teardown help
 
 cluster-up:
-	-$(NVKIND) cluster create --name $(CLUSTER) --config-template kind-config.yaml
+	-envsubst '$$FAIR_LABEL_DOMAIN' < kind-config.yaml > .kind-config-resolved.yaml
+	-$(NVKIND) cluster create --name $(CLUSTER) --config-template .kind-config-resolved.yaml
+	@rm -f .kind-config-resolved.yaml
 	@kubectl apply -f - <<< '{"apiVersion":"node.k8s.io/v1","kind":"RuntimeClass","handler":"nvidia","metadata":{"name":"nvidia"}}' 2>/dev/null || true
 
 cluster-down:
@@ -29,8 +34,8 @@ cluster-down:
 
 infra-up:
 	@kubectl create ns $(NS) --dry-run=client -o yaml | kubectl apply -f -
-	@kubectl label node -l fair.hotosm.org/role=train nvidia.com/gpu.present=true --overwrite >/dev/null 2>/dev/null || true
-	kubectl apply -n $(NS) -f postgres/
+	@kubectl label node -l $(FAIR_LABEL_DOMAIN)/role=train nvidia.com/gpu.present=true --overwrite >/dev/null 2>/dev/null || true
+	envsubst '$$FAIR_LABEL_DOMAIN' < postgres/statefulset.yaml | kubectl apply -n $(NS) -f postgres/service.yaml -f -
 	kubectl rollout status -n $(NS) statefulset/postgres --timeout=120s
 	helmfile apply
 	kubectl rollout status -n $(NS) deployment/stac-stac --timeout=300s
@@ -70,7 +75,9 @@ stack-register:
 		echo "zenml connect: attempt $$i failed, retrying in 5s..." >&2; sleep 5; \
 	done
 	-uv run zenml stack import dev -f ../../stacks/local.yaml --ignore-version-mismatch
-	-uv run zenml stack import k8s -f ../../stacks/k8s.yaml --ignore-version-mismatch
+	-envsubst '$$FAIR_LABEL_DOMAIN' < ../../stacks/k8s.yaml > .k8s-stack-resolved.yaml
+	-uv run zenml stack import k8s -f .k8s-stack-resolved.yaml --ignore-version-mismatch
+	@rm -f .k8s-stack-resolved.yaml
 	-uv run zenml stack set dev
 
 run-example:

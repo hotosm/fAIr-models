@@ -10,6 +10,7 @@ from fair.stac.builders import build_base_model_item, build_dataset_item
 from fair.zenml.config import (
     _WORKER_NODE_SELECTOR,
     _WORKER_TOLERATION,
+    LABEL_DOMAIN,
     _gpu_settings,
     generate_inference_config,
     generate_training_config,
@@ -202,6 +203,11 @@ def test_k8s_settings_default_count():
     item = _item_with_accelerator("cuda")
     settings = _gpu_settings(item)
     assert settings["orchestrator.kubernetes"]["pod_settings"]["resources"]["limits"]["nvidia.com/gpu"] == "1"
+
+
+def test_label_domain_in_selectors():
+    assert f"{LABEL_DOMAIN}/workload" in _WORKER_NODE_SELECTOR
+    assert _WORKER_TOLERATION["key"] == f"{LABEL_DOMAIN}/workload"
 
 
 def test_training_config_includes_k8s_settings(tmp_path):

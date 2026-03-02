@@ -1,12 +1,13 @@
 # nvkind template — GPU worker needs extraMounts so nvkind detects the node
 # as GPU-enabled and installs nvidia-container-toolkit + configures containerd.
 # See: https://github.com/NVIDIA/nvkind/blob/main/pkg/nvkind/node.go#getNvidiaVisibleDevices
+# Labels/taints use ${FAIR_LABEL_DOMAIN} — processed by envsubst in the Makefile.
 kind: Cluster
 apiVersion: kind.x-k8s.io/v1alpha4
 nodes:
   - role: control-plane
     labels:
-      fair.hotosm.org/role: infra
+      ${FAIR_LABEL_DOMAIN}/role: infra
     kubeadmConfigPatches:
       - |
         kind: InitConfiguration
@@ -14,26 +15,26 @@ nodes:
           taints: []
   - role: worker
     labels:
-      fair.hotosm.org/role: inference
-      fair.hotosm.org/workload: ml
+      ${FAIR_LABEL_DOMAIN}/role: inference
+      ${FAIR_LABEL_DOMAIN}/workload: ml
     kubeadmConfigPatches:
       - |
         kind: JoinConfiguration
         nodeRegistration:
           taints:
-            - key: fair.hotosm.org/workload
+            - key: ${FAIR_LABEL_DOMAIN}/workload
               value: ml
               effect: NoSchedule
   - role: worker
     labels:
-      fair.hotosm.org/role: train
-      fair.hotosm.org/workload: ml
+      ${FAIR_LABEL_DOMAIN}/role: train
+      ${FAIR_LABEL_DOMAIN}/workload: ml
     kubeadmConfigPatches:
       - |
         kind: JoinConfiguration
         nodeRegistration:
           taints:
-            - key: fair.hotosm.org/workload
+            - key: ${FAIR_LABEL_DOMAIN}/workload
               value: ml
               effect: NoSchedule
     extraMounts:

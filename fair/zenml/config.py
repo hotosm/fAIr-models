@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import os
 from typing import Any
 
 import pystac
 
 from fair.stac.constants import CONTAINER_REGISTRIES, OCI_IMAGE_INDEX_TYPE
+
+LABEL_DOMAIN = os.environ.get("FAIR_LABEL_DOMAIN", "fair-dev.hotosm.org")
 
 
 def _normalize_container_href(href: str) -> str:
@@ -30,10 +33,10 @@ def _extract_num_classes(mlm_output: list[dict[str, Any]]) -> int | None:
     return len(classes) if classes else None
 
 
-# Workers are tainted fair.hotosm.org/workload=ml:NoSchedule so only ML pods
+# Workers are tainted ${FAIR_LABEL_DOMAIN}/workload=ml:NoSchedule so only ML pods
 # land there.  Every pipeline pod needs this toleration + node selector.
-_WORKER_TOLERATION = {"key": "fair.hotosm.org/workload", "operator": "Equal", "value": "ml", "effect": "NoSchedule"}
-_WORKER_NODE_SELECTOR = {"fair.hotosm.org/workload": "ml"}
+_WORKER_TOLERATION = {"key": f"{LABEL_DOMAIN}/workload", "operator": "Equal", "value": "ml", "effect": "NoSchedule"}
+_WORKER_NODE_SELECTOR = {f"{LABEL_DOMAIN}/workload": "ml"}
 
 
 def _gpu_settings(item: pystac.Item) -> dict[str, Any]:

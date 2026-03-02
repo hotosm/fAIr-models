@@ -103,8 +103,8 @@ def train_model(
     import mlflow
     from torchgeo.models import unet
 
-    mlflow.autolog()
-    mlflow.log_params(
+    mlflow.autolog()  # ty: ignore[possibly-missing-attribute]
+    mlflow.log_params(  # ty: ignore[possibly-missing-attribute]
         {
             "epochs": epochs,
             "batch_size": batch_size,
@@ -130,7 +130,7 @@ def train_model(
     for epoch in range(epochs):
         total_loss = sum(_train_step(model, batch, criterion, opt, device) for batch in loader)
         avg_loss = total_loss / len(loader)
-        mlflow.log_metric("train_loss", avg_loss, step=epoch)
+        mlflow.log_metric("train_loss", avg_loss, step=epoch)  # ty: ignore[possibly-missing-attribute]
         log_metadata(metadata={"loss": avg_loss, "epoch": epoch + 1})
 
     return model.cpu()
@@ -188,7 +188,7 @@ def evaluate_model(
         "mean_iou": sum(intersection[c] / max(union[c], 1) for c in range(num_classes)) / num_classes,
         **{f"iou_class_{c}": intersection[c] / max(union[c], 1) for c in range(num_classes)},
     }
-    mlflow.log_metrics(metrics)
+    mlflow.log_metrics(metrics)  # ty: ignore[possibly-missing-attribute]
     log_metadata(metadata=metrics)
     return metrics
 

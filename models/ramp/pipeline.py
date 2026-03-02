@@ -1,9 +1,9 @@
 """ZenML pipeline for RAMP (EfficientNetB0 + U-Net) building semantic segmentation.
 
-Entrypoints referenced by models/ramp/stac-item.json.
+Entrypoints referenced by stac-item.json.
 Runtime: ramp-fair (TensorFlow/Keras), hot-fair-utilities (preprocessing only).
 
-Implements the fAIr 3.0 contract (FAIr_3.0_Optimized_Pipeline.md):
+Implements the fAIr entrypoints:
   - pre_processing_function  → preprocess()
   - post_processing_function → postprocess()
   - mlm:entrypoint (training) → training_pipeline()
@@ -16,7 +16,7 @@ Key architecture difference from YOLO packs:
   - Postprocessing → ramp.utils.mask_to_vec_utils (GDAL polygonize)
 
 Model weights: Backend passes model_uri from STAC Item (assets.model.href).
-Supports Google Drive, direct HTTP URLs, S3 (future), and local paths.
+Supports Google Drive, direct HTTP URLs, S3, and local paths.
 Weights are downloaded on first use and cached locally.
 
 All heavy imports are lazy: this module is importable in the fAIr-models
@@ -31,13 +31,11 @@ import re
 import shutil
 import zipfile
 from pathlib import Path
-from typing import Annotated
 from urllib.request import urlretrieve
 
-from annotated_types import Ge, Le
 from zenml import log_metadata, pipeline, step
 
-# Cache directory for downloaded models (inside container, typically /workspace)
+# Cache directory for downloaded models
 _DEFAULT_MODEL_CACHE = Path("/workspace/.ramp_model_cache")
 
 # Google Drive folder URL pattern
@@ -288,20 +286,51 @@ def _make_val_split(
         )
 
 
+def _load_hyperparams_from_stac(stac_item_path: str) -> dict:
+    """Load mlm:hyperparameters from a STAC Item JSON file.
+
+    Relative paths are resolved against /workspace (container) or cwd (local).
+    """
+    import json
+
+    path = Path(stac_item_path)
+    if not path.is_absolute():
+        for base in (Path("/workspace"), Path.cwd()):
+            candidate = base / path
+            if candidate.is_file():
+                path = candidate
+                break
+        else:
+            path = Path("/workspace") / path
+    with open(path, encoding="utf-8") as f:
+        item = json.load(f)
+    return dict(item.get("properties", {}).get("mlm:hyperparameters", {}))
+
+
 def _build_train_config(
     chips_subdir: str,
     masks_subdir: str,
     val_chips_subdir: str,
     val_masks_subdir: str,
     checkpts_subdir: str,
-    backbone: str,
-    num_epochs: int,
-    batch_size: int,
-    learning_rate: float,
-    early_stopping_patience: int,
+    hyperparams: dict,
     timestamp: str,
 ) -> dict:
-    """Build a RAMP JSON training config dict from pipeline parameters."""
+    """Build a RAMP training config dict from STAC mlm:hyperparameters.
+
+    hyperparams: from STAC Item properties.mlm:hyperparameters.
+    Path params (chips_subdir, etc.) are runtime-derived and passed separately.
+    """
+    # Map STAC keys to RAMP config keys (STAC may use "epochs", RAMP uses "num_epochs")
+    num_epochs = hyperparams.get("num_epochs", hyperparams.get("epochs", 100))
+    batch_size = hyperparams.get("batch_size", 16)
+    learning_rate = hyperparams.get("learning_rate", 3e-4)
+    early_stopping_patience = hyperparams.get("early_stopping_patience", 35)
+    backbone = hyperparams.get("backbone", "efficientnetb0")
+    input_img_shape = hyperparams.get("input_img_shape", [256, 256])
+    output_img_shape = hyperparams.get("output_img_shape", [256, 256])
+    use_aug = hyperparams.get("augmentation", hyperparams.get("use_aug", False))
+
     return {
         "experiment_name": "RAMP EffUnet multimask training",
         "discard_experiment": False,
@@ -312,11 +341,11 @@ def _build_train_config(
             "val_img_dir": val_chips_subdir,
             "val_mask_dir": val_masks_subdir,
         },
-        "num_classes": 4,
+        "num_classes": hyperparams.get("num_classes", 4),
         "num_epochs": num_epochs,
         "batch_size": batch_size,
-        "input_img_shape": [256, 256],
-        "output_img_shape": [256, 256],
+        "input_img_shape": input_img_shape,
+        "output_img_shape": output_img_shape,
         "loss": {
             "get_loss_fn_name": "get_sparse_categorical_crossentropy_fn",
             "loss_fn_parms": {},
@@ -338,7 +367,7 @@ def _build_train_config(
             },
         },
         "saved_model": {"use_saved_model": False},
-        "augmentation": {"use_aug": False},
+        "augmentation": {"use_aug": use_aug},
         "early_stopping": {
             "use_early_stopping": True,
             "early_stopping_parms": {
@@ -384,20 +413,18 @@ def run_preprocessing(
 def train_model(
     data_base_path: str,
     preprocessed_path: str,
-    backbone: str = "efficientnetb0",
-    num_epochs: int = 100,
-    batch_size: int = 16,
-    learning_rate: float = 3e-4,
-    early_stopping_patience: int = 35,
-    val_fraction: float = 0.15,
+    stac_item_path: str = "models/ramp/stac-item.json",
+    val_fraction: float | None = None,
 ) -> str:
     """Fine-tune EfficientNetB0 + U-Net on 4-class multimask chips.
 
-    1. Splits preprocessed chips/masks into train and val sets.
-    2. Builds the EfficientNet-B0 U-Net from segmentation_models.
-    3. Trains with sparse categorical crossentropy loss.
-    4. Returns the path to the best Keras SavedModel directory.
+    Hyperparameters are loaded from STAC Item (properties.mlm:hyperparameters).
+    stac_item_path: path to STAC Item JSON (relative to /workspace or cwd, or absolute).
+      Default matches current flat layout; for FAIr 3.0 versioned layout use
+      e.g. "models/ramp/1/stac-item.json".
+    val_fraction: optional override for validation split (not in STAC by default).
 
+    Returns the path to the best Keras SavedModel directory.
     val_sparse_categorical_accuracy is logged as ZenML step metadata.
     """
     import os
@@ -421,6 +448,17 @@ def train_model(
 
     os.environ["RAMP_HOME"] = data_base_path
 
+    hyperparams = _load_hyperparams_from_stac(stac_item_path)
+    if val_fraction is not None:
+        hyperparams["val_fraction"] = val_fraction
+
+    val_fraction_val = hyperparams.get("val_fraction", 0.15)
+    batch_size = hyperparams.get("batch_size", 16)
+    num_epochs = hyperparams.get("num_epochs", hyperparams.get("epochs", 100))
+
+    # Paths under preprocessed_path ( = output_path/preprocessed ). Not persistent
+    # in the container unless output_path is on a mounted volume; per FAIr 3.0
+    # the backend/ZenML persists outputs (e.g. best checkpoint) to S3 after the run.
     pre_path = Path(preprocessed_path)
     chips_dir = pre_path / "chips"
     masks_dir = pre_path / "multimasks"
@@ -429,7 +467,7 @@ def train_model(
     checkpts_dir = pre_path / "checkpoints"
 
     if not val_chips_dir.is_dir():
-        _make_val_split(chips_dir, masks_dir, val_chips_dir, val_masks_dir, val_fraction)
+        _make_val_split(chips_dir, masks_dir, val_chips_dir, val_masks_dir, val_fraction_val)
 
     def _rel(d: Path) -> str:
         return str(d.relative_to(data_base_path))
@@ -441,11 +479,7 @@ def train_model(
         val_chips_subdir=_rel(val_chips_dir),
         val_masks_subdir=_rel(val_masks_dir),
         checkpts_subdir=_rel(checkpts_dir),
-        backbone=backbone,
-        num_epochs=num_epochs,
-        batch_size=batch_size,
-        learning_rate=learning_rate,
-        early_stopping_patience=early_stopping_patience,
+        hyperparams=hyperparams,
         timestamp=timestamp,
     )
 
@@ -593,16 +627,19 @@ def run_postprocessing(
 def training_pipeline(
     input_path: str,
     output_path: str,
-    backbone: str = "efficientnetb0",
-    num_epochs: Annotated[int, Ge(1), Le(2000)] = 100,
-    batch_size: Annotated[int, Ge(1), Le(64)] = 16,
-    learning_rate: Annotated[float, Ge(1e-6), Le(1e-2)] = 3e-4,
-    early_stopping_patience: Annotated[int, Ge(5), Le(100)] = 35,
-    val_fraction: Annotated[float, Ge(0.05), Le(0.4)] = 0.15,
-    boundary_width: int = 3,
-    contact_spacing: int = 8,
+    stac_item_path: str = "models/ramp/stac-item.json",
 ) -> None:
-    """Full RAMP training: georeference + multimask → val split → EfficientNetB0 U-Net."""
+    """Full RAMP training: georeference + multimask → val split → EfficientNetB0 U-Net.
+
+    Hyperparameters (backbone, epochs, batch_size, boundary_width, contact_spacing, etc.)
+    are loaded from the STAC Item at stac_item_path. Default path matches the current
+    flat layout (models/ramp/stac-item.json); for FAIr 3.0 versioned layout use
+    e.g. stac_item_path="models/ramp/1/stac-item.json".
+    """
+    hyperparams = _load_hyperparams_from_stac(stac_item_path)
+    boundary_width = hyperparams.get("boundary_width", 3)
+    contact_spacing = hyperparams.get("contact_spacing", 8)
+
     preprocessed_path = run_preprocessing(
         input_path=input_path,
         output_path=f"{output_path}/preprocessed",
@@ -612,12 +649,7 @@ def training_pipeline(
     train_model(
         data_base_path=output_path,
         preprocessed_path=preprocessed_path,
-        backbone=backbone,
-        num_epochs=num_epochs,
-        batch_size=batch_size,
-        learning_rate=learning_rate,
-        early_stopping_patience=early_stopping_patience,
-        val_fraction=val_fraction,
+        stac_item_path=stac_item_path,
     )
 
 

@@ -89,16 +89,13 @@ prediction/vectors/*.geojson  (per-chip building footprints)
 from models.ramp.pipeline import training_pipeline, inference_pipeline
 
 # Full training run (use your dataset path)
+# Hyperparameters are loaded from models/ramp/stac-item.json
 training_pipeline(
     input_path="data/sample/ramp_work/input",  # or your dataset/input
     output_path="data/sample/ramp_work",       # or your dataset
-    backbone="efficientnetb0",
-    num_epochs=100,
-    batch_size=16,
-    learning_rate=3e-4,
-    early_stopping_patience=35,
-    val_fraction=0.15,
 )
+# Use a different STAC item (e.g. versioned layout):
+# training_pipeline(..., stac_item_path="models/ramp/1/stac-item.json")
 
 # Inference run (model_uri from STAC or local path)
 inference_pipeline(

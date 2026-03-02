@@ -29,18 +29,64 @@
         "mlm:tasks": [
             "semantic-segmentation"
         ],
-        "mlm:framework": "tensorflow",
+        "mlm:framework": "TensorFlow",
         "mlm:framework_version": "2.9.3",
         "mlm:pretrained": false,
         "mlm:pretrained_source": null,
         "keywords": [
             "building",
-            "semantic-segmentation",
-            "multimask",
-            "efficientnet",
-            "unet"
+            "semantic-segmentation"
         ],
         "version": "1",
+        "license": "Apache-2.0",  
+        "status": "active",
+        "mlm:total_parameters": 7500000,
+        "mlm:memory_size": 536870912,
+        "mlm:accelerator": null,
+        "mlm:accelerator_constrained": false,
+        "licenses": {
+            "model": "Apache-2.0",
+            "data": "ODbL-1.0",
+            "code": "Apache-2.0"
+        },
+        "inference_time_per_256x256": {
+            "value": 45,
+            "unit": "ms"
+        },
+        "pipeline_input": {
+            "type": "directory",
+            "description": "Directory of georeferenced RGB GeoTIFF chips (256×256, EPSG:3857)",
+            "expected_files": "*.tif",
+            "required_params": ["input_path", "model_uri"]
+        },
+        "pipeline_output": {
+            "type": "directory",
+            "description": "Directory of GeoJSON files with building polygons (one per chip)",
+            "expected_files": "*.geojson",
+            "geometry_types": ["Polygon", "MultiPolygon"]
+        },
+        "evaluation_metrics": [
+            {
+                "metric": "val_sparse_categorical_accuracy",
+                "definition": "Sparse categorical accuracy on validation set",
+                "value": 0.92
+            },
+            {
+                "metric": "val_loss",
+                "definition": "Sparse categorical crossentropy on validation set",
+                "value": 0.15
+            }
+        ],
+        "zenml_entrypoints": {
+            "preprocessing": "models.ramp.pipeline:run_preprocessing",
+            "inference": "models.ramp.pipeline:inference_pipeline",
+            "postprocessing": "models.ramp.pipeline:run_postprocessing",
+            "training": "models.ramp.pipeline:train_model"
+        },
+        "training_time": {
+            "value": 4.0,
+            "unit": "hours"
+        },
         "mlm:input": [
             {
                 "name": "RGB GeoTIFF chips",
@@ -134,20 +180,19 @@
             "type": "text/html",
             "title": "RAMP model pack source",
             "roles": ["code"],
-            "mlm:entrypoint": "models.ramp.pipeline:training_pipeline",
-            "mlm:inference_entrypoint": "models.ramp.pipeline:inference_pipeline"
+            "mlm:entrypoint": "models.ramp.pipeline:training_pipeline"
         },
-        "mlm:training": {
-            "href": "local",
-            "type": "text/plain",
-            "title": "Training runtime (Docker)",
-            "roles": ["mlm:training-runtime", "runtime"]
+        "training-runtime": {
+            "href": "ghcr.io/hotosm/fair-models/ramp:v1",
+            "type": "application/vnd.oci.image.index.v1+json",
+            "title": "Training Docker Image",
+            "roles": ["training-runtime", "runtime"]
         },
-        "mlm:inference": {
-            "href": "local",
-            "type": "text/plain",
-            "title": "Inference runtime (Docker)",
-            "roles": ["mlm:inference-runtime", "runtime"]
+        "inference-runtime": {
+            "href": "ghcr.io/hotosm/fair-models/ramp:v1",
+            "type": "application/vnd.oci.image.index.v1+json",
+            "title": "Inference Docker Image",
+            "roles": ["inference-runtime", "runtime"]
         }
     },
     "links": []

@@ -13,6 +13,7 @@ env:
   NAMESPACE: fair
   FAIR_LABEL_DOMAIN: fair-dev.hotosm.org
   PGSTAC_DSN: postgresql://postgres:postgres@localhost:5432/fair_models
+  ZENML_STORE_URL: http://localhost:8080
 
 jobs:
   k8s-integration:
@@ -73,12 +74,6 @@ jobs:
 
       - name: Register ZenML stack
         run: |
-          for i in 1 2 3 4 5; do
-            uv run zenml connect --url http://localhost:8080 \
-              --username default --password '' --no-verify-ssl && break
-            echo "zenml connect: attempt $i failed, retrying in 5s..." >&2
-            sleep 5
-          done
           uv run zenml stack import ci-k8s -f stacks/ci-k8s.yaml --ignore-version-mismatch
           uv run zenml stack set ci-k8s
 

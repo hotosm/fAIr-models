@@ -34,6 +34,7 @@ jobs:
         with:
           cluster_name: fair-ci
           config: infra/ci/kind-config.yaml
+          node_image: kindest/node:v1.33.0
 
       - name: Deploy PostgreSQL
         run: |
@@ -49,11 +50,13 @@ jobs:
           helmfile-workdirectory: infra/dev
           helmfile-auto-init: "true"
 
-      - name: Wait for pods
+      - name: Wait for infra
         run: |
+          kubectl wait --for=condition=complete job --all -n $NAMESPACE --timeout=300s
           kubectl rollout status -n $NAMESPACE deployment/stac-stac --timeout=300s
           kubectl rollout status -n $NAMESPACE deployment/zenml --timeout=300s
-          kubectl wait --for=condition=ready pod --all -n $NAMESPACE --timeout=600s
+          kubectl rollout status -n $NAMESPACE deployment/minio --timeout=300s
+          kubectl rollout status -n $NAMESPACE deployment/mlflow --timeout=300s
 
       - name: Port-forward services
         run: |

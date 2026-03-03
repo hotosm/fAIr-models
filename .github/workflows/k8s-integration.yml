@@ -1,0 +1,108 @@
+name: K8s Integration Test
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NAMESPACE: fair
+  FAIR_LABEL_DOMAIN: fair-dev.hotosm.org
+  PGSTAC_DSN: postgresql://postgres:postgres@localhost:5432/fair_models
+
+jobs:
+  k8s-integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.13"
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync --group local
+
+      - name: Create Kind cluster
+        uses: helm/kind-action@v1
+        with:
+          cluster_name: fair-ci
+          config: infra/ci/kind-config.yaml
+
+      - name: Deploy PostgreSQL
+        run: |
+          kubectl create ns $NAMESPACE --dry-run=client -o yaml | kubectl apply -f -
+          envsubst '$FAIR_LABEL_DOMAIN' < infra/dev/postgres/statefulset.yaml | \
+            kubectl apply -n $NAMESPACE -f infra/dev/postgres/service.yaml -f -
+          kubectl rollout status -n $NAMESPACE statefulset/postgres --timeout=120s
+
+      - name: Deploy infra
+        uses: helmfile/helmfile-action@v2
+        with:
+          helmfile-args: sync --selector name!=nvidia-device-plugin
+          helmfile-workdirectory: infra/dev
+          helmfile-auto-init: "true"
+
+      - name: Wait for pods
+        run: |
+          kubectl rollout status -n $NAMESPACE deployment/stac-stac --timeout=300s
+          kubectl rollout status -n $NAMESPACE deployment/zenml --timeout=300s
+          kubectl wait --for=condition=ready pod --all -n $NAMESPACE --timeout=600s
+
+      - name: Port-forward services
+        run: |
+          while read svc ports; do
+            kubectl port-forward -n $NAMESPACE svc/$svc $ports &
+          done < infra/dev/ports.conf
+          while read svc ports; do
+            local_port=${ports%%:*}
+            for i in $(seq 1 30); do nc -z localhost $local_port 2>/dev/null && break; sleep 1; done
+          done < infra/dev/ports.conf
+
+      - name: Seed sample data
+        run: uv run --with minio python infra/dev/scripts/seed_data.py
+
+      - name: Register ZenML stack
+        run: |
+          for i in 1 2 3 4 5; do
+            uv run zenml connect --url http://localhost:8080 \
+              --username default --password '' --no-verify-ssl && break
+            echo "zenml connect: attempt $i failed, retrying in 5s..." >&2
+            sleep 5
+          done
+          uv run zenml stack import ci-k8s -f stacks/ci-k8s.yaml --ignore-version-mismatch
+          uv run zenml stack set ci-k8s
+
+      - name: Run example pipeline
+        run: |
+          AWS_ENDPOINT_URL=http://localhost:9000 \
+            uv run python examples/unet/run.py all \
+              --stac-api-url http://localhost:8082 \
+              --dsn $PGSTAC_DSN
+
+      - name: Verify predictions
+        run: |
+          test -d data/sample/predict/predictions
+          ls -la data/sample/predict/predictions/
+          echo "Integration test passed"
+
+      - name: Debug on failure
+        if: failure()
+        run: |
+          echo "Pod status: "
+          kubectl get pods -n $NAMESPACE -o wide
+          echo ""
+          echo "Recent events: "
+          kubectl get events -n $NAMESPACE --sort-by='.lastTimestamp' | tail -30
+          echo ""
+          echo "Pod logs :"
+          for pod in $(kubectl get pods -n $NAMESPACE -o name); do
+            echo "--- $pod ---"
+            kubectl logs -n $NAMESPACE $pod --tail=50 2>/dev/null || true
+          done

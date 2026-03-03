@@ -13,7 +13,6 @@ env:
   NAMESPACE: fair
   FAIR_LABEL_DOMAIN: fair-dev.hotosm.org
   PGSTAC_DSN: postgresql://postgres:postgres@localhost:5432/fair_models
-  ZENML_STORE_URL: http://localhost:8080
 
 jobs:
   k8s-integration:
@@ -68,6 +67,13 @@ jobs:
             local_port=${ports%%:*}
             for i in $(seq 1 30); do nc -z localhost $local_port 2>/dev/null && break; sleep 1; done
           done < infra/dev/ports.conf
+
+      - name: Connect to ZenML
+        run: |
+          for i in $(seq 1 5); do
+            uv run zenml connect --url http://localhost:8080 --username default --password '' --no-verify-ssl && break
+            echo "zenml connect: attempt $i failed, retrying in 5s..." && sleep 5
+          done
 
       - name: Seed sample data
         run: uv run --with minio python infra/dev/scripts/seed_data.py

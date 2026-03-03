@@ -1,6 +1,6 @@
 # CI-only Kind cluster: single node, no GPU, no nvkind.
-# All workloads (infra + ML pods) run on the control-plane node
-# with scheduling enabled (no taints) and both required labels applied.
+# All workloads (infra + ML pods) run on the control-plane node.
+# Kind automatically removes the control-plane taint for single-node clusters.
 kind: Cluster
 apiVersion: kind.x-k8s.io/v1alpha4
 nodes:
@@ -8,8 +8,3 @@ nodes:
     labels:
       fair-dev.hotosm.org/role: infra
       fair-dev.hotosm.org/workload: ml
-    kubeadmConfigPatches:
-      - |
-        kind: InitConfiguration
-        nodeRegistration:
-          taints: []

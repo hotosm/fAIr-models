@@ -1,6 +1,6 @@
-image:
-  repository: mlflow/mlflow
-  tag: "v3.9.0"
+# image:
+#   repository: mlflow/mlflow
+#   tag: "v3.9.0"
 
 backendStore:
   databaseMigration: true

@@ -85,6 +85,7 @@ jobs:
 
       - name: Register ZenML stack
         run: |
+          uv run zenml init
           uv run zenml stack import ci-k8s -f stacks/ci-k8s.yaml --ignore-version-mismatch
           uv run zenml stack set ci-k8s
 

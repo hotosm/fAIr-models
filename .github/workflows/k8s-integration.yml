@@ -27,7 +27,7 @@ jobs:
           enable-cache: true
 
       - name: Install dependencies
-        run: uv sync --group local
+        run: uv sync --extra k8s
 
       - name: Create Kind cluster
         uses: helm/kind-action@v1

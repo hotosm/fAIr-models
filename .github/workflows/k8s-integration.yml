@@ -92,13 +92,13 @@ jobs:
 
       - name: Run example pipeline
         run: |
+          set -o pipefail
           AWS_ENDPOINT_URL=http://localhost:9000 \
             uv run python examples/unet/run.py all \
               --stac-api-url http://localhost:8082 \
-              --dsn $PGSTAC_DSN
+              --dsn $PGSTAC_DSN | tee ci_pipeline_output.log
 
       - name: Verify predictions
         run: |
-          test -d data/sample/predict/predictions
-          ls -la data/sample/predict/predictions/
+          grep -Eq '^predict: .+ \(.+\)$' ci_pipeline_output.log
           echo "Integration test passed"

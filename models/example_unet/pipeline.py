@@ -228,6 +228,11 @@ def run_inference(
     with torch.no_grad():
         patterns = ("*.png", "*.tif", "*.tiff")
         img_paths = sorted(p for pat in patterns for p in input_dir.glob(pat))
+        if not img_paths:
+            msg = f"No input images found in {input_dir}"
+            raise FileNotFoundError(msg)
+
+        saved_predictions = 0
         for img_path in img_paths:
             img = np.array(Image.open(img_path).convert("RGB"))
             tensor = torch.from_numpy(img).permute(2, 0, 1).unsqueeze(0).float() / 255.0
@@ -235,6 +240,11 @@ def run_inference(
                 tensor = F.interpolate(tensor, size=(chip_size, chip_size), mode="bilinear", align_corners=False)
             mask = postprocess(model(tensor.to(device)))[0]
             Image.fromarray(mask).save(output_dir / img_path.name)
+            saved_predictions += 1
+
+    if saved_predictions < 1:
+        msg = "Inference completed without producing predictions"
+        raise RuntimeError(msg)
 
     return str(output_dir)
 

@@ -205,6 +205,15 @@ def test_k8s_settings_default_count():
     assert settings["orchestrator.kubernetes"]["pod_settings"]["resources"]["limits"]["nvidia.com/gpu"] == "1"
 
 
+def test_k8s_settings_force_cpu_env(monkeypatch):
+    monkeypatch.setenv("FAIR_FORCE_CPU", "1")
+    settings = _gpu_settings(_item_with_accelerator("cuda", 2))
+    pod = settings["orchestrator.kubernetes"]["pod_settings"]
+    assert pod["tolerations"] == [_WORKER_TOLERATION]
+    assert pod["node_selectors"] == _WORKER_NODE_SELECTOR
+    assert "resources" not in pod
+
+
 def test_label_domain_in_selectors():
     assert f"{LABEL_DOMAIN}/workload" in _WORKER_NODE_SELECTOR
     assert _WORKER_TOLERATION["key"] == f"{LABEL_DOMAIN}/workload"

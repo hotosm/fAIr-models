@@ -39,8 +39,22 @@ _WORKER_TOLERATION = {"key": f"{LABEL_DOMAIN}/workload", "operator": "Equal", "v
 _WORKER_NODE_SELECTOR = {f"{LABEL_DOMAIN}/workload": "ml"}
 
 
+def _force_cpu_mode() -> bool:
+    return os.environ.get("FAIR_FORCE_CPU", "").lower() in {"1", "true", "yes", "on"}
+
+
 def _gpu_settings(item: pystac.Item) -> dict[str, Any]:
     """Return K8s GPU resource requests + tolerations from STAC mlm:accelerator."""
+    if _force_cpu_mode():
+        return {
+            "orchestrator.kubernetes": {
+                "pod_settings": {
+                    "node_selectors": _WORKER_NODE_SELECTOR,
+                    "tolerations": [_WORKER_TOLERATION],
+                }
+            }
+        }
+
     accelerator = item.properties.get("mlm:accelerator")
     if not accelerator or accelerator in ("amd64", "cpu"):
         return {

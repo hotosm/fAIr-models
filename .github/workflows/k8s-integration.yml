@@ -13,6 +13,7 @@ env:
   NAMESPACE: fair
   FAIR_LABEL_DOMAIN: fair-dev.hotosm.org
   PGSTAC_DSN: postgresql://postgres:postgres@localhost:5432/fair_models
+  FAIR_FORCE_CPU: "1"
 
 jobs:
   k8s-integration:
@@ -101,18 +102,3 @@ jobs:
           test -d data/sample/predict/predictions
           ls -la data/sample/predict/predictions/
           echo "Integration test passed"
-
-      - name: Debug on failure
-        if: failure()
-        run: |
-          echo "Pod status: "
-          kubectl get pods -n $NAMESPACE -o wide
-          echo ""
-          echo "Recent events: "
-          kubectl get events -n $NAMESPACE --sort-by='.lastTimestamp' | tail -30
-          echo ""
-          echo "Pod logs :"
-          for pod in $(kubectl get pods -n $NAMESPACE -o name); do
-            echo "--- $pod ---"
-            kubectl logs -n $NAMESPACE $pod --tail=50 2>/dev/null || true
-          done

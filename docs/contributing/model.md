@@ -51,10 +51,10 @@ layout for the `mlm:input` specification:
 | Bands | `red`, `green`, `blue` (3 channels, RGB) |
 | Shape | `[-1, 3, H, W]` where H and W are the chip size |
 | Dimension order | `["batch", "bands", "height", "width"]` |
-| Data type | `float32` |
 
-Models must normalize the uint8 pixel values (0-255) to float32 (0.0-1.0)
-in their `preprocess` function. The platform does **not** accept non-RGB
+Models must normalize the uint8 pixel values (0-255) in
+their `preprocess` function.
+The platform does **not** accept non-RGB
 inputs (e.g. multispectral, SAR, DEM).
 
 ### Output Requirements
@@ -437,7 +437,7 @@ the model's catalog page.
 ## README.md
 
 Every model **must** include a `README.md` in its directory. This is the
-human-readable documentation for your model — it covers context that the STAC
+human-readable documentation for your model ; it covers context that the STAC
 MLM item cannot express.
 
 The README is referenced as a `readme` asset in `stac-item.json` (with
@@ -457,7 +457,7 @@ existence) and `make validate-stac` (asset presence).
 | **License** | License name (must match `properties.license` in `stac-item.json`) |
 
 Keep it concise. The STAC item already captures hyperparameters, input/output
-specs, and keywords — the README is for everything else.
+specs, and keywords ; the README is for everything else.
 
 ## PR Checklist
 
@@ -469,7 +469,7 @@ Before submitting your pull request:
 - [ ] `pipeline.py` defines `preprocess` and `postprocess` functions matching STAC entrypoints
 - [ ] Pipeline parameters use `Annotated` bounds and `Literal` for constrained choices
 - [ ] `mlm:hyperparameters` in STAC item matches pipeline parameter names and defaults
-- [ ] `mlm:input` declares exactly 3 RGB bands with `float32` data type
+- [ ] `mlm:input` declares exactly 3 RGB bands
 - [ ] Dockerfile builds successfully and is self-contained
 - [ ] `stac-item.json` passes `make validate-stac`
 - [ ] Model passes `make validate-models`
@@ -514,5 +514,5 @@ python examples/unet/run.py all
 
 - [STAC MLM Extension](https://github.com/stac-extensions/mlm)
 - [MLM Best Practices](https://github.com/stac-extensions/mlm/blob/main/best-practices.md)
-- [Example UNet model](https://github.com/hotosm/fAIr-models/tree/master/models/example_unet) -- complete reference implementation
+- [Example UNet model](https://github.com/hotosm/fAIr-models/tree/master/models/example_unet) -- reference implementation
 - [Example UNet STAC item](https://github.com/hotosm/fAIr-models/blob/master/models/example_unet/stac-item.json) -- valid STAC item template

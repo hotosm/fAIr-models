@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import pystac
-from pypgstac.db import PgstacDB  # optional dep (k8s group)
-from pypgstac.load import Loader, Methods  # optional dep (k8s group)
-from pystac_client import Client as StacClient  # optional dep (k8s group)
+from pypgstac.db import PgstacDB
+from pypgstac.load import Loader, Methods
+from pystac_client import Client as StacClient
 
 from fair.stac.collections import (
     create_base_models_collection,

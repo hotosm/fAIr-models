@@ -14,7 +14,7 @@ icon: lucide/rocket
 
 ## Installation
 
-=== "For model development"
+=== ":lucide-laptop: Local development"
 
     ```bash title="Clone and set up the project"
     git clone https://github.com/hotosm/fAIr-models.git
@@ -22,7 +22,21 @@ icon: lucide/rocket
     make setup
     ```
 
-=== "As a library"
+=== ":lucide-container: Kubernetes dev stack"
+
+    ```bash title="Clone and set up with k8s extras"
+    git clone https://github.com/hotosm/fAIr-models.git
+    cd fAIr-models
+    make k8s
+    make setup
+    ```
+
+    `make k8s` switches to k8s mode (sticky, persists across sessions).
+    `make setup` then installs k8s extras and checks that
+    `kind`, `kubectl`, `helm`, `helmfile`, `mc`, and `envsubst` are on `$PATH`.
+    Use `make local` to switch back. See [Kubernetes Dev Stack](development/k8s.md).
+
+=== ":lucide-package: As a library"
 
     ```bash title="Add to your project"
     uv add fair-py-ops
@@ -34,7 +48,7 @@ The included UNet example demonstrates the full workflow — register a base
 model, finetune it on sample data, promote the best version, and run inference.
 
 ```bash title="Run the full pipeline"
-python examples/unet/run.py all  # init → register → finetune → promote → predict
+make example  # init → register → finetune → promote → predict
 ```
 
 ??? example "Individual steps"
@@ -73,14 +87,18 @@ tests/                 # pytest suite
 
 ## Development Commands
 
+All targets adapt to the active mode (`local` by default). Switch with `make k8s` or `make local`.
+
 ```bash title="Available make targets"
-make setup             # install deps, pre-commit hooks, zenml init
+make local             # switch to local mode (default)
+make k8s               # switch to k8s mode (sticky)
+make setup             # install deps (k8s mode adds extras + tool checks)
 make lint              # ruff check + format + ty check
 make test              # pytest
 make validate          # validate STAC items + model pipelines
-make example           # run full example pipeline (clean + all)
+make example           # run example pipeline (k8s mode delegates to infra/dev)
 make docs              # serve documentation locally
-make clean             # remove ZenML state + build artifacts
+make clean             # remove ZenML state + artifacts (k8s mode also tears down cluster)
 ```
 
 ## Next Steps

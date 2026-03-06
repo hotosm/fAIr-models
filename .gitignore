@@ -228,6 +228,8 @@ fair/_version.py
 # dev infra
 infra/dev/.port-forward.pids
 infra/dev/.pf-logs/
+.fair-mode
+mlflow.db
 
 # mkdocs build output
 site/

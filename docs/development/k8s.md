@@ -14,24 +14,26 @@ Local kind cluster mirroring the EKS deployment from `hotosm/k8s-infra`.
     [helmfile](https://helmfile.readthedocs.io/),
     [mc](https://min.io/docs/minio/linux/reference/minio-mc.html) (minio client),
     [colima](https://github.com/abiosoft/colima) (macOS) or Docker Engine (Linux).
+    `make setup` in k8s mode checks all of these are on `$PATH` before proceeding.
     For GPU support: [nvkind](https://github.com/NVIDIA/nvkind), NVIDIA driver,
     [nvidia-container-toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html).
     See [GPU Support](#gpu-support-optional) below.
 
 View source code of infra files for dev [infra/dev](https://github.com/hotosm/fAIr-models/tree/master/infra/dev)
 
-```bash title="Cluster lifecycle"
-uv sync --extra k8s
+```bash title="Setup and cluster lifecycle"
+make k8s              # switch to k8s mode (sticky, one-time)
+make setup            # install deps + k8s extras + verify CLI tools
 cd infra/dev
-make up      # smart: creates cluster if missing, deploys infra, starts port-forwards
-make status  # show cluster, pods, port-forward health
-make down    # stop port-forwards (cluster stays for fast restart)
-make tear    # destroy everything
+make up               # creates cluster if missing, deploys infra, starts port-forwards
+make status            # show cluster, pods, port-forward health
+make down              # stop port-forwards (cluster stays for fast restart)
+make tear              # destroy everything
 ```
 
 ```bash title="Run pipelines"
-make run-example       # E2E with local orchestrator
-make run-example-k8s   # E2E with k8s orchestrator (pods pull image from ghcr.io)
+make example           # E2E with local orchestrator against k8s infra (from repo root)
+make run-example-k8s   # E2E with k8s orchestrator (from infra/dev)
 ```
 
 ### Verifying results

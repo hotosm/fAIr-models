@@ -5,7 +5,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-from minio import Minio
+from minio import Minio  # ty: ignore[unresolved-import]  # optional dep (k8s infra)
 
 
 def main() -> None:

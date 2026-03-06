@@ -6,57 +6,57 @@ icon: lucide/rocket
 
 ## Prerequisites
 
-- Python 3.12+
-- [uv](https://docs.astral.sh/uv/) (package manager)
-- Docker (for model runtime containers)
+!!! info "Required tools"
+
+    - :simple-python: Python 3.12+
+    - :simple-astral: [uv](https://docs.astral.sh/uv/) (package manager)
+    - :simple-docker: Docker (for model runtime containers)
 
 ## Installation
 
-### For model development
+=== "For model development"
 
-```bash
-git clone https://github.com/hotosm/fAIr-models.git
-cd fAIr-models
-uv sync --group local --group example
-make init
-```
+    ```bash title="Clone and set up the project"
+    git clone https://github.com/hotosm/fAIr-models.git
+    cd fAIr-models
+    make setup
+    ```
 
-### As a library
+=== "As a library"
 
-```bash
-uv add fair-py-ops
-```
+    ```bash title="Add to your project"
+    uv add fair-py-ops
+    ```
 
 ## Running the Example Pipeline
 
 The included UNet example demonstrates the full workflow — register a base
 model, finetune it on sample data, promote the best version, and run inference.
 
-```bash
-# Run the full pipeline: init → register → finetune → promote → predict
-python examples/unet/run.py all
+```bash title="Run the full pipeline"
+python examples/unet/run.py all  # init → register → finetune → promote → predict
 ```
 
-Individual steps:
+??? example "Individual steps"
 
-```bash
-python examples/unet/run.py init       # Initialize ZenML + STAC catalog
-python examples/unet/run.py register   # Register base model + dataset
-python examples/unet/run.py finetune   # Train (1 epoch on sample data)
-python examples/unet/run.py promote    # Promote to production + publish STAC
-python examples/unet/run.py predict    # Run inference
-```
+    ```bash
+    python examples/unet/run.py init       # Initialize ZenML + STAC catalog
+    python examples/unet/run.py register   # Register base model + dataset
+    python examples/unet/run.py finetune   # Train (1 epoch on sample data)
+    python examples/unet/run.py promote    # Promote to production + publish STAC
+    python examples/unet/run.py predict    # Run inference
+    ```
 
 ### Verifying Results
 
-After the pipeline completes:
+!!! success "After the pipeline completes"
 
-| Artifact | Location |
-| --- | --- |
-| STAC catalog | `stac_catalog/` (3 collections) |
-| Trained weights | `artifacts/` |
-| Predictions | `data/sample/predict/predictions/` |
-| ZenML dashboard | <http://localhost:8080> |
+    | Artifact | Location |
+    | --- | --- |
+    | STAC catalog | `stac_catalog/` (3 collections) |
+    | Trained weights | `artifacts/` |
+    | Predictions | `data/sample/predict/predictions/` |
+    | ZenML dashboard | <http://localhost:8080> |
 
 ## Project Structure
 
@@ -73,18 +73,21 @@ tests/                 # pytest suite
 
 ## Development Commands
 
-```bash
-make lint              # ruff check + format check
-make format            # auto-fix lint issues
-make typecheck         # ty check
+```bash title="Available make targets"
+make setup             # install deps, pre-commit hooks, zenml init
+make lint              # ruff check + format + ty check
 make test              # pytest
-make validate-stac     # validate all STAC items
-make validate-models   # validate model pipeline exports
+make validate          # validate STAC items + model pipelines
+make example           # run full example pipeline (clean + all)
+make docs              # serve documentation locally
+make clean             # remove ZenML state + build artifacts
 ```
 
 ## Next Steps
 
-- Read the [Architecture](architecture.md) overview to understand the system
-- [Contribute a model](contributing/model.md) to fAIr
-- Set up the [Kubernetes dev stack](development/k8s.md) for production-like testing
-- Learn [Markdown authoring with Zensical](https://zensical.org/docs/authoring/markdown/) for writing documentation
+!!! tip
+
+    - :lucide-blocks: Read the [Architecture](architecture.md) overview to understand the system
+    - :lucide-box: [Contribute a model](contributing/model.md) to fAIr
+    - :lucide-container: Set up the [Kubernetes dev stack](development/k8s.md) for production-like testing
+    - :lucide-book-open: Learn [Markdown authoring with Zensical](https://zensical.org/docs/authoring/markdown/) for writing documentation

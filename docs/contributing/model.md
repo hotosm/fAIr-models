@@ -47,8 +47,10 @@ vector output constraints. To add a new keyword, include it in
 
 ### Input Requirements
 
-All models receive **3-band RGB GeoTIFF chips** as input. The expected tensor
-layout for the `mlm:input` specification:
+!!! danger "RGB only"
+
+    All models receive **3-band RGB GeoTIFF chips** as input. The platform does
+    **not** accept non-RGB inputs (e.g. multispectral, SAR, DEM).
 
 | Field | Value |
 | --- | --- |
@@ -58,8 +60,6 @@ layout for the `mlm:input` specification:
 
 Models must normalize the uint8 pixel values (0-255) in
 their `preprocess` function.
-The platform does **not** accept non-RGB
-inputs (e.g. multispectral, SAR, DEM).
 
 ### Output Requirements
 
@@ -83,9 +83,7 @@ consumption.
 
 ### Sample Data Layout
 
-The sample data in `data/sample/` demonstrates the expected layout:
-
-```text
+```text title="data/sample/"
 data/sample/
   train/
     oam/             # RGB GeoTIFF chips (OAM-{x}-{y}-{z}.tif, ≥30cm GSD)
@@ -109,24 +107,26 @@ Before starting, ensure you have:
 
 ## License
 
-Your model **must** use one of these open-source licenses:
+!!! danger "Required: Open-source license"
 
-| License | SPDX identifier |
-| --- | --- |
-| GNU AGPL v3 | `AGPL-3.0-only` |
-| MIT | `MIT` |
-| Apache 2.0 | `Apache-2.0` |
-| BSD 3-Clause | `BSD-3-Clause` |
+    Your model **must** use one of these open-source licenses:
 
-The license is declared in your `stac-item.json` under `properties.license`.
-CI rejects any other license value.
+    | License | SPDX identifier |
+    | --- | --- |
+    | GNU AGPL v3 | `AGPL-3.0-only` |
+    | MIT | `MIT` |
+    | Apache 2.0 | `Apache-2.0` |
+    | BSD 3-Clause | `BSD-3-Clause` |
+
+    The license is declared in your `stac-item.json` under `properties.license`.
+    CI rejects any other license value.
 
 ## Directory Structure
 
 Create a subdirectory under `models/` named after your model (lowercase,
 hyphens for spaces):
 
-```text
+```text title="Model directory structure"
 models/your-model/
   pipeline.py          # ZenML pipeline with training + inference
   Dockerfile           # Self-contained runtime environment
@@ -141,7 +141,7 @@ functions that the platform discovers and dispatches automatically.
 
 ### Required Exports
 
-```python
+```python title="pipeline.py"
 from zenml import pipeline
 
 @pipeline
@@ -195,7 +195,7 @@ The `inference_pipeline` loads weights and runs prediction. It must support
 both base model weights (pretrained) and finetuned weights (from ZenML
 artifact store). Use `fair.zenml.steps.load_model` to load finetuned weights:
 
-```python
+```python title="Inference pipeline example"
 from fair.zenml.steps import load_model
 
 @pipeline
@@ -219,14 +219,16 @@ def inference_pipeline(
 Training data lives in S3 (production) or local filesystem (dev). Use the
 helpers from `fair.utils.data` to handle both transparently:
 
-```python
+```python title="Data resolution helpers"
 from fair.utils.data import resolve_directory, resolve_path
 
 local_chips = str(resolve_directory(chips_path, "OAM-*.tif"))
 local_labels = resolve_path(labels_path)
 ```
 
-Never hardcode paths. Never bake data into Docker images.
+!!! warning
+
+    Never hardcode paths. Never bake data into Docker images.
 
 ## Dockerfile
 
@@ -243,7 +245,7 @@ Requirements:
 
 Reference Dockerfile structure:
 
-```dockerfile
+```dockerfile title="Dockerfile"
 FROM ghcr.io/astral-sh/uv:python3.13-trixie-slim AS builder
 ENV UV_SYSTEM_PYTHON=1 UV_LINK_MODE=copy
 
@@ -277,17 +279,17 @@ The STAC item is your model's metadata card. It follows the
 [STAC MLM Extension v1.5.1](https://github.com/stac-extensions/mlm) and is
 validated by CI against the platform's requirements schema.
 
-### Required Extensions
+??? note "Required Extensions"
 
-```json
-"stac_extensions": [
-    "https://stac-extensions.github.io/mlm/v1.5.1/schema.json",
-    "https://stac-extensions.github.io/version/v1.2.0/schema.json",
-    "https://stac-extensions.github.io/classification/v2.0.0/schema.json",
-    "https://stac-extensions.github.io/file/v2.1.0/schema.json",
-    "https://stac-extensions.github.io/raster/v1.1.0/schema.json"
-]
-```
+    ```json
+    "stac_extensions": [
+        "https://stac-extensions.github.io/mlm/v1.5.1/schema.json",
+        "https://stac-extensions.github.io/version/v1.2.0/schema.json",
+        "https://stac-extensions.github.io/classification/v2.0.0/schema.json",
+        "https://stac-extensions.github.io/file/v2.1.0/schema.json",
+        "https://stac-extensions.github.io/raster/v1.1.0/schema.json"
+    ]
+    ```
 
 ### Required Properties
 
@@ -329,7 +331,7 @@ Every key in `mlm:hyperparameters` becomes a pipeline parameter. Your
 `training_pipeline` signature **must** accept all of them and apply
 validation constraints using `typing.Annotated` and `typing.Literal`:
 
-```python
+```python title="Hyperparameter validation example"
 from typing import Annotated, Literal
 from annotated_types import Ge, Le
 
@@ -357,7 +359,7 @@ This serves two purposes:
 
 Example `mlm:hyperparameters`:
 
-```json
+```json title="mlm:hyperparameters example"
 "mlm:hyperparameters": {
     "epochs": 15,
     "batch_size": 4,
@@ -373,51 +375,51 @@ The platform auto-extracts `chip_size` from `mlm:input[0].input.shape[-1]`
 and `num_classes` from `classification:classes` length, so those don't need
 to be duplicated in `mlm:hyperparameters` unless your defaults differ.
 
-### Input Specification
+??? note "Input Specification"
 
-Each entry in `mlm:input` must declare exactly 3 RGB bands and include a
-`pre_processing_function` with `format` and `expression` fields:
+    Each entry in `mlm:input` must declare exactly 3 RGB bands and include a
+    `pre_processing_function` with `format` and `expression` fields:
 
-```json
-"mlm:input": [{
-    "name": "RGB chips",
-    "bands": [{"name": "red"}, {"name": "green"}, {"name": "blue"}],
-    "input": {
-        "shape": [-1, 3, 512, 512],
-        "dim_order": ["batch", "bands", "height", "width"],
-        "data_type": "float32"
-    },
-    "pre_processing_function": {
-        "format": "python",
-        "expression": "models.your_model.pipeline:preprocess"
-    }
-}]
-```
+    ```json title="mlm:input example"
+    "mlm:input": [{
+        "name": "RGB chips",
+        "bands": [{"name": "red"}, {"name": "green"}, {"name": "blue"}],
+        "input": {
+            "shape": [-1, 3, 512, 512],
+            "dim_order": ["batch", "bands", "height", "width"],
+            "data_type": "float32"
+        },
+        "pre_processing_function": {
+            "format": "python",
+            "expression": "models.your_model.pipeline:preprocess"
+        }
+    }]
+    ```
 
-### Output Specification
+??? note "Output Specification"
 
-Each entry in `mlm:output` must include `post_processing_function` and
-`classification:classes`:
+    Each entry in `mlm:output` must include `post_processing_function` and
+    `classification:classes`:
 
-```json
-"mlm:output": [{
-    "name": "segmentation mask",
-    "tasks": ["semantic-segmentation"],
-    "result": {
-        "shape": [-1, 2, 512, 512],
-        "dim_order": ["batch", "channel", "height", "width"],
-        "data_type": "float32"
-    },
-    "classification:classes": [
-        {"name": "background", "value": 0},
-        {"name": "building", "value": 1}
-    ],
-    "post_processing_function": {
-        "format": "python",
-        "expression": "models.your_model.pipeline:postprocess"
-    }
-}]
-```
+    ```json title="mlm:output example"
+    "mlm:output": [{
+        "name": "segmentation mask",
+        "tasks": ["semantic-segmentation"],
+        "result": {
+            "shape": [-1, 2, 512, 512],
+            "dim_order": ["batch", "channel", "height", "width"],
+            "data_type": "float32"
+        },
+        "classification:classes": [
+            {"name": "background", "value": 0},
+            {"name": "building", "value": 1}
+        ],
+        "post_processing_function": {
+            "format": "python",
+            "expression": "models.your_model.pipeline:postprocess"
+        }
+    }]
+    ```
 
 ### Required Assets
 
@@ -445,8 +447,8 @@ human-readable documentation for your model ; it covers context that the STAC
 MLM item cannot express.
 
 The README is referenced as a `readme` asset in `stac-item.json` (with
-`href: "./README.md"`) and validated by both `make validate-models` (file
-existence) and `make validate-stac` (asset presence).
+`href: "./README.md"`) and validated by `make validate` (file existence and
+asset presence).
 
 ### What to include
 
@@ -475,8 +477,7 @@ Before submitting your pull request:
 - [ ] `mlm:hyperparameters` in STAC item matches pipeline parameter names and defaults
 - [ ] `mlm:input` declares exactly 3 RGB bands
 - [ ] Dockerfile builds successfully and is self-contained
-- [ ] `stac-item.json` passes `make validate-stac`
-- [ ] Model passes `make validate-models`
+- [ ] Model and STAC item pass `make validate`
 - [ ] License is one of: `AGPL-3.0-only`, `MIT`, `Apache-2.0`, `BSD-3-Clause`
 - [ ] Keywords include a feature category, task, and geometry type (`polygon`, `line`, or `point`)
 - [ ] Model weights are publicly accessible or included in the weight loading code
@@ -496,22 +497,11 @@ All checks must pass before the PR is reviewed.
 
 ## Local Development
 
-```bash
-# Install dependencies
-uv sync --group local --group example
-
-# Initialize ZenML
-make init
-
-# Validate your model
-make validate-models
-make validate-stac
-
-# Run tests
-make test
-
-# Run the full example pipeline to see the expected workflow
-python examples/unet/run.py all
+```bash title="Local dev workflow"
+make setup                             # Install deps + ZenML init
+make validate                          # Validate STAC items + model pipelines
+make test                              # Run tests
+make example                           # Run full example pipeline
 ```
 
 ## Reference

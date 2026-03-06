@@ -15,10 +15,12 @@ before submitting to the fAIr platform.
 
 ## What is fAIr?
 
-fAIr is a humanitarian AI platform by [HOT](https://www.hotosm.org/) that
-enables feature extraction from very high resolution aerial imagery (buildings,
-roads, trees) for OpenStreetMap mapping. This repository provides the ML
-infrastructure layer.
+!!! info "Humanitarian AI for OpenStreetMap"
+
+    fAIr is a humanitarian AI platform by [HOT](https://www.hotosm.org/) that
+    enables feature extraction from very high resolution aerial imagery (buildings,
+    roads, trees) for OpenStreetMap mapping. This repository provides the ML
+    infrastructure layer.
 
 ## Key Concepts
 
@@ -31,8 +33,10 @@ infrastructure layer.
 
 ## Quick Links
 
-- [Getting Started](getting-started.md) : install, run example, understand the workflow
-- [Architecture](architecture.md) : STAC catalog structure, flows, infrastructure
-- [Contributing a Model](contributing/model.md) : add your model to fAIr
-- [API Reference](reference/index.md) : Python package documentation
-- [Changelog](changelog.md) : release history
+!!! tip "Start here"
+
+    - :lucide-rocket: [Getting Started](getting-started.md) : install, run example, understand the workflow
+    - :lucide-blocks: [Architecture](architecture.md) : STAC catalog structure, flows, infrastructure
+    - :lucide-box: [Contributing a Model](contributing/model.md) : add your model to fAIr
+    - :lucide-book-open: [API Reference](reference/index.md) : Python package documentation
+    - :lucide-clock: [Changelog](changelog.md) : release history

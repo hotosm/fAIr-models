@@ -6,10 +6,9 @@ icon: lucide/blocks
 
 ## STAC Catalog Structure
 
-Three collections. All items use the [MLM Extension](https://github.com/stac-extensions/mlm)
-and [Version Extension](https://github.com/stac-extensions/version).
+!!! info "Three collections, all items use [MLM Extension](https://github.com/stac-extensions/mlm) and [Version Extension](https://github.com/stac-extensions/version)"
 
-```
+```text title="Catalog hierarchy"
 Catalog: fair-models
 |
 +-- Collection: base-models
@@ -35,41 +34,41 @@ Catalog: fair-models
       +-- Item: trees-utr-in-masuri       category: object-detection
 ```
 
-## What STAC Items Contain
+??? note "What STAC Items Contain"
 
-All fields are from existing STAC/MLM standards. Custom `fair:*` fields are
-avoided wherever a standard exists.
+    All fields are from existing STAC/MLM standards. Custom `fair:*` fields are
+    avoided wherever a standard exists.
 
-### Base model item
+    ### Base model item
 
-See [`models/example_unet/stac-item.json`](https://github.com/hotosm/fAIr-models/blob/master/models/example_unet/stac-item.json) for a complete example.
+    See [`models/example_unet/stac-item.json`](https://github.com/hotosm/fAIr-models/blob/master/models/example_unet/stac-item.json) for a complete example.
 
-Key properties: `mlm:name`, `mlm:architecture`, `mlm:tasks`, `mlm:framework`,
-`mlm:input` (with `pre_processing_function`), `mlm:output` (with `post_processing_function`
-and `classification:classes`), `mlm:hyperparameters`, `keywords`.
+    Key properties: `mlm:name`, `mlm:architecture`, `mlm:tasks`, `mlm:framework`,
+    `mlm:input` (with `pre_processing_function`), `mlm:output` (with `post_processing_function`
+    and `classification:classes`), `mlm:hyperparameters`, `keywords`.
 
-Key assets: `model` (weights), `source-code` (with `mlm:entrypoint`),
-`training-runtime` / `inference-runtime` (Docker image or "local").
+    Key assets: `model` (weights), `source-code` (with `mlm:entrypoint`),
+    `training-runtime` / `inference-runtime` (Docker image or "local").
 
-The `mlm:entrypoint` tells the backend which Python function to call.
-`pre_processing_function` / `post_processing_function` are standard MLM
-Processing Expression fields.
+    The `mlm:entrypoint` tells the backend which Python function to call.
+    `pre_processing_function` / `post_processing_function` are standard MLM
+    Processing Expression fields.
 
-### Local model item
+    ### Local model item
 
-Same MLM fields as base model, plus:
+    Same MLM fields as base model, plus:
 
-- `derived_from` link pointing to the base model item
-- `derived_from` link pointing to the dataset item used for training
-- `mlm:model` asset pointing to S3 finetuned weights
-- Runtime assets reference the same Docker image as parent base model
-- Version Extension: `version`, `deprecated`, `predecessor-version` / `successor-version` / `latest-version` links
-- `mlm:hyperparameters` reflects the actual training params used
+    - `derived_from` link pointing to the base model item
+    - `derived_from` link pointing to the dataset item used for training
+    - `mlm:model` asset pointing to S3 finetuned weights
+    - Runtime assets reference the same Docker image as parent base model
+    - Version Extension: `version`, `deprecated`, `predecessor-version` / `successor-version` / `latest-version` links
+    - `mlm:hyperparameters` reflects the actual training params used
 
-### Dataset item
+    ### Dataset item
 
-Label + file extensions. Properties: `label:type`, `label:tasks`, `label:classes`, `keywords`.
-Assets: `chips` (image directory), `labels` (GeoJSON).
+    Label + file extensions. Properties: `label:type`, `label:tasks`, `label:classes`, `keywords`.
+    Assets: `chips` (image directory), `labels` (GeoJSON).
 
 ## Tagging and Classification
 
@@ -85,9 +84,11 @@ Assets: `chips` (image directory), `labels` (GeoJSON).
 
 ## Compatibility Validation
 
-The backend validates that a base model and dataset are compatible before
-triggering finetuning. Validation is based on matching `keywords` and
-`mlm:tasks` / `label:tasks` between the model and dataset STAC items.
+!!! warning
+
+    The backend validates that a base model and dataset are compatible before
+    triggering finetuning. Validation is based on matching `keywords` and
+    `mlm:tasks` / `label:tasks` between the model and dataset STAC items.
 
 ## Flows
 
@@ -167,15 +168,15 @@ information to run inference: model weights, inference runtime, input/output spe
 | **Experiment Tracker** | MLflow | MLflow |
 | **Container Registry** | local Docker | ghcr.io |
 
-## Architecture Decisions
+??? abstract "Architecture Decisions"
 
-1. **STAC replaces ZenML Model Registry** — STAC is a downstream publish target via `StacCatalogManager`, not a ZenML stack component.
-2. **STAC item = self-sufficient source of truth** — contains everything needed to run training or inference.
-3. **Finetuned models share parent pipeline code** — only weights differ between base and local models.
-4. **Standards over custom fields** — `mlm:tasks`, `keywords`, `classification:classes` instead of custom `fair:*` fields.
-5. **YAML-based training & inference** — every run is driven by a generated config logged as a ZenML artifact.
-6. **MLM Processing Expression for dispatch** — `pre_processing_function` / `post_processing_function` use Python entrypoints.
-7. **Pipeline contract** — every model must export `training_pipeline` and `inference_pipeline` as `@pipeline`-decorated functions.
+    1. **STAC replaces ZenML Model Registry** : STAC is a downstream publish target via `StacCatalogManager`, not a ZenML stack component.
+    2. **STAC item = self-sufficient source of truth** : contains everything needed to run training or inference.
+    3. **Finetuned models share parent pipeline code** : only weights differ between base and local models.
+    4. **Standards over custom fields** : `mlm:tasks`, `keywords`, `classification:classes` instead of custom `fair:*` fields.
+    5. **YAML-based training & inference** : every run is driven by a generated config logged as a ZenML artifact.
+    6. **MLM Processing Expression for dispatch** : `pre_processing_function` / `post_processing_function` use Python entrypoints.
+    7. **Pipeline contract** : every model must export `training_pipeline` and `inference_pipeline` as `@pipeline`-decorated functions.
 
 ## References
 

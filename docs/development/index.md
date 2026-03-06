@@ -6,12 +6,15 @@ icon: lucide/wrench
 
 Guides for developing and testing fAIr Models locally and on Kubernetes.
 
-## Local Development
+!!! tip "Choose your path"
 
-See [Getting Started](../getting-started.md) for basic local setup.
+    === ":lucide-laptop: Local"
 
-## Kubernetes Dev Stack
+        See [Getting Started](../getting-started.md) for basic local setup with
+        the local ZenML orchestrator and file-based STAC output.
 
-The [Kubernetes Dev Stack](k8s.md) guide covers setting up a local kind
-cluster that mirrors the production EKS deployment — postgres, ZenML, MLflow,
-STAC API, and MinIO.
+    === ":lucide-container: Kubernetes"
+
+        The [Kubernetes Dev Stack](k8s.md) guide covers setting up a local kind
+        cluster that mirrors the production EKS deployment: Postgres, ZenML,
+        MLflow, STAC API, and MinIO.

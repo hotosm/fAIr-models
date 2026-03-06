@@ -10,40 +10,41 @@ powers AI-assisted mapping for humanitarian response.
 
 ## Ways to Contribute
 
-### Contribute a Model
+=== ":lucide-box: Contribute a Model"
 
-The primary contribution path is adding a new base model to fAIr. See the
-[Contributing a Model](model.md) guide for the full specification.
+    The primary contribution path is adding a new base model to fAIr. See the
+    [Contributing a Model](model.md) guide for the full specification.
 
-### Improve the Library
+=== ":lucide-wrench: Improve the Library"
 
-Bug fixes, features, and documentation improvements to the `fair-py-ops`
-package are welcome.
+    Bug fixes, features, and documentation improvements to the `fair-py-ops`
+    package are welcome.
 
-### Report Issues
+=== ":lucide-circle-alert: Report Issues"
 
-Open an issue on [GitHub](https://github.com/hotosm/fAIr-models/issues) with:
+    Open an issue on [GitHub](https://github.com/hotosm/fAIr-models/issues) with:
 
-- Clear description of the problem or suggestion
-- Steps to reproduce (for bugs)
-- Expected vs actual behavior
+    - Clear description of the problem or suggestion
+    - Steps to reproduce (for bugs)
+    - Expected vs actual behavior
 
 ## Development Setup
 
-```bash
+```bash title="Set up local dev environment"
 git clone https://github.com/hotosm/fAIr-models.git
 cd fAIr-models
-uv sync --group dev --group local --group example
-make pre-commit
+make setup
 ```
 
 ## Code Standards
 
-- **Linting & formatting:** `ruff` — run `make lint` before submitting
-- **Type checking:** `ty` — run `make typecheck`
-- **Tests:** `pytest` — run `make test`, all tests must pass
-- **Commits:** [Conventional Commits](https://www.conventionalcommits.org/)
-  enforced via `commitizen` and pre-commit hooks
+!!! tip
+
+    - **Linting, formatting & type checking:** `ruff` + `ty` : run `make lint` before submitting
+    - **Tests:** `pytest` : run `make test`, all tests must pass
+    - **Validation:** run `make validate` to check STAC items and model pipelines
+    - **Commits:** [Conventional Commits](https://www.conventionalcommits.org/)
+      enforced via `commitizen` and pre-commit hooks
 
 ## Pull Request Process
 
@@ -51,12 +52,10 @@ make pre-commit
 2. Make your changes with clear, atomic commits
 3. Ensure all checks pass:
 
-    ```bash
+    ```bash title="Run all checks"
     make lint
-    make typecheck
     make test
-    make validate-stac
-    make validate-models
+    make validate
     ```
 
 4. Open a PR against `master` with a clear description
@@ -65,5 +64,7 @@ make pre-commit
 
 ## License
 
-By contributing, you agree that your contributions will be licensed under the
-[AGPL-3.0](https://www.gnu.org/licenses/agpl-3.0.html) license.
+!!! warning
+
+    By contributing, you agree that your contributions will be licensed under the
+    [AGPL-3.0](https://www.gnu.org/licenses/agpl-3.0.html) license.

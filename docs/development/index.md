@@ -1,3 +1,7 @@
+---
+icon: lucide/wrench
+---
+
 # Development
 
 Guides for developing and testing fAIr Models locally and on Kubernetes.

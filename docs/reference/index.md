@@ -1,3 +1,7 @@
+---
+icon: lucide/book-open
+---
+
 # API Reference
 
 Python API documentation for the `fair-py-ops` package, auto-generated from

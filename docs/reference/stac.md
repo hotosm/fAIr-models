@@ -1,3 +1,7 @@
+---
+icon: lucide/database
+---
+
 # STAC
 
 STAC catalog management, item builders, validators, and backends.

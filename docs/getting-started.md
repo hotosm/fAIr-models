@@ -1,3 +1,7 @@
+---
+icon: lucide/rocket
+---
+
 # Getting Started
 
 ## Prerequisites
@@ -83,3 +87,4 @@ make validate-models   # validate model pipeline exports
 - Read the [Architecture](architecture.md) overview to understand the system
 - [Contribute a model](contributing/model.md) to fAIr
 - Set up the [Kubernetes dev stack](development/k8s.md) for production-like testing
+- Learn [Markdown authoring with Zensical](https://zensical.org/docs/authoring/markdown/) for writing documentation

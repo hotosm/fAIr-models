@@ -1,3 +1,7 @@
+---
+icon: lucide/home
+---
+
 # fAIr Models
 
 Model registry and ML pipeline orchestration for [fAIr](https://github.com/hotosm/fAIr).

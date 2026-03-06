@@ -1,3 +1,7 @@
+---
+icon: lucide/blocks
+---
+
 # Architecture
 
 ## STAC Catalog Structure

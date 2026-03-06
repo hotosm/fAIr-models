@@ -1,3 +1,7 @@
+---
+icon: lucide/settings
+---
+
 # Utilities
 
 Data helpers and model validation utilities.

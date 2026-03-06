@@ -1,3 +1,7 @@
+---
+icon: lucide/box
+---
+
 # Contributing a Model
 
 Guide for contributing a base model to fAIr. A base model is a reusable ML

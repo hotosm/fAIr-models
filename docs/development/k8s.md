@@ -1,3 +1,7 @@
+---
+icon: lucide/container
+---
+
 # Kubernetes Dev Stack
 
 Local kind cluster mirroring the EKS deployment from `hotosm/k8s-infra`.

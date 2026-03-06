@@ -1,3 +1,7 @@
+---
+icon: lucide/workflow
+---
+
 # ZenML Integration
 
 Config generation, model promotion lifecycle, and reusable pipeline steps.

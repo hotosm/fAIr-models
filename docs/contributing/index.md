@@ -1,3 +1,7 @@
+---
+icon: lucide/heart-handshake
+---
+
 # Contributing
 
 Thank you for your interest in contributing to fAIr Models! This project is

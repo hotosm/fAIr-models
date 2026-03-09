@@ -1,0 +1,58 @@
+# RAMP smoke tests use data/sample (train/oam + train/osm).
+# The test auto-prepares input from data/sample layout to RAMP format (PNG + labels.geojson).
+
+tests:
+  - id: import_smoke
+    description: Verify all critical runtime packages import correctly inside container
+    checks:
+      - import tensorflow
+      - import segmentation_models (set_framework tf.keras)
+      - import ramp
+      - import hot_fair_utilities
+      - import osgeo.gdal
+      - import solaris
+
+  - id: dataset_layout
+    description: Verify required input folder and files are present (or data/sample train/oam + train/osm)
+    required_paths:
+      - "train/oam (data/sample) or input/"
+      - "train/osm (data/sample) or input/labels.geojson"
+    required_patterns:
+      - "train/oam/OAM-*.tif (data/sample) or input/*.png"
+
+  - id: preprocess
+    description: Run hot_fair_utilities.preprocess with multimasks=True; validate output structure
+    expected_outputs:
+      - preprocessed_test/chips/*.tif
+      - preprocessed_test/multimasks/*.mask.tif
+    invariants:
+      - chip_count == mask_count
+
+  - id: val_split
+    description: Shuffle and move a fraction of chip+mask pairs to val directories
+    expected_outputs:
+      - preprocessed_test/val_chips/*.tif
+      - preprocessed_test/val_multimasks/*.mask.tif
+    invariants:
+      - at_least_one_pair_moved
+
+  - id: train_smoke
+    description: >
+      Compile EfficientNetB0 U-Net, run 2-epoch training loop, save Keras SavedModel.
+      Validates that training does not crash and a SavedModel directory is created.
+    expected_outputs:
+      - preprocessed_test/checkpoints/smoke_<timestamp>.tf/
+
+  - id: inference_smoke
+    description: >
+      Load the SavedModel checkpoint and run chip-by-chip inference.
+      Each chip produces a single-band uint8 .pred.tif with 4-class values.
+    expected_outputs:
+      - prediction_test/output/*.pred.tif
+
+  - id: polygonize_smoke
+    description: >
+      Use GDAL Polygonize via ramp.utils.mask_to_vec_utils to convert
+      predicted multimasks into per-chip GeoJSON building polygons.
+    expected_outputs:
+      - prediction_test/vectors/*.geojson

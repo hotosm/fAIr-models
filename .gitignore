@@ -220,6 +220,7 @@ implementation.md
 
 # data
 data/sample/predict/predictions
+data/sample/ramp_work
 stac_catalog
 
 # hatch-vcs generated version file

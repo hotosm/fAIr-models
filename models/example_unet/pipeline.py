@@ -49,7 +49,7 @@ def _build_dataset(chips_path: str, labels_path: str, chip_size: int, length: in
 
     from fair.utils.data import resolve_directory, resolve_path
 
-    local_chips = str(resolve_directory(chips_path, "OAM-*.tif"))
+    local_chips = str(resolve_directory(chips_path, "OAM-*"))
     local_labels = resolve_path(labels_path)
 
     class _OAMDataset(RasterDataset):  # TODO : After OAM is released , replace this with OAM dataset directly
@@ -203,17 +203,35 @@ def load_base_model(
     return unet(weights=_resolve_weights(model_uri), classes=num_classes).cpu()
 
 
+def _vectorize_mask(mask: Any, transform: Any, crs: Any) -> list[dict[str, Any]]:
+    import numpy as np
+    import rasterio.features
+    from pyproj import Transformer
+
+    mask_uint8 = mask.astype(np.uint8)
+    transformer = Transformer.from_crs(crs, "EPSG:4326", always_xy=True) if str(crs) != "EPSG:4326" else None
+
+    features: list[dict[str, Any]] = []
+    for geom, value in rasterio.features.shapes(mask_uint8, transform=transform):
+        if value == 0:
+            continue
+        if transformer:
+            coords = geom["coordinates"]
+            geom["coordinates"] = [[list(transformer.transform(x, y)) for x, y in ring] for ring in coords]
+        features.append({"type": "Feature", "properties": {"class": int(value)}, "geometry": geom})
+    return features
+
+
 @step
 def run_inference(
     model: Any,
     input_images: str,
     chip_size: int,
     num_classes: int,
-) -> str:
-    import numpy as np
+) -> dict[str, Any]:
+    import rasterio
     import torch
     import torch.nn.functional as F
-    from PIL import Image
 
     from fair.utils.data import resolve_directory
 
@@ -222,31 +240,35 @@ def run_inference(
     model.eval()
 
     input_dir = resolve_directory(input_images)
-    output_dir = input_dir.parent / "predictions"
-    output_dir.mkdir(parents=True, exist_ok=True)
+    patterns = ("*.png", "*.tif", "*.tiff")
+    img_paths = sorted(p for pat in patterns for p in input_dir.glob(pat))
+    if not img_paths:
+        msg = f"No input images found in {input_dir}"
+        raise FileNotFoundError(msg)
 
+    all_features: list[dict[str, Any]] = []
     with torch.no_grad():
-        patterns = ("*.png", "*.tif", "*.tiff")
-        img_paths = sorted(p for pat in patterns for p in input_dir.glob(pat))
-        if not img_paths:
-            msg = f"No input images found in {input_dir}"
-            raise FileNotFoundError(msg)
-
-        saved_predictions = 0
         for img_path in img_paths:
-            img = np.array(Image.open(img_path).convert("RGB"))
+            with rasterio.open(img_path) as src:
+                img = src.read([1, 2, 3]).transpose(1, 2, 0)
+                transform = src.transform
+                crs = src.crs
+
             tensor = torch.from_numpy(img).permute(2, 0, 1).unsqueeze(0).float() / 255.0
             if tensor.shape[-2:] != (chip_size, chip_size):
                 tensor = F.interpolate(tensor, size=(chip_size, chip_size), mode="bilinear", align_corners=False)
-            mask = postprocess(model(tensor.to(device)))[0]
-            Image.fromarray(mask).save(output_dir / img_path.name)
-            saved_predictions += 1
 
-    if saved_predictions < 1:
-        msg = "Inference completed without producing predictions"
+            mask = postprocess(model(tensor.to(device)))[0]
+            all_features.extend(_vectorize_mask(mask, transform, crs))
+
+    if not all_features:
+        msg = "Inference produced no features"
         raise RuntimeError(msg)
 
-    return str(output_dir)
+    return {
+        "type": "FeatureCollection",
+        "features": all_features,
+    }
 
 
 @pipeline

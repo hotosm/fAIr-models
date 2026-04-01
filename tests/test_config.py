@@ -8,10 +8,10 @@ import pystac
 
 from fair.stac.builders import build_base_model_item, build_dataset_item
 from fair.zenml.config import (
-    _WORKER_NODE_SELECTOR,
-    _WORKER_TOLERATION,
     LABEL_DOMAIN,
-    _gpu_settings,
+    _scheduling_settings,
+    _workload_selector,
+    _workload_toleration,
     generate_inference_config,
     generate_training_config,
 )
@@ -150,11 +150,10 @@ def test_inference_config_with_artifact_id():
     assert p["zenml_artifact_version_id"] == "uuid-123"
 
 
-# --- _gpu_settings tests ---
+# --- scheduling settings tests ---
 
 
 def _item_with_accelerator(accelerator: str | None = None, count: int | None = None) -> pystac.Item:
-    """Build a base model item and inject mlm:accelerator properties."""
     item = _base_model()
     if accelerator is not None:
         item.properties["mlm:accelerator"] = accelerator
@@ -165,58 +164,60 @@ def _item_with_accelerator(accelerator: str | None = None, count: int | None = N
 
 def test_k8s_settings_cuda():
     item = _item_with_accelerator("cuda", 2)
-    settings = _gpu_settings(item)
+    settings = _scheduling_settings(item, "training")
     pod = settings["orchestrator.kubernetes"]["pod_settings"]
     assert pod["resources"]["requests"]["nvidia.com/gpu"] == "2"
     assert pod["resources"]["limits"]["nvidia.com/gpu"] == "2"
     assert len(pod["tolerations"]) == 2
-    assert _WORKER_TOLERATION in pod["tolerations"]
-    assert pod["node_selectors"] == _WORKER_NODE_SELECTOR
+    assert _workload_toleration("training") in pod["tolerations"]
+    assert pod["node_selectors"] == _workload_selector("training")
 
 
-def test_k8s_settings_cpu_returns_worker_toleration():
+def test_k8s_settings_cpu_returns_workload_toleration():
     item = _item_with_accelerator()
-    settings = _gpu_settings(item)
+    settings = _scheduling_settings(item, "training")
     pod = settings["orchestrator.kubernetes"]["pod_settings"]
-    assert pod["tolerations"] == [_WORKER_TOLERATION]
-    assert pod["node_selectors"] == _WORKER_NODE_SELECTOR
+    assert pod["tolerations"] == [_workload_toleration("training")]
+    assert pod["node_selectors"] == _workload_selector("training")
     assert "resources" not in pod
 
 
 def test_k8s_settings_explicit_cpu():
-    settings = _gpu_settings(_item_with_accelerator("cpu"))
+    settings = _scheduling_settings(_item_with_accelerator("cpu"), "inference")
     pod = settings["orchestrator.kubernetes"]["pod_settings"]
-    assert pod["tolerations"] == [_WORKER_TOLERATION]
-    assert pod["node_selectors"] == _WORKER_NODE_SELECTOR
+    assert pod["tolerations"] == [_workload_toleration("inference")]
+    assert pod["node_selectors"] == _workload_selector("inference")
     assert "resources" not in pod
 
 
 def test_k8s_settings_amd64():
-    settings = _gpu_settings(_item_with_accelerator("amd64"))
+    settings = _scheduling_settings(_item_with_accelerator("amd64"), "training")
     pod = settings["orchestrator.kubernetes"]["pod_settings"]
-    assert pod["tolerations"] == [_WORKER_TOLERATION]
-    assert pod["node_selectors"] == _WORKER_NODE_SELECTOR
+    assert pod["tolerations"] == [_workload_toleration("training")]
+    assert pod["node_selectors"] == _workload_selector("training")
     assert "resources" not in pod
 
 
 def test_k8s_settings_default_count():
     item = _item_with_accelerator("cuda")
-    settings = _gpu_settings(item)
+    settings = _scheduling_settings(item, "training")
     assert settings["orchestrator.kubernetes"]["pod_settings"]["resources"]["limits"]["nvidia.com/gpu"] == "1"
 
 
 def test_k8s_settings_force_cpu_env(monkeypatch):
     monkeypatch.setenv("FAIR_FORCE_CPU", "1")
-    settings = _gpu_settings(_item_with_accelerator("cuda", 2))
+    settings = _scheduling_settings(_item_with_accelerator("cuda", 2), "training")
     pod = settings["orchestrator.kubernetes"]["pod_settings"]
-    assert pod["tolerations"] == [_WORKER_TOLERATION]
-    assert pod["node_selectors"] == _WORKER_NODE_SELECTOR
+    assert pod["tolerations"] == [_workload_toleration("training")]
+    assert pod["node_selectors"] == _workload_selector("training")
     assert "resources" not in pod
 
 
-def test_label_domain_in_selectors():
-    assert f"{LABEL_DOMAIN}/workload" in _WORKER_NODE_SELECTOR
-    assert _WORKER_TOLERATION["key"] == f"{LABEL_DOMAIN}/workload"
+def test_workload_selectors_use_label_domain():
+    selector = _workload_selector("training")
+    assert f"{LABEL_DOMAIN}/training" in selector
+    toleration = _workload_toleration("inference")
+    assert toleration["key"] == f"{LABEL_DOMAIN}/inference"
 
 
 def test_training_config_includes_k8s_settings(tmp_path):

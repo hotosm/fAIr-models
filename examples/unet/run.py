@@ -44,6 +44,7 @@ CONFIG_DIR = Path("examples/unet/config")
 class RunConfig:
     stac_api_url: str | None = None
     dsn: str | None = None
+    data_prefix: str | None = None
 
 
 def _get_backend(cfg: RunConfig) -> StacBackend:
@@ -74,9 +75,21 @@ def register(cfg: RunConfig) -> None:
     pub = cat.publish_item(BASE_MODELS_COLLECTION, base)
     print(f"register: base-model {pub.id} v{pub.properties['version']}")
 
-    labels = sorted(Path(TRAIN_OSM).glob("*.geojson"))
-    if not labels:
+    local_labels = sorted(Path(TRAIN_OSM).glob("*.geojson"))
+    if not local_labels:
         sys.exit(f"No .geojson in {TRAIN_OSM}")
+
+    from fair.stac.builders import _geometry_and_bbox_from_geojson
+
+    geometry, bbox = _geometry_and_bbox_from_geojson(str(local_labels[0]))
+
+    if cfg.data_prefix:
+        chips_href = f"{cfg.data_prefix}/train/oam"
+        labels_href = f"{cfg.data_prefix}/train/osm/{local_labels[0].name}"
+    else:
+        chips_href = TRAIN_OAM
+        labels_href = str(local_labels[0])
+
     ds = build_dataset_item(
         item_id=DATASET_ID,
         dt=datetime.now(UTC),
@@ -84,8 +97,10 @@ def register(cfg: RunConfig) -> None:
         label_tasks=["segmentation"],
         label_classes=[{"name": "building", "classes": ["building"]}],
         keywords=["building", "semantic-segmentation", "polygon"],
-        chips_href=TRAIN_OAM,
-        labels_href=str(labels[0]),
+        chips_href=chips_href,
+        labels_href=labels_href,
+        geometry=geometry,
+        bbox=bbox,
     )
     pub = cat.publish_item(DATASETS_COLLECTION, ds)
     print(f"register: dataset {pub.id} v{pub.properties['version']}")
@@ -148,9 +163,10 @@ def predict(cfg: RunConfig) -> None:
     if not active:
         sys.exit("No active local model")
 
+    input_images = f"{cfg.data_prefix}/predict/oam" if cfg.data_prefix else PREDICT_OAM
     cfg_data = generate_inference_config(
         active[-1],
-        PREDICT_OAM,
+        input_images,
     )
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
     inf_cfg = CONFIG_DIR / "generated_inference.yaml"
@@ -196,6 +212,7 @@ if __name__ == "__main__":
     parser.add_argument("command", choices=COMMANDS)
     parser.add_argument("--stac-api-url", help="STAC API URL (enables PgStacBackend)")
     parser.add_argument("--dsn", help="Postgres DSN for pgstac writes (default: PG env vars)")
+    parser.add_argument("--data-prefix", help="S3 prefix for dataset assets (e.g. s3://bucket/data/sample)")
     args = parser.parse_args()
-    run_config = RunConfig(stac_api_url=args.stac_api_url, dsn=args.dsn)
+    run_config = RunConfig(stac_api_url=args.stac_api_url, dsn=args.dsn, data_prefix=args.data_prefix)
     COMMANDS[args.command](run_config)

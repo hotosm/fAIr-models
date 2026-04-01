@@ -91,8 +91,11 @@ def build_dataset_item(
     chips_href: str,
     labels_href: str,
     download_href: str | None = None,
+    geometry: dict[str, Any] | None = None,
+    bbox: list[float] | None = None,
 ) -> pystac.Item:
-    geometry, bbox = _geometry_and_bbox_from_geojson(labels_href)
+    if geometry is None or bbox is None:
+        geometry, bbox = _geometry_and_bbox_from_geojson(labels_href)
 
     item = pystac.Item(
         id=item_id,

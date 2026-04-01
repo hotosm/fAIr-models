@@ -1,0 +1,75 @@
+postgresql:
+  type: "external-plaintext"
+  external:
+    host: {{ requiredEnv "PG_HOST" }}
+    port: {{ requiredEnv "PG_PORT" | quote }}
+    database: fair_models
+    credentials:
+      username: {{ requiredEnv "PG_USER" }}
+      password: {{ requiredEnv "PG_PASSWORD" }}
+    sslmode: require
+
+postgrescluster:
+  enabled: false
+
+pgstacBootstrap:
+  enabled: true
+  image:
+    name: ghcr.io/stac-utils/pgstac-pypgstac
+    tag: v0.9.9
+  settings:
+    loadSamples: false
+    queryables: []
+    user: {{ requiredEnv "PG_USER" }}
+    database: fair_models
+
+apiServices:
+  - stac
+
+stac:
+  enabled: true
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+  ingress:
+    enabled: false
+  overrideRootPath: ""
+  settings:
+    envVars:
+      HOST: "0.0.0.0"
+      PORT: "8080"
+      WEB_CONCURRENCY: "2"
+      DB_MIN_CONN_SIZE: "1"
+      DB_MAX_CONN_SIZE: "3"
+      STAC_FASTAPI_TITLE: "fAIr STAC Catalog"
+      STAC_FASTAPI_DESCRIPTION: "fAIr model metadata catalog on DigitalOcean."
+      ENABLE_TRANSACTIONS_EXTENSIONS: "true"
+
+browser:
+  enabled: false
+docServer:
+  enabled: false
+raster:
+  enabled: false
+multidim:
+  enabled: false
+stac-auth-proxy:
+  enabled: false
+vector:
+  enabled: false
+eoapi-notifier:
+  enabled: false
+monitoring:
+  metricsServer:
+    enabled: false
+  prometheus:
+    enabled: false
+observability:
+  grafana:
+    enabled: false
+ingress:
+  enabled: false

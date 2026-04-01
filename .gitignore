@@ -228,6 +228,11 @@ fair/_version.py
 # dev infra
 infra/dev/.port-forward.pids
 infra/dev/.pf-logs/
+
+# dok8s infra
+infra/dok8s/.env
+infra/dok8s/.dok8s-stack-resolved.yaml
+soul.md
 .fair-mode
 mlflow.db
 

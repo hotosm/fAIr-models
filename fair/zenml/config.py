@@ -33,24 +33,25 @@ def _extract_num_classes(mlm_output: list[dict[str, Any]]) -> int | None:
     return len(classes) if classes else None
 
 
-# Workers are tainted ${FAIR_LABEL_DOMAIN}/workload=ml:NoSchedule so only ML pods
-# land there.  Every pipeline pod needs this toleration + node selector.
-_WORKER_TOLERATION = {"key": f"{LABEL_DOMAIN}/workload", "operator": "Equal", "value": "ml", "effect": "NoSchedule"}
-_WORKER_NODE_SELECTOR = {f"{LABEL_DOMAIN}/workload": "ml"}
-
-
 def _force_cpu_mode() -> bool:
     return os.environ.get("FAIR_FORCE_CPU", "").lower() in {"1", "true", "yes", "on"}
 
 
-def _gpu_settings(item: pystac.Item) -> dict[str, Any]:
-    """Return K8s GPU resource requests + tolerations from STAC mlm:accelerator."""
+def _workload_selector(workload: str) -> dict[str, str]:
+    return {f"{LABEL_DOMAIN}/{workload}": "true"}
+
+
+def _workload_toleration(workload: str) -> dict[str, str]:
+    return {"key": f"{LABEL_DOMAIN}/{workload}", "operator": "Equal", "value": "true", "effect": "NoSchedule"}
+
+
+def _scheduling_settings(item: pystac.Item, workload: str) -> dict[str, Any]:
     if _force_cpu_mode():
         return {
             "orchestrator.kubernetes": {
                 "pod_settings": {
-                    "node_selectors": _WORKER_NODE_SELECTOR,
-                    "tolerations": [_WORKER_TOLERATION],
+                    "node_selectors": _workload_selector(workload),
+                    "tolerations": [_workload_toleration(workload)],
                 }
             }
         }
@@ -60,8 +61,8 @@ def _gpu_settings(item: pystac.Item) -> dict[str, Any]:
         return {
             "orchestrator.kubernetes": {
                 "pod_settings": {
-                    "node_selectors": _WORKER_NODE_SELECTOR,
-                    "tolerations": [_WORKER_TOLERATION],
+                    "node_selectors": _workload_selector(workload),
+                    "tolerations": [_workload_toleration(workload)],
                 }
             }
         }
@@ -69,10 +70,10 @@ def _gpu_settings(item: pystac.Item) -> dict[str, Any]:
     return {
         "orchestrator.kubernetes": {
             "pod_settings": {
-                "node_selectors": _WORKER_NODE_SELECTOR,
+                "node_selectors": _workload_selector(workload),
                 "resources": {"requests": {"nvidia.com/gpu": count}, "limits": {"nvidia.com/gpu": count}},
                 "tolerations": [
-                    _WORKER_TOLERATION,
+                    _workload_toleration(workload),
                     {"key": "nvidia.com/gpu", "operator": "Exists", "effect": "NoSchedule"},
                 ],
             }
@@ -138,7 +139,7 @@ def generate_training_config(
             "experiment_name": model_name,
         }
 
-    k8s = _gpu_settings(base_model_item)
+    k8s = _scheduling_settings(base_model_item, "training")
     if k8s:
         config.setdefault("settings", {}).update(k8s)
 
@@ -188,7 +189,7 @@ def generate_inference_config(
         }
         config["settings"] = {"docker": docker_cfg}
 
-    k8s = _gpu_settings(model_item)
+    k8s = _scheduling_settings(model_item, "inference")
     if k8s:
         config.setdefault("settings", {}).update(k8s)
 

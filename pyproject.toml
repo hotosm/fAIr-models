@@ -7,7 +7,7 @@ name = "fair-py-ops"
 dynamic = ["version"]
 description = "Model registry and ML pipeline orchestration for fAIr"
 readme = "README.md"
-requires-python = ">=3.12"
+requires-python = ">=3.11"
 license = "AGPL-3.0-only"
 authors = [{name = "HOTOSM", email = "sysadmin@hotosm.org"}]
 maintainers = [{ name = "Kshitij Raj Sharma", email = "krschap@duck.com" }]

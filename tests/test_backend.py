@@ -17,7 +17,7 @@ class _CheckableBackend(Protocol):
 
     def get_item(self, collection_id: str, item_id: str) -> pystac.Item: ...
 
-    def list_items(self, collection_id: str) -> list[pystac.Item]: ...
+    def list_items(self, collection_id: str, *, limit: int | None = None) -> list[pystac.Item]: ...
 
     def deprecate_item(self, collection_id: str, item_id: str) -> pystac.Item: ...
 
@@ -33,7 +33,7 @@ class _Dummy:
     def get_item(self, collection_id: str, item_id: str) -> pystac.Item:
         return pystac.Item(item_id, geometry=None, bbox=None, datetime=None, properties={})
 
-    def list_items(self, collection_id: str) -> list[pystac.Item]:
+    def list_items(self, collection_id: str, *, limit: int | None = None) -> list[pystac.Item]:
         return []
 
     def deprecate_item(self, collection_id: str, item_id: str) -> pystac.Item:

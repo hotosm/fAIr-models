@@ -33,6 +33,13 @@ def _extract_num_classes(mlm_output: list[dict[str, Any]]) -> int | None:
     return len(classes) if classes else None
 
 
+def _extract_class_names(mlm_output: list[dict[str, Any]]) -> list[str] | None:
+    if not mlm_output:
+        return None
+    classes = mlm_output[0].get("classification:classes", [])
+    return [c["name"] for c in classes if "name" in c] or None
+
+
 def _force_cpu_mode() -> bool:
     return os.environ.get("FAIR_FORCE_CPU", "").lower() in {"1", "true", "yes", "on"}
 
@@ -94,6 +101,7 @@ def generate_training_config(
     hyperparams: dict[str, Any] = dict(props.get("mlm:hyperparameters", {}))
     input_spec = _extract_input_spec(props.get("mlm:input", []))
     num_classes = _extract_num_classes(props.get("mlm:output", []))
+    class_names = _extract_class_names(props.get("mlm:output", []))
 
     ds_props = dataset_item.assets
     chips_href = ds_props["chips"].href
@@ -109,17 +117,31 @@ def generate_training_config(
     if num_classes is not None:
         parameters["num_classes"] = num_classes
 
+    # Step-specific params that the pipeline entrypoint does not accept
+    train_step_params: dict[str, Any] = {
+        "model_name": model_name,
+        "base_model_id": base_model_item.id,
+        "dataset_id": dataset_item.id,
+    }
+    eval_step_params: dict[str, Any] = {}
+    if class_names is not None:
+        eval_step_params["class_names"] = class_names
+
     if overrides:
         parameters.update(overrides)
 
     config: dict[str, Any] = {
         "model": {"name": model_name},
         "parameters": parameters,
-        "tags": [
-            f"model:{model_name}",
-            f"base-model:{base_model_item.id}",
-            f"dataset:{dataset_item.id}",
-        ],
+        "tags": list(
+            dict.fromkeys(
+                [
+                    f"model:{model_name}",
+                    f"base-model:{base_model_item.id}",
+                    f"dataset:{dataset_item.id}",
+                ]
+            )
+        ),
     }
 
     runtime = base_model_item.assets.get("mlm:training")
@@ -131,13 +153,21 @@ def generate_training_config(
         config["settings"] = {"docker": docker_cfg}
 
     if experiment_tracker:
-        config["steps"] = {
-            "train_model": {"experiment_tracker": experiment_tracker},
-            "evaluate_model": {"experiment_tracker": experiment_tracker},
-        }
+        config.setdefault("steps", {}).setdefault("train_model", {})["experiment_tracker"] = experiment_tracker
+        config.setdefault("steps", {}).setdefault("evaluate_model", {})["experiment_tracker"] = experiment_tracker
         config.setdefault("settings", {})["experiment_tracker.mlflow"] = {
             "experiment_name": model_name,
+            "run_name": f"train/{model_name}",
         }
+
+    if train_step_params:
+        config.setdefault("steps", {}).setdefault("train_model", {}).setdefault("parameters", {}).update(
+            train_step_params
+        )
+    if eval_step_params:
+        config.setdefault("steps", {}).setdefault("evaluate_model", {}).setdefault("parameters", {}).update(
+            eval_step_params
+        )
 
     k8s = _scheduling_settings(base_model_item, "training")
     if k8s:

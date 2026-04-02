@@ -295,19 +295,64 @@ validated by CI against the platform's requirements schema.
 
 | Property | Type | Description |
 | --- | --- | --- |
+| `title` | string | Human-readable model name (shown in catalog UI) |
+| `description` | string | One-paragraph summary of the model and its intended use |
 | `mlm:name` | string | Model identifier (matches directory name) |
 | `mlm:architecture` | string | Architecture name (e.g. `UNet`, `YOLOv8`) |
 | `mlm:tasks` | string[] | One or more of: `semantic-segmentation`, `instance-segmentation`, `object-detection`, `classification` |
 | `mlm:framework` | string | `PyTorch` or `TensorFlow` |
 | `mlm:framework_version` | string | Framework version |
 | `mlm:pretrained` | boolean | Whether pretrained weights are used |
-| `mlm:pretrained_source` | string | Origin of pretrained weights (paper, dataset) |
+| `mlm:pretrained_source` | string | URL of the paper or dataset the weights come from |
 | `mlm:input` | object[] | Input specification with `pre_processing_function` |
 | `mlm:output` | object[] | Output specification with `post_processing_function` and `classification:classes` |
 | `mlm:hyperparameters` | object | Default training hyperparameters |
 | `keywords` | string[] | Feature tags + task + output geometry type |
 | `version` | string | Semantic version (start with `"1"`) |
 | `license` | string | SPDX license identifier |
+| `fair:metrics_spec` | object[] | Evaluation metrics vocabulary (see below) |
+
+### fair:metrics_spec
+
+The MLM extension does not define evaluation metrics semantics. `fair:metrics_spec`
+fills this gap by declaring the meaning and storage location of each evaluation
+metric your model produces during `evaluate_model`. Users need this to understand
+what `"accuracy"` means (pixel accuracy? per-class? mean IoU?).
+
+Each entry must declare:
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `key` | string | Property key where the metric is stored on the local model STAC item (e.g. `fair:accuracy`) |
+| `name` | string | Human-readable metric name |
+| `description` | string | Precise definition including averaging strategy |
+
+Example:
+
+```json title="fair:metrics_spec example"
+"fair:metrics_spec": [
+    {
+        "key": "fair:accuracy",
+        "name": "Pixel Accuracy",
+        "description": "Fraction of correctly classified pixels across all classes"
+    },
+    {
+        "key": "fair:mean_iou",
+        "name": "Mean IoU (macro)",
+        "description": "Macro-averaged IoU across classes; each class weighted equally"
+    },
+    {
+        "key": "fair:per_class_iou",
+        "name": "Per-class IoU",
+        "description": "IoU per class, stored as object keyed by class name from classification:classes"
+    }
+]
+```
+
+When `evaluate_model` logs metrics via `log_metadata(infer_model=True)`, the platform
+copies those values to the promoted local model STAC item. Class IoU keys use the
+`classification:classes` names, e.g. `iou_background`, `iou_building` (not numeric
+indices like `iou_class_0`).
 
 ### Keywords
 
@@ -436,9 +481,41 @@ a direct URL, S3 path, or a framework-specific weight enum (e.g.
 `torchgeo.models.Unet_Weights.OAM_RGB_RESNET50_TCD`). Your `pipeline.py` is
 responsible for resolving and loading the weights at runtime.
 
+The `readme` asset `href` must be an **absolute URL** to the raw file, not a
+relative path. Use the GitHub raw URL pattern:
+
+```json
+"readme": {
+    "href": "https://raw.githubusercontent.com/hotosm/fAIr-models/refs/heads/main/models/your_model/README.md",
+    "type": "text/markdown",
+    "roles": ["metadata"],
+    "title": "Model README"
+}
+```
+
+Relative paths such as `./README.md` are not accessible from deployed STAC
+catalogs and will be flagged by validation.
+
 The `source-code` asset `href` must point to the git repository (or tree URL)
 where the model's source code lives. This is validated by CI and displayed on
 the model's catalog page.
+
+### cite-as Link
+
+If your model or its pretrained weights come from a published paper, add a
+`cite-as` link pointing to the canonical DOI or arXiv URL:
+
+```json title="cite-as link example"
+{
+    "rel": "cite-as",
+    "href": "https://arxiv.org/abs/2407.11743",
+    "type": "text/html",
+    "title": "Paper title"
+}
+```
+
+This link is displayed in the catalog UI. Use the canonical DOI URL when
+available (`https://doi.org/...`).
 
 ## README.md
 
@@ -446,9 +523,10 @@ Every model **must** include a `README.md` in its directory. This is the
 human-readable documentation for your model ; it covers context that the STAC
 MLM item cannot express.
 
-The README is referenced as a `readme` asset in `stac-item.json` (with
-`href: "./README.md"`) and validated by `make validate` (file existence and
-asset presence).
+The README is referenced as a `readme` asset in `stac-item.json` with an
+**absolute raw GitHub URL** (see [Required Assets](#required-assets) above).
+Validation checks that the README file exists locally and that the asset is
+present in the STAC item.
 
 ### What to include
 
@@ -471,8 +549,14 @@ Before submitting your pull request:
 
 - [ ] Directory created at `models/your-model/` with `pipeline.py`, `Dockerfile`, `stac-item.json`, `README.md`
 - [ ] `README.md` describes the model (architecture, limitations, usage, citation)
+- [ ] `stac-item.json` has `title`, `description`, and `fair:metrics_spec` properties
+- [ ] `readme` asset href is an absolute GitHub raw URL (not `./README.md`)
+- [ ] `mlm:pretrained_source` is a valid URL (paper DOI or arXiv), not a free-form string
+- [ ] `cite-as` link added if model or weights come from a published paper
 - [ ] `pipeline.py` exports `training_pipeline` and `inference_pipeline` as `@pipeline`-decorated functions
 - [ ] `pipeline.py` defines `preprocess` and `postprocess` functions matching STAC entrypoints
+- [ ] `evaluate_model` calls `log_metadata(metadata=metrics, infer_model=True)` so metrics attach to the model version
+- [ ] Per-class IoU keys use class names from `classification:classes` (e.g. `iou_building`, not `iou_class_0`)
 - [ ] Pipeline parameters use `Annotated` bounds and `Literal` for constrained choices
 - [ ] `mlm:hyperparameters` in STAC item matches pipeline parameter names and defaults
 - [ ] `mlm:input` declares exactly 3 RGB bands
@@ -506,7 +590,7 @@ make example                           # Run full example pipeline
 
 ## Reference
 
-- [STAC MLM Extension](https://github.com/stac-extensions/mlm)
+- [STAC MLM Extension v1.5.1](https://github.com/stac-extensions/mlm) -- MLM fields spec
 - [MLM Best Practices](https://github.com/stac-extensions/mlm/blob/main/best-practices.md)
 - [Example UNet model](https://github.com/hotosm/fAIr-models/tree/master/models/example_unet) -- reference implementation
 - [Example UNet STAC item](https://github.com/hotosm/fAIr-models/blob/master/models/example_unet/stac-item.json) -- valid STAC item template

@@ -74,4 +74,3 @@ doctl kubernetes cluster node-pool create fair \
   --taint "FAIR_DOMAIN/training=true:NoSchedule"
 ```
 
-Replace `FAIR_DOMAIN` with your actual domain value. Node pool labels handle scheduling automatically.

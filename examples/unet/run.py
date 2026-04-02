@@ -26,12 +26,15 @@ from fair.stac.catalog_manager import StacCatalogManager
 from fair.stac.collections import initialize_catalog
 from fair.stac.constants import BASE_MODELS_COLLECTION, DATASETS_COLLECTION, LOCAL_MODELS_COLLECTION
 from fair.stac.validators import validate_compatibility, validate_mlm_schema
+from fair.stac.versioning import deprecate_and_link_successor, find_previous_active_item
+from fair.utils.data import count_chips, create_dataset_archive
 from fair.zenml.config import generate_inference_config, generate_training_config
 from fair.zenml.promotion import promote_model_version, publish_promoted_model
 
 CATALOG_PATH = "stac_catalog/catalog.json"
 BASE_MODEL_ID = "example-unet"
-DATASET_ID = "buildings-banepa"
+DATASET_TITLE = "buildings-banepa"
+DATASET_DESCRIPTION = "OpenAerialMap chips with OSM building footprints for Banepa, Nepal."
 MODEL_NAME = "example-unet-finetuned-banepa"
 STAC_ITEM = "models/example_unet/stac-item.json"
 TRAIN_OAM = "data/sample/train/oam"
@@ -39,12 +42,21 @@ TRAIN_OSM = "data/sample/train/osm"
 PREDICT_OAM = "data/sample/predict/oam"
 CONFIG_DIR = Path("examples/unet/config")
 
+SOURCE_IMAGERY_HREF = "https://tiles.openaerialmap.org/62d85d11d8499800053796c1/0/62d85d11d8499800053796c2/{z}/{x}/{y}"
+DATASET_LICENSE = "CC-BY-4.0"
+DATASET_PROVIDERS = [
+    {"name": "HOTOSM", "roles": ["producer", "licensor"], "url": "https://www.hotosm.org"},
+]
+DATASET_LABEL_DESCRIPTION = "Building footprints manually labeled from OpenAerialMap imagery"
+DATASET_LABEL_METHODS = ["manual"]
+
 
 @dataclass
 class RunConfig:
     stac_api_url: str | None = None
     dsn: str | None = None
     data_prefix: str | None = None
+    user_id: str = "anonymous"
 
 
 def _get_backend(cfg: RunConfig) -> StacBackend:
@@ -56,6 +68,16 @@ def _get_backend(cfg: RunConfig) -> StacBackend:
             raise ValueError(msg)
         return PgStacBackend(dsn=cfg.dsn, stac_api_url=cfg.stac_api_url)
     return StacCatalogManager(CATALOG_PATH)
+
+
+def _is_remote(href: str) -> bool:
+    return "://" in href
+
+
+def _item_href(backend: StacBackend, collection_id: str, item: pystac.Item) -> str:
+    if hasattr(backend, "stac_api_url"):
+        return f"{backend.stac_api_url}/collections/{collection_id}/items/{item.id}"
+    return f"../{collection_id}/{item.id}/{item.id}.json"
 
 
 def init(cfg: RunConfig) -> None:
@@ -90,8 +112,22 @@ def register(cfg: RunConfig) -> None:
         chips_href = TRAIN_OAM
         labels_href = str(local_labels[0])
 
+    chip_count = count_chips(chips_href)
+
+    prev = find_previous_active_item(cat, DATASETS_COLLECTION, "title", DATASET_TITLE)
+    version = str(int(prev.properties["version"]) + 1) if prev else "1"
+    predecessor_href = _item_href(cat, DATASETS_COLLECTION, prev) if prev else None
+
+    archive_path = Path("artifacts") / f"{DATASET_TITLE}-v{version}.zip"
+    labels_dir = str(Path(labels_href).parent) if not _is_remote(labels_href) else labels_href.rsplit("/", 1)[0]
+    create_dataset_archive(
+        chips_dir=chips_href,
+        labels_dir=labels_dir,
+        output_path=str(archive_path),
+    )
+    download_href = str(archive_path)
+
     ds = build_dataset_item(
-        item_id=DATASET_ID,
         dt=datetime.now(UTC),
         label_type="vector",
         label_tasks=["segmentation"],
@@ -99,9 +135,26 @@ def register(cfg: RunConfig) -> None:
         keywords=["building", "semantic-segmentation", "polygon"],
         chips_href=chips_href,
         labels_href=labels_href,
+        title=DATASET_TITLE,
+        description=DATASET_DESCRIPTION,
+        user_id=cfg.user_id,
+        chip_count=chip_count if chip_count > 0 else None,
         geometry=geometry,
         bbox=bbox,
+        version=version,
+        license_id=DATASET_LICENSE,
+        providers=DATASET_PROVIDERS,
+        label_description=DATASET_LABEL_DESCRIPTION,
+        label_methods=DATASET_LABEL_METHODS,
+        source_imagery_href=SOURCE_IMAGERY_HREF,
+        predecessor_version_href=predecessor_href,
+        download_href=download_href,
     )
+
+    if prev:
+        self_href = _item_href(cat, DATASETS_COLLECTION, ds)
+        deprecate_and_link_successor(cat, DATASETS_COLLECTION, prev, self_href)
+
     pub = cat.publish_item(DATASETS_COLLECTION, ds)
     print(f"register: dataset {pub.id} v{pub.properties['version']}")
 
@@ -109,7 +162,10 @@ def register(cfg: RunConfig) -> None:
 def finetune(cfg: RunConfig) -> None:
     cat = _get_backend(cfg)
     base = cat.get_item(BASE_MODELS_COLLECTION, BASE_MODEL_ID)
-    ds = cat.get_item(DATASETS_COLLECTION, DATASET_ID)
+    try:
+        ds = cat.get_item(DATASETS_COLLECTION, DATASET_TITLE)
+    except KeyError:
+        sys.exit(f"Dataset '{DATASET_TITLE}' not found - run register first")
     if errs := validate_compatibility(base, ds):
         sys.exit(f"Incompatible: {errs}")
 
@@ -151,7 +207,9 @@ def promote(cfg: RunConfig) -> None:
         version=latest,
         catalog_manager=cat,
         base_model_item_id=BASE_MODEL_ID,
-        dataset_item_id=DATASET_ID,
+        dataset_item_id=DATASET_TITLE,
+        user_id=cfg.user_id,
+        description=f"UNet finetuned on {DATASET_TITLE}",
     )
     print(f"promote: {item.id}")
 
@@ -213,6 +271,12 @@ if __name__ == "__main__":
     parser.add_argument("--stac-api-url", help="STAC API URL (enables PgStacBackend)")
     parser.add_argument("--dsn", help="Postgres DSN for pgstac writes (default: PG env vars)")
     parser.add_argument("--data-prefix", help="S3 prefix for dataset assets (e.g. s3://bucket/data/sample)")
+    parser.add_argument("--user-id", default="anonymous", help="OSM user ID stored as fair:user_id")
     args = parser.parse_args()
-    run_config = RunConfig(stac_api_url=args.stac_api_url, dsn=args.dsn, data_prefix=args.data_prefix)
+    run_config = RunConfig(
+        stac_api_url=args.stac_api_url,
+        dsn=args.dsn,
+        data_prefix=args.data_prefix,
+        user_id=args.user_id,
+    )
     COMMANDS[args.command](run_config)

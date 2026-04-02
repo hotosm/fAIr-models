@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+import zipfile
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-from fair.utils.data import _is_remote, list_files, resolve_directory, resolve_path
+from fair.utils.data import _is_remote, create_dataset_archive, list_files, resolve_directory, resolve_path
 
 
 class TestIsRemote:
@@ -129,3 +130,27 @@ class TestResolveDirectory:
 
         with pytest.raises(FileNotFoundError, match="No files matching"):
             resolve_directory("s3://bucket/empty-prefix", local_dir=tmp_path)
+
+
+class TestCreateDatasetArchive:
+    def test_creates_zip_with_chips_and_labels(self, tmp_path: Path) -> None:
+        chips = tmp_path / "chips"
+        chips.mkdir()
+        (chips / "a.tif").write_bytes(b"chip-a")
+        (chips / "b.tif").write_bytes(b"chip-b")
+
+        labels = tmp_path / "labels"
+        labels.mkdir()
+        (labels / "a.geojson").write_text('{"type":"Feature"}')
+
+        out = tmp_path / "archive.zip"
+        result = create_dataset_archive(str(chips), str(labels), str(out))
+        assert result == str(out)
+        assert out.exists()
+
+        with zipfile.ZipFile(out) as zf:
+            names = sorted(zf.namelist())
+            assert "chips/a.tif" in names
+            assert "chips/b.tif" in names
+            assert "labels/a.geojson" in names
+            assert len(names) == 3

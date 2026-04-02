@@ -1,6 +1,6 @@
 {
     "type": "Feature",
-    "stac_version": "1.0.0",
+    "stac_version": "1.1.0",
     "stac_extensions": [
         "https://stac-extensions.github.io/mlm/v1.5.1/schema.json",
         "https://stac-extensions.github.io/version/v1.2.0/schema.json",
@@ -44,6 +44,8 @@
     ],
     "properties": {
         "datetime": "2024-01-01T00:00:00Z",
+        "title": "Example UNet for Building Segmentation",
+        "description": "UNet semantic segmentation model for building footprint extraction from very high resolution RGB aerial imagery. Pretrained on the OAM-TCD dataset (NeurIPS 2024) via torchgeo, intended for finetuning on OpenAerialMap + OpenStreetMap chip-label pairs.",
         "mlm:name": "example-unet",
         "mlm:architecture": "UNet",
         "mlm:tasks": [
@@ -52,7 +54,7 @@
         "mlm:framework": "PyTorch",
         "mlm:framework_version": "2.1.0",
         "mlm:pretrained": true,
-        "mlm:pretrained_source": "OAM-TCD (NeurIPS 2024, arxiv.org/abs/2407.11743)",
+        "mlm:pretrained_source": "https://arxiv.org/abs/2407.11743",
         "mlm:accelerator": "cuda",
         "mlm:accelerator_count": 1,
         "keywords": [
@@ -62,6 +64,23 @@
         ],
         "license": "AGPL-3.0-only",
         "version": "1",
+        "fair:metrics_spec": [
+            {
+                "key": "fair:accuracy",
+                "name": "Pixel Accuracy",
+                "description": "Fraction of correctly classified pixels across all classes in the evaluation dataset"
+            },
+            {
+                "key": "fair:mean_iou",
+                "name": "Mean Intersection over Union (macro)",
+                "description": "Macro-averaged IoU across all output classes; each class weighted equally regardless of pixel frequency"
+            },
+            {
+                "key": "fair:per_class_iou",
+                "name": "Per-class Intersection over Union",
+                "description": "IoU for each output class, stored as an object keyed by class name from classification:classes in mlm:output"
+            }
+        ],
         "mlm:input": [
             {
                 "name": "RGB chips",
@@ -149,6 +168,7 @@
     "assets": {
         "model": {
             "href": "torchgeo.models.Unet_Weights.OAM_RGB_RESNET50_TCD",
+            "title": "Pretrained weights (torchgeo enum reference, not a URL)",
             "type": "application/octet-stream; framework=pytorch",
             "roles": [
                 "mlm:model"
@@ -191,11 +211,12 @@
             ]
         },
         "readme": {
-            "href": "./README.md",
+            "href": "https://raw.githubusercontent.com/hotosm/fAIr-models/refs/heads/main/models/example_unet/README.md",
             "type": "text/markdown",
             "roles": [
                 "metadata"
-            ]
+            ],
+            "title": "Model README"
         }
     },
     "links": [
@@ -204,6 +225,12 @@
             "href": "https://www.gnu.org/licenses/agpl-3.0.html",
             "type": "text/html",
             "title": "GNU Affero General Public License v3.0"
+        },
+        {
+            "rel": "cite-as",
+            "href": "https://arxiv.org/abs/2407.11743",
+            "type": "text/html",
+            "title": "OAM-TCD Pretrained Weights (NeurIPS 2024)"
         }
     ]
 }

@@ -128,6 +128,18 @@ class TestListItems:
         result = backend.list_items("base-models")
         assert len(result) == 2
 
+    @patch("fair.stac.pgstac_backend.StacClient")
+    def test_limit_passed_to_search(self, mock_client_cls, _mock_deps, backend):
+        mock_search = MagicMock()
+        mock_search.items.return_value = iter([_make_item("a")])
+        mock_client = MagicMock()
+        mock_client.search.return_value = mock_search
+        mock_client_cls.open.return_value = mock_client
+
+        backend.list_items("base-models", limit=5)
+        call_kwargs = mock_client.search.call_args[1]
+        assert call_kwargs["max_items"] == 5
+
 
 class TestDeprecateItem:
     @patch("fair.stac.pgstac_backend.StacClient")

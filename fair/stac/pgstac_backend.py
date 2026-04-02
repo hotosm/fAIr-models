@@ -61,9 +61,9 @@ class PgStacBackend:
             raise KeyError(msg)
         return item
 
-    def list_items(self, collection_id: str) -> list[pystac.Item]:
+    def list_items(self, collection_id: str, *, limit: int | None = None) -> list[pystac.Item]:
         client = StacClient.open(self._stac_api_url)
-        return list(client.search(collections=[collection_id]).items())
+        return list(client.search(collections=[collection_id], max_items=limit).items())
 
     def deprecate_item(self, collection_id: str, item_id: str) -> pystac.Item:
         item = self.get_item(collection_id, item_id)
@@ -74,3 +74,6 @@ class PgStacBackend:
         # Loader has no delete API; call pgstac's delete_item() directly
         with self._get_db() as db:
             db.query_one("SELECT delete_item(%s, %s)", [item_id, collection_id])
+
+    def item_href(self, collection_id: str, item_id: str) -> str:
+        return f"{self._stac_api_url}/collections/{collection_id}/items/{item_id}"

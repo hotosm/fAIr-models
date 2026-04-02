@@ -53,8 +53,9 @@ class StacCatalogManager:
             raise KeyError(msg)
         return item
 
-    def list_items(self, collection_id: str) -> list[pystac.Item]:
-        return list(self._get_collection(collection_id).get_items())
+    def list_items(self, collection_id: str, *, limit: int | None = None) -> list[pystac.Item]:
+        items = list(self._get_collection(collection_id).get_items())
+        return items[:limit] if limit is not None else items
 
     def deprecate_item(self, collection_id: str, item_id: str) -> pystac.Item:
         item = self.get_item(collection_id, item_id)
@@ -69,3 +70,6 @@ class StacCatalogManager:
             raise KeyError(msg)
         collection.remove_item(item_id)
         self._save()
+
+    def item_href(self, collection_id: str, item_id: str) -> str:
+        return f"../{collection_id}/{item_id}/{item_id}.json"

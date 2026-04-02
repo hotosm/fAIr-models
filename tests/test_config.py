@@ -62,6 +62,9 @@ def _base_model(**overrides: Any):
         "source_code_entrypoint": "mod:train",
         "training_runtime_href": "ghcr.io/hotosm/fair-unet:v1",
         "inference_runtime_href": "ghcr.io/hotosm/fair-unet:v1",
+        "title": "UNet test model",
+        "description": "Config test base model.",
+        "fair_metrics_spec": [{"name": "accuracy", "description": "Pixel accuracy", "higher_is_better": True}],
     }
     defaults.update(overrides)
     return build_base_model_item(**defaults)
@@ -92,6 +95,9 @@ def _dataset(tmp_path):
         keywords=["building"],
         chips_href="data/oam/",
         labels_href=str(path),
+        title="Test Dataset",
+        description="Config test dataset.",
+        user_id="osm-test",
     )
 
 
@@ -104,6 +110,9 @@ def test_training_config(tmp_path):
     assert p["chip_size"] == 512 and p["num_classes"] == 2
     assert p["base_model_weights"] == "weights.pt"
     assert cfg["settings"]["docker"]["parent_image"] == "ghcr.io/hotosm/fair-unet:v1"
+    assert cfg["steps"]["train_model"]["parameters"]["model_name"] == "finetuned"
+    assert cfg["steps"]["train_model"]["parameters"]["base_model_id"] == "unet"
+    assert cfg["steps"]["evaluate_model"]["parameters"]["class_names"] == ["bg", "building"]
 
 
 def test_training_overrides(tmp_path):
@@ -139,9 +148,12 @@ def test_inference_config_with_artifact_id():
         model_href="s3://store/model/abc",
         mlm_hyperparameters={},
         keywords=["building"],
-        base_model_item_id="unet",
-        dataset_item_id="ds-1",
+        base_model_href="../base-models/unet/unet.json",
+        dataset_href="../datasets/ds-1/ds-1.json",
         version="1",
+        title="Local UNet",
+        description="Finetuned.",
+        user_id="osm-test",
         zenml_artifact_version_id="uuid-123",
     )
     cfg = generate_inference_config(local, "/data/input/")

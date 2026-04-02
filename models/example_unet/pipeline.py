@@ -99,6 +99,9 @@ def train_model(
     num_classes: int,
     optimizer: str = "AdamW",
     loss: str = "CrossEntropyLoss",
+    model_name: str | None = None,
+    base_model_id: str | None = None,
+    dataset_id: str | None = None,
 ) -> Any:
     import mlflow
     from torchgeo.models import unet
@@ -116,6 +119,14 @@ def train_model(
             "num_classes": num_classes,
         }
     )
+    if model_name:
+        mlflow.set_tags(  # ty: ignore[possibly-missing-attribute]
+            {
+                "fair.model_name": model_name,
+                "fair.base_model": base_model_id or "",
+                "fair.dataset": dataset_id or "",
+            }
+        )
 
     device = _get_device()
     model = unet(weights=_resolve_weights(base_model_weights), classes=num_classes).to(device)
@@ -159,6 +170,7 @@ def evaluate_model(
     dataset_labels: str,
     chip_size: int = 512,
     num_classes: int = 2,
+    class_names: list[str] | None = None,
 ) -> dict[str, Any]:
     import mlflow
     import torch
@@ -183,13 +195,22 @@ def evaluate_model(
                 intersection[c] += ((preds == c) & (masks == c)).sum().item()
                 union[c] += ((preds == c) | (masks == c)).sum().item()
 
-    metrics: dict[str, Any] = {
-        "accuracy": total_correct / max(total_pixels, 1),
-        "mean_iou": sum(intersection[c] / max(union[c], 1) for c in range(num_classes)) / num_classes,
-        **{f"iou_class_{c}": intersection[c] / max(union[c], 1) for c in range(num_classes)},
+    # Key per-class IoU by class name when available, otherwise by index
+    resolved_names = (
+        class_names if class_names and len(class_names) == num_classes else [str(c) for c in range(num_classes)]
+    )
+    per_class_iou = {resolved_names[c]: intersection[c] / max(union[c], 1) for c in range(num_classes)}
+
+    scalar_metrics = {
+        "fair:accuracy": total_correct / max(total_pixels, 1),
+        "fair:mean_iou": sum(per_class_iou.values()) / num_classes,
     }
-    mlflow.log_metrics(metrics)  # ty: ignore[possibly-missing-attribute]
-    log_metadata(metadata=metrics)
+    metrics: dict[str, Any] = {
+        **scalar_metrics,
+        "fair:per_class_iou": per_class_iou,
+    }
+    mlflow.log_metrics(scalar_metrics)  # ty: ignore[possibly-missing-attribute]
+    log_metadata(metadata=metrics, infer_model=True)
     return metrics
 
 

@@ -35,7 +35,7 @@ classifiers = [
 ]
 dependencies = [
     "mlflow>=2.1.1,<4",
-    "pystac[validation]>=1.14.3",
+    "pystac[validation]>=1.14.3,<2",
     "universal-pathlib>=0.3.10",
     "zenml>=0.93.3",
 ]
@@ -43,7 +43,7 @@ dependencies = [
 [project.optional-dependencies]
 k8s = [
     "pypgstac[psycopg]>=0.9",
-    "pystac-client>=0.9",
+    "pystac-client>=0.9,<1",
     "zenml[connectors-aws,connectors-kubernetes,s3fs]>=0.93.3",
 ]
 

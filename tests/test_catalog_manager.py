@@ -34,6 +34,14 @@ def test_publish_get_list(cm):
     assert len(cm.list_items("base-models")) == 2
 
 
+def test_list_items_with_limit(cm):
+    cm.publish_item("base-models", _item("a"))
+    cm.publish_item("base-models", _item("b"))
+    cm.publish_item("base-models", _item("c"))
+    assert len(cm.list_items("base-models", limit=2)) == 2
+    assert len(cm.list_items("base-models", limit=None)) == 3
+
+
 def test_get_missing_raises(cm):
     with pytest.raises(KeyError, match="not found"):
         cm.get_item("base-models", "nope")

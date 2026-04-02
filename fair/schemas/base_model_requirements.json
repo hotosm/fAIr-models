@@ -7,6 +7,8 @@
         "https://stac-extensions.github.io/raster/v1.1.0/schema.json"
     ],
     "required_properties": [
+        "title",
+        "description",
         "mlm:name",
         "mlm:architecture",
         "mlm:tasks",
@@ -18,13 +20,15 @@
         "mlm:hyperparameters",
         "keywords",
         "version",
-        "license"
+        "license",
+        "fair:metrics_spec"
     ],
     "non_empty_list_properties": [
         "mlm:tasks",
         "mlm:input",
         "mlm:output",
-        "keywords"
+        "keywords",
+        "fair:metrics_spec"
     ],
     "required_assets": {
         "model": [

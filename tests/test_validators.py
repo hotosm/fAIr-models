@@ -60,6 +60,9 @@ def _model(keywords=None, tasks=None):
         source_code_entrypoint="mod:train",
         training_runtime_href="local",
         inference_runtime_href="local",
+        title="Validator test model",
+        description="Model used in validator tests.",
+        fair_metrics_spec=[{"name": "accuracy", "description": "Pixel accuracy", "higher_is_better": True}],
     )
 
 
@@ -85,6 +88,9 @@ def _dataset(tmp_path, keywords=None, label_tasks=None):
         keywords=keywords or ["building", "semantic-segmentation"],
         chips_href="chips/",
         labels_href=str(path),
+        title="Validator test dataset",
+        description="Dataset used in validator tests.",
+        user_id="osm-test",
     )
 
 
@@ -165,6 +171,10 @@ def _valid_base_model():
         source_code_entrypoint="mod:train",
         training_runtime_href="ghcr.io/hotosm/test:v1",
         inference_runtime_href="ghcr.io/hotosm/test:v1",
+        title="Valid test model",
+        description="A valid base model for validator tests.",
+        fair_metrics_spec=[{"name": "accuracy", "description": "Pixel accuracy", "higher_is_better": True}],
+        readme_href="https://example.com/README.md",
     )
     item.properties["license"] = "AGPL-3.0-only"
     return item

@@ -27,7 +27,7 @@ from fair.stac.collections import initialize_catalog
 from fair.stac.constants import BASE_MODELS_COLLECTION, DATASETS_COLLECTION, LOCAL_MODELS_COLLECTION
 from fair.stac.validators import validate_compatibility, validate_mlm_schema
 from fair.stac.versioning import deprecate_and_link_successor, find_previous_active_item
-from fair.utils.data import count_chips, create_dataset_archive
+from fair.utils.data import count_chips, create_dataset_archive, upload_item_assets
 from fair.zenml.config import generate_inference_config, generate_training_config
 from fair.zenml.promotion import promote_model_version, publish_promoted_model
 
@@ -105,12 +105,8 @@ def register(cfg: RunConfig) -> None:
 
     geometry, bbox = _geometry_and_bbox_from_geojson(str(local_labels[0]))
 
-    if cfg.data_prefix:
-        chips_href = f"{cfg.data_prefix}/train/oam"
-        labels_href = f"{cfg.data_prefix}/train/osm/{local_labels[0].name}"
-    else:
-        chips_href = TRAIN_OAM
-        labels_href = str(local_labels[0])
+    chips_href = TRAIN_OAM
+    labels_href = str(local_labels[0])
 
     chip_count = count_chips(chips_href)
 
@@ -119,13 +115,12 @@ def register(cfg: RunConfig) -> None:
     predecessor_href = _item_href(cat, DATASETS_COLLECTION, prev) if prev else None
 
     archive_path = Path("artifacts") / f"{DATASET_TITLE}-v{version}.zip"
-    labels_dir = str(Path(labels_href).parent) if not _is_remote(labels_href) else labels_href.rsplit("/", 1)[0]
+    labels_dir = str(Path(labels_href).parent)
     create_dataset_archive(
         chips_dir=chips_href,
         labels_dir=labels_dir,
         output_path=str(archive_path),
     )
-    download_href = str(archive_path)
 
     ds = build_dataset_item(
         dt=datetime.now(UTC),
@@ -148,8 +143,11 @@ def register(cfg: RunConfig) -> None:
         label_methods=DATASET_LABEL_METHODS,
         source_imagery_href=SOURCE_IMAGERY_HREF,
         predecessor_version_href=predecessor_href,
-        download_href=download_href,
+        download_href=str(archive_path),
     )
+
+    if cfg.data_prefix:
+        upload_item_assets(ds, cfg.data_prefix, DATASETS_COLLECTION)
 
     if prev:
         self_href = _item_href(cat, DATASETS_COLLECTION, ds)
@@ -222,6 +220,10 @@ def predict(cfg: RunConfig) -> None:
         sys.exit("No active local model")
 
     input_images = f"{cfg.data_prefix}/predict/oam" if cfg.data_prefix else PREDICT_OAM
+    if cfg.data_prefix:
+        from fair.utils.data import _upload_local_directory
+
+        _upload_local_directory(Path(PREDICT_OAM), input_images)
     cfg_data = generate_inference_config(
         active[-1],
         input_images,

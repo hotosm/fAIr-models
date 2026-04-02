@@ -53,12 +53,15 @@ def _workload_toleration(workload: str) -> dict[str, str]:
 
 
 def _scheduling_settings(item: pystac.Item, workload: str) -> dict[str, Any]:
+    cpu_resources = {"requests": {"memory": "2Gi"}, "limits": {"memory": "4Gi"}}
+
     if _force_cpu_mode():
         return {
             "orchestrator.kubernetes": {
                 "pod_settings": {
                     "node_selectors": _workload_selector(workload),
                     "tolerations": [_workload_toleration(workload)],
+                    "resources": cpu_resources,
                 }
             }
         }
@@ -70,6 +73,7 @@ def _scheduling_settings(item: pystac.Item, workload: str) -> dict[str, Any]:
                 "pod_settings": {
                     "node_selectors": _workload_selector(workload),
                     "tolerations": [_workload_toleration(workload)],
+                    "resources": cpu_resources,
                 }
             }
         }

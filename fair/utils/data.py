@@ -14,9 +14,13 @@ import os
 import tempfile
 import zipfile
 from pathlib import Path
+from typing import TYPE_CHECKING
 from urllib.parse import urlparse
 
 from upath import UPath
+
+if TYPE_CHECKING:
+    import pystac
 
 logger = logging.getLogger(__name__)
 
@@ -134,3 +138,45 @@ def create_dataset_archive(
 
     logger.info("Created dataset archive: %s", out)
     return str(out)
+
+
+def upload_item_assets(
+    item: pystac.Item,
+    data_prefix: str,
+    collection_id: str,
+) -> pystac.Item:
+    """Upload local asset files to S3 and rewrite hrefs in-place.
+
+    Deterministic path: {data_prefix}/{collection_id}/{item.id}/{asset_key}/...
+    Files are uploaded; directories are uploaded recursively.
+    Remote hrefs are left untouched.
+
+    Returns the item with rewritten hrefs.
+    """
+    for key, asset in item.assets.items():
+        if _is_remote(asset.href):
+            continue
+
+        remote_base = f"{data_prefix}/{collection_id}/{item.id}/{key}"
+        local = Path(asset.href)
+
+        if local.is_dir():
+            _upload_local_directory(local, remote_base)
+            asset.href = remote_base
+        elif local.is_file():
+            remote_path = f"{remote_base}/{local.name}"
+            UPath(remote_path).write_bytes(local.read_bytes())
+            logger.info("Uploaded %s -> %s", local, remote_path)
+            asset.href = remote_path
+        else:
+            logger.warning("Asset '%s' href not found locally: %s", key, asset.href)
+
+    return item
+
+
+def _upload_local_directory(local_dir: Path, remote_prefix: str) -> None:
+    for f in sorted(local_dir.rglob("*")):
+        if f.is_file():
+            dest = UPath(remote_prefix) / f.relative_to(local_dir)
+            dest.write_bytes(f.read_bytes())
+            logger.info("Uploaded %s -> %s", f, dest)

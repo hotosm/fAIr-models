@@ -1,12 +1,23 @@
 from __future__ import annotations
 
 import zipfile
+from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pystac
 import pytest
 
-from fair.utils.data import _is_remote, create_dataset_archive, list_files, resolve_directory, resolve_path
+from fair.utils.data import (
+    _is_remote,
+    create_dataset_archive,
+    list_files,
+    resolve_directory,
+    resolve_path,
+    upload_item_assets,
+)
+
+_NOW = datetime(2024, 1, 1, tzinfo=UTC)
 
 
 class TestIsRemote:
@@ -154,3 +165,61 @@ class TestCreateDatasetArchive:
             assert "chips/b.tif" in names
             assert "labels/a.geojson" in names
             assert len(names) == 3
+
+
+class TestUploadItemAssets:
+    def _make_item(self, tmp_path: Path) -> pystac.Item:
+        chips_dir = tmp_path / "chips"
+        chips_dir.mkdir()
+        (chips_dir / "a.tif").write_bytes(b"chip-a")
+        (chips_dir / "b.tif").write_bytes(b"chip-b")
+
+        label_file = tmp_path / "labels" / "a.geojson"
+        label_file.parent.mkdir()
+        label_file.write_text('{"type":"Feature"}')
+
+        archive = tmp_path / "archive.zip"
+        archive.write_bytes(b"fake-zip")
+
+        item = pystac.Item(
+            id="test-dataset",
+            geometry={"type": "Point", "coordinates": [0, 0]},
+            bbox=[0, 0, 0, 0],
+            datetime=_NOW,
+            properties={},
+        )
+        item.add_asset("chips", pystac.Asset(href=str(chips_dir), roles=["data"]))
+        item.add_asset("labels", pystac.Asset(href=str(label_file), roles=["labels"]))
+        item.add_asset("download", pystac.Asset(href=str(archive), roles=["data", "archive"]))
+        return item
+
+    @patch("fair.utils.data.UPath")
+    def test_uploads_and_rewrites_hrefs(self, mock_upath_cls: MagicMock, tmp_path: Path) -> None:
+        item = self._make_item(tmp_path)
+        mock_dest = MagicMock()
+        mock_upath_cls.return_value = mock_dest
+
+        upload_item_assets(item, "s3://bucket/data", "datasets")
+
+        assert item.assets["chips"].href == "s3://bucket/data/datasets/test-dataset/chips"
+        assert item.assets["labels"].href == "s3://bucket/data/datasets/test-dataset/labels/a.geojson"
+        assert item.assets["download"].href == "s3://bucket/data/datasets/test-dataset/download/archive.zip"
+
+    def test_skips_remote_hrefs(self) -> None:
+        item = pystac.Item(
+            id="remote-item",
+            geometry={"type": "Point", "coordinates": [0, 0]},
+            bbox=[0, 0, 0, 0],
+            datetime=_NOW,
+            properties={},
+        )
+        item.add_asset("chips", pystac.Asset(href="s3://bucket/already-remote", roles=["data"]))
+
+        upload_item_assets(item, "s3://bucket/data", "datasets")
+        assert item.assets["chips"].href == "s3://bucket/already-remote"
+
+    def test_returns_item(self, tmp_path: Path) -> None:
+        item = self._make_item(tmp_path)
+        with patch("fair.utils.data.UPath"):
+            result = upload_item_assets(item, "s3://bucket/data", "datasets")
+        assert result is item

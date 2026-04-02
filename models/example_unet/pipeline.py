@@ -209,7 +209,7 @@ def evaluate_model(
         **scalar_metrics,
         "fair:per_class_iou": per_class_iou,
     }
-    mlflow.log_metrics(scalar_metrics)  # ty: ignore[possibly-missing-attribute]
+    mlflow.log_metrics({k.replace(":", "/"): v for k, v in scalar_metrics.items()})  # ty: ignore[possibly-missing-attribute]
     log_metadata(metadata=metrics, infer_model=True)
     return metrics
 

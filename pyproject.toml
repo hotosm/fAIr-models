@@ -90,6 +90,7 @@ local = [
     "zenml[server]>=0.93.3",
 ]
 example = [
+    "httpx",
     "torch",
     "torchgeo",
 ]

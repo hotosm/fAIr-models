@@ -89,12 +89,13 @@ class TestAddVersionLinks:
         assert len(pred) == 1
         assert pred[0].get_href() == "https://api/ds-1"
 
-    def test_no_self_href_uses_item_id(self) -> None:
+    def test_no_self_href_skips_self_and_latest(self) -> None:
         item = self._bare_item("ds-1")
         add_version_links(item, None, None)
         latest = [lnk for lnk in item.links if lnk.rel == "latest-version"]
-        assert len(latest) == 1
-        assert latest[0].get_href() == "ds-1"
+        self_links = [lnk for lnk in item.links if lnk.rel == "self"]
+        assert len(latest) == 0
+        assert len(self_links) == 0
 
 
 class TestDeprecateAndLinkSuccessor:

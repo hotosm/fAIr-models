@@ -45,12 +45,20 @@ class PgStacBackend:
 
     def publish_item(self, collection_id: str, item: pystac.Item) -> pystac.Item:
         item.properties.setdefault("version", "1")
+        self._ensure_version_links(collection_id, item)
         item_dict = item.to_dict()
         item_dict["collection"] = collection_id
         with self._get_db() as db:
             loader = Loader(db)
             loader.load_items(iter([item_dict]), insert_mode=Methods.upsert)
         return item
+
+    def _ensure_version_links(self, collection_id: str, item: pystac.Item) -> None:
+        href = self.item_href(collection_id, item.id)
+        if not any(lnk.rel == "self" for lnk in item.links):
+            item.add_link(pystac.Link(rel="self", target=href, media_type="application/geo+json"))
+        if not any(lnk.rel == "latest-version" for lnk in item.links):
+            item.add_link(pystac.Link(rel="latest-version", target=href))
 
     def get_item(self, collection_id: str, item_id: str) -> pystac.Item:
         client = StacClient.open(self._stac_api_url)

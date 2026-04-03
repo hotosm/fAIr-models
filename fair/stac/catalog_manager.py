@@ -41,9 +41,17 @@ class StacCatalogManager:
         else:
             item.properties.setdefault("version", "1")
 
+        self._ensure_version_links(collection_id, item)
         collection.add_item(item)
         self._save()
         return item
+
+    def _ensure_version_links(self, collection_id: str, item: pystac.Item) -> None:
+        href = self.item_href(collection_id, item.id)
+        if not any(lnk.rel == "self" for lnk in item.links):
+            item.add_link(pystac.Link(rel="self", target=href, media_type="application/geo+json"))
+        if not any(lnk.rel == "latest-version" for lnk in item.links):
+            item.add_link(pystac.Link(rel="latest-version", target=href))
 
     def get_item(self, collection_id: str, item_id: str) -> pystac.Item:
         collection = self._get_collection(collection_id)

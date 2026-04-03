@@ -32,7 +32,7 @@ def add_version_links(
 ) -> None:
     if self_href:
         item.add_link(pystac.Link(rel="self", target=self_href, media_type="application/geo+json"))
-    item.add_link(pystac.Link(rel="latest-version", target=self_href if self_href else item.id))
+        item.add_link(pystac.Link(rel="latest-version", target=self_href))
     if predecessor_href:
         item.add_link(pystac.Link(rel="predecessor-version", target=predecessor_href))
 

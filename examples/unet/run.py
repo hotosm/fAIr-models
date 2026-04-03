@@ -317,6 +317,9 @@ COMMANDS: dict[str, Callable[[RunConfig], None]] = {
 }
 
 if __name__ == "__main__":
+    from fair.utils import install_s3_cleanup_handler
+
+    install_s3_cleanup_handler()
     parser = argparse.ArgumentParser(prog="run.py", description="fAIr-models UNet CI workflow")
     parser.add_argument("command", choices=COMMANDS)
     parser.add_argument("--stac-api-url", help="STAC API URL (enables PgStacBackend)")

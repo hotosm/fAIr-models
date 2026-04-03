@@ -19,6 +19,7 @@ releases:
   - name: minio
     namespace: fair
     chart: minio/minio
+    version: "5.4.0"
     timeout: 300
     values:
       - minio/values.yaml
@@ -26,6 +27,7 @@ releases:
   - name: stac
     namespace: fair
     chart: eoapi/eoapi
+    version: "0.12.2"
     wait: false
     timeout: 600
     needs:
@@ -36,6 +38,7 @@ releases:
   - name: mlflow
     namespace: fair
     chart: community-charts/mlflow
+    version: "1.8.1"
     timeout: 300
     needs:
       - fair/minio

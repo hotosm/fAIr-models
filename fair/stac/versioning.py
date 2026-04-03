@@ -25,6 +25,13 @@ def find_previous_active_item(
     return None
 
 
+def ensure_version_links(item: pystac.Item, self_href: str) -> None:
+    if not any(lnk.rel == "self" for lnk in item.links):
+        item.add_link(pystac.Link(rel="self", target=self_href, media_type="application/geo+json"))
+    if not item.properties.get("deprecated") and not any(lnk.rel == "latest-version" for lnk in item.links):
+        item.add_link(pystac.Link(rel="latest-version", target=self_href))
+
+
 def add_version_links(
     item: pystac.Item,
     self_href: str | None,

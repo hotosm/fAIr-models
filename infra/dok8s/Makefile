@@ -25,6 +25,7 @@ infra:
 	@$(S)/database.sh init
 
 deploy:
+	@$(S)/validate-env.sh
 	@$(S)/deploy.sh helm
 	@$(S)/deploy.sh cert-issuer
 	@$(S)/deploy.sh stac-ingress

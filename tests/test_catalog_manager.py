@@ -116,3 +116,26 @@ def test_cross_collection_href_resolves(cm):
     expected = (catalog_root / "datasets" / "data-y" / "data-y.json").resolve()
     assert resolved == expected
     assert resolved.exists()
+
+
+def test_asset_hrefs_survive_save_roundtrip(cm):
+    """Asset hrefs must be usable after publish -> get_item (no PySTAC relative mangling)."""
+    chips_href = "data/sample/train/oam"
+    labels_href = "data/sample/train/osm/labels.geojson"
+
+    item = pystac.Item(
+        id="ds-roundtrip",
+        geometry={"type": "Point", "coordinates": [0, 0]},
+        bbox=[-1, -1, 1, 1],
+        datetime=datetime(2024, 6, 1, tzinfo=UTC),
+        properties={"keywords": ["building"]},
+    )
+    item.add_asset("chips", pystac.Asset(href=chips_href, media_type="image/tiff", roles=["data"]))
+    item.add_asset("labels", pystac.Asset(href=labels_href, media_type="application/geo+json", roles=["labels"]))
+
+    cm.publish_item("datasets", item)
+    retrieved = cm.get_item("datasets", "ds-roundtrip")
+
+    for key in ("chips", "labels"):
+        href = retrieved.assets[key].href
+        assert not href.startswith("../"), f"Asset '{key}' href was mangled to a relative path: {href}"

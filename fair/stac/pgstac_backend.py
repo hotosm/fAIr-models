@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+
 import pystac
 from pypgstac.db import PgstacDB
 from pypgstac.load import Loader, Methods
@@ -10,6 +12,9 @@ from fair.stac.collections import (
     create_datasets_collection,
     create_local_models_collection,
 )
+from fair.stac.versioning import ensure_version_links
+
+log = logging.getLogger(__name__)
 
 
 class PgStacBackend:
@@ -51,14 +56,11 @@ class PgStacBackend:
         with self._get_db() as db:
             loader = Loader(db)
             loader.load_items(iter([item_dict]), insert_mode=Methods.upsert)
+        log.info("Published %s/%s v%s", collection_id, item.id, item.properties.get("version"))
         return item
 
     def _ensure_version_links(self, collection_id: str, item: pystac.Item) -> None:
-        href = self.item_href(collection_id, item.id)
-        if not any(lnk.rel == "self" for lnk in item.links):
-            item.add_link(pystac.Link(rel="self", target=href, media_type="application/geo+json"))
-        if not item.properties.get("deprecated") and not any(lnk.rel == "latest-version" for lnk in item.links):
-            item.add_link(pystac.Link(rel="latest-version", target=href))
+        ensure_version_links(item, self.item_href(collection_id, item.id))
 
     def get_item(self, collection_id: str, item_id: str) -> pystac.Item:
         client = StacClient.open(self._stac_api_url)
@@ -82,6 +84,7 @@ class PgStacBackend:
         # Loader has no delete API; call pgstac's delete_item() directly
         with self._get_db() as db:
             db.query_one("SELECT delete_item(%s, %s)", [item_id, collection_id])
+        log.info("Deleted %s/%s", collection_id, item_id)
 
     def item_href(self, collection_id: str, item_id: str) -> str:
         return f"{self._stac_api_url}/collections/{collection_id}/items/{item_id}"

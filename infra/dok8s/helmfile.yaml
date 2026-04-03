@@ -19,6 +19,7 @@ releases:
   - name: cert-manager
     namespace: cert-manager
     chart: jetstack/cert-manager
+    version: "v1.20.1"
     labels:
       tier: ingress
     timeout: 300
@@ -29,6 +30,7 @@ releases:
   - name: ingress-nginx
     namespace: ingress-nginx
     chart: ingress-nginx/ingress-nginx
+    version: "4.15.1"
     labels:
       tier: ingress
     timeout: 300
@@ -38,6 +40,7 @@ releases:
   - name: stac
     namespace: fair
     chart: eoapi/eoapi
+    version: "0.12.2"
     labels:
       tier: app
     wait: false
@@ -50,6 +53,7 @@ releases:
   - name: mlflow
     namespace: fair
     chart: community-charts/mlflow
+    version: "1.8.1"
     labels:
       tier: app
     timeout: 300

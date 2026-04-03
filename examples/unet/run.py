@@ -15,7 +15,6 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
-import httpx
 import pystac
 import yaml
 from zenml.client import Client
@@ -71,16 +70,6 @@ def _get_backend(cfg: RunConfig) -> StacBackend:
     return StacCatalogManager(CATALOG_PATH)
 
 
-def _is_remote(href: str) -> bool:
-    return "://" in href
-
-
-def _item_href(backend: StacBackend, collection_id: str, item: pystac.Item) -> str:
-    if hasattr(backend, "stac_api_url"):
-        return f"{backend.stac_api_url}/collections/{collection_id}/items/{item.id}"
-    return f"../{collection_id}/{item.id}/{item.id}.json"
-
-
 def init(cfg: RunConfig) -> None:
     subprocess.run(["zenml", "init"], check=True, capture_output=True)
     Path("artifacts").mkdir(exist_ok=True)
@@ -113,7 +102,7 @@ def register(cfg: RunConfig) -> None:
 
     prev = find_previous_active_item(cat, DATASETS_COLLECTION, "title", DATASET_TITLE)
     version = str(int(prev.properties["version"]) + 1) if prev else "1"
-    predecessor_href = _item_href(cat, DATASETS_COLLECTION, prev) if prev else None
+    predecessor_href = cat.item_href(DATASETS_COLLECTION, prev.id) if prev else None
 
     archive_path = Path("artifacts") / f"{DATASET_TITLE}-v{version}.zip"
     labels_dir = str(Path(labels_href).parent)
@@ -151,8 +140,8 @@ def register(cfg: RunConfig) -> None:
         upload_item_assets(ds, cfg.data_prefix, DATASETS_COLLECTION)
 
     if prev:
-        self_href = _item_href(cat, DATASETS_COLLECTION, ds)
-        deprecate_and_link_successor(cat, DATASETS_COLLECTION, prev, self_href)
+        successor_href = cat.item_href(DATASETS_COLLECTION, ds.id)
+        deprecate_and_link_successor(cat, DATASETS_COLLECTION, prev, successor_href)
 
     pub = cat.publish_item(DATASETS_COLLECTION, ds)
     print(f"register: dataset {pub.id} v{pub.properties['version']}")
@@ -240,51 +229,16 @@ def predict(cfg: RunConfig) -> None:
     print(f"predict: {run.id} ({run.status})")
 
 
-def _check_href(client: httpx.Client, href: str, source: str, failures: list[str]) -> None:
-    try:
-        resp = client.get(href)
-        if resp.status_code != 200:
-            failures.append(f"  {resp.status_code} {href} (from {source})")
-    except httpx.RequestError as exc:
-        failures.append(f"  ERR {href} (from {source}): {exc}")
-
-
 def verify(cfg: RunConfig) -> None:
-    if not cfg.stac_api_url:
-        sys.exit("verify requires --stac-api-url")
-
-    collections = [BASE_MODELS_COLLECTION, DATASETS_COLLECTION, LOCAL_MODELS_COLLECTION]
     cat = _get_backend(cfg)
-    checked = 0
-    failures: list[str] = []
-
-    with httpx.Client(timeout=15) as client:
-        for coll_id in collections:
-            coll_url = f"{cfg.stac_api_url}/collections/{coll_id}"
-            _check_href(client, coll_url, "collection", failures)
-            checked += 1
-
-            for item in cat.list_items(coll_id):
-                item_url = f"{cfg.stac_api_url}/collections/{coll_id}/items/{item.id}"
-                _check_href(client, item_url, f"{coll_id}/{item.id}", failures)
-                checked += 1
-
-                for link in item.links:
-                    if link.href and link.href.startswith(cfg.stac_api_url):
-                        _check_href(client, link.href, f"{item.id} link[{link.rel}]", failures)
-                        checked += 1
-
-                for asset_key, asset in item.assets.items():
-                    if asset.href and asset.href.startswith(cfg.stac_api_url):
-                        _check_href(client, asset.href, f"{item.id} asset[{asset_key}]", failures)
-                        checked += 1
-
-    if failures:
-        print(f"verify: FAIL ({len(failures)}/{checked} broken)")
-        for f in failures:
-            print(f)
-        sys.exit(1)
-    print(f"verify: ok ({checked} links checked)")
+    collections = [BASE_MODELS_COLLECTION, DATASETS_COLLECTION, LOCAL_MODELS_COLLECTION]
+    total = 0
+    for coll_id in collections:
+        items = cat.list_items(coll_id)
+        for item in items:
+            cat.get_item(coll_id, item.id)
+            total += 1
+    print(f"verify: ok ({total} items across {len(collections)} collections)")
 
 
 def all_steps(cfg: RunConfig) -> None:

@@ -57,7 +57,7 @@ class PgStacBackend:
         href = self.item_href(collection_id, item.id)
         if not any(lnk.rel == "self" for lnk in item.links):
             item.add_link(pystac.Link(rel="self", target=href, media_type="application/geo+json"))
-        if not any(lnk.rel == "latest-version" for lnk in item.links):
+        if not item.properties.get("deprecated") and not any(lnk.rel == "latest-version" for lnk in item.links):
             item.add_link(pystac.Link(rel="latest-version", target=href))
 
     def get_item(self, collection_id: str, item_id: str) -> pystac.Item:

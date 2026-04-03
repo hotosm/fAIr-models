@@ -45,6 +45,5 @@ def deprecate_and_link_successor(
 ) -> pystac.Item:
     old_item = backend.deprecate_item(collection_id, old_item.id)
     old_item.links = [lnk for lnk in old_item.links if lnk.rel != "latest-version"]
-    old_item.add_link(pystac.Link(rel="latest-version", target=new_item_href))
     old_item.add_link(pystac.Link(rel="successor-version", target=new_item_href))
     return backend.publish_item(collection_id, old_item)

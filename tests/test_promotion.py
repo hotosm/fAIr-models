@@ -149,7 +149,9 @@ def test_publish_and_deprecate_previous(mock_cls, cm):
     deprecated = cm.get_item("local-models", "fake-uuid")
     assert deprecated.properties["deprecated"] is True
     latest_links = [lnk for lnk in deprecated.links if lnk.rel == "latest-version"]
-    assert len(latest_links) == 1
+    assert len(latest_links) == 0
+    successor_links = [lnk for lnk in deprecated.links if lnk.rel == "successor-version"]
+    assert len(successor_links) == 1
 
 
 @patch("fair.zenml.promotion.Client")

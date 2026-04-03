@@ -50,7 +50,7 @@ class StacCatalogManager:
         href = self.item_href(collection_id, item.id)
         if not any(lnk.rel == "self" for lnk in item.links):
             item.add_link(pystac.Link(rel="self", target=href, media_type="application/geo+json"))
-        if not any(lnk.rel == "latest-version" for lnk in item.links):
+        if not item.properties.get("deprecated") and not any(lnk.rel == "latest-version" for lnk in item.links):
             item.add_link(pystac.Link(rel="latest-version", target=href))
 
     def get_item(self, collection_id: str, item_id: str) -> pystac.Item:
@@ -80,4 +80,4 @@ class StacCatalogManager:
         self._save()
 
     def item_href(self, collection_id: str, item_id: str) -> str:
-        return f"../{collection_id}/{item_id}/{item_id}.json"
+        return f"../../{collection_id}/{item_id}/{item_id}.json"

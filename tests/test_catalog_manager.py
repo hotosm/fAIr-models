@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from pathlib import Path
 
 import pystac
 import pytest
@@ -85,3 +86,33 @@ def test_initialize_catalog_idempotent(tmp_path):
 def test_invalid_collection_raises(cm):
     with pytest.raises(KeyError, match="not found"):
         cm._get_collection("nonexistent")
+
+
+def test_item_href_resolves_from_item_dir(cm):
+    """Relative hrefs from item_href must resolve to the correct item JSON."""
+    item = _item("abc")
+    cm.publish_item("base-models", item)
+
+    href = cm.item_href("base-models", "abc")
+    catalog_root = Path(cm.catalog.self_href).parent
+    item_dir = catalog_root / "base-models" / "abc"
+    resolved = (item_dir / href).resolve()
+
+    expected = (catalog_root / "base-models" / "abc" / "abc.json").resolve()
+    assert resolved == expected
+    assert resolved.exists()
+
+
+def test_cross_collection_href_resolves(cm):
+    """Relative href from one collection's item must resolve to another collection's item."""
+    cm.publish_item("base-models", _item("model-x"))
+    cm.publish_item("datasets", _item("data-y"))
+
+    href_to_dataset = cm.item_href("datasets", "data-y")
+    catalog_root = Path(cm.catalog.self_href).parent
+    model_item_dir = catalog_root / "base-models" / "model-x"
+    resolved = (model_item_dir / href_to_dataset).resolve()
+
+    expected = (catalog_root / "datasets" / "data-y" / "data-y.json").resolve()
+    assert resolved == expected
+    assert resolved.exists()

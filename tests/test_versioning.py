@@ -107,5 +107,5 @@ class TestDeprecateAndLinkSuccessor:
         successor = [lnk for lnk in updated.links if lnk.rel == "successor-version"]
         latest = [lnk for lnk in updated.links if lnk.rel == "latest-version"]
         assert len(successor) == 1
-        assert len(latest) == 1
+        assert len(latest) == 0
         assert successor[0].get_href() == "https://api/ds-2"

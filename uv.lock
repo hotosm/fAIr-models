@@ -916,7 +916,6 @@ docs = [
     { name = "zensical" },
 ]
 example = [
-    { name = "httpx" },
     { name = "torch" },
     { name = "torchgeo", version = "0.8.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
     { name = "torchgeo", version = "0.9.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
@@ -961,7 +960,6 @@ docs = [
     { name = "zensical", specifier = ">=0.0.24" },
 ]
 example = [
-    { name = "httpx" },
     { name = "torch" },
     { name = "torchgeo" },
 ]

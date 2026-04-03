@@ -15,7 +15,7 @@ case "$action" in
       doctl databases create "$DB_NAME" \
         --engine pg --version 17 \
         --region "$DO_REGION" \
-        --size db-s-1vcpu-1gb --num-nodes 1 \
+        --size db-s-2vcpu-4gb --num-nodes 1 \
         --wait
     fi
     ;;

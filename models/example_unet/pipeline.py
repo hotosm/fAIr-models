@@ -4,11 +4,13 @@ Entrypoints referenced by models/example_unet/stac-item.json.
 Pretrained weights: OAM-TCD (arxiv.org/abs/2407.11743).
 """
 
+import time
 from typing import Annotated, Any, Literal
 
 from annotated_types import Ge, Le
 from zenml import log_metadata, pipeline, step
 
+from fair.zenml.metrics import log_fair_metrics, log_training_wall_time
 from fair.zenml.steps import load_model
 
 _BUILDING_CLASSES = [{"name": "building", "selector": [{"building": "*"}]}]
@@ -138,11 +140,14 @@ def train_model(
     opt = optimizers[optimizer](model.parameters(), lr=learning_rate, weight_decay=weight_decay)
 
     model.train()
+    wall_start = time.perf_counter()
     for epoch in range(epochs):
         total_loss = sum(_train_step(model, batch, criterion, opt, device) for batch in loader)
         avg_loss = total_loss / len(loader)
         mlflow.log_metric("train_loss", avg_loss, step=epoch)  # ty: ignore[possibly-missing-attribute]
         log_metadata(metadata={"loss": avg_loss, "epoch": epoch + 1})
+    wall_seconds = time.perf_counter() - wall_start
+    log_training_wall_time(wall_seconds)
 
     return model.cpu()
 
@@ -201,16 +206,11 @@ def evaluate_model(
     )
     per_class_iou = {resolved_names[c]: intersection[c] / max(union[c], 1) for c in range(num_classes)}
 
-    scalar_metrics = {
-        "fair:accuracy": total_correct / max(total_pixels, 1),
-        "fair:mean_iou": sum(per_class_iou.values()) / num_classes,
-    }
-    metrics: dict[str, Any] = {
-        **scalar_metrics,
-        "fair:per_class_iou": per_class_iou,
-    }
-    mlflow.log_metrics({k.replace(":", "/"): v for k, v in scalar_metrics.items()})  # ty: ignore[possibly-missing-attribute]
-    log_metadata(metadata=metrics, infer_model=True)
+    accuracy = total_correct / max(total_pixels, 1)
+    mean_iou = sum(per_class_iou.values()) / num_classes
+    mlflow.log_metrics({"accuracy": accuracy, "mean_iou": mean_iou})  # ty: ignore[possibly-missing-attribute]
+    metrics = {"accuracy": accuracy, "mean_iou": mean_iou, "per_class_iou": per_class_iou}
+    log_fair_metrics(metrics)
     return metrics
 
 
@@ -281,10 +281,6 @@ def run_inference(
 
             mask = postprocess(model(tensor.to(device)))[0]
             all_features.extend(_vectorize_mask(mask, transform, crs))
-
-    if not all_features:
-        msg = "Inference produced no features"
-        raise RuntimeError(msg)
 
     return {
         "type": "FeatureCollection",

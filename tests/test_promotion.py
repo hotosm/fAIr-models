@@ -160,13 +160,22 @@ def test_publish_stores_training_timing(mock_cls, cm):
     item = _publish(cm, version=1)
     assert "fair:training_started_at" in item.properties
     assert "fair:training_ended_at" in item.properties
-    assert item.properties["fair:training_duration_seconds"] == 5400.0
+
+
+@patch("fair.zenml.promotion.Client")
+def test_publish_uses_wall_time_for_duration(mock_cls, cm):
+    mv, client = _mock_mv({"epochs": 1})
+    mv.run_metadata = {"fair/training_wall_seconds": 42.5}
+    mock_cls.return_value = client
+    client.get_model_version.return_value = mv
+    item = _publish(cm, version=1)
+    assert item.properties["fair:training_duration_seconds"] == 42.5
 
 
 @patch("fair.zenml.promotion.Client")
 def test_publish_stores_fair_metrics(mock_cls, cm):
     mv, client = _mock_mv({"epochs": 1})
-    mv.run_metadata = {"fair:accuracy": 0.95, "fair:mean_iou": 0.80, "other_key": "ignored"}
+    mv.run_metadata = {"fair/accuracy": 0.95, "fair/mean_iou": 0.80, "other_key": "ignored"}
     mock_cls.return_value = client
     client.get_model_version.return_value = mv
     item = _publish(cm, version=1)

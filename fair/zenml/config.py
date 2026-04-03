@@ -52,8 +52,41 @@ def _workload_toleration(workload: str) -> dict[str, str]:
     return {"key": f"{LABEL_DOMAIN}/{workload}", "operator": "Equal", "value": "true", "effect": "NoSchedule"}
 
 
+_WORKLOAD_RESOURCE_DEFAULTS: dict[str, dict[str, str]] = {
+    "training": {"memory_request": "4Gi", "memory_limit": "6Gi"},
+    "inference": {"memory_request": "2Gi", "memory_limit": "4Gi"},
+}
+
+
+def _resource_value(workload: str, resource: str) -> str | None:
+    upper_workload = workload.upper()
+    upper_resource = resource.upper()
+    return (
+        os.environ.get(f"FAIR_{upper_workload}_{upper_resource}")
+        or os.environ.get(f"FAIR_K8S_{upper_resource}")
+        or _WORKLOAD_RESOURCE_DEFAULTS.get(workload, {}).get(resource)
+    )
+
+
+def _cpu_resources(workload: str) -> dict[str, dict[str, str]]:
+    resources: dict[str, dict[str, str]] = {"requests": {}, "limits": {}}
+    memory_request = _resource_value(workload, "memory_request")
+    memory_limit = _resource_value(workload, "memory_limit")
+    cpu_request = _resource_value(workload, "cpu_request")
+    cpu_limit = _resource_value(workload, "cpu_limit")
+    if memory_request:
+        resources["requests"]["memory"] = memory_request
+    if memory_limit:
+        resources["limits"]["memory"] = memory_limit
+    if cpu_request:
+        resources["requests"]["cpu"] = cpu_request
+    if cpu_limit:
+        resources["limits"]["cpu"] = cpu_limit
+    return resources
+
+
 def _scheduling_settings(item: pystac.Item, workload: str) -> dict[str, Any]:
-    cpu_resources = {"requests": {"memory": "2Gi"}, "limits": {"memory": "4Gi"}}
+    cpu_resources = _cpu_resources(workload)
 
     if _force_cpu_mode():
         return {

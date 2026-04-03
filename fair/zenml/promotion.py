@@ -13,6 +13,7 @@ from fair.stac.backend import StacBackend
 from fair.stac.builders import build_local_model_item
 from fair.stac.constants import BASE_MODELS_COLLECTION, DATASETS_COLLECTION, LOCAL_MODELS_COLLECTION
 from fair.stac.versioning import deprecate_and_link_successor, find_previous_active_item
+from fair.zenml.metrics import read_fair_metrics, read_training_wall_time
 
 log = logging.getLogger(__name__)
 
@@ -72,11 +73,12 @@ def publish_promoted_model(
             training_started_at = step.start_time.isoformat()
             if step.end_time is not None:
                 training_ended_at = step.end_time.isoformat()
-                training_duration_seconds = (step.end_time - step.start_time).total_seconds()
 
-    # Extract metrics stored by evaluate_model via log_metadata(infer_model=True)
     raw_meta = dict(mv.run_metadata or {})
-    metrics = {k: v for k, v in raw_meta.items() if k.startswith("fair:")} if raw_meta else None
+    wall_time = read_training_wall_time(raw_meta)
+    if wall_time is not None:
+        training_duration_seconds = wall_time
+    metrics = read_fair_metrics(raw_meta)
 
     weights_art = mv.get_artifact("training_pipeline::train_model::output")
     if weights_art is None:

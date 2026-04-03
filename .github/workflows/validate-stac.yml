@@ -37,6 +37,4 @@ jobs:
       - name: Install dependencies
         run: uv sync --group dev
       - name: Validate STAC items
-        run: make validate-stac
-      - name: Validate model pipelines
-        run: make validate-models
+        run: make validate

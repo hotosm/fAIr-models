@@ -99,6 +99,7 @@ def train_model(
     weight_decay: float,
     chip_size: int,
     num_classes: int,
+    samples_per_epoch: int = 50,
     optimizer: str = "AdamW",
     loss: str = "CrossEntropyLoss",
     model_name: str | None = None,
@@ -119,6 +120,7 @@ def train_model(
             "loss": loss,
             "chip_size": chip_size,
             "num_classes": num_classes,
+            "samples_per_epoch": samples_per_epoch,
         }
     )
     if model_name:
@@ -135,7 +137,7 @@ def train_model(
     model.to(device)
     for param in model.encoder.parameters():  # ty: ignore[unresolved-attribute]
         param.requires_grad = False
-    loader = _build_dataset(dataset_chips, dataset_labels, chip_size, length=50, batch_size=batch_size)
+    loader = _build_dataset(dataset_chips, dataset_labels, chip_size, length=samples_per_epoch, batch_size=batch_size)
 
     losses = _get_losses()
     optimizers = _get_optimizers()
@@ -179,6 +181,7 @@ def evaluate_model(
     dataset_labels: str,
     chip_size: int = 512,
     num_classes: int = 2,
+    samples_per_epoch: int = 50,
     class_names: list[str] | None = None,
 ) -> dict[str, Any]:
     import mlflow
@@ -188,7 +191,7 @@ def evaluate_model(
     model = trained_model.to(device)
     model.eval()
 
-    loader = _build_dataset(dataset_chips, dataset_labels, chip_size, length=20)
+    loader = _build_dataset(dataset_chips, dataset_labels, chip_size, length=max(samples_per_epoch // 3, 10))
     total_correct = total_pixels = 0
     intersection = [0] * num_classes
     union = [0] * num_classes
@@ -303,6 +306,7 @@ def training_pipeline(
     weight_decay: Annotated[float, Ge(0.0), Le(1.0)],
     chip_size: Annotated[int, Ge(64), Le(2048)],
     num_classes: Annotated[int, Ge(2), Le(256)],
+    samples_per_epoch: Annotated[int, Ge(10), Le(100000)] = 50,
     optimizer: Literal["Adam", "AdamW", "SGD"] = "AdamW",
     loss: Literal["CrossEntropyLoss", "BCEWithLogitsLoss"] = "CrossEntropyLoss",
 ) -> None:
@@ -317,6 +321,7 @@ def training_pipeline(
         weight_decay=weight_decay,
         chip_size=chip_size,
         num_classes=num_classes,
+        samples_per_epoch=samples_per_epoch,
         optimizer=optimizer,
         loss=loss,
     )
@@ -326,6 +331,7 @@ def training_pipeline(
         dataset_labels=dataset_labels,
         chip_size=chip_size,
         num_classes=num_classes,
+        samples_per_epoch=samples_per_epoch,
     )
 
 

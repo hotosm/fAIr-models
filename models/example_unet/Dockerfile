@@ -9,7 +9,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # TODO: remove universal-pathlib once fair-py-ops is published with it as a dependency
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv pip install \
-    torch==2.10.0 --index-url https://download.pytorch.org/whl/cpu \
+    --extra-index-url https://download.pytorch.org/whl/cpu \
+    torch==2.10.0 \
     torchgeo==0.9.0 \
     fair-py-ops[k8s]==0.0.5
 

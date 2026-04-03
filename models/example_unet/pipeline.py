@@ -131,13 +131,17 @@ def train_model(
         )
 
     device = _get_device()
-    model = unet(weights=_resolve_weights(base_model_weights), classes=num_classes).to(device)
-    loader = _build_dataset(dataset_chips, dataset_labels, chip_size, length=10, batch_size=batch_size)
+    model = unet(weights=_resolve_weights(base_model_weights), classes=num_classes)
+    model.to(device)
+    for param in model.encoder.parameters():  # ty: ignore[unresolved-attribute]
+        param.requires_grad = False
+    loader = _build_dataset(dataset_chips, dataset_labels, chip_size, length=50, batch_size=batch_size)
 
     losses = _get_losses()
     optimizers = _get_optimizers()
     criterion = losses[loss]()
-    opt = optimizers[optimizer](model.parameters(), lr=learning_rate, weight_decay=weight_decay)
+    trainable = filter(lambda p: p.requires_grad, model.parameters())
+    opt = optimizers[optimizer](trainable, lr=learning_rate, weight_decay=weight_decay)
 
     model.train()
     wall_start = time.perf_counter()
@@ -184,7 +188,7 @@ def evaluate_model(
     model = trained_model.to(device)
     model.eval()
 
-    loader = _build_dataset(dataset_chips, dataset_labels, chip_size, length=5)
+    loader = _build_dataset(dataset_chips, dataset_labels, chip_size, length=20)
     total_correct = total_pixels = 0
     intersection = [0] * num_classes
     union = [0] * num_classes

@@ -52,10 +52,10 @@
             "semantic-segmentation"
         ],
         "mlm:framework": "PyTorch",
-        "mlm:framework_version": "2.1.0",
+        "mlm:framework_version": "2.10.0",
         "mlm:pretrained": true,
         "mlm:pretrained_source": "https://arxiv.org/abs/2407.11743",
-        "mlm:accelerator": "cuda",
+        "mlm:accelerator": "amd64",
         "mlm:accelerator_count": 1,
         "keywords": [
             "building",
@@ -99,8 +99,8 @@
                     "shape": [
                         -1,
                         3,
-                        512,
-                        512
+                        256,
+                        256
                     ],
                     "dim_order": [
                         "batch",
@@ -126,8 +126,8 @@
                     "shape": [
                         -1,
                         2,
-                        512,
-                        512
+                        256,
+                        256
                     ],
                     "dim_order": [
                         "batch",
@@ -156,18 +156,18 @@
             }
         ],
         "mlm:hyperparameters": {
-            "epochs": 15,
+            "epochs": 5,
             "batch_size": 4,
             "learning_rate": 0.0001,
             "weight_decay": 0.0001,
-            "chip_size": 512,
+            "chip_size": 256,
             "optimizer": "AdamW",
             "loss": "CrossEntropyLoss"
         }
     },
     "assets": {
         "model": {
-            "href": "torchgeo.models.Unet_Weights.OAM_RGB_RESNET50_TCD",
+            "href": "torchgeo.models.Unet_Weights.OAM_RGB_RESNET34_TCD",
             "title": "Pretrained weights (torchgeo enum reference, not a URL)",
             "type": "application/octet-stream; framework=pytorch",
             "roles": [

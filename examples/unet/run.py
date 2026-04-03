@@ -15,6 +15,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
+import httpx
 import pystac
 import yaml
 from zenml.client import Client
@@ -176,7 +177,7 @@ def finetune(cfg: RunConfig) -> None:
         base,
         ds,
         MODEL_NAME,
-        {"epochs": 1},
+        {"learning_rate": 0.001},
         experiment_tracker=tracker_name,
     )
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
@@ -239,8 +240,55 @@ def predict(cfg: RunConfig) -> None:
     print(f"predict: {run.id} ({run.status})")
 
 
+def _check_href(client: httpx.Client, href: str, source: str, failures: list[str]) -> None:
+    try:
+        resp = client.get(href)
+        if resp.status_code != 200:
+            failures.append(f"  {resp.status_code} {href} (from {source})")
+    except httpx.RequestError as exc:
+        failures.append(f"  ERR {href} (from {source}): {exc}")
+
+
+def verify(cfg: RunConfig) -> None:
+    if not cfg.stac_api_url:
+        sys.exit("verify requires --stac-api-url")
+
+    collections = [BASE_MODELS_COLLECTION, DATASETS_COLLECTION, LOCAL_MODELS_COLLECTION]
+    cat = _get_backend(cfg)
+    checked = 0
+    failures: list[str] = []
+
+    with httpx.Client(timeout=15) as client:
+        for coll_id in collections:
+            coll_url = f"{cfg.stac_api_url}/collections/{coll_id}"
+            _check_href(client, coll_url, "collection", failures)
+            checked += 1
+
+            for item in cat.list_items(coll_id):
+                item_url = f"{cfg.stac_api_url}/collections/{coll_id}/items/{item.id}"
+                _check_href(client, item_url, f"{coll_id}/{item.id}", failures)
+                checked += 1
+
+                for link in item.links:
+                    if link.href and link.href.startswith(cfg.stac_api_url):
+                        _check_href(client, link.href, f"{item.id} link[{link.rel}]", failures)
+                        checked += 1
+
+                for asset_key, asset in item.assets.items():
+                    if asset.href and asset.href.startswith(cfg.stac_api_url):
+                        _check_href(client, asset.href, f"{item.id} asset[{asset_key}]", failures)
+                        checked += 1
+
+    if failures:
+        print(f"verify: FAIL ({len(failures)}/{checked} broken)")
+        for f in failures:
+            print(f)
+        sys.exit(1)
+    print(f"verify: ok ({checked} links checked)")
+
+
 def all_steps(cfg: RunConfig) -> None:
-    for step in (init, register, finetune, promote, predict):
+    for step in (init, register, finetune, promote, predict, verify):
         step(cfg)
 
 
@@ -263,6 +311,7 @@ COMMANDS: dict[str, Callable[[RunConfig], None]] = {
     "finetune": finetune,
     "promote": promote,
     "predict": predict,
+    "verify": verify,
     "all": all_steps,
     "clean": clean,
 }

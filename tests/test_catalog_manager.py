@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -119,9 +120,11 @@ def test_cross_collection_href_resolves(cm):
 
 
 def test_asset_hrefs_survive_save_roundtrip(cm):
-    """Asset hrefs must be usable after publish -> get_item (no PySTAC relative mangling)."""
+    """Asset hrefs must resolve to the correct absolute path after publish -> get_item."""
     chips_href = "data/sample/train/oam"
     labels_href = "data/sample/train/osm/labels.geojson"
+    expected_chips = os.path.abspath(chips_href)
+    expected_labels = os.path.abspath(labels_href)
 
     item = pystac.Item(
         id="ds-roundtrip",
@@ -136,6 +139,5 @@ def test_asset_hrefs_survive_save_roundtrip(cm):
     cm.publish_item("datasets", item)
     retrieved = cm.get_item("datasets", "ds-roundtrip")
 
-    for key in ("chips", "labels"):
-        href = retrieved.assets[key].href
-        assert not href.startswith("../"), f"Asset '{key}' href was mangled to a relative path: {href}"
+    assert retrieved.assets["chips"].href == expected_chips
+    assert retrieved.assets["labels"].href == expected_labels

@@ -12,6 +12,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - add ZenML integration for model promotion and STAC catalog synchronization
 - implement STAC catalog management and builders for datasets and models
 
+## v0.0.6 (2026-04-01)
+
+### Fix
+
+- **python**: fixes python version bump
+- **auth**: ci k8s zenml
+- **ci**: login in zenml k8s ci server disable
+- **ci**: k8s kind config for taining
+- **k8s**: adds fix for k8s deps in dockerfile
+
 ## v0.0.5 (2026-03-02)
 
 ### Fix

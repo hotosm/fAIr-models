@@ -11,10 +11,14 @@ catalog on promotion.
 ## Quickstart
 
 ```bash
-uv sync --group local --group example
-make init
-# See examples/unet/README.md for the full walkthrough
+make setup
+make example
 ```
+
+Run `make help` to see all available targets. For Kubernetes mode run
+`make k8s` first, then `make setup`. See [examples/unet/README.md](examples/unet/README.md)
+for the full walkthrough and [docs/getting-started.md](docs/getting-started.md)
+for detailed setup instructions.
 
 ## Architecture
 

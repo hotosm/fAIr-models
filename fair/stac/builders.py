@@ -59,7 +59,7 @@ def _flatten_coords(coords: Any) -> list[list[float]]:
     return result
 
 
-def _geometry_and_bbox_from_geojson(labels_href: str) -> tuple[dict[str, Any], list[float]]:
+def geometry_and_bbox_from_geojson(labels_href: str) -> tuple[dict[str, Any], list[float]]:
     with open(labels_href, encoding="utf-8") as f:
         geojson: Any = json.load(f)
 
@@ -116,7 +116,7 @@ def build_dataset_item(
     predecessor_version_href: str | None = None,
 ) -> pystac.Item:
     if geometry is None or bbox is None:
-        geometry, bbox = _geometry_and_bbox_from_geojson(labels_href)
+        geometry, bbox = geometry_and_bbox_from_geojson(labels_href)
 
     resolved_id = item_id if item_id is not None else _slugify(title)
 

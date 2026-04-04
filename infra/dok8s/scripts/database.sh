@@ -4,7 +4,12 @@ set -euo pipefail
 action=${1:?Usage: database.sh <create|init|write-env>}
 DB_NAME="${CLUSTER_NAME}-pg"
 
-_db_id() { doctl databases list --format ID,Name --no-header | awk "/$DB_NAME/ {print \$1}"; }
+_db_id() {
+  local id
+  id=$(doctl databases list --format ID,Name --no-header | awk "/$DB_NAME/ {print \$1}")
+  [[ -n "$id" ]] || { echo "ERROR: Database '$DB_NAME' not found"; exit 1; }
+  echo "$id"
+}
 _db_uri() { doctl databases connection "$(_db_id)" --format URI --no-header; }
 
 case "$action" in

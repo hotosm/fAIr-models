@@ -9,23 +9,23 @@ root := "../.."
 setup:
     #!/usr/bin/env bash
     set -euo pipefail
-    kubectl create ns {{ns}} --dry-run=client -o yaml | kubectl apply -f -
-    kubectl apply -n {{ns}} -f {{dev}}/postgres/service.yaml -f {{dev}}/postgres/statefulset.yaml
-    kubectl rollout status -n {{ns}} statefulset/postgres --timeout=120s
-    (cd {{dev}} && helmfile sync --selector name!=nvidia-device-plugin)
-    kubectl wait --for=condition=complete job --all -n {{ns}} --timeout=300s
-    kubectl rollout status -n {{ns}} deployment/stac-stac --timeout=300s
-    kubectl rollout status -n {{ns}} deployment/zenml --timeout=300s
-    kubectl rollout status -n {{ns}} deployment/minio --timeout=300s
-    kubectl rollout status -n {{ns}} deployment/mlflow --timeout=300s
+    kubectl create ns {{ ns }} --dry-run=client -o yaml | kubectl apply -f -
+    kubectl apply -n {{ ns }} -f {{ dev }}/postgres/service.yaml -f {{ dev }}/postgres/statefulset.yaml
+    kubectl rollout status -n {{ ns }} statefulset/postgres --timeout=120s
+    (cd {{ dev }} && helmfile sync --selector name!=nvidia-device-plugin)
+    kubectl wait --for=condition=complete job --all -n {{ ns }} --timeout=300s
+    kubectl rollout status -n {{ ns }} deployment/stac-stac --timeout=300s
+    kubectl rollout status -n {{ ns }} deployment/zenml --timeout=300s
+    kubectl rollout status -n {{ ns }} deployment/minio --timeout=300s
+    kubectl rollout status -n {{ ns }} deployment/mlflow --timeout=300s
     while read -r svc ports; do
-        kubectl port-forward -n {{ns}} "svc/$svc" "$ports" &
-    done < {{dev}}/ports.conf
+        kubectl port-forward -n {{ ns }} "svc/$svc" "$ports" &
+    done < {{ dev }}/ports.conf
     while read -r svc ports; do
         for i in $(seq 1 30); do nc -z localhost "${ports%%:*}" 2>/dev/null && break; sleep 1; done
-    done < {{dev}}/ports.conf
-    uv run --with minio python {{dev}}/scripts/seed_data.py
-    cd {{root}}
+    done < {{ dev }}/ports.conf
+    uv run --with minio python {{ dev }}/scripts/seed_data.py
+    cd {{ root }}
     uv run zenml init
     for i in 1 2 3 4 5; do
         uv run zenml connect --url http://localhost:8080 --username default --password '' --no-verify-ssl && break
@@ -39,9 +39,9 @@ setup:
 run-example:
     #!/usr/bin/env bash
     set -euo pipefail
-    cd {{root}}
+    cd {{ root }}
     AWS_ENDPOINT_URL=http://localhost:9000 \
     FAIR_FORCE_CPU=1 \
         uv run python examples/unet/run.py all \
             --stac-api-url http://localhost:8082 \
-            --dsn "{{pgstac_dsn}}"
+            --dsn "{{ pgstac_dsn }}"

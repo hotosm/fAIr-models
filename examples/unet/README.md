@@ -12,7 +12,7 @@ OAM imagery with OSM building labels.
 
 ```bash
 uv sync --group example --group local
-make init
+just setup
 python examples/unet/run.py all
 ```
 

@@ -91,9 +91,9 @@ def register(cfg: RunConfig) -> None:
     if not local_labels:
         sys.exit(f"No .geojson in {TRAIN_OSM}")
 
-    from fair.stac.builders import _geometry_and_bbox_from_geojson
+    from fair.stac.builders import geometry_and_bbox_from_geojson
 
-    geometry, bbox = _geometry_and_bbox_from_geojson(str(local_labels[0]))
+    geometry, bbox = geometry_and_bbox_from_geojson(str(local_labels[0]))
 
     chips_href = TRAIN_OAM
     labels_href = str(local_labels[0])
@@ -176,7 +176,8 @@ def finetune(cfg: RunConfig) -> None:
     from models.example_unet.pipeline import training_pipeline
 
     run = training_pipeline.with_options(config_path=str(train_cfg))()
-    assert run is not None
+    if run is None:
+        raise RuntimeError("Training pipeline returned no run")
     print(f"finetune: {run.id} ({run.status})")
 
 
@@ -225,7 +226,8 @@ def predict(cfg: RunConfig) -> None:
     from models.example_unet.pipeline import inference_pipeline
 
     run = inference_pipeline.with_options(config_path=str(inf_cfg), enable_cache=False)()
-    assert run is not None
+    if run is None:
+        raise RuntimeError("Inference pipeline returned no run")
     print(f"predict: {run.id} ({run.status})")
 
 

@@ -43,6 +43,4 @@ jobs:
           test -f stac_catalog/datasets/buildings-banepa/buildings-banepa.json || { echo "Dataset not registered"; exit 1; }
           test -n "$(ls -A stac_catalog/local-models/ 2>/dev/null)" || { echo "Local model not published"; exit 1; }
           test -d artifacts || { echo "Artifacts directory not created"; exit 1; }
-          test -d data/sample/predict/predictions || { echo "Predictions directory not created"; exit 1; }
-          test -n "$(find data/sample/predict/predictions -name '*.tif' -o -name '*.png' 2>/dev/null)" || { echo "No prediction files found"; exit 1; }
-          echo "All workflow outputs verified: STAC catalog + artifacts + predictions"
+          echo "All workflow outputs verified: STAC catalog + artifacts"

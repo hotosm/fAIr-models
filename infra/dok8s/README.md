@@ -31,7 +31,7 @@ cp env.example .env
 | `CLUSTER_NAME` | Cluster name (default: `fair`) |
 | `DO_REGION` | DO region (default: `nyc3`) |
 | `FAIR_DOMAIN` | Your wildcard domain |
-| `PG_*` | Auto-populated by `make infra` |
+| `PG_*` | Auto-populated by `just infra` |
 | `SPACES_BUCKET` | S3 bucket name |
 | `SPACES_ACCESS_KEY` | Spaces access key |
 | `SPACES_SECRET_KEY` | Spaces secret key |
@@ -44,11 +44,11 @@ cp env.example .env
 ## Usage
 
 ```
-make up             # provision infra + deploy + DNS
-make run-example    # submit UNet pipeline to cluster
-make status         # check cluster health
-make urls           # print service URLs
-make tear           # destroy (keeps Spaces bucket)
+just up             # provision infra + deploy + DNS
+just run-example    # submit UNet pipeline to cluster
+just status         # check cluster health
+just urls           # print service URLs
+just tear           # destroy (keeps Spaces bucket)
 ```
 
 Individual steps can be run directly:

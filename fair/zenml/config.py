@@ -7,7 +7,7 @@ import pystac
 
 from fair.stac.constants import CONTAINER_REGISTRIES, OCI_IMAGE_INDEX_TYPE
 
-LABEL_DOMAIN = os.environ.get("FAIR_LABEL_DOMAIN", "fair-dev.hotosm.org")
+LABEL_DOMAIN = os.environ.get("FAIR_LABEL_DOMAIN", "fair.dev")
 
 
 def _normalize_container_href(href: str) -> str:

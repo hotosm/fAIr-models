@@ -11,12 +11,12 @@ catalog on promotion.
 ## Quickstart
 
 ```bash
-make setup
-make example
+just setup
+just example
 ```
 
-Run `make help` to see all available targets. For Kubernetes mode run
-`make k8s` first, then `make setup`. See [examples/unet/README.md](examples/unet/README.md)
+Run `just` to see all available recipes. For Kubernetes mode run
+`just k8s` first, then `just setup`. See [examples/unet/README.md](examples/unet/README.md)
 for the full walkthrough and [docs/getting-started.md](docs/getting-started.md)
 for detailed setup instructions.
 

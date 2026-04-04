@@ -1,0 +1,120 @@
+set shell := ["bash", "-euo", "pipefail", "-c"]
+
+ns := "fair"
+scripts := "scripts"
+infra_node_size := env("INFRA_NODE_SIZE", "s-2vcpu-4gb")
+
+[doc('Provision infra, deploy, configure DNS')]
+up:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    {{scripts}}/cluster.sh create
+    {{scripts}}/database.sh create
+    {{scripts}}/database.sh write-env
+    {{scripts}}/spaces.sh create
+    {{scripts}}/database.sh init
+    source .env
+    export FAIR_LABEL_DOMAIN="$FAIR_DOMAIN"
+    export DOKS_CONTEXT="do-${DO_REGION}-${CLUSTER_NAME}"
+    export SPACES_ENDPOINT="https://${DO_REGION}.digitaloceanspaces.com"
+    export PGSTAC_DSN="postgresql://${PG_USER}:${PG_PASSWORD}@${PG_HOST}:${PG_PORT}/fair_models?sslmode=require"
+    export STAC_API_URL="https://stac.${FAIR_DOMAIN}/stac"
+    {{scripts}}/validate-env.sh
+    {{scripts}}/deploy.sh helm
+    {{scripts}}/deploy.sh cert-issuer
+    {{scripts}}/deploy.sh stac-ingress
+    {{scripts}}/deploy.sh dns
+    {{scripts}}/spaces.sh seed
+    {{scripts}}/deploy.sh register-stack
+    echo "ZenML:  https://zenml.${FAIR_DOMAIN}"
+    echo "MLflow: https://mlflow.${FAIR_DOMAIN}"
+    echo "STAC:   https://stac.${FAIR_DOMAIN}/stac"
+
+[doc('Provision cloud infrastructure only')]
+infra:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    {{scripts}}/cluster.sh create
+    {{scripts}}/database.sh create
+    {{scripts}}/database.sh write-env
+    {{scripts}}/spaces.sh create
+    {{scripts}}/database.sh init
+
+[doc('Deploy services (requires .env to be populated)')]
+deploy:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    source .env
+    export FAIR_LABEL_DOMAIN="$FAIR_DOMAIN"
+    export DOKS_CONTEXT="do-${DO_REGION}-${CLUSTER_NAME}"
+    export SPACES_ENDPOINT="https://${DO_REGION}.digitaloceanspaces.com"
+    export PGSTAC_DSN="postgresql://${PG_USER}:${PG_PASSWORD}@${PG_HOST}:${PG_PORT}/fair_models?sslmode=require"
+    export STAC_API_URL="https://stac.${FAIR_DOMAIN}/stac"
+    {{scripts}}/validate-env.sh
+    {{scripts}}/deploy.sh helm
+    {{scripts}}/deploy.sh cert-issuer
+    {{scripts}}/deploy.sh stac-ingress
+    {{scripts}}/deploy.sh dns
+    {{scripts}}/spaces.sh seed
+    {{scripts}}/deploy.sh register-stack
+    just urls
+
+[doc('Destroy cluster and database (keeps Spaces bucket)')]
+tear:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    source .env || true
+    export FAIR_LABEL_DOMAIN="${FAIR_DOMAIN:-}"
+    export DOKS_CONTEXT="do-${DO_REGION:-nyc3}-${CLUSTER_NAME:-fair}"
+    export SPACES_ENDPOINT="https://${DO_REGION:-nyc3}.digitaloceanspaces.com"
+    helmfile destroy 2>/dev/null || true
+    {{scripts}}/database.sh delete || true
+    {{scripts}}/cluster.sh delete || true
+    echo "Spaces bucket ${SPACES_BUCKET:-} preserved. Delete manually if needed."
+
+[doc('Show cluster health')]
+status:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    source .env || true
+    echo "Cluster:  $(doctl kubernetes cluster get "${CLUSTER_NAME:-fair}" --format Status --no-header 2>/dev/null || echo 'not found')"
+    echo "Database: $(doctl databases list --format Status --no-header 2>/dev/null | head -1 || echo 'not found')"
+    echo "Pods:"
+    kubectl get pods -n {{ns}} --no-headers 2>/dev/null | sed 's/^/  /' || echo "  no context"
+    echo ""
+    just urls 2>/dev/null || true
+
+[doc('Print service URLs')]
+urls:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    source .env
+    echo "ZenML:  https://zenml.${FAIR_DOMAIN}"
+    echo "MLflow: https://mlflow.${FAIR_DOMAIN}"
+    echo "STAC:   https://stac.${FAIR_DOMAIN}/stac"
+
+[doc('Submit UNet pipeline to cluster')]
+run-example:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    source .env
+    export FAIR_LABEL_DOMAIN="$FAIR_DOMAIN"
+    export SPACES_ENDPOINT="https://${DO_REGION}.digitaloceanspaces.com"
+    export PGSTAC_DSN="postgresql://${PG_USER}:${PG_PASSWORD}@${PG_HOST}:${PG_PORT}/fair_models?sslmode=require"
+    export STAC_API_URL="https://stac.${FAIR_DOMAIN}/stac"
+    TOKEN=$(curl -fsS -X POST "https://zenml.${FAIR_DOMAIN}/api/v1/login" \
+        -d "username=${ZENML_ADMIN_USER}&password=${ZENML_ADMIN_PASSWORD}&grant_type=password" | \
+        python3 -c "import sys,json; print(json.load(sys.stdin)['access_token'])")
+    cd ../..
+    ZENML_STORE_URL="https://zenml.${FAIR_DOMAIN}" \
+    ZENML_STORE_API_TOKEN="$TOKEN" \
+    ZENML_STORE_VERIFY_SSL=false \
+    FAIR_FORCE_CPU=1 \
+    FAIR_LABEL_DOMAIN="$FAIR_LABEL_DOMAIN" \
+    AWS_ENDPOINT_URL="$SPACES_ENDPOINT" \
+    AWS_ACCESS_KEY_ID="${SPACES_ACCESS_KEY}" \
+    AWS_SECRET_ACCESS_KEY="${SPACES_SECRET_KEY}" \
+    uv run python examples/unet/run.py all \
+        --stac-api-url "$STAC_API_URL" \
+        --dsn "$PGSTAC_DSN" \
+        --data-prefix "s3://${SPACES_BUCKET}/data/sample"

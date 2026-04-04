@@ -15,7 +15,8 @@ S                  = scripts
 
 .PHONY: up infra deploy tear status urls run-example
 
-up: infra deploy
+up: infra
+	@$(MAKE) --no-print-directory deploy
 
 infra:
 	@$(S)/cluster.sh create

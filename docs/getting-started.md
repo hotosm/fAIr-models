@@ -19,7 +19,7 @@ icon: lucide/rocket
     ```bash title="Clone and set up the project"
     git clone https://github.com/hotosm/fAIr-models.git
     cd fAIr-models
-    make setup
+    just setup
     ```
 
 === ":lucide-container: Kubernetes dev stack"
@@ -27,14 +27,14 @@ icon: lucide/rocket
     ```bash title="Clone and set up with k8s extras"
     git clone https://github.com/hotosm/fAIr-models.git
     cd fAIr-models
-    make k8s
-    make setup
+    just k8s
+    just setup
     ```
 
-    `make k8s` switches to k8s mode (sticky, persists across sessions).
-    `make setup` then installs k8s extras and checks that
-    `kind`, `kubectl`, `helm`, `helmfile`, `mc`, and `envsubst` are on `$PATH`.
-    Use `make local` to switch back. See [Kubernetes Dev Stack](development/k8s.md).
+    `just k8s` switches to k8s mode (sticky, persists across sessions).
+    `just setup` then installs k8s extras and checks that
+    `kind`, `kubectl`, `helm`, `helmfile`, and `mc` are on `$PATH`.
+    Use `just local` to switch back. See [Kubernetes Dev Stack](development/k8s.md).
 
 === ":lucide-package: As a library"
 
@@ -48,7 +48,7 @@ The included UNet example demonstrates the full workflow — register a base
 model, finetune it on sample data, promote the best version, and run inference.
 
 ```bash title="Run the full pipeline"
-make example  # init → register → finetune → promote → predict
+just example  # init -> register -> finetune -> promote -> predict
 ```
 
 ??? example "Individual steps"
@@ -87,18 +87,18 @@ tests/                 # pytest suite
 
 ## Development Commands
 
-All targets adapt to the active mode (`local` by default). Switch with `make k8s` or `make local`.
+All targets adapt to the active mode (`local` by default). Switch with `just k8s` or `just local`.
 
-```bash title="Available make targets"
-make local             # switch to local mode (default)
-make k8s               # switch to k8s mode (sticky)
-make setup             # install deps (k8s mode adds extras + tool checks)
-make lint              # ruff check + format + ty check
-make test              # pytest
-make validate          # validate STAC items + model pipelines
-make example           # run example pipeline (k8s mode delegates to infra/dev)
-make docs              # serve documentation locally
-make clean             # remove ZenML state + artifacts (k8s mode also tears down cluster)
+```bash title="Available recipes"
+just local             # switch to local mode (default)
+just k8s               # switch to k8s mode (sticky)
+just setup             # install deps (k8s mode adds extras + tool checks)
+just lint              # ruff check + format + ty check
+just test              # pytest
+just validate          # validate STAC items + model pipelines
+just example           # run example pipeline (k8s mode delegates to infra/dev)
+just docs              # serve documentation locally
+just clean             # remove ZenML state + artifacts (k8s mode also tears down cluster)
 ```
 
 ## Next Steps

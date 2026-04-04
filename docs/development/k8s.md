@@ -14,7 +14,7 @@ Local kind cluster mirroring the EKS deployment from `hotosm/k8s-infra`.
     [helmfile](https://helmfile.readthedocs.io/),
     [mc](https://min.io/docs/minio/linux/reference/minio-mc.html) (minio client),
     [colima](https://github.com/abiosoft/colima) (macOS) or Docker Engine (Linux).
-    `make setup` in k8s mode checks all of these are on `$PATH` before proceeding.
+    `just setup` in k8s mode checks all of these are on `$PATH` before proceeding.
     For GPU support: [nvkind](https://github.com/NVIDIA/nvkind), NVIDIA driver,
     [nvidia-container-toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html).
     See [GPU Support](#gpu-support-optional) below.
@@ -22,23 +22,23 @@ Local kind cluster mirroring the EKS deployment from `hotosm/k8s-infra`.
 View source code of infra files for dev [infra/dev](https://github.com/hotosm/fAIr-models/tree/master/infra/dev)
 
 ```bash title="Setup and cluster lifecycle"
-make k8s              # switch to k8s mode (sticky, one-time)
-make setup            # install deps + k8s extras + verify CLI tools
+just k8s              # switch to k8s mode (sticky, one-time)
+just setup            # install deps + k8s extras + verify CLI tools
 cd infra/dev
-make up               # creates cluster if missing, deploys infra, starts port-forwards
-make status            # show cluster, pods, port-forward health
-make down              # stop port-forwards (cluster stays for fast restart)
-make tear              # destroy everything
+just up               # creates cluster if missing, deploys infra, starts port-forwards
+just status            # show cluster, pods, port-forward health
+just down              # stop port-forwards (cluster stays for fast restart)
+just tear              # destroy everything
 ```
 
 ```bash title="Run pipelines"
-make example           # E2E with local orchestrator against k8s infra (from repo root)
-make run-example-k8s   # E2E with k8s orchestrator (from infra/dev)
+just example           # E2E with local orchestrator against k8s infra (from repo root)
+just run-example-k8s   # E2E with k8s orchestrator (from infra/dev)
 ```
 
 ### Verifying results
 
-!!! success "After `make run-example` completes, inspect outputs at"
+!!! success "After `just run-example` completes, inspect outputs at"
 
     | What | URL |
     |------|-----|
@@ -49,7 +49,7 @@ make run-example-k8s   # E2E with k8s orchestrator (from infra/dev)
 
 ### ZenML Stacks
 
-`make up` registers two stacks:
+`just up` registers two stacks:
 
 === ":lucide-laptop: dev (active)"
 
@@ -58,7 +58,7 @@ make run-example-k8s   # E2E with k8s orchestrator (from infra/dev)
     | **Orchestrator** | `default` (local process) |
     | **S3 Endpoint** | `localhost:9000` |
     | **MLflow** | `localhost:5000` |
-    | **Use** | Local runs via port-forward (`make run-example`) |
+    | **Use** | Local runs via port-forward (`just run-example`) |
 
 === ":lucide-container: k8s"
 
@@ -67,7 +67,7 @@ make run-example-k8s   # E2E with k8s orchestrator (from infra/dev)
     | **Orchestrator** | `k8s_orchestrator` |
     | **S3 Endpoint** | `minio.fair.svc:9000` |
     | **MLflow** | `mlflow.fair.svc:80` |
-    | **Use** | In-cluster jobs (`make run-example-k8s`) |
+    | **Use** | In-cluster jobs (`just run-example-k8s`) |
 
 ## Architecture
 
@@ -83,7 +83,7 @@ postgres (PG 17 + PostGIS)           zenml (ghcr.io/hotosm/zenml-postgres:0.93.3
         +--- minio (s3://fair-data, s3://mlflow, s3://zenml)
 ```
 
-??? note "Port-forwards (managed by `make up` / `make down`)"
+??? note "Port-forwards (managed by `just up` / `just down`)"
 
     | Service  | Local           | Cluster                     |
     |----------|-----------------|-----------------------------|
@@ -95,9 +95,9 @@ postgres (PG 17 + PostGIS)           zenml (ghcr.io/hotosm/zenml-postgres:0.93.3
 
 ## GPU Support (optional)
 
-Follow the [nvkind prerequisites and setup guide](https://github.com/NVIDIA/nvkind#prerequisites) to install the NVIDIA driver, nvidia-container-toolkit, and nvkind on your host. Once `nvkind` is on `$PATH`, `make up` handles the rest.
+Follow the [nvkind prerequisites and setup guide](https://github.com/NVIDIA/nvkind#prerequisites) to install the NVIDIA driver, nvidia-container-toolkit, and nvkind on your host. Once `nvkind` is on `$PATH`, `just up` handles the rest.
 
-??? info "What `make up` does"
+??? info "What `just up` does"
 
     `kind-config.yaml` labels workers as `inference` and `train`, with the train
     node getting `extraMounts` that signal GPU presence to nvkind. The cluster
@@ -107,27 +107,26 @@ Follow the [nvkind prerequisites and setup guide](https://github.com/NVIDIA/nvki
 
 !!! warning "Caveats"
 
-    - `PatchProcDriverNvidia` may fail on non-MIG single-GPU hosts ; non-critical, the Makefile tolerates it.
+    - `PatchProcDriverNvidia` may fail on non-MIG single-GPU hosts ; non-critical, the justfile tolerates it.
     - nvkind restarts containerd on the GPU node, briefly disrupting colocated pods.
     - Device plugin uses `--set deviceDiscoveryStrategy=nvml` (default `auto` fails inside kind).
 
 ## Configuration
 
-### `FAIR_LABEL_DOMAIN`
+### Label domain
 
-Node labels and taints use a configurable domain prefix (default `fair-dev.hotosm.org`).
-Override via environment variable:
+Node labels and taints use the `fair.dev` prefix (hardcoded in all dev/CI config files).
+For production (dok8s), the label domain comes from `FAIR_DOMAIN` in `.env`.
 
-```bash title="Override label domain"
-export FAIR_LABEL_DOMAIN=fair-dev.hotosm.org  # dev
-make up
-```
+The runtime default in `fair/zenml/config.py` can be overridden via `FAIR_LABEL_DOMAIN` env var.
 
-??? info "Consumed in three places"
+??? info "Where the label domain appears"
 
-    - **`kind-config.yaml`** : node labels (`${FAIR_LABEL_DOMAIN}/role`) and taints (`${FAIR_LABEL_DOMAIN}/workload`), resolved via `envsubst` at cluster creation
-    - **`stacks/k8s.yaml`** : pod `node_selectors` and `tolerations`, resolved via `envsubst` at stack registration
-    - **`fair/zenml/config.py`** : reads `FAIR_LABEL_DOMAIN` at runtime (default `fair.hotosm.org`) for pipeline pod scheduling
+    - **`infra/dev/kind-config.yaml`** : node labels (`fair.dev/role`) and taints (`fair.dev/workload`)
+    - **`infra/ci/kind-config.yaml`** : same, single-node CI variant
+    - **`infra/dev/postgres/statefulset.yaml`** : nodeSelector `fair.dev/role: infra`
+    - **`stacks/k8s.yaml`** / **`stacks/ci-k8s.yaml`** : pod `node_selectors` and `tolerations`
+    - **`fair/zenml/config.py`** : reads `FAIR_LABEL_DOMAIN` at runtime (default `fair.dev`) for pipeline pod scheduling
 
 ??? abstract "Decisions"
 

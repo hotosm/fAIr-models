@@ -561,7 +561,7 @@ Before submitting your pull request:
 - [ ] `mlm:hyperparameters` in STAC item matches pipeline parameter names and defaults
 - [ ] `mlm:input` declares exactly 3 RGB bands
 - [ ] Dockerfile builds successfully and is self-contained
-- [ ] Model and STAC item pass `make validate`
+- [ ] Model and STAC item pass `just validate`
 - [ ] License is one of: `AGPL-3.0-only`, `MIT`, `Apache-2.0`, `BSD-3-Clause`
 - [ ] Keywords include a feature category, task, and geometry type (`polygon`, `line`, or `point`)
 - [ ] Model weights are publicly accessible or included in the weight loading code
@@ -582,10 +582,10 @@ All checks must pass before the PR is reviewed.
 ## Local Development
 
 ```bash title="Local dev workflow"
-make setup                             # Install deps + ZenML init
-make validate                          # Validate STAC items + model pipelines
-make test                              # Run tests
-make example                           # Run full example pipeline
+just setup                             # Install deps + ZenML init
+just validate                          # Validate STAC items + model pipelines
+just test                              # Run tests
+just example                           # Run full example pipeline
 ```
 
 ## Reference

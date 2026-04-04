@@ -1,0 +1,143 @@
+set shell := ["bash", "-euo", "pipefail", "-c"]
+
+ns := "fair"
+cluster := "local-dev-fair"
+pgstac_dsn := "postgresql://postgres:postgres@localhost:5432/fair_models"
+pid_file := ".port-forward.pids"
+
+[doc('Create cluster, deploy infra, start port-forwards, seed data, register stacks')]
+up: _ensure-cluster _ensure-infra _ensure-port-forward _seed-data _stack-register
+    @echo "Ready."
+
+[doc('Stop port-forwards (cluster stays for fast restart)')]
+down: _kill-port-forward
+    @echo "Port-forwards stopped. 'just up' to resume."
+
+[doc('Destroy everything')]
+tear: _kill-port-forward
+    -helmfile destroy
+    -kubectl delete ns nvidia --ignore-not-found
+    -kubectl delete -n {{ns}} -f postgres/
+    kind delete cluster --name {{cluster}}
+
+[doc('Show cluster, pods, port-forward health')]
+status:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    cluster_exists=$(kind get clusters 2>/dev/null | grep -qx {{cluster}} && echo 1 || true)
+    infra_running=$(kubectl get statefulset/postgres -n {{ns}} -o jsonpath='{.status.readyReplicas}' 2>/dev/null || true)
+    pf_running=""
+    if [[ -f {{pid_file}} ]] && kill -0 "$(head -1 {{pid_file}})" 2>/dev/null; then
+        pf_running=1
+    fi
+    echo "Cluster:       ${cluster_exists:+running}${cluster_exists:-not found}"
+    echo "Infra:         ${infra_running:+running}${infra_running:-not ready}"
+    echo "Port-forwards: ${pf_running:+active}${pf_running:-inactive}"
+    echo ""
+    if [[ "$cluster_exists" == "1" ]]; then
+        echo "Nodes:"
+        kubectl get nodes -o wide --no-headers 2>/dev/null | sed 's/^/  /'
+        echo ""
+        echo "Pods ({{ns}}):"
+        kubectl get pods -n {{ns}} --no-headers 2>/dev/null | sed 's/^/  /'
+        echo ""
+        echo "Ports:"
+        while read -r svc ports; do
+            local_port=${ports%%:*}
+            if nc -z localhost "$local_port" 2>/dev/null; then
+                echo "  $svc localhost:$local_port ok"
+            else
+                echo "  $svc localhost:$local_port down"
+            fi
+        done < ports.conf
+    fi
+
+[doc('Run E2E pipeline with local orchestrator against k8s infra')]
+run-example:
+    cd ../.. && uv run python examples/unet/run.py all --stac-api-url http://localhost:8082 --dsn {{pgstac_dsn}}
+
+[doc('Run E2E pipeline with k8s orchestrator')]
+run-example-k8s:
+    cd ../.. && uv run zenml stack set k8s
+    cd ../.. && AWS_ENDPOINT_URL=http://localhost:9000 uv run python examples/unet/run.py all \
+        --stac-api-url http://localhost:8082 --dsn {{pgstac_dsn}}
+
+[private]
+_ensure-cluster:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if ! kind get clusters 2>/dev/null | grep -qx {{cluster}}; then
+        docker_host=""
+        if [[ ! -e /var/run/docker.sock ]]; then
+            if [[ -e "$HOME/.colima/default/docker.sock" ]]; then
+                docker_host="unix://$HOME/.colima/default/docker.sock"
+            elif [[ -e "$HOME/.docker/run/docker.sock" ]]; then
+                docker_host="unix://$HOME/.docker/run/docker.sock"
+            fi
+        fi
+        nvkind=$(command -v nvkind 2>/dev/null || echo "$HOME/go/bin/nvkind")
+        DOCKER_HOST="${docker_host}" "$nvkind" cluster create --name {{cluster}} --config-template kind-config.yaml || \
+            DOCKER_HOST="${docker_host}" kind create cluster --name {{cluster}} --config kind-config.yaml
+        kubectl apply -f - <<< '{"apiVersion":"node.k8s.io/v1","kind":"RuntimeClass","handler":"nvidia","metadata":{"name":"nvidia"}}' 2>/dev/null || true
+    fi
+
+[private]
+_ensure-infra:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    ready=$(kubectl get statefulset/postgres -n {{ns}} -o jsonpath='{.status.readyReplicas}' 2>/dev/null || true)
+    if [[ "$ready" != "1" ]]; then
+        kubectl create ns {{ns}} --dry-run=client -o yaml | kubectl apply -f -
+        kubectl apply -n {{ns}} -f postgres/service.yaml -f postgres/statefulset.yaml
+        kubectl rollout status -n {{ns}} statefulset/postgres --timeout=120s
+        helmfile apply
+        kubectl rollout status -n {{ns}} deployment/stac-stac --timeout=300s
+    fi
+
+[private]
+_ensure-port-forward:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [[ -f {{pid_file}} ]] && kill -0 "$(head -1 {{pid_file}})" 2>/dev/null; then
+        exit 0
+    fi
+    just _kill-port-forward
+    mkdir -p .pf-logs
+    while read -r svc ports; do
+        ( while true; do
+            kubectl port-forward -n {{ns}} "svc/$svc" "$ports" >>.pf-logs/"$svc".log 2>&1 || true
+            sleep 2
+        done ) & echo $! >> {{pid_file}}
+    done < ports.conf
+    while read -r svc ports; do
+        for i in $(seq 1 30); do nc -z localhost "${ports%%:*}" 2>/dev/null && break; sleep 1; done
+    done < ports.conf
+
+[private]
+_kill-port-forward:
+    #!/usr/bin/env bash
+    set -uo pipefail
+    if [[ -f {{pid_file}} ]]; then
+        while read -r pid; do
+            kill -- "-$pid" 2>/dev/null || kill "$pid" 2>/dev/null || true
+        done < {{pid_file}}
+        rm -f {{pid_file}}
+    fi
+    rm -rf .pf-logs
+
+[private]
+_seed-data:
+    uv run --with minio python scripts/seed_data.py
+
+[private]
+_stack-register:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    for i in 1 2 3 4 5; do
+        uv run zenml connect --url http://localhost:8080 --username default --password '' --no-verify-ssl && break
+        echo "zenml connect: attempt $i failed, retrying in 5s..." >&2
+        sleep 5
+    done
+    uv run zenml stack import dev -f ../../stacks/local.yaml --ignore-version-mismatch || true
+    uv run zenml stack import k8s -f ../../stacks/k8s.yaml --ignore-version-mismatch || true
+    uv run zenml stack set dev

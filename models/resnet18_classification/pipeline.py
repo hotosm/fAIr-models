@@ -223,7 +223,7 @@ def export_onnx(
         input_names=["input"],
         output_names=["output"],
         dynamic_axes={"input": {0: "batch"}, "output": {0: "batch"}},
-        opset_version=17,
+        opset_version=18,
     )
     return path
 

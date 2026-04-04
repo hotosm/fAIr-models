@@ -90,10 +90,11 @@ local = [
     "zenml[server]>=0.93.3",
 ]
 example = [
+    "onnx>=1.21.0",
+    "onnxscript>=0.6.2",
     "torch",
     "torchgeo",
-    "onnx",
-    "onnxscript",
+    "ultralytics>=8.4.33",
 ]
 
 [tool.ruff]
@@ -113,3 +114,6 @@ version_scheme = "semver"
 version_provider = "scm"
 update_changelog_on_bump = true
 major_version_zero = true
+
+[tool.ty.rules]
+unresolved-import = "ignore"

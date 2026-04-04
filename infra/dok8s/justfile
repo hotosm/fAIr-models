@@ -104,7 +104,7 @@ run-example:
     AWS_ENDPOINT_URL="$SPACES_ENDPOINT" \
     AWS_ACCESS_KEY_ID="${SPACES_ACCESS_KEY}" \
     AWS_SECRET_ACCESS_KEY="${SPACES_SECRET_KEY}" \
-    uv run python examples/unet/run.py all \
+    uv run python examples/segmentation/run.py all \
         --stac-api-url "$STAC_API_URL" \
         --dsn "$PGSTAC_DSN" \
         --data-prefix "s3://${SPACES_BUCKET}/data/sample"

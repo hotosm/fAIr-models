@@ -1,6 +1,6 @@
 # BuildKit uses <Dockerfile>.dockerignore automatically (no repo-level side effects)
 *
-!models/example_unet/
+!models/unet_segmentation/
 !fair/
 !pyproject.toml
 !README.md

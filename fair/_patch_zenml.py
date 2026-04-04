@@ -31,6 +31,12 @@ def _apply() -> None:
     patched.__module__ = ServerDatabaseType.__module__
     patched.__qualname__ = ServerDatabaseType.__qualname__  # type: ignore[attr-defined]
 
+    if not any(m.value == "postgresql" for m in patched):  # ty: ignore[unresolved-attribute]
+        import zenml
+
+        msg = f"ZenML patch failed: POSTGRESQL member not added (zenml {zenml.__version__})"
+        raise RuntimeError(msg)
+
     import zenml.models.v2.misc.server_models as mod
 
     mod.ServerDatabaseType = patched  # type: ignore[misc]

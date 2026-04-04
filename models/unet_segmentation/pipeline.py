@@ -1,6 +1,6 @@
 """ZenML pipeline for UNet building segmentation.
 
-Entrypoints referenced by models/example_unet/stac-item.json.
+Entrypoints referenced by models/unet_segmentation/stac-item.json.
 Pretrained weights: OAM-TCD (arxiv.org/abs/2407.11743).
 """
 
@@ -295,6 +295,34 @@ def run_inference(
     }
 
 
+@step
+def export_onnx(
+    trained_model: Any,
+    chip_size: int = 256,
+    num_classes: int = 2,
+) -> str:
+    import os
+    import tempfile
+
+    import torch
+
+    model = trained_model.cpu()
+    model.eval()
+    dummy = torch.randn(1, 3, chip_size, chip_size)
+    fd, path = tempfile.mkstemp(suffix=".onnx")
+    os.close(fd)
+    torch.onnx.export(
+        model,
+        (dummy,),
+        path,
+        input_names=["input"],
+        output_names=["output"],
+        dynamic_axes={"input": {0: "batch"}, "output": {0: "batch"}},
+        opset_version=17,
+    )
+    return path
+
+
 @pipeline
 def training_pipeline(
     base_model_weights: str,
@@ -309,6 +337,7 @@ def training_pipeline(
     samples_per_epoch: Annotated[int, Ge(10), Le(100000)] = 50,
     optimizer: Literal["Adam", "AdamW", "SGD"] = "AdamW",
     loss: Literal["CrossEntropyLoss", "BCEWithLogitsLoss"] = "CrossEntropyLoss",
+    class_names: list[str] | None = None,
 ) -> None:
     """Full training pipeline: finetune -> evaluate."""
     trained_model = train_model(
@@ -332,6 +361,12 @@ def training_pipeline(
         chip_size=chip_size,
         num_classes=num_classes,
         samples_per_epoch=samples_per_epoch,
+        class_names=class_names,
+    )
+    export_onnx(
+        trained_model=trained_model,
+        chip_size=chip_size,
+        num_classes=num_classes,
     )
 
 

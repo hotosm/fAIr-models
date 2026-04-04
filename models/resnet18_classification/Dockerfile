@@ -6,7 +6,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential libgdal-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# TODO: remove universal-pathlib once fair-py-ops is published with it as a dependency
 COPY pyproject.toml README.md fair_zenml_patch.pth /tmp/fair-src/
 COPY fair /tmp/fair-src/fair
 RUN --mount=type=cache,target=/root/.cache/uv \
@@ -15,7 +14,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     --extra-index-url https://download.pytorch.org/whl/cpu \
     --index-strategy unsafe-best-match \
     torch==2.10.0 \
-    torchgeo==0.9.0 \
+    torchvision \
     zenml==0.93.3 \
     /tmp/fair-src[k8s]
 
@@ -34,7 +33,6 @@ COPY --from=builder /usr/local/bin /usr/local/bin
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1
 
-COPY models/example_unet models/example_unet
+COPY models/resnet18_classification models/resnet18_classification
 
 ENTRYPOINT ["/usr/local/bin/python"]
-

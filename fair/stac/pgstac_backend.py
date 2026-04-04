@@ -51,6 +51,7 @@ class PgStacBackend:
     def publish_item(self, collection_id: str, item: pystac.Item) -> pystac.Item:
         item.properties.setdefault("version", "1")
         self._ensure_version_links(collection_id, item)
+        self._normalize_version_link_hrefs(collection_id, item)
         item_dict = item.to_dict()
         item_dict["collection"] = collection_id
         with self._get_db() as db:
@@ -58,6 +59,22 @@ class PgStacBackend:
             loader.load_items(iter([item_dict]), insert_mode=Methods.upsert)
         log.info("Published %s/%s v%s", collection_id, item.id, item.properties.get("version"))
         return item
+
+    def _normalize_version_link_hrefs(self, collection_id: str, item: pystac.Item) -> None:
+        _VERSION_RELS = {"predecessor-version", "successor-version", "latest-version"}
+        for link in item.links:
+            if link.rel not in _VERSION_RELS:
+                continue
+            href = link.get_href() or ""
+            if href.startswith(("http://", "https://")):
+                continue
+            # Relative local-catalog hrefs like ../../{coll}/{id}/{id}.json
+            parts = href.replace("\\", "/").split("/")
+            json_parts = [p for p in parts if p.endswith(".json")]
+            if json_parts:
+                target_item_id = json_parts[-1].removesuffix(".json")
+                target_coll = parts[-3] if len(parts) >= 3 else collection_id
+                link.target = self.item_href(target_coll, target_item_id)
 
     def _ensure_version_links(self, collection_id: str, item: pystac.Item) -> None:
         ensure_version_links(item, self.item_href(collection_id, item.id))

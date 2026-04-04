@@ -64,6 +64,12 @@ def publish_promoted_model(
     training_ended_at: str | None = None
     training_duration_seconds: float | None = None
     run_links = client.list_model_version_pipeline_run_links(model_version_id=mv.id)
+    if not run_links.items:
+        log.warning(
+            "No pipeline run links found for %s v%d; training metadata will be empty",
+            model_name,
+            version,
+        )
     if run_links.items:
         run = run_links.items[0].pipeline_run
         step = run.steps.get("train_model")

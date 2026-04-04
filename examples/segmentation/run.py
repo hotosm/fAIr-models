@@ -1,7 +1,7 @@
 """CI workflow for fAIr-models UNet example.
 
 Commands: init, register, finetune, promote, predict, all, clean
-Run from project root: python examples/unet/run.py <command>
+Run from project root: python examples/segmentation/run.py <command>
 """
 
 from __future__ import annotations
@@ -26,21 +26,21 @@ from fair.stac.catalog_manager import StacCatalogManager
 from fair.stac.collections import initialize_catalog
 from fair.stac.constants import BASE_MODELS_COLLECTION, DATASETS_COLLECTION, LOCAL_MODELS_COLLECTION
 from fair.stac.validators import validate_compatibility, validate_mlm_schema
-from fair.stac.versioning import deprecate_and_link_successor, find_previous_active_item
+from fair.stac.versioning import archive_previous_version, find_previous_active_item
 from fair.utils.data import count_chips, create_dataset_archive, upload_item_assets
 from fair.zenml.config import generate_inference_config, generate_training_config
 from fair.zenml.promotion import promote_model_version, publish_promoted_model
 
 CATALOG_PATH = "stac_catalog/catalog.json"
-BASE_MODEL_ID = "example-unet"
+BASE_MODEL_ID = "unet-segmentation"
 DATASET_TITLE = "buildings-banepa"
 DATASET_DESCRIPTION = "OpenAerialMap chips with OSM building footprints for Banepa, Nepal."
-MODEL_NAME = "example-unet-finetuned-banepa"
-STAC_ITEM = "models/example_unet/stac-item.json"
+MODEL_NAME = "unet-segmentation-finetuned-banepa"
+STAC_ITEM = "models/unet_segmentation/stac-item.json"
 TRAIN_OAM = "data/sample/train/oam"
 TRAIN_OSM = "data/sample/train/osm"
 PREDICT_OAM = "data/sample/predict/oam"
-CONFIG_DIR = Path("examples/unet/config")
+CONFIG_DIR = Path("examples/segmentation/config")
 
 SOURCE_IMAGERY_HREF = "https://tiles.openaerialmap.org/62d85d11d8499800053796c1/0/62d85d11d8499800053796c2/{z}/{x}/{y}"
 DATASET_LICENSE = "CC-BY-4.0"
@@ -141,7 +141,7 @@ def register(cfg: RunConfig) -> None:
 
     if prev:
         successor_href = cat.item_href(DATASETS_COLLECTION, ds.id)
-        deprecate_and_link_successor(cat, DATASETS_COLLECTION, prev, successor_href)
+        archive_previous_version(cat, DATASETS_COLLECTION, prev, successor_href)
 
     pub = cat.publish_item(DATASETS_COLLECTION, ds)
     print(f"register: dataset {pub.id} v{pub.properties['version']}")
@@ -173,7 +173,7 @@ def finetune(cfg: RunConfig) -> None:
     train_cfg = CONFIG_DIR / "generated_train.yaml"
     train_cfg.write_text(yaml.dump(cfg_data, sort_keys=False))
 
-    from models.example_unet.pipeline import training_pipeline
+    from models.unet_segmentation.pipeline import training_pipeline
 
     run = training_pipeline.with_options(config_path=str(train_cfg))()
     if run is None:
@@ -223,7 +223,7 @@ def predict(cfg: RunConfig) -> None:
     inf_cfg = CONFIG_DIR / "generated_inference.yaml"
     inf_cfg.write_text(yaml.dump(cfg_data, sort_keys=False))
 
-    from models.example_unet.pipeline import inference_pipeline
+    from models.unet_segmentation.pipeline import inference_pipeline
 
     run = inference_pipeline.with_options(config_path=str(inf_cfg), enable_cache=False)()
     if run is None:
@@ -276,7 +276,7 @@ if __name__ == "__main__":
     from fair.utils import install_s3_cleanup_handler
 
     install_s3_cleanup_handler()
-    parser = argparse.ArgumentParser(prog="run.py", description="fAIr-models UNet CI workflow")
+    parser = argparse.ArgumentParser(prog="run.py", description="fAIr-models UNet segmentation CI workflow")
     parser.add_argument("command", choices=COMMANDS)
     parser.add_argument("--stac-api-url", help="STAC API URL (enables PgStacBackend)")
     parser.add_argument("--dsn", help="Postgres DSN for pgstac writes (default: PG env vars)")

@@ -212,7 +212,7 @@ artifacts
 *.pkl
 
 examples/data
-examples/unet/config/generated_*.yaml
+examples/segmentation/config/generated_*.yaml
 implementation.md
 
 

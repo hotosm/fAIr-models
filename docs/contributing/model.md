@@ -6,7 +6,7 @@ icon: lucide/box
 
 Guide for contributing a base model to fAIr. A base model is a reusable ML
 blueprint that users can finetune on their own datasets through the fAIr
-platform. See [`models/example_unet/`](https://github.com/hotosm/fAIr-models/tree/master/models/example_unet) for a complete
+platform. See [`models/unet_segmentation/`](https://github.com/hotosm/fAIr-models/tree/master/models/unet_segmentation) for a complete
 reference implementation.
 
 ## Model Scope
@@ -592,5 +592,5 @@ just example                           # Run full example pipeline
 
 - [STAC MLM Extension v1.5.1](https://github.com/stac-extensions/mlm) -- MLM fields spec
 - [MLM Best Practices](https://github.com/stac-extensions/mlm/blob/main/best-practices.md)
-- [Example UNet model](https://github.com/hotosm/fAIr-models/tree/master/models/example_unet) -- reference implementation
-- [Example UNet STAC item](https://github.com/hotosm/fAIr-models/blob/master/models/example_unet/stac-item.json) -- valid STAC item template
+- [Example UNet model](https://github.com/hotosm/fAIr-models/tree/master/models/unet_segmentation) -- reference implementation
+- [Example UNet STAC item](https://github.com/hotosm/fAIr-models/blob/master/models/unet_segmentation/stac-item.json) -- valid STAC item template

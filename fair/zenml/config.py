@@ -141,11 +141,24 @@ def generate_training_config(
     class_names = _extract_class_names(props.get("mlm:output", []))
 
     ds_props = dataset_item.assets
-    chips_href = ds_props["chips"].href
-    labels_href = ds_props["labels"].href
+    chips_asset = ds_props.get("chips")
+    labels_asset = ds_props.get("labels")
+    if chips_asset is None:
+        msg = f"Dataset item '{dataset_item.id}' missing 'chips' asset"
+        raise KeyError(msg)
+    if labels_asset is None:
+        msg = f"Dataset item '{dataset_item.id}' missing 'labels' asset"
+        raise KeyError(msg)
+    chips_href = chips_asset.href
+    labels_href = labels_asset.href
+
+    model_asset = base_model_item.assets.get("model")
+    if model_asset is None:
+        msg = f"Base model item '{base_model_item.id}' missing 'model' asset"
+        raise KeyError(msg)
 
     parameters: dict[str, Any] = {
-        "base_model_weights": base_model_item.assets["model"].href,
+        "base_model_weights": model_asset.href,
         "dataset_chips": chips_href,
         "dataset_labels": labels_href,
         **hyperparams,
@@ -221,7 +234,10 @@ def generate_inference_config(
     props = model_item.properties
     input_spec = _extract_input_spec(props.get("mlm:input", []))
 
-    model_asset = model_item.assets["model"]
+    model_asset = model_item.assets.get("model")
+    if model_asset is None:
+        msg = f"Model item '{model_item.id}' missing 'model' asset"
+        raise KeyError(msg)
     zenml_art_id = model_asset.extra_fields.get("zenml:artifact_version_id")
 
     parameters: dict[str, Any] = {

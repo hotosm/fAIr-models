@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Literal
 
@@ -14,6 +15,104 @@ from fair.stac.constants import (
     OCI_IMAGE_INDEX_TYPE,
 )
 from fair.stac.versioning import add_version_links
+
+
+@dataclass
+class DatasetItemParams:
+    dt: datetime
+    label_type: Literal["vector", "raster"]
+    label_tasks: list[str]
+    label_classes: list[dict[str, Any]]
+    keywords: list[str]
+    chips_href: str
+    labels_href: str
+    title: str
+    description: str
+    user_id: str
+    item_id: str | None = None
+    download_href: str | None = None
+    thumbnail_href: str | None = None
+    source_imagery: str | None = None
+    chip_count: int | None = None
+    geometry: dict[str, Any] | None = None
+    bbox: list[float] | None = None
+    version: str = "1"
+    deprecated: bool = False
+    license_id: str | None = None
+    providers: list[dict[str, Any]] | None = None
+    label_description: str | None = None
+    label_methods: list[str] | None = None
+    source_imagery_href: str | None = None
+    self_href: str | None = None
+    predecessor_version_href: str | None = None
+
+
+@dataclass
+class BaseModelItemParams:
+    item_id: str
+    geometry: dict[str, Any]
+    dt: datetime
+    mlm_name: str
+    mlm_architecture: str
+    mlm_tasks: list[str]
+    mlm_framework: str
+    mlm_framework_version: str
+    mlm_input: list[dict[str, Any]]
+    mlm_output: list[dict[str, Any]]
+    mlm_hyperparameters: dict[str, Any]
+    keywords: list[str]
+    model_href: str
+    model_artifact_type: Literal[
+        "torch.save",
+        "torch.jit.save",
+        "torch.export.save",
+        "onnx",
+        "pickle",
+        "tf.keras.Model.save",
+        "tf.keras.Model.save_weights",
+        "tf.keras.Model.export",
+    ]
+    mlm_pretrained: bool
+    mlm_pretrained_source: str | None
+    source_code_href: str
+    source_code_entrypoint: str
+    training_runtime_href: str
+    inference_runtime_href: str
+    title: str
+    description: str
+    fair_metrics_spec: list[dict[str, Any]]
+    readme_href: str = ""
+
+
+@dataclass
+class LocalModelItemParams:
+    base_model_item: pystac.Item
+    dt: datetime
+    model_href: str
+    mlm_hyperparameters: dict[str, Any]
+    keywords: list[str]
+    base_model_href: str
+    dataset_href: str
+    version: str
+    title: str
+    description: str
+    user_id: str
+    item_id: str | None = None
+    mlm_name: str | None = None
+    geometry: dict[str, Any] | None = None
+    metrics: dict[str, Any] | None = None
+    labeled_chip_count: int | None = None
+    thumbnail_href: str | None = None
+    predecessor_version_href: str | None = None
+    self_href: str | None = None
+    zenml_artifact_version_id: str | None = None
+    training_started_at: str | None = None
+    training_ended_at: str | None = None
+    training_duration_seconds: float | None = None
+    base_model_id: str | None = None
+    dataset_id: str | None = None
+    dataset_title: str | None = None
+
 
 _SOURCE_CODE_EXTENSIONS = {
     ".py": "text/x-python",

@@ -103,7 +103,9 @@ def resolve_directory(href: str, pattern: str = "*", local_dir: Path | None = No
         if dest_dir is None:
             dest_dir = local.parent
 
-    assert dest_dir is not None  # guaranteed by non-empty uris
+    if dest_dir is None:
+        msg = f"resolve_directory downloaded files but dest_dir is still None for {href}"
+        raise ValueError(msg)
     return dest_dir
 
 

@@ -41,7 +41,7 @@ Catalog: fair-models
 
     ### Base model item
 
-    See [`models/example_unet/stac-item.json`](https://github.com/hotosm/fAIr-models/blob/master/models/example_unet/stac-item.json) for a complete example.
+    See [`models/unet_segmentation/stac-item.json`](https://github.com/hotosm/fAIr-models/blob/master/models/unet_segmentation/stac-item.json) for a complete example.
 
     Key properties: `mlm:name`, `mlm:architecture`, `mlm:tasks`, `mlm:framework`,
     `mlm:input` (with `pre_processing_function`), `mlm:output` (with `post_processing_function`

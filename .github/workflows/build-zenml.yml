@@ -35,11 +35,11 @@ jobs:
           sleep 10
           uv run zenml status
       - name: Run example workflow
-        run: uv run python examples/unet/run.py all
+        run: uv run python examples/segmentation/run.py all
       - name: Verify artifacts
         run: |
           test -d stac_catalog || { echo "STAC catalog not created"; exit 1; }
-          test -f stac_catalog/base-models/example-unet/example-unet.json || { echo "Base model not registered"; exit 1; }
+          test -f stac_catalog/base-models/unet-segmentation/unet-segmentation.json || { echo "Base model not registered"; exit 1; }
           test -f stac_catalog/datasets/buildings-banepa/buildings-banepa.json || { echo "Dataset not registered"; exit 1; }
           test -n "$(ls -A stac_catalog/local-models/ 2>/dev/null)" || { echo "Local model not published"; exit 1; }
           test -d artifacts || { echo "Artifacts directory not created"; exit 1; }

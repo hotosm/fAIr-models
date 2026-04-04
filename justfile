@@ -68,8 +68,8 @@ example:
     if [[ "$(cat {{ mode_file }} 2>/dev/null || echo local)" == "k8s" ]]; then
         just --justfile infra/dev/justfile run-example
     else
-        uv run python examples/unet/run.py clean
-        uv run python examples/unet/run.py all
+        uv run python examples/segmentation/run.py clean
+        uv run python examples/segmentation/run.py all
     fi
 
 [doc('Run pre-commit hooks and commitizen')]

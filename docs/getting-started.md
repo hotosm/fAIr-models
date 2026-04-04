@@ -54,11 +54,11 @@ just example  # init -> register -> finetune -> promote -> predict
 ??? example "Individual steps"
 
     ```bash
-    python examples/unet/run.py init       # Initialize ZenML + STAC catalog
-    python examples/unet/run.py register   # Register base model + dataset
-    python examples/unet/run.py finetune   # Train (1 epoch on sample data)
-    python examples/unet/run.py promote    # Promote to production + publish STAC
-    python examples/unet/run.py predict    # Run inference
+    python examples/segmentation/run.py init       # Initialize ZenML + STAC catalog
+    python examples/segmentation/run.py register   # Register base model + dataset
+    python examples/segmentation/run.py finetune   # Train (1 epoch on sample data)
+    python examples/segmentation/run.py promote    # Promote to production + publish STAC
+    python examples/segmentation/run.py predict    # Run inference
     ```
 
 ### Verifying Results

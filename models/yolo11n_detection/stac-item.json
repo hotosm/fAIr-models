@@ -8,7 +8,7 @@
         "https://stac-extensions.github.io/file/v2.1.0/schema.json",
         "https://stac-extensions.github.io/raster/v1.1.0/schema.json"
     ],
-    "id": "example-unet",
+    "id": "yolo11n-detection",
     "geometry": {
         "type": "Polygon",
         "coordinates": [
@@ -44,22 +44,22 @@
     ],
     "properties": {
         "datetime": "2024-01-01T00:00:00Z",
-        "title": "Example UNet for Building Segmentation",
-        "description": "UNet semantic segmentation model for building footprint extraction from very high resolution RGB aerial imagery. Pretrained on the OAM-TCD dataset (NeurIPS 2024) via torchgeo, intended for finetuning on OpenAerialMap + OpenStreetMap chip-label pairs.",
-        "mlm:name": "example-unet",
-        "mlm:architecture": "UNet",
+        "title": "YOLOv11n Building Detection",
+        "description": "YOLOv11 nano object detection model for building bounding box extraction from aerial imagery. Pretrained on COCO via Ultralytics, intended for finetuning on OAM + OSM derived detection labels.",
+        "mlm:name": "yolo11n-detection",
+        "mlm:architecture": "YOLOv11",
         "mlm:tasks": [
-            "semantic-segmentation"
+            "object-detection"
         ],
         "mlm:framework": "PyTorch",
         "mlm:framework_version": "2.10.0",
         "mlm:pretrained": true,
-        "mlm:pretrained_source": "https://arxiv.org/abs/2407.11743",
+        "mlm:pretrained_source": "https://docs.ultralytics.com/models/yolo11/",
         "mlm:accelerator": "amd64",
         "mlm:accelerator_count": 1,
         "keywords": [
             "building",
-            "semantic-segmentation",
+            "object-detection",
             "polygon"
         ],
         "license": "AGPL-3.0-only",
@@ -67,18 +67,23 @@
         "fair:metrics_spec": [
             {
                 "key": "fair:accuracy",
-                "name": "Pixel Accuracy",
-                "description": "Fraction of correctly classified pixels across all classes in the evaluation dataset"
+                "name": "mAP50",
+                "description": "Mean Average Precision at IoU 0.50"
             },
             {
                 "key": "fair:mean_iou",
-                "name": "Mean Intersection over Union (macro)",
-                "description": "Macro-averaged IoU across all output classes; each class weighted equally regardless of pixel frequency"
+                "name": "mAP50-95",
+                "description": "Mean Average Precision at IoU 0.50:0.95"
             },
             {
-                "key": "fair:per_class_iou",
-                "name": "Per-class Intersection over Union",
-                "description": "IoU for each output class, stored as an object keyed by class name from classification:classes in mlm:output"
+                "key": "fair:precision",
+                "name": "Precision",
+                "description": "Detection precision across all classes"
+            },
+            {
+                "key": "fair:recall",
+                "name": "Recall",
+                "description": "Detection recall across all classes"
             }
         ],
         "mlm:input": [
@@ -99,8 +104,8 @@
                     "shape": [
                         -1,
                         3,
-                        256,
-                        256
+                        640,
+                        640
                     ],
                     "dim_order": [
                         "batch",
@@ -112,65 +117,54 @@
                 },
                 "pre_processing_function": {
                     "format": "python",
-                    "expression": "models.example_unet.pipeline:preprocess"
+                    "expression": "models.yolo11n_detection.pipeline:preprocess"
                 }
             }
         ],
         "mlm:output": [
             {
-                "name": "segmentation mask",
+                "name": "detections",
                 "tasks": [
-                    "semantic-segmentation"
+                    "object-detection"
                 ],
                 "result": {
                     "shape": [
                         -1,
-                        2,
-                        256,
-                        256
+                        -1,
+                        6
                     ],
                     "dim_order": [
                         "batch",
-                        "channel",
-                        "height",
-                        "width"
+                        "detections",
+                        "values"
                     ],
                     "data_type": "float32"
                 },
                 "classification:classes": [
                     {
-                        "name": "background",
-                        "value": 0,
-                        "description": "Background pixels"
-                    },
-                    {
                         "name": "building",
-                        "value": 1,
-                        "description": "Building footprints"
+                        "value": 0,
+                        "description": "Building bounding box"
                     }
                 ],
                 "post_processing_function": {
                     "format": "python",
-                    "expression": "models.example_unet.pipeline:postprocess"
+                    "expression": "models.yolo11n_detection.pipeline:postprocess"
                 },
                 "bands": []
             }
         ],
         "mlm:hyperparameters": {
-            "epochs": 5,
-            "batch_size": 4,
-            "learning_rate": 0.0001,
-            "weight_decay": 0.0001,
-            "chip_size": 256,
-            "samples_per_epoch": 50,
-            "optimizer": "AdamW",
-            "loss": "CrossEntropyLoss"
+            "epochs": 10,
+            "batch_size": 8,
+            "learning_rate": 0.01,
+            "chip_size": 640
         }
     },
     "assets": {
         "model": {
-            "href": "torchgeo.models.Unet_Weights.OAM_RGB_RESNET34_TCD",
-            "title": "Pretrained weights (torchgeo enum reference, not a URL)",
+            "href": "yolo11n.pt",
+            "title": "Pretrained weights (Ultralytics YOLO11n COCO)",
             "type": "application/octet-stream; framework=pytorch",
             "roles": [
                 "mlm:model"
@@ -189,15 +183,15 @@
             ]
         },
         "source-code": {
-            "href": "https://github.com/hotosm/fAIr-models/tree/main/models/example_unet",
+            "href": "https://github.com/hotosm/fAIr-models/tree/main/models/yolo11n_detection",
             "type": "text/html",
             "roles": [
                 "code"
             ],
-            "mlm:entrypoint": "models.example_unet.pipeline:training_pipeline"
+            "mlm:entrypoint": "models.yolo11n_detection.pipeline:training_pipeline"
         },
         "mlm:training": {
-            "href": "ghcr.io/hotosm/fair-models/example_unet:pr-18",
+            "href": "ghcr.io/hotosm/fair-models/yolo11n_detection:latest",
             "type": "application/vnd.oci.image.index.v1+json",
             "title": "Training Docker Image",
             "roles": [
@@ -205,7 +199,7 @@
             ]
         },
         "mlm:inference": {
-            "href": "ghcr.io/hotosm/fair-models/example_unet:pr-18",
+            "href": "ghcr.io/hotosm/fair-models/yolo11n_detection:latest",
             "type": "application/vnd.oci.image.index.v1+json",
             "title": "Inference Docker Image",
             "roles": [
@@ -213,7 +207,7 @@
             ]
         },
         "readme": {
-            "href": "https://raw.githubusercontent.com/hotosm/fAIr-models/refs/heads/main/models/example_unet/README.md",
+            "href": "https://raw.githubusercontent.com/hotosm/fAIr-models/refs/heads/main/models/yolo11n_detection/README.md",
             "type": "text/markdown",
             "roles": [
                 "metadata"
@@ -230,9 +224,9 @@
         },
         {
             "rel": "cite-as",
-            "href": "https://arxiv.org/abs/2407.11743",
+            "href": "https://docs.ultralytics.com/models/yolo11/",
             "type": "text/html",
-            "title": "OAM-TCD Pretrained Weights (NeurIPS 2024)"
+            "title": "Ultralytics YOLOv11 Documentation"
         }
     ]
 }

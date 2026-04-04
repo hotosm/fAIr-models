@@ -42,6 +42,6 @@ run-example:
     cd {{ root }}
     AWS_ENDPOINT_URL=http://localhost:9000 \
     FAIR_FORCE_CPU=1 \
-        uv run python examples/unet/run.py all \
+        uv run python examples/segmentation/run.py all \
             --stac-api-url http://localhost:8082 \
             --dsn "{{ pgstac_dsn }}"

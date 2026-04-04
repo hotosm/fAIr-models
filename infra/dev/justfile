@@ -54,7 +54,7 @@ status:
 
 [doc('Run E2E pipeline with local orchestrator against k8s infra')]
 run-example:
-    cd ../.. && AWS_ENDPOINT_URL=http://localhost:9000 uv run python examples/unet/run.py all \
+    cd ../.. && AWS_ENDPOINT_URL=http://localhost:9000 uv run python examples/segmentation/run.py all \
         --stac-api-url http://localhost:8082 --dsn {{ pgstac_dsn }}
 
 [doc('Run E2E pipeline with k8s orchestrator')]
@@ -63,7 +63,7 @@ run-example-k8s:
     set -euo pipefail
     cd ../..
     uv run zenml stack set k8s
-    AWS_ENDPOINT_URL=http://localhost:9000 uv run python examples/unet/run.py all \
+    AWS_ENDPOINT_URL=http://localhost:9000 uv run python examples/segmentation/run.py all \
         --stac-api-url http://localhost:8082 --dsn {{ pgstac_dsn }}
 
 [private]

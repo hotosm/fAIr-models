@@ -16,7 +16,7 @@ just example
 ```
 
 Run `just` to see all available recipes. For Kubernetes mode run
-`just k8s` first, then `just setup`. See [examples/unet/README.md](examples/unet/README.md)
+`just k8s` first, then `just setup`. See [examples/segmentation/README.md](examples/segmentation/README.md)
 for the full walkthrough and [docs/getting-started.md](docs/getting-started.md)
 for detailed setup instructions.
 
@@ -60,7 +60,7 @@ custom `fair:*` fields wherever a standard exists.
 
 **Base model item** (contributed by model developer):
 
-See [`models/example_unet/stac-item.json`](models/example_unet/stac-item.json) for a complete example.
+See [`models/unet_segmentation/stac-item.json`](models/unet_segmentation/stac-item.json) for a complete example.
 
 Key properties: `mlm:name`, `mlm:architecture`, `mlm:tasks`, `mlm:framework`,
 `mlm:input` (with `pre_processing_function`), `mlm:output` (with `post_processing_function`

@@ -246,7 +246,9 @@ class FairWorkflowRunner:
     def predict(self, cfg: RunConfig) -> None:
         cat = self._get_backend(cfg)
         items = cat.list_items(LOCAL_MODELS_COLLECTION)
-        active = [i for i in items if not i.properties.get("deprecated")]
+        active = [
+            i for i in items if not i.properties.get("deprecated") and i.properties.get("mlm:name") == self.model_name
+        ]
         if not active:
             raise FairWorkflowError("No active local model")
 

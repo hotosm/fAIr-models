@@ -2,11 +2,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from fair.utils.model_validator import REQUIRED_FILES, _find_pipeline_names, validate_model
+from fair.utils.model_validator import REQUIRED_FILES, _find_decorated_names, validate_model
 
 
-class TestFindPipelineNames:
-    def test_finds_decorated_functions(self) -> None:
+class TestFindDecoratedNames:
+    def test_finds_pipeline_functions(self) -> None:
         source = """
 from zenml import pipeline
 
@@ -18,7 +18,7 @@ def inference_pipeline(): ...
 
 def helper(): ...
 """
-        assert _find_pipeline_names(source) == {"training_pipeline", "inference_pipeline"}
+        assert _find_decorated_names(source, "pipeline") == {"training_pipeline", "inference_pipeline"}
 
     def test_dotted_decorator(self) -> None:
         source = """
@@ -27,14 +27,26 @@ import zenml
 @zenml.pipeline
 def training_pipeline(): ...
 """
-        assert _find_pipeline_names(source) == {"training_pipeline"}
+        assert _find_decorated_names(source, "pipeline") == {"training_pipeline"}
 
-    def test_ignores_non_pipeline(self) -> None:
+    def test_finds_step_functions(self) -> None:
+        source = """
+from zenml import step
+
+@step
+def split_dataset(): ...
+
+@step
+def train_model(): ...
+"""
+        assert _find_decorated_names(source, "step") == {"split_dataset", "train_model"}
+
+    def test_ignores_other_decorators(self) -> None:
         source = """
 @step
 def train_model(): ...
 """
-        assert _find_pipeline_names(source) == set()
+        assert _find_decorated_names(source, "pipeline") == set()
 
 
 def _scaffold(tmp_path: Path) -> None:
@@ -48,7 +60,10 @@ class TestValidateModel:
         _scaffold(tmp_path)
         pipeline_file = tmp_path / "pipeline.py"
         pipeline_file.write_text("""
-from zenml import pipeline
+from zenml import pipeline, step
+
+@step
+def split_dataset(): ...
 
 @pipeline
 def training_pipeline(): ...
@@ -67,7 +82,10 @@ def inference_pipeline(): ...
     def test_missing_inference(self, tmp_path: Path) -> None:
         _scaffold(tmp_path)
         (tmp_path / "pipeline.py").write_text("""
-from zenml import pipeline
+from zenml import pipeline, step
+
+@step
+def split_dataset(): ...
 
 @pipeline
 def training_pipeline(): ...
@@ -76,11 +94,26 @@ def training_pipeline(): ...
         assert len(errors) == 1
         assert "inference_pipeline" in errors[0]
 
-    def test_missing_both(self, tmp_path: Path) -> None:
+    def test_missing_split_dataset(self, tmp_path: Path) -> None:
+        _scaffold(tmp_path)
+        (tmp_path / "pipeline.py").write_text("""
+from zenml import pipeline
+
+@pipeline
+def training_pipeline(): ...
+
+@pipeline
+def inference_pipeline(): ...
+""")
+        errors = validate_model(tmp_path)
+        assert len(errors) == 1
+        assert "split_dataset" in errors[0]
+
+    def test_missing_all_entrypoints(self, tmp_path: Path) -> None:
         _scaffold(tmp_path)
         (tmp_path / "pipeline.py").write_text("x = 1\n")
         errors = validate_model(tmp_path)
-        assert len(errors) == 2
+        assert len(errors) == 3
 
     def test_syntax_error(self, tmp_path: Path) -> None:
         _scaffold(tmp_path)
@@ -98,7 +131,10 @@ def training_pipeline(): ...
     def test_missing_readme_only(self, tmp_path: Path) -> None:
         (tmp_path / "stac-item.json").write_text("{}\n")
         (tmp_path / "pipeline.py").write_text("""
-from zenml import pipeline
+from zenml import pipeline, step
+
+@step
+def split_dataset(): ...
 
 @pipeline
 def training_pipeline(): ...

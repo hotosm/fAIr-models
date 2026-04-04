@@ -185,6 +185,12 @@ def _valid_base_model():
         readme_href="https://example.com/README.md",
     )
     item.properties["license"] = "AGPL-3.0-only"
+    item.properties["fair:split_spec"] = {
+        "strategy": "random",
+        "default_ratio": 0.2,
+        "seed": 42,
+        "description": "Random split for testing",
+    }
     return item
 
 
@@ -303,6 +309,32 @@ class TestValidateBaseModelItem:
         item.properties["keywords"] = ["tree", "object-detection", "point"]
         item.properties["mlm:tasks"] = ["object-detection"]
         assert validate_base_model_item(item) == []
+
+
+class TestSplitSpecValidation:
+    def test_missing_split_spec_flagged(self):
+        item = _valid_base_model()
+        del item.properties["fair:split_spec"]
+        errors = validate_base_model_item(item)
+        assert any("fair:split_spec" in e for e in errors)
+
+    def test_split_spec_missing_keys(self):
+        item = _valid_base_model()
+        item.properties["fair:split_spec"] = {"strategy": "random"}
+        errors = validate_base_model_item(item)
+        assert any("default_ratio" in e for e in errors)
+        assert any("seed" in e for e in errors)
+        assert any("description" in e for e in errors)
+
+    def test_split_spec_invalid_ratio(self):
+        item = _valid_base_model()
+        item.properties["fair:split_spec"]["default_ratio"] = 1.5
+        errors = validate_base_model_item(item)
+        assert any("between 0 and 1" in e for e in errors)
+
+    def test_valid_split_spec_passes(self):
+        item = _valid_base_model()
+        assert not any("split_spec" in e for e in validate_base_model_item(item))
 
 
 class TestGeometryTypeCompatibility:

@@ -90,6 +90,8 @@ def _build_classification_dataset(
     samples: list[tuple[Path, int]],
     chip_size: int,
     batch_size: int = 4,
+    *,
+    shuffle: bool = True,
 ) -> Any:
     import torch
     from PIL import Image
@@ -117,7 +119,7 @@ def _build_classification_dataset(
             return {"image": tensor, "label": torch.tensor(label, dtype=torch.float32)}
 
     dataset = ChipDataset(samples)
-    return DataLoader(dataset, batch_size=batch_size, shuffle=True)
+    return DataLoader(dataset, batch_size=batch_size, shuffle=shuffle)
 
 
 @step
@@ -236,7 +238,7 @@ def evaluate_model(
 
     all_samples = _load_samples(dataset_chips, dataset_labels)
     _, val_samples = _split_samples(all_samples, val_ratio, seed)
-    loader = _build_classification_dataset(val_samples, chip_size)
+    loader = _build_classification_dataset(val_samples, chip_size, shuffle=False)
     tp = fp = tn = fn = 0
 
     with torch.no_grad():

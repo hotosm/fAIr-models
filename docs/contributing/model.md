@@ -149,7 +149,7 @@ functions that the platform discovers and dispatches automatically.
 ### Required Exports
 
 ```python title="pipeline.py"
-from zenml import pipeline
+from zenml import pipeline, step
 
 @pipeline
 def training_pipeline(...) -> None:
@@ -160,10 +160,16 @@ def training_pipeline(...) -> None:
 def inference_pipeline(...) -> None:
     """Run prediction on input imagery."""
     ...
+
+@step
+def split_dataset(...) -> Annotated[dict[str, Any], "split_info"]:
+    """Split data into train/val sets and log split metadata."""
+    ...
 ```
 
-CI validates these exports via AST parsing (`scripts/validate_model.py`) --
-no runtime dependencies are needed for the check to pass.
+CI validates these exports via AST parsing (`scripts/validate_model.py`).
+Both `@pipeline` functions and the `@step split_dataset` function are
+required. No runtime dependencies are needed for the check to pass.
 
 ### Required Functions
 
@@ -176,18 +182,47 @@ Your `pipeline.py` must also define:
 
 These are referenced as Python entrypoints in the STAC item (e.g.
 `models.your_model.pipeline:preprocess`). The platform calls them dynamically
--- your model owns its own pre/post processing logic entirely.
+; your model owns its own pre/post processing logic entirely.
 
 ### Training Pipeline
 
-The `training_pipeline` receives its parameters from a generated YAML config
+The `training_pipeline` must follow this step sequence:
+
+```python title="Required pipeline shape"
+@pipeline
+def training_pipeline(
+    base_model_weights: str,
+    dataset_chips: str,
+    dataset_labels: str,
+    num_classes: int,
+    hyperparameters: dict[str, Any],
+) -> None:
+    split_info = split_dataset(dataset_chips, dataset_labels, hyperparameters)
+    trained_model = train_model(..., split_info=split_info)
+    evaluate_model(trained_model, ..., split_info=split_info)
+    export_onnx(trained_model, ...)
+```
+
+| Step | Required | Purpose |
+| --- | --- | --- |
+| `split_dataset` | Yes | Split data into train/val, log split metadata to ZenML |
+| `train_model` | Yes | Train on train split only |
+| `evaluate_model` | Yes | Evaluate on val split only |
+| `export_onnx` | Yes | Export ONNX model with `onnx.checker.check_model()` validation |
+
+The `split_info` dict returned by `split_dataset` is passed as a dependency
+to both `train_model` and `evaluate_model`. This enforces that both steps
+use the same split and that the split step runs first.
+
+The pipeline receives its parameters from a generated YAML config
 (STAC `mlm:hyperparameters` merged with user overrides via
 `fair.zenml.config.generate_training_config`). Typical parameters:
 
-- `dataset_chips` / `dataset_labels` -- S3 or local paths to training data
-- `base_model_weights` -- pretrained weight reference (URL, enum, local path)
-- `epochs`, `batch_size`, `learning_rate`, `weight_decay` -- training hyperparameters
-- `chip_size`, `num_classes` -- model-specific configuration
+- `dataset_chips` / `dataset_labels` : S3 or local paths to training data
+- `base_model_weights` : pretrained weight reference (URL, enum, local path)
+- `epochs`, `batch_size`, `learning_rate`, `weight_decay` : training hyperparameters
+- `chip_size`, `num_classes` : model-specific configuration
+- `val_ratio`, `split_seed` : train/val split configuration
 
 All hyperparameters must have validation constraints in the function
 signature (see [Hyperparameters](#hyperparameters)). The platform rejects
@@ -212,6 +247,69 @@ accept them, but you do **not** declare them in `mlm:hyperparameters`:
 | `chip_size` | `mlm:input[0].input.shape[-1]` | Chip dimension from STAC input spec |
 | `dataset_chips` | Dataset `chips` asset href | Path to training images |
 | `dataset_labels` | Dataset `labels` asset href | Path to training labels |
+
+### Train/Val Split (split_dataset step)
+
+Every training pipeline **must** include a `split_dataset` step. This step
+is the single source of truth for how data is divided into training and
+validation sets. CI enforces its presence via AST parsing.
+
+Your `split_dataset` step must:
+
+1. Accept `dataset_chips`, `dataset_labels`, and `hyperparameters`
+2. Read `val_ratio` and `split_seed` from hyperparameters
+3. Perform the split (strategy is model-specific)
+4. Log split metadata to ZenML via `log_metadata(metadata={"fair/split": split_info})`
+5. Return a `split_info` dict
+
+The `split_info` dict must contain:
+
+| Key | Type | Description |
+| --- | --- | --- |
+| `strategy` | string | Split strategy: `"random"`, `"spatial"`, or custom |
+| `val_ratio` | float | Actual validation ratio used |
+| `seed` | int | Random seed for reproducibility |
+| `train_count` | int | Number of training samples |
+| `val_count` | int | Number of validation samples |
+| `description` | string | Human-readable explanation of how the split works |
+
+Example implementation:
+
+```python title="split_dataset step"
+@step
+def split_dataset(
+    dataset_chips: str,
+    dataset_labels: str,
+    hyperparameters: dict[str, Any],
+) -> Annotated[dict[str, Any], "split_info"]:
+    val_ratio = hyperparameters.get("val_ratio", 0.2)
+    seed = hyperparameters.get("split_seed", 42)
+
+    # Your split logic here
+    train_samples, val_samples = do_split(dataset_chips, dataset_labels, val_ratio, seed)
+
+    split_info = {
+        "strategy": "random",
+        "val_ratio": val_ratio,
+        "seed": seed,
+        "train_count": len(train_samples),
+        "val_count": len(val_samples),
+        "description": "Random split by seeded shuffle of sorted filenames",
+    }
+    log_metadata(metadata={"fair/split": split_info})
+    return split_info
+```
+
+The split metadata flows through the promotion pipeline into the local model
+STAC item as `fair:split`, giving users full visibility into how each
+finetuned model was trained.
+
+!!! warning "Train on train, evaluate on val"
+
+    `train_model` must only see training data. `evaluate_model` must only see
+    validation data. Both steps receive `split_info` and must use it to
+    reconstruct the same split deterministically. Evaluating on training data
+    produces inflated metrics that do not reflect real-world performance.
 
 ### Non-serializable Model Pattern (YOLO)
 
@@ -345,6 +443,7 @@ validated by CI against the platform's requirements schema.
 | `version` | string | Semantic version (start with `"1"`) |
 | `license` | string | SPDX license identifier |
 | `fair:metrics_spec` | object[] | Evaluation metrics vocabulary (see below) |
+| `fair:split_spec` | object | Train/val split specification (see below) |
 
 ### fair:metrics_spec
 
@@ -387,6 +486,43 @@ When `evaluate_model` logs metrics via `log_metadata(infer_model=True)`, the pla
 copies those values to the promoted local model STAC item. Class IoU keys use the
 `classification:classes` names, e.g. `iou_background`, `iou_building` (not numeric
 indices like `iou_class_0`).
+
+### fair:split_spec
+
+The `fair:split_spec` property declares how your model expects training data
+to be split into train and validation sets. This is a **required** property
+on base model STAC items. CI validates its presence and structure.
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `strategy` | string | Split strategy: `"random"`, `"spatial"`, or custom |
+| `default_ratio` | float | Recommended validation ratio (0 < ratio < 1) |
+| `seed` | int | Default random seed for reproducibility |
+| `description` | string | Explanation of how the split works for this model |
+
+The split strategy depends on the task type:
+
+| Task | Strategy | Description |
+| --- | --- | --- |
+| Classification | `random` | Seeded shuffle of sorted filenames, split at ratio boundary |
+| Segmentation | `spatial` | `RandomGeoSampler` for train, `GridGeoSampler` for val (non-overlapping tiles) |
+| Detection | `random` | Last N% of sorted image IDs held out for validation |
+
+Example:
+
+```json title="fair:split_spec example"
+"fair:split_spec": {
+    "strategy": "random",
+    "default_ratio": 0.2,
+    "seed": 42,
+    "description": "Random split by seeded shuffle of sorted filenames. Deterministic given the same seed."
+}
+```
+
+Contributors can define custom split strategies as long as they document the
+approach in `description` and implement the corresponding `split_dataset`
+step. The `val_ratio` and `split_seed` hyperparameters allow users to
+override the defaults at finetuning time.
 
 ### Keywords
 
@@ -436,6 +572,16 @@ This serves two purposes:
 2. **STAC item documents the contract** — users and the platform know
    exactly what hyperparameters your model accepts and their valid ranges
 
+In addition to model-specific hyperparameters, you **must** include these
+split and training parameters:
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `val_ratio` | float | Yes | Fraction of data held out for validation (default 0.2) |
+| `split_seed` | int | Yes | Random seed for reproducible train/val split (default 42) |
+| `scheduler` | string | Recommended | LR scheduler: `"cosine"` or `"none"` |
+| `max_grad_norm` | float | Recommended | Maximum gradient norm for clipping (default 1.0) |
+
 Example `mlm:hyperparameters`:
 
 ```json title="mlm:hyperparameters example"
@@ -446,7 +592,11 @@ Example `mlm:hyperparameters`:
     "weight_decay": 0.0001,
     "chip_size": 512,
     "optimizer": "AdamW",
-    "loss": "CrossEntropyLoss"
+    "loss": "CrossEntropyLoss",
+    "val_ratio": 0.2,
+    "split_seed": 42,
+    "scheduler": "cosine",
+    "max_grad_norm": 1.0
 }
 ```
 
@@ -583,13 +733,18 @@ Before submitting your pull request:
 
 - [ ] Directory created at `models/your-model/` with `pipeline.py`, `Dockerfile`, `stac-item.json`, `README.md`
 - [ ] `README.md` describes the model (architecture, limitations, usage, citation)
-- [ ] `stac-item.json` has `title`, `description`, and `fair:metrics_spec` properties
+- [ ] `stac-item.json` has `title`, `description`, `fair:metrics_spec`, and `fair:split_spec` properties
+- [ ] `mlm:hyperparameters` includes `val_ratio` and `split_seed`
 - [ ] `readme` asset href is an absolute GitHub raw URL (not `./README.md`)
 - [ ] `mlm:pretrained_source` is a valid URL (paper DOI or arXiv), not a free-form string
 - [ ] `cite-as` link added if model or weights come from a published paper
 - [ ] `pipeline.py` exports `training_pipeline` and `inference_pipeline` as `@pipeline`-decorated functions
+- [ ] `pipeline.py` defines a `@step`-decorated `split_dataset` function
+- [ ] `split_dataset` logs split metadata via `log_metadata(metadata={"fair/split": split_info})`
+- [ ] `train_model` trains on the train split only; `evaluate_model` evaluates on the val split only
 - [ ] `pipeline.py` defines `preprocess` and `postprocess` functions matching STAC entrypoints
 - [ ] `evaluate_model` calls `log_metadata(metadata=metrics, infer_model=True)` so metrics attach to the model version
+- [ ] `export_onnx` validates the exported model with `onnx.checker.check_model()`
 - [ ] Per-class IoU keys use class names from `classification:classes` (e.g. `iou_building`, not `iou_class_0`)
 - [ ] Pipeline parameters use `Annotated` bounds and `Literal` for constrained choices
 - [ ] `mlm:hyperparameters` in STAC item matches pipeline parameter names and defaults
@@ -606,8 +761,8 @@ Before submitting your pull request:
 
 On PR submission, CI will:
 
-1. **Validate pipeline exports** -- `scripts/validate_model.py` checks for `training_pipeline` and `inference_pipeline` via AST parsing
-2. **Validate STAC item** -- `scripts/validate_stac_items.py` checks all required properties, extensions, assets, keywords (including geometry type), and license
+1. **Validate pipeline exports** : `scripts/validate_model.py` checks for `training_pipeline` and `inference_pipeline` (`@pipeline`) and `split_dataset` (`@step`) via AST parsing
+2. **Validate STAC item** : `scripts/validate_stac_items.py` checks all required properties (including `fair:split_spec`), extensions, assets, keywords (including geometry type), and license
 3. **Build Docker image** -- verifies the Dockerfile builds successfully
 4. **Run tests with sample data** -- executes against `data/sample/`
 

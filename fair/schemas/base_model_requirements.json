@@ -21,7 +21,8 @@
         "keywords",
         "version",
         "license",
-        "fair:metrics_spec"
+        "fair:metrics_spec",
+        "fair:split_spec"
     ],
     "non_empty_list_properties": [
         "mlm:tasks",

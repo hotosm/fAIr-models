@@ -33,6 +33,11 @@ from fair.zenml.promotion import promote_model_version, publish_promoted_model
 if TYPE_CHECKING:
     from fair.stac.pgstac_backend import PgStacBackend
 
+
+class FairWorkflowError(Exception):
+    pass
+
+
 CATALOG_PATH = "stac_catalog/catalog.json"
 
 _DEFAULT_PROVIDERS = [
@@ -110,11 +115,11 @@ class FairWorkflowRunner:
             label_dir = Path(ds.train_labels_path)
             matches = sorted(label_dir.glob(ds.labels_pattern))
             if not matches:
-                sys.exit(f"No files matching '{ds.labels_pattern}' in {label_dir}")
+                raise FairWorkflowError(f"No files matching '{ds.labels_pattern}' in {label_dir}")
             return str(matches[0]), str(matches[0].parent)
         labels_path = Path(ds.train_labels_path)
         if not labels_path.exists():
-            sys.exit(f"Labels not found at {ds.train_labels_path}")
+            raise FairWorkflowError(f"Labels not found at {ds.train_labels_path}")
         return str(labels_path), str(labels_path.parent)
 
     def init(self, cfg: RunConfig) -> None:
@@ -129,7 +134,7 @@ class FairWorkflowRunner:
 
         base = pystac.Item.from_file(self.stac_item_path)
         if errs := validate_mlm_schema(base):
-            sys.exit(f"MLM invalid: {errs}")
+            raise FairWorkflowError(f"MLM invalid: {errs}")
         pub = cat.publish_item(BASE_MODELS_COLLECTION, base)
         print(f"register: base-model {pub.id} v{pub.properties['version']}")
 
@@ -138,7 +143,7 @@ class FairWorkflowRunner:
 
         geojson_files = sorted(Path(ds.geojson_dir).glob("*.geojson"))
         if not geojson_files:
-            sys.exit(f"No .geojson files in {ds.geojson_dir}")
+            raise FairWorkflowError(f"No .geojson files in {ds.geojson_dir}")
         geometry, bbox = geometry_and_bbox_from_geojson(str(geojson_files[0]))
 
         chip_count = count_chips(ds.train_chips_path)
@@ -192,11 +197,11 @@ class FairWorkflowRunner:
         base = cat.get_item(BASE_MODELS_COLLECTION, self.base_model_id)
         try:
             ds = cat.get_item(DATASETS_COLLECTION, self.dataset.title)
-        except KeyError:
-            sys.exit(f"Dataset '{self.dataset.title}' not found. Run register first.")
+        except KeyError as exc:
+            raise FairWorkflowError(f"Dataset '{self.dataset.title}' not found. Run register first.") from exc
 
         if errs := validate_compatibility(base, ds):
-            sys.exit(f"Incompatible: {errs}")
+            raise FairWorkflowError(f"Incompatible: {errs}")
 
         trackers = Client().active_stack_model.components.get(StackComponentType.EXPERIMENT_TRACKER, [])
         tracker_name = trackers[0].name if trackers else None
@@ -221,7 +226,7 @@ class FairWorkflowRunner:
         client = Client()
         versions = client.list_model_versions(model=self.model_name, sort_by="desc:created")
         if not versions:
-            sys.exit(f"No versions for {self.model_name}")
+            raise FairWorkflowError(f"No versions for {self.model_name}")
         latest = versions[0].number
 
         promote_model_version(self.model_name, latest)
@@ -243,7 +248,7 @@ class FairWorkflowRunner:
         items = cat.list_items(LOCAL_MODELS_COLLECTION)
         active = [i for i in items if not i.properties.get("deprecated")]
         if not active:
-            sys.exit("No active local model")
+            raise FairWorkflowError("No active local model")
 
         input_images = f"{cfg.data_prefix}/predict/oam" if cfg.data_prefix else self.dataset.predict_images_path
         if cfg.data_prefix:
@@ -333,4 +338,7 @@ class FairWorkflowRunner:
             data_prefix=args.data_prefix,
             user_id=args.user_id,
         )
-        commands[args.command](run_config)
+        try:
+            commands[args.command](run_config)
+        except FairWorkflowError as exc:
+            sys.exit(str(exc))

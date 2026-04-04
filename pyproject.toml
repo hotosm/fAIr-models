@@ -72,6 +72,7 @@ dev = [
     "ty",
     "ruff",
     "pytest>=8.0",
+    "pytest-cov>=6.0",
     "commitizen>=4.1",
     "pre-commit>=4.0",
 ]
@@ -106,6 +107,18 @@ select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+addopts = "--cov=fair --cov-report=term-missing"
+markers = ["slow: marks tests as slow (deselect with '-m \"not slow\"')"]
+
+[tool.coverage.run]
+source = ["fair"]
+omit = ["tests/*"]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+]
 
 [tool.commitizen]
 name = "cz_conventional_commits"

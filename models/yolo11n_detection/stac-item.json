@@ -158,7 +158,15 @@
             "epochs": 10,
             "batch_size": 8,
             "learning_rate": 0.01,
-            "chip_size": 640
+            "chip_size": 640,
+            "val_ratio": 0.2,
+            "split_seed": 42
+        },
+        "fair:split_spec": {
+            "strategy": "random",
+            "default_ratio": 0.2,
+            "seed": 42,
+            "description": "Last N% of sorted image IDs held out for validation. Ultralytics manages LR scheduling and gradient clipping internally."
         },
         "fair:hyperparameters_spec": [
             {
@@ -192,6 +200,22 @@
                 "min": 64,
                 "max": 1280,
                 "description": "Input image chip size in pixels"
+            },
+            {
+                "key": "val_ratio",
+                "type": "float",
+                "default": 0.2,
+                "min": 0.05,
+                "max": 0.5,
+                "description": "Fraction of data held out for validation"
+            },
+            {
+                "key": "split_seed",
+                "type": "int",
+                "default": 42,
+                "min": 0,
+                "max": 2147483647,
+                "description": "Random seed for reproducible train/val split"
             }
         ]
     },

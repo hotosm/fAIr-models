@@ -112,6 +112,7 @@ class LocalModelItemParams:
     base_model_id: str | None = None
     dataset_id: str | None = None
     dataset_title: str | None = None
+    split_info: dict[str, Any] | None = None
 
 
 _SOURCE_CODE_EXTENSIONS = {
@@ -183,7 +184,7 @@ def geometry_and_bbox_from_geojson(labels_href: str) -> tuple[dict[str, Any], li
 
 
 def _slugify(text: str) -> str:
-    return re.sub(r"[^a-z0-9]+", "-", text.lower().strip()).strip("-")
+    return re.sub(r"[^a-z0-9_]+", "-", text.lower().strip()).strip("-")
 
 
 def build_dataset_item(
@@ -445,6 +446,7 @@ def build_local_model_item(
     base_model_id: str | None = None,
     dataset_id: str | None = None,
     dataset_title: str | None = None,
+    split_info: dict[str, Any] | None = None,
 ) -> pystac.Item:
     geom = geometry if geometry is not None else base_model_item.geometry
     if geom is None:
@@ -496,6 +498,8 @@ def build_local_model_item(
 
     if labeled_chip_count is not None:
         properties["fair:labeled_chip_count"] = labeled_chip_count
+    if split_info:
+        properties["fair:split"] = split_info
 
     item = pystac.Item(
         id=resolved_id,

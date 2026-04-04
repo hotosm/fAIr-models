@@ -88,6 +88,11 @@ class PgStacBackend:
             raise KeyError(msg)
         return item
 
+    def item_exists(self, collection_id: str, item_id: str) -> bool:
+        client = StacClient.open(self._stac_api_url)
+        collection = client.get_collection(collection_id)
+        return collection.get_item(item_id) is not None
+
     def list_items(self, collection_id: str, *, limit: int | None = None) -> list[pystac.Item]:
         client = StacClient.open(self._stac_api_url)
         return list(client.search(collections=[collection_id], max_items=limit).items())

@@ -4,6 +4,7 @@ Entrypoints referenced by models/yolo11n_detection/stac-item.json.
 Pretrained backbone: Ultralytics YOLOv11n COCO.
 """
 
+import hashlib
 import json
 import shutil
 import tempfile
@@ -64,8 +65,24 @@ def postprocess(results: Any) -> list[dict[str, Any]]:
     return detections
 
 
-def _prepare_yolo_dataset(chips_path: str, coco_json_path: str, chip_size: int) -> Path:
+def _dataset_cache_dir(chips_path: str, coco_json_path: str) -> Path:
+    key = hashlib.sha256(f"{chips_path}|{coco_json_path}".encode()).hexdigest()[:16]
+    return Path(tempfile.gettempdir()) / f"yolo_dataset_{key}"
+
+
+def _prepare_yolo_dataset(
+    chips_path: str,
+    coco_json_path: str,
+    chip_size: int,
+    val_ratio: float = 0.2,
+) -> tuple[Path, int, int]:
     from fair.utils.data import resolve_directory, resolve_path
+
+    yolo_dir = _dataset_cache_dir(chips_path, coco_json_path)
+    if (yolo_dir / "data.yaml").exists():
+        train_count = len(list((yolo_dir / "images" / "train").iterdir()))
+        val_count = len(list((yolo_dir / "images" / "val").iterdir()))
+        return yolo_dir, train_count, val_count
 
     local_chips = resolve_directory(chips_path)
     local_json = resolve_path(coco_json_path)
@@ -79,13 +96,14 @@ def _prepare_yolo_dataset(chips_path: str, coco_json_path: str, chip_size: int) 
     for ann in coco["annotations"]:
         annotations_by_image.setdefault(ann["image_id"], []).append(ann)
 
-    yolo_dir = Path(tempfile.mkdtemp(prefix="yolo_dataset_"))
+    if yolo_dir.exists():
+        shutil.rmtree(yolo_dir)
     for split in ("train", "val"):
         (yolo_dir / "images" / split).mkdir(parents=True)
         (yolo_dir / "labels" / split).mkdir(parents=True)
 
     available_ids = [img_id for img_id, fn in img_id_to_name.items() if (local_chips / fn).exists()]
-    val_count = max(1, len(available_ids) // 5)
+    val_count = max(1, int(len(available_ids) * val_ratio))
     val_ids = set(available_ids[-val_count:])
 
     for img_id in available_ids:
@@ -107,7 +125,33 @@ def _prepare_yolo_dataset(chips_path: str, coco_json_path: str, chip_size: int) 
 
     data_yaml = yolo_dir / "data.yaml"
     data_yaml.write_text(f"path: {yolo_dir}\ntrain: images/train\nval: images/val\nnc: 1\nnames: ['building']\n")
-    return yolo_dir
+
+    train_count = len(available_ids) - val_count
+    return yolo_dir, train_count, val_count
+
+
+@step
+def split_dataset(
+    dataset_chips: str,
+    dataset_labels: str,
+    hyperparameters: dict[str, Any],
+) -> Annotated[dict[str, Any], "split_info"]:
+    val_ratio = hyperparameters.get("val_ratio", 0.2)
+    chip_size = hyperparameters.get("chip_size", 640)
+
+    yolo_dir, train_count, val_count = _prepare_yolo_dataset(dataset_chips, dataset_labels, chip_size, val_ratio)
+
+    split_info = {
+        "strategy": "random",
+        "val_ratio": val_ratio,
+        "seed": 0,
+        "train_count": train_count,
+        "val_count": val_count,
+        "description": f"Last {val_ratio:.0%} of sorted image IDs held out for validation",
+        "_yolo_dir": str(yolo_dir),
+    }
+    log_metadata(metadata={"fair/split": {k: v for k, v in split_info.items() if not k.startswith("_")}})
+    return split_info
 
 
 @step
@@ -116,6 +160,7 @@ def train_model(
     dataset_labels: str,
     base_model_weights: str,
     hyperparameters: dict[str, Any],
+    split_info: dict[str, Any],
     num_classes: int = 1,
     model_name: str | None = None,
     base_model_id: str | None = None,
@@ -128,7 +173,11 @@ def train_model(
     chip_size = hyperparameters.get("chip_size", 640)
     learning_rate = hyperparameters.get("learning_rate", 0.01)
 
-    yolo_dir = _prepare_yolo_dataset(dataset_chips, dataset_labels, chip_size)
+    yolo_dir = Path(split_info["_yolo_dir"])
+    if not (yolo_dir / "data.yaml").exists():
+        val_ratio = split_info["val_ratio"]
+        yolo_dir, _, _ = _prepare_yolo_dataset(dataset_chips, dataset_labels, chip_size, val_ratio)
+
     device = _get_device()
 
     from ultralytics import settings as yolo_settings
@@ -149,12 +198,12 @@ def train_model(
             imgsz=chip_size,
             device=device,
             lr0=learning_rate,
+            cos_lr=True,
             verbose=False,
         )
         if results and hasattr(results, "results_dict"):
             log_metadata(metadata={"loss": results.results_dict.get("train/box_loss", 0.0), "epoch": epochs})
 
-    shutil.rmtree(yolo_dir, ignore_errors=True)
     saved_path = Path(tempfile.mkdtemp()) / "best.pt"
     model.save(str(saved_path))
     return str(saved_path)
@@ -166,15 +215,24 @@ def evaluate_model(
     dataset_chips: str,
     dataset_labels: str,
     hyperparameters: dict[str, Any],
+    split_info: dict[str, Any],
     class_names: list[str] | None = None,
 ) -> Annotated[dict[str, Any], "metrics"]:
     from ultralytics import YOLO
 
     chip_size = hyperparameters.get("chip_size", 640)
 
-    yolo_dir = _prepare_yolo_dataset(dataset_chips, dataset_labels, chip_size)
+    yolo_dir = Path(split_info["_yolo_dir"])
+    if not (yolo_dir / "data.yaml").exists():
+        val_ratio = split_info["val_ratio"]
+        yolo_dir, _, _ = _prepare_yolo_dataset(dataset_chips, dataset_labels, chip_size, val_ratio)
+
     model = trained_model if isinstance(trained_model, YOLO) else YOLO(trained_model)
     results = model.val(data=str(yolo_dir / "data.yaml"), imgsz=chip_size, verbose=False)
+
+    if not hasattr(results, "results_dict") or not results.results_dict:
+        msg = "YOLO validation produced no results"
+        raise RuntimeError(msg)
 
     metrics_dict: dict[str, Any] = {
         "accuracy": results.results_dict.get("metrics/mAP50(B)", 0.0),
@@ -183,16 +241,18 @@ def evaluate_model(
         "recall": results.results_dict.get("metrics/recall(B)", 0.0),
     }
     log_evaluation_results(metrics_dict)
-    shutil.rmtree(yolo_dir, ignore_errors=True)
     return metrics_dict
 
 
 @step
 def export_onnx(trained_model: Any) -> Annotated[str, "onnx_model"]:
+    import onnx
     from ultralytics import YOLO
 
     model = trained_model if isinstance(trained_model, YOLO) else YOLO(trained_model)
-    return model.export(format="onnx")
+    onnx_path = model.export(format="onnx")
+    onnx.checker.check_model(onnx_path)
+    return onnx_path
 
 
 @step
@@ -246,11 +306,17 @@ def training_pipeline(
     num_classes: int,
     hyperparameters: dict[str, Any],
 ) -> None:
+    split_info = split_dataset(
+        dataset_chips=dataset_chips,
+        dataset_labels=dataset_labels,
+        hyperparameters=hyperparameters,
+    )
     trained_model = train_model(
         dataset_chips=dataset_chips,
         dataset_labels=dataset_labels,
         base_model_weights=base_model_weights,
         hyperparameters=hyperparameters,
+        split_info=split_info,
         num_classes=num_classes,
     )
     evaluate_model(
@@ -258,6 +324,7 @@ def training_pipeline(
         dataset_chips=dataset_chips,
         dataset_labels=dataset_labels,
         hyperparameters=hyperparameters,
+        split_info=split_info,
     )
     export_onnx(trained_model=trained_model)
 

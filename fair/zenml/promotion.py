@@ -48,6 +48,10 @@ def publish_promoted_model(
     # Item ID is the ZenML model version UUID: stable, unique, length-independent
     new_item_id = str(mv.id)
 
+    if catalog_manager.item_exists(LOCAL_MODELS_COLLECTION, new_item_id):
+        msg = f"Model version {model_name} v{version} already promoted as STAC item {new_item_id}"
+        raise ValueError(msg)
+
     # Extract tunable hyperparams from the training run, exclude infra-level keys
     _INFRA_KEYS = {
         "base_model_weights",
@@ -87,6 +91,7 @@ def publish_promoted_model(
     if wall_time is not None:
         training_duration_seconds = wall_time
     metrics = read_fair_metrics(raw_meta)
+    split_info: dict[str, Any] | None = raw_meta.get("fair/split")
 
     weights_art = mv.get_artifact("trained_model")
     if weights_art is None:
@@ -152,6 +157,7 @@ def publish_promoted_model(
         base_model_id=base_model_item_id,
         dataset_id=dataset_item_id,
         dataset_title=dataset_title,
+        split_info=split_info,
     )
 
     if prev_item:

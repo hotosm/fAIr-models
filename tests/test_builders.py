@@ -332,7 +332,7 @@ def test_infer_runtime_media_type(href, expected):
         ("Buildings Banepa", "buildings-banepa"),
         ("My Dataset (v2)", "my-dataset-v2"),
         ("  simple  ", "simple"),
-        ("UPPER-case_Mix", "upper-case-mix"),
+        ("UPPER-case_Mix", "upper-case_mix"),
     ],
 )
 def test_slugify(text, expected):
@@ -404,3 +404,14 @@ class TestLocalModelMetricsAndTiming:
         self_links = [lnk for lnk in local.links if lnk.rel == "self"]
         assert len(self_links) == 1
         assert self_links[0].get_href() == "https://api.example.com/collections/local-models/items/local-s"
+
+
+class TestSlugifyUnderscores:
+    def test_preserves_underscores(self) -> None:
+        assert _slugify("my_model") == "my_model"
+
+    def test_spaces_become_hyphens(self) -> None:
+        assert _slugify("my model") == "my-model"
+
+    def test_underscores_and_spaces_produce_different_ids(self) -> None:
+        assert _slugify("my_model") != _slugify("my model")

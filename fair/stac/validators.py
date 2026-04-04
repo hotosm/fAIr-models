@@ -3,6 +3,7 @@ from __future__ import annotations
 import functools
 import importlib.resources
 import json
+from typing import Any
 
 import pystac
 
@@ -107,6 +108,27 @@ def validate_base_model_item(item: pystac.Item) -> list[str]:
             if field not in item.assets[asset_key].extra_fields:
                 errors.append(f"Asset '{asset_key}' missing field: {field}")
 
+    errors.extend(_validate_split_spec(props))
+
+    return errors
+
+
+_SPLIT_SPEC_REQUIRED_KEYS = frozenset({"strategy", "default_ratio", "seed", "description"})
+
+
+def _validate_split_spec(props: dict[str, Any]) -> list[str]:
+    errors: list[str] = []
+    spec = props.get("fair:split_spec")
+    if spec is None:
+        return errors
+    if not isinstance(spec, dict):
+        errors.append("fair:split_spec must be an object")
+        return errors
+    for key in sorted(_SPLIT_SPEC_REQUIRED_KEYS - set(spec)):
+        errors.append(f"fair:split_spec missing required key: {key}")
+    ratio = spec.get("default_ratio")
+    if isinstance(ratio, (int, float)) and not (0 < ratio < 1):
+        errors.append(f"fair:split_spec.default_ratio must be between 0 and 1, got {ratio}")
     return errors
 
 

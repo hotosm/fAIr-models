@@ -68,6 +68,10 @@ class StacCatalogManager:
         item.make_asset_hrefs_absolute()
         return item
 
+    def item_exists(self, collection_id: str, item_id: str) -> bool:
+        collection = self._get_collection(collection_id)
+        return collection.get_item(item_id) is not None
+
     def list_items(self, collection_id: str, *, limit: int | None = None) -> list[pystac.Item]:
         items = list(self._get_collection(collection_id).get_items())
         return items[:limit] if limit is not None else items

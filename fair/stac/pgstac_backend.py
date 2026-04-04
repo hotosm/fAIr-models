@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import logging
 
+import httpx
 import pystac
 from pypgstac.db import PgstacDB
 from pypgstac.load import Loader, Methods
-from pystac_client import Client as StacClient
 
 from fair.stac.collections import (
     create_base_models_collection,
@@ -80,17 +80,28 @@ class PgStacBackend:
         ensure_version_links(item, self.item_href(collection_id, item.id))
 
     def get_item(self, collection_id: str, item_id: str) -> pystac.Item:
-        client = StacClient.open(self._stac_api_url)
-        collection = client.get_collection(collection_id)
-        item = collection.get_item(item_id)
-        if item is None:
+        url = f"{self._stac_api_url}/collections/{collection_id}/items/{item_id}"
+        resp = httpx.get(url, timeout=30)
+        if resp.status_code == 404:
             msg = f"Item '{item_id}' not found in collection '{collection_id}'"
             raise KeyError(msg)
-        return item
+        resp.raise_for_status()
+        return pystac.Item.from_dict(resp.json())
+
+    def item_exists(self, collection_id: str, item_id: str) -> bool:
+        url = f"{self._stac_api_url}/collections/{collection_id}/items/{item_id}"
+        resp = httpx.get(url, timeout=30)
+        return resp.status_code == 200
 
     def list_items(self, collection_id: str, *, limit: int | None = None) -> list[pystac.Item]:
-        client = StacClient.open(self._stac_api_url)
-        return list(client.search(collections=[collection_id], max_items=limit).items())
+        url = f"{self._stac_api_url}/search"
+        payload: dict[str, object] = {"collections": [collection_id]}
+        if limit is not None:
+            payload["limit"] = limit
+        resp = httpx.post(url, json=payload, timeout=30)
+        resp.raise_for_status()
+        features = resp.json().get("features", [])
+        return [pystac.Item.from_dict(f) for f in features]
 
     def deprecate_item(self, collection_id: str, item_id: str) -> pystac.Item:
         item = self.get_item(collection_id, item_id)

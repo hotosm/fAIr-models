@@ -5,6 +5,7 @@ Pretrained backbone: torchvision ResNet18 ImageNet.
 """
 
 import csv
+import random
 from pathlib import Path
 from typing import Annotated, Any
 
@@ -45,7 +46,7 @@ def _build_feature_collection(features):
 
 
 def preprocess(batch: dict[str, Any]) -> tuple[Any, Any]:
-    images = batch["image"].float() / 255.0
+    images = batch["image"].float()
     labels = batch["label"].float()
     return images, labels
 
@@ -56,21 +57,46 @@ def postprocess(logits: Any) -> Any:
     return (torch.sigmoid(logits) > 0.5).int().cpu().numpy()
 
 
+def _load_samples(chips_path: str, labels_csv_path: str) -> list[tuple[Path, int]]:
+    from fair.utils.data import resolve_directory, resolve_path
+
+    local_chips = resolve_directory(chips_path)
+    local_csv = resolve_path(labels_csv_path)
+
+    samples: list[tuple[Path, int]] = []
+    with open(local_csv, encoding="utf-8") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            img_path = local_chips / row["filename"]
+            label = 1 if row["class_name"] == "building" else 0
+            if img_path.exists():
+                samples.append((img_path, label))
+    return samples
+
+
+def _split_samples(
+    samples: list[tuple[Path, int]],
+    val_ratio: float,
+    seed: int,
+) -> tuple[list[tuple[Path, int]], list[tuple[Path, int]]]:
+    ordered = sorted(samples, key=lambda s: s[0].name)
+    rng = random.Random(seed)
+    rng.shuffle(ordered)
+    split_idx = max(1, int(len(ordered) * (1 - val_ratio)))
+    return ordered[:split_idx], ordered[split_idx:]
+
+
 def _build_classification_dataset(
-    chips_path: str,
-    labels_csv_path: str,
+    samples: list[tuple[Path, int]],
     chip_size: int,
     batch_size: int = 4,
+    *,
+    shuffle: bool = True,
 ) -> Any:
     import torch
     from PIL import Image
     from torch.utils.data import DataLoader, Dataset
     from torchvision import transforms
-
-    from fair.utils.data import resolve_directory, resolve_path
-
-    local_chips = resolve_directory(chips_path)
-    local_csv = resolve_path(labels_csv_path)
 
     transform = transforms.Compose(
         [
@@ -80,15 +106,8 @@ def _build_classification_dataset(
     )
 
     class ChipDataset(Dataset):
-        def __init__(self) -> None:
-            self.samples: list[tuple[Path, int]] = []
-            with open(local_csv, encoding="utf-8") as f:
-                reader = csv.DictReader(f)
-                for row in reader:
-                    img_path = local_chips / row["filename"]
-                    label = 1 if row["class_name"] == "building" else 0
-                    if img_path.exists():
-                        self.samples.append((img_path, label))
+        def __init__(self, items: list[tuple[Path, int]]) -> None:
+            self.samples = items
 
         def __len__(self) -> int:
             return len(self.samples)
@@ -99,8 +118,32 @@ def _build_classification_dataset(
             tensor = transform(img)
             return {"image": tensor, "label": torch.tensor(label, dtype=torch.float32)}
 
-    dataset = ChipDataset()
-    return DataLoader(dataset, batch_size=batch_size, shuffle=True)
+    dataset = ChipDataset(samples)
+    return DataLoader(dataset, batch_size=batch_size, shuffle=shuffle)
+
+
+@step
+def split_dataset(
+    dataset_chips: str,
+    dataset_labels: str,
+    hyperparameters: dict[str, Any],
+) -> Annotated[dict[str, Any], "split_info"]:
+    val_ratio = hyperparameters.get("val_ratio", 0.2)
+    seed = hyperparameters.get("split_seed", 42)
+
+    all_samples = _load_samples(dataset_chips, dataset_labels)
+    train_samples, val_samples = _split_samples(all_samples, val_ratio, seed)
+
+    split_info = {
+        "strategy": "random",
+        "val_ratio": val_ratio,
+        "seed": seed,
+        "train_count": len(train_samples),
+        "val_count": len(val_samples),
+        "description": "Random split by seeded shuffle of sorted filenames",
+    }
+    log_metadata(metadata={"fair/split": split_info})
+    return split_info
 
 
 @step
@@ -109,6 +152,7 @@ def train_model(
     dataset_labels: str,
     base_model_weights: str,
     hyperparameters: dict[str, Any],
+    split_info: dict[str, Any],
     num_classes: int = 2,
     model_name: str | None = None,
     base_model_id: str | None = None,
@@ -123,6 +167,10 @@ def train_model(
     learning_rate = hyperparameters.get("learning_rate", 0.001)
     weight_decay = hyperparameters.get("weight_decay", 0.0001)
     chip_size = hyperparameters.get("chip_size", 256)
+    max_grad_norm = hyperparameters.get("max_grad_norm", 1.0)
+    scheduler_name = hyperparameters.get("scheduler", "cosine")
+    val_ratio = split_info["val_ratio"]
+    seed = split_info["seed"]
 
     with mlflow_training_context(hyperparameters, model_name, base_model_id, dataset_id):
         device = _get_device()
@@ -132,10 +180,16 @@ def train_model(
         model.fc = nn.Linear(model.fc.in_features, 1)
         model.to(device)
 
-        loader = _build_classification_dataset(dataset_chips, dataset_labels, chip_size, batch_size)
+        all_samples = _load_samples(dataset_chips, dataset_labels)
+        train_samples, _ = _split_samples(all_samples, val_ratio, seed)
+        loader = _build_classification_dataset(train_samples, chip_size, batch_size)
         criterion = nn.BCEWithLogitsLoss()
         trainable = filter(lambda p: p.requires_grad, model.parameters())
         opt = torch.optim.AdamW(trainable, lr=learning_rate, weight_decay=weight_decay)
+
+        scheduler = None
+        if scheduler_name == "cosine":
+            scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=epochs)
 
         model.train()
         for epoch in range(epochs):
@@ -148,9 +202,12 @@ def train_model(
                 batch_loss = criterion(logits, labels)
                 opt.zero_grad()
                 batch_loss.backward()
+                torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=max_grad_norm)
                 opt.step()
                 total_loss += batch_loss.item()
                 count += 1
+            if scheduler:
+                scheduler.step()
             avg_loss = total_loss / max(count, 1)
             import mlflow
 
@@ -166,17 +223,22 @@ def evaluate_model(
     dataset_chips: str,
     dataset_labels: str,
     hyperparameters: dict[str, Any],
+    split_info: dict[str, Any],
     class_names: list[str] | None = None,
 ) -> Annotated[dict[str, Any], "metrics"]:
     import torch
 
     chip_size = hyperparameters.get("chip_size", 256)
+    val_ratio = split_info["val_ratio"]
+    seed = split_info["seed"]
 
     device = _get_device()
     model = trained_model.to(device)
     model.eval()
 
-    loader = _build_classification_dataset(dataset_chips, dataset_labels, chip_size)
+    all_samples = _load_samples(dataset_chips, dataset_labels)
+    _, val_samples = _split_samples(all_samples, val_ratio, seed)
+    loader = _build_classification_dataset(val_samples, chip_size, shuffle=False)
     tp = fp = tn = fn = 0
 
     with torch.no_grad():
@@ -207,6 +269,7 @@ def export_onnx(
     import os
     import tempfile
 
+    import onnx
     import torch
 
     chip_size = hyperparameters.get("chip_size", 256)
@@ -225,6 +288,7 @@ def export_onnx(
         dynamic_axes={"input": {0: "batch"}, "output": {0: "batch"}},
         opset_version=18,
     )
+    onnx.checker.check_model(path)
     return path
 
 
@@ -236,11 +300,17 @@ def training_pipeline(
     num_classes: int,
     hyperparameters: dict[str, Any],
 ) -> None:
+    split_info = split_dataset(
+        dataset_chips=dataset_chips,
+        dataset_labels=dataset_labels,
+        hyperparameters=hyperparameters,
+    )
     trained_model = train_model(
         dataset_chips=dataset_chips,
         dataset_labels=dataset_labels,
         base_model_weights=base_model_weights,
         hyperparameters=hyperparameters,
+        split_info=split_info,
         num_classes=num_classes,
     )
     evaluate_model(
@@ -248,6 +318,7 @@ def training_pipeline(
         dataset_chips=dataset_chips,
         dataset_labels=dataset_labels,
         hyperparameters=hyperparameters,
+        split_info=split_info,
     )
     export_onnx(trained_model=trained_model, hyperparameters=hyperparameters)
 

@@ -66,14 +66,22 @@ def postprocess(logits: Any) -> Any:
     return logits.argmax(dim=1).cpu().numpy().astype(np.uint8)
 
 
-def _build_dataset(chips_path: str, labels_path: str, chip_size: int, length: int, batch_size: int = 4) -> Any:
+def _build_dataset(
+    chips_path: str,
+    labels_path: str,
+    chip_size: int,
+    length: int,
+    batch_size: int = 4,
+    split: str = "train",
+    seed: int = 42,
+) -> Any:
     """Intersect OAM + OSM GeoDatasets. chip_size in pixels; bounds are slices per torchgeo 0.10.x dev.
     labels_path is the exact GeoJSON file path stored in STAC; OpenStreetMap.paths requires its parent dir.
     Downloads chips and labels to local cache via UPath/fsspec.
     """
     from torch.utils.data import DataLoader
     from torchgeo.datasets import OpenStreetMap, RasterDataset, stack_samples
-    from torchgeo.samplers import RandomGeoSampler, Units
+    from torchgeo.samplers import GridGeoSampler, RandomGeoSampler, Units
 
     from fair.utils.data import resolve_directory, resolve_path
 
@@ -91,7 +99,15 @@ def _build_dataset(chips_path: str, labels_path: str, chip_size: int, length: in
     bbox = (b[0].start, b[1].start, b[0].stop, b[1].stop)
     osm = OpenStreetMap(bbox=bbox, classes=_BUILDING_CLASSES, paths=str(local_labels.parent), download=False)
     dataset = oam & osm
-    sampler = RandomGeoSampler(dataset, size=chip_size, length=length, units=Units.PIXELS)
+
+    if split == "val":
+        sampler = GridGeoSampler(dataset, size=chip_size, stride=chip_size, units=Units.PIXELS)
+        return DataLoader(dataset, sampler=sampler, batch_size=batch_size, collate_fn=stack_samples)
+
+    import torch
+
+    generator = torch.Generator().manual_seed(seed)
+    sampler = RandomGeoSampler(dataset, size=chip_size, length=length, units=Units.PIXELS, generator=generator)
     return DataLoader(dataset, sampler=sampler, batch_size=batch_size, collate_fn=stack_samples)
 
 
@@ -114,12 +130,56 @@ def _get_losses() -> dict[str, Any]:
     }
 
 
+def _train_step(
+    model: Any,
+    batch: dict[str, Any],
+    criterion: Any,
+    optimizer: Any,
+    device: str,
+    max_grad_norm: float,
+) -> float:
+    import torch
+
+    images, masks = preprocess(batch)
+    images, masks = images.to(device), masks.to(device)
+    loss = criterion(model(images), masks)
+    optimizer.zero_grad()
+    loss.backward()
+    torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=max_grad_norm)
+    optimizer.step()
+    return loss.item()
+
+
+@step
+def split_dataset(
+    dataset_chips: str,
+    dataset_labels: str,
+    hyperparameters: dict[str, Any],
+) -> Annotated[dict[str, Any], "split_info"]:
+    val_ratio = hyperparameters.get("val_ratio", 0.2)
+    seed = hyperparameters.get("split_seed", 42)
+    samples_per_epoch = hyperparameters.get("samples_per_epoch", 50)
+    val_samples = max(int(samples_per_epoch * val_ratio), 10)
+
+    split_info = {
+        "strategy": "spatial",
+        "val_ratio": val_ratio,
+        "seed": seed,
+        "train_count": samples_per_epoch,
+        "val_count": val_samples,
+        "description": "Spatial split: RandomGeoSampler for train, GridGeoSampler for val (non-overlapping tiles)",
+    }
+    log_metadata(metadata={"fair/split": split_info})
+    return split_info
+
+
 @step
 def train_model(
     dataset_chips: str,
     dataset_labels: str,
     base_model_weights: str,
     hyperparameters: dict[str, Any],
+    split_info: dict[str, Any],
     num_classes: int,
     model_name: str | None = None,
     base_model_id: str | None = None,
@@ -135,6 +195,9 @@ def train_model(
     samples_per_epoch = hyperparameters.get("samples_per_epoch", 50)
     optimizer_name = hyperparameters.get("optimizer", "AdamW")
     loss_name = hyperparameters.get("loss", "CrossEntropyLoss")
+    max_grad_norm = hyperparameters.get("max_grad_norm", 1.0)
+    scheduler_name = hyperparameters.get("scheduler", "cosine")
+    seed = split_info["seed"]
 
     with mlflow_training_context(hyperparameters, model_name, base_model_id, dataset_id):
         device = _get_device()
@@ -143,7 +206,13 @@ def train_model(
         for param in model.encoder.parameters():  # ty: ignore[unresolved-attribute]
             param.requires_grad = False
         loader = _build_dataset(
-            dataset_chips, dataset_labels, chip_size, length=samples_per_epoch, batch_size=batch_size
+            dataset_chips,
+            dataset_labels,
+            chip_size,
+            length=samples_per_epoch,
+            batch_size=batch_size,
+            split="train",
+            seed=seed,
         )
 
         losses = _get_losses()
@@ -152,9 +221,19 @@ def train_model(
         trainable = filter(lambda p: p.requires_grad, model.parameters())
         opt = optimizers[optimizer_name](trainable, lr=learning_rate, weight_decay=weight_decay)
 
+        import torch
+
+        scheduler = None
+        if scheduler_name == "cosine":
+            scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=epochs)
+
         model.train()
         for epoch in range(epochs):
-            total_loss = sum(_train_step(model, batch, criterion, opt, device) for batch in loader)
+            total_loss = 0.0
+            for batch in loader:
+                total_loss += _train_step(model, batch, criterion, opt, device, max_grad_norm)
+            if scheduler:
+                scheduler.step()
             avg_loss = total_loss / len(loader)
             import mlflow
 
@@ -164,41 +243,32 @@ def train_model(
     return model.cpu()
 
 
-def _train_step(
-    model: Any,
-    batch: dict[str, Any],
-    criterion: Any,
-    optimizer: Any,
-    device: str,
-) -> float:
-    images, masks = preprocess(batch)
-    images, masks = images.to(device), masks.to(device)
-    loss = criterion(model(images), masks)
-    optimizer.zero_grad()
-    loss.backward()
-    optimizer.step()
-    return loss.item()
-
-
 @step
 def evaluate_model(
     trained_model: Any,
     dataset_chips: str,
     dataset_labels: str,
     hyperparameters: dict[str, Any],
+    split_info: dict[str, Any],
     num_classes: int = 2,
     class_names: list[str] | None = None,
 ) -> Annotated[dict[str, Any], "metrics"]:
     import torch
 
-    chip_size = hyperparameters.get("chip_size", 512)
-    samples_per_epoch = hyperparameters.get("samples_per_epoch", 50)
+    chip_size = hyperparameters.get("chip_size", 256)
 
     device = _get_device()
     model = trained_model.to(device)
     model.eval()
 
-    loader = _build_dataset(dataset_chips, dataset_labels, chip_size, length=max(samples_per_epoch // 3, 10))
+    loader = _build_dataset(
+        dataset_chips,
+        dataset_labels,
+        chip_size,
+        length=0,
+        split="val",
+        seed=split_info["seed"],
+    )
     total_correct = total_pixels = 0
     intersection = [0] * num_classes
     union = [0] * num_classes
@@ -287,6 +357,7 @@ def export_onnx(
     import os
     import tempfile
 
+    import onnx
     import torch
 
     chip_size = hyperparameters.get("chip_size", 256)
@@ -305,6 +376,7 @@ def export_onnx(
         dynamic_axes={"input": {0: "batch"}, "output": {0: "batch"}},
         opset_version=18,
     )
+    onnx.checker.check_model(path)
     return path
 
 
@@ -316,11 +388,17 @@ def training_pipeline(
     num_classes: int,
     hyperparameters: dict[str, Any],
 ) -> None:
+    split_info = split_dataset(
+        dataset_chips=dataset_chips,
+        dataset_labels=dataset_labels,
+        hyperparameters=hyperparameters,
+    )
     trained_model = train_model(
         dataset_chips=dataset_chips,
         dataset_labels=dataset_labels,
         base_model_weights=base_model_weights,
         hyperparameters=hyperparameters,
+        split_info=split_info,
         num_classes=num_classes,
     )
     evaluate_model(
@@ -328,6 +406,7 @@ def training_pipeline(
         dataset_chips=dataset_chips,
         dataset_labels=dataset_labels,
         hyperparameters=hyperparameters,
+        split_info=split_info,
         num_classes=num_classes,
     )
     export_onnx(

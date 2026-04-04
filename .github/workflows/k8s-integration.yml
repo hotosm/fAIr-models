@@ -24,20 +24,19 @@ jobs:
       - uses: extractions/setup-just@v2
 
       - name: Install dependencies
-        run: uv sync --extra k8s
+        run: uv sync --extra k8s --group example
 
       - name: Create Kind cluster
         uses: helm/kind-action@v1
         with:
           cluster_name: fair-ci
           config: infra/ci/kind-config.yaml
-          node_image: kindest/node:v1.33.0
 
       - name: Install Helmfile
         uses: helmfile/helmfile-action@v2
         with:
           helmfile-args: version
-          helmfile-workdirectory: infra/dev
+          helmfile-workdirectory: infra/ci
 
       - name: Setup infrastructure
         working-directory: infra/ci

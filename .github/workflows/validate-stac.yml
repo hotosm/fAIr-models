@@ -34,9 +34,9 @@ jobs:
         with:
           python-version: "3.13"
           enable-cache: true
+      - name: Install just
+        uses: extractions/setup-just@v2
       - name: Install dependencies
         run: uv sync --group dev
       - name: Validate STAC items
-        run: make validate-stac
-      - name: Validate model pipelines
-        run: make validate-models
+        run: just validate

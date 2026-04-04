@@ -33,16 +33,16 @@ powers AI-assisted mapping for humanitarian response.
 ```bash title="Set up local dev environment"
 git clone https://github.com/hotosm/fAIr-models.git
 cd fAIr-models
-make setup
+just setup
 ```
 
 ## Code Standards
 
 !!! tip
 
-    - **Linting, formatting & type checking:** `ruff` + `ty` : run `make lint` before submitting
-    - **Tests:** `pytest` : run `make test`, all tests must pass
-    - **Validation:** run `make validate` to check STAC items and model pipelines
+    - **Linting, formatting & type checking:** `ruff` + `ty` : run `just lint` before submitting
+    - **Tests:** `pytest` : run `just test`, all tests must pass
+    - **Validation:** run `just validate` to check STAC items and model pipelines
     - **Commits:** [Conventional Commits](https://www.conventionalcommits.org/)
       enforced via `commitizen` and pre-commit hooks
 
@@ -53,9 +53,9 @@ make setup
 3. Ensure all checks pass:
 
     ```bash title="Run all checks"
-    make lint
-    make test
-    make validate
+    just lint
+    just test
+    just validate
     ```
 
 4. Open a PR against `master` with a clear description

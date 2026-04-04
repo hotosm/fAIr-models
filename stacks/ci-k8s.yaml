@@ -19,9 +19,9 @@ components:
           - name: AWS_SECRET_ACCESS_KEY
             value: minioadmin
         node_selectors:
-          fair-dev.hotosm.org/workload: ml
+          fair.dev/workload: ml
         tolerations:
-          - key: fair-dev.hotosm.org/workload
+          - key: fair.dev/workload
             operator: Equal
             value: ml
             effect: NoSchedule
@@ -36,9 +36,9 @@ components:
           - name: AWS_SECRET_ACCESS_KEY
             value: minioadmin
         node_selectors:
-          fair-dev.hotosm.org/workload: ml
+          fair.dev/workload: ml
         tolerations:
-          - key: fair-dev.hotosm.org/workload
+          - key: fair.dev/workload
             operator: Equal
             value: ml
             effect: NoSchedule

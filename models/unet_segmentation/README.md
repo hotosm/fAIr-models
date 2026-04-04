@@ -1,4 +1,4 @@
-# Example UNet
+# UNet Building Segmentation
 
 Semantic segmentation model for building footprint extraction from aerial imagery (OAM).
 
@@ -24,4 +24,4 @@ The training and evaluation pipeline is defined in `pipeline.py` with ZenML step
 
 ## Usage
 
-See [examples/unet](../../examples/unet/) for a full end-to-end workflow.
+See [examples/segmentation](../../examples/segmentation/) for a full end-to-end workflow.

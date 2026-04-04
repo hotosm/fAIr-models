@@ -9,12 +9,6 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
-env:
-  NAMESPACE: fair
-  FAIR_LABEL_DOMAIN: fair-dev.hotosm.org
-  PGSTAC_DSN: postgresql://postgres:postgres@localhost:5432/fair_models
-  FAIR_FORCE_CPU: "1"
-
 jobs:
   k8s-integration:
     runs-on: ubuntu-latest
@@ -27,6 +21,8 @@ jobs:
           python-version: "3.13"
           enable-cache: true
 
+      - uses: extractions/setup-just@v2
+
       - name: Install dependencies
         run: uv sync --extra k8s
 
@@ -37,63 +33,16 @@ jobs:
           config: infra/ci/kind-config.yaml
           node_image: kindest/node:v1.33.0
 
-      - name: Deploy PostgreSQL
-        run: |
-          kubectl create ns $NAMESPACE --dry-run=client -o yaml | kubectl apply -f -
-          envsubst '$FAIR_LABEL_DOMAIN' < infra/dev/postgres/statefulset.yaml | \
-            kubectl apply -n $NAMESPACE -f infra/dev/postgres/service.yaml -f -
-          kubectl rollout status -n $NAMESPACE statefulset/postgres --timeout=120s
-
-      - name: Deploy infra
+      - name: Install Helmfile
         uses: helmfile/helmfile-action@v2
         with:
-          helmfile-args: sync --selector name!=nvidia-device-plugin
+          helmfile-args: version
           helmfile-workdirectory: infra/dev
-          helmfile-auto-init: "true"
 
-      - name: Wait for infra
-        run: |
-          kubectl wait --for=condition=complete job --all -n $NAMESPACE --timeout=300s
-          kubectl rollout status -n $NAMESPACE deployment/stac-stac --timeout=300s
-          kubectl rollout status -n $NAMESPACE deployment/zenml --timeout=300s
-          kubectl rollout status -n $NAMESPACE deployment/minio --timeout=300s
-          kubectl rollout status -n $NAMESPACE deployment/mlflow --timeout=300s
+      - name: Setup infrastructure
+        working-directory: infra/ci
+        run: just setup
 
-      - name: Port-forward services
-        run: |
-          while read svc ports; do
-            kubectl port-forward -n $NAMESPACE svc/$svc $ports &
-          done < infra/dev/ports.conf
-          while read svc ports; do
-            local_port=${ports%%:*}
-            for i in $(seq 1 30); do nc -z localhost $local_port 2>/dev/null && break; sleep 1; done
-          done < infra/dev/ports.conf
-
-      - name: Connect to ZenML
-        run: |
-          for i in $(seq 1 5); do
-            TOKEN=$(curl -fsS -X POST http://localhost:8080/api/v1/login \
-              -d 'username=default&password=&grant_type=password' | jq -r '.access_token') \
-              && [ -n "$TOKEN" ] && break
-            echo "ZenML not ready ($i/5)..." && sleep 5
-          done
-          echo "ZENML_STORE_URL=http://localhost:8080" >> "$GITHUB_ENV"
-          echo "ZENML_STORE_API_TOKEN=${TOKEN}" >> "$GITHUB_ENV"
-          echo "ZENML_STORE_VERIFY_SSL=false" >> "$GITHUB_ENV"
-
-      - name: Seed sample data
-        run: uv run --with minio python infra/dev/scripts/seed_data.py
-
-      - name: Register ZenML stack
-        run: |
-          uv run zenml init
-          uv run zenml stack import ci-k8s -f stacks/ci-k8s.yaml --ignore-version-mismatch
-          uv run zenml stack set ci-k8s
-
-      - name: Run example pipeline
-        run: |
-          set -o pipefail
-          AWS_ENDPOINT_URL=http://localhost:9000 \
-            uv run python examples/unet/run.py all \
-              --stac-api-url http://localhost:8082 \
-              --dsn $PGSTAC_DSN | tee ci_pipeline_output.log
+      - name: Run pipeline
+        working-directory: infra/ci
+        run: just run-example

@@ -1,0 +1,57 @@
+backendStore:
+  databaseMigration: true
+  postgres:
+    enabled: true
+    host: {{ requiredEnv "PG_HOST" }}
+    port: {{ requiredEnv "PG_PORT" }}
+    database: mlflow
+    user: {{ requiredEnv "PG_USER" }}
+    password: {{ requiredEnv "PG_PASSWORD" }}
+
+artifactRoot:
+  s3:
+    enabled: true
+    bucket: {{ requiredEnv "SPACES_BUCKET" }}
+    path: mlflow
+    awsAccessKeyId: {{ requiredEnv "SPACES_ACCESS_KEY" }}
+    awsSecretAccessKey: {{ requiredEnv "SPACES_SECRET_KEY" }}
+
+auth:
+  enabled: true
+  adminUsername: {{ requiredEnv "MLFLOW_ADMIN_USER" }}
+  adminPassword: {{ requiredEnv "MLFLOW_ADMIN_PASSWORD" }}
+  postgres:
+    enabled: true
+    host: {{ requiredEnv "PG_HOST" }}
+    port: {{ requiredEnv "PG_PORT" }}
+    database: mlflow_auth
+    user: {{ requiredEnv "PG_USER" }}
+    password: {{ requiredEnv "PG_PASSWORD" }}
+    driver: psycopg2
+
+ingress:
+  enabled: true
+  className: nginx
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt
+  hosts:
+    - host: mlflow.{{ requiredEnv "FAIR_DOMAIN" }}
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: mlflow-tls
+      hosts:
+        - mlflow.{{ requiredEnv "FAIR_DOMAIN" }}
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 512Mi
+  limits:
+    cpu: 500m
+    memory: 1Gi
+
+extraEnvVars:
+  MLFLOW_S3_ENDPOINT_URL: {{ requiredEnv "SPACES_ENDPOINT" }}
+  MLFLOW_SERVER_ALLOWED_HOSTS: "*"

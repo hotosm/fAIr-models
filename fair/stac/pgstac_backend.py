@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+
 import pystac
 from pypgstac.db import PgstacDB
 from pypgstac.load import Loader, Methods
@@ -10,6 +12,9 @@ from fair.stac.collections import (
     create_datasets_collection,
     create_local_models_collection,
 )
+from fair.stac.versioning import ensure_version_links
+
+log = logging.getLogger(__name__)
 
 
 class PgStacBackend:
@@ -45,12 +50,34 @@ class PgStacBackend:
 
     def publish_item(self, collection_id: str, item: pystac.Item) -> pystac.Item:
         item.properties.setdefault("version", "1")
+        self._ensure_version_links(collection_id, item)
+        self._normalize_version_link_hrefs(collection_id, item)
         item_dict = item.to_dict()
         item_dict["collection"] = collection_id
         with self._get_db() as db:
             loader = Loader(db)
             loader.load_items(iter([item_dict]), insert_mode=Methods.upsert)
+        log.info("Published %s/%s v%s", collection_id, item.id, item.properties.get("version"))
         return item
+
+    def _normalize_version_link_hrefs(self, collection_id: str, item: pystac.Item) -> None:
+        _VERSION_RELS = {"predecessor-version", "successor-version", "latest-version"}
+        for link in item.links:
+            if link.rel not in _VERSION_RELS:
+                continue
+            href = link.get_href() or ""
+            if href.startswith(("http://", "https://")):
+                continue
+            # Relative local-catalog hrefs like ../../{coll}/{id}/{id}.json
+            parts = href.replace("\\", "/").split("/")
+            json_parts = [p for p in parts if p.endswith(".json")]
+            if json_parts:
+                target_item_id = json_parts[-1].removesuffix(".json")
+                target_coll = parts[-3] if len(parts) >= 3 else collection_id
+                link.target = self.item_href(target_coll, target_item_id)
+
+    def _ensure_version_links(self, collection_id: str, item: pystac.Item) -> None:
+        ensure_version_links(item, self.item_href(collection_id, item.id))
 
     def get_item(self, collection_id: str, item_id: str) -> pystac.Item:
         client = StacClient.open(self._stac_api_url)
@@ -61,9 +88,9 @@ class PgStacBackend:
             raise KeyError(msg)
         return item
 
-    def list_items(self, collection_id: str) -> list[pystac.Item]:
+    def list_items(self, collection_id: str, *, limit: int | None = None) -> list[pystac.Item]:
         client = StacClient.open(self._stac_api_url)
-        return list(client.search(collections=[collection_id]).items())
+        return list(client.search(collections=[collection_id], max_items=limit).items())
 
     def deprecate_item(self, collection_id: str, item_id: str) -> pystac.Item:
         item = self.get_item(collection_id, item_id)
@@ -74,3 +101,7 @@ class PgStacBackend:
         # Loader has no delete API; call pgstac's delete_item() directly
         with self._get_db() as db:
             db.query_one("SELECT delete_item(%s, %s)", [item_id, collection_id])
+        log.info("Deleted %s/%s", collection_id, item_id)
+
+    def item_href(self, collection_id: str, item_id: str) -> str:
+        return f"{self._stac_api_url}/collections/{collection_id}/items/{item_id}"

@@ -6,7 +6,7 @@ components:
     flavor: kubernetes
     type: orchestrator
     configuration:
-      kubernetes_context: kind-fair-dev
+      kubernetes_context: kind-local-dev-fair
       kubernetes_namespace: fair
       pod_settings:
         env:
@@ -19,9 +19,9 @@ components:
           - name: AWS_SECRET_ACCESS_KEY
             value: minioadmin
         node_selectors:
-          ${FAIR_LABEL_DOMAIN}/workload: ml
+          fair.dev/workload: ml
         tolerations:
-          - key: ${FAIR_LABEL_DOMAIN}/workload
+          - key: fair.dev/workload
             operator: Equal
             value: ml
             effect: NoSchedule
@@ -36,9 +36,9 @@ components:
           - name: AWS_SECRET_ACCESS_KEY
             value: minioadmin
         node_selectors:
-          ${FAIR_LABEL_DOMAIN}/workload: ml
+          fair.dev/workload: ml
         tolerations:
-          - key: ${FAIR_LABEL_DOMAIN}/workload
+          - key: fair.dev/workload
             operator: Equal
             value: ml
             effect: NoSchedule

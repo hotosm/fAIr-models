@@ -11,14 +11,18 @@ catalog on promotion.
 ## Quickstart
 
 ```bash
-make setup
-make example
+just setup
+just example
 ```
 
-Run `make help` to see all available targets. For Kubernetes mode run
-`make k8s` first, then `make setup`. See [examples/unet/README.md](examples/unet/README.md)
-for the full walkthrough and [docs/getting-started.md](docs/getting-started.md)
-for detailed setup instructions.
+Run `just` to see all available recipes. For Kubernetes mode run
+`just k8s` first, then `just setup`. See the example walkthroughs for each task type:
+
+- [Segmentation](examples/segmentation/README.md) (UNet)
+- [Classification](examples/classification/README.md) (ResNet18)
+- [Detection](examples/detection/README.md) (YOLOv11n)
+
+See [docs/getting-started.md](docs/getting-started.md) for detailed setup instructions.
 
 ## Architecture
 
@@ -35,22 +39,23 @@ Catalog: fair-models
 |     Each item = complete model card (weights, code, Docker, MLM spec).
 |     Versioned by contributors, registered via CLI utility.
 |     |
-|     +-- Item: ramp (v1)              category: semantic-segmentation
-|     +-- Item: yolo (v1)              category: object-detection
+|     +-- Item: unet-segmentation (v1)           category: semantic-segmentation
+|     +-- Item: resnet18-classification (v1)      category: classification
+|     +-- Item: yolo11n-detection (v1)            category: object-detection
 |
 +-- Collection: local-models
 |     Finetuned models produced by ZenML pipelines.
 |     Only promoted (production) versions appear here.
 |     |
-|     +-- Item: ramp-finetuned-nepal-v2   (production, latest-version)
-|     +-- Item: ramp-finetuned-nepal-v1   (deprecated: true)
-|     +-- Item: yolo-finetuned-uganda-v1  (production)
+|     +-- Item: unet-segmentation-finetuned-banepa-v2   (production, latest-version)
+|     +-- Item: unet-segmentation-finetuned-banepa-v1   (deprecated: true)
+|     +-- Item: yolo11n-detection-finetuned-banepa-v1   (production)
 |
 +-- Collection: datasets
       Training data registered via fAIr UI/backend.
       |
-      +-- Item: buildings-kathmandu       category: semantic-segmentation
-      +-- Item: trees-utr-in-masuri       category: object-detection
+      +-- Item: buildings-banepa                category: semantic-segmentation
+      +-- Item: buildings-banepa-detection       category: object-detection
 ```
 
 ### What STAC Items Contain
@@ -60,7 +65,7 @@ custom `fair:*` fields wherever a standard exists.
 
 **Base model item** (contributed by model developer):
 
-See [`models/example_unet/stac-item.json`](models/example_unet/stac-item.json) for a complete example.
+See [`models/unet_segmentation/stac-item.json`](models/unet_segmentation/stac-item.json) for a complete example.
 
 Key properties: `mlm:name`, `mlm:architecture`, `mlm:tasks`, `mlm:framework`,
 `mlm:input` (with `pre_processing_function`), `mlm:output` (with `post_processing_function`
@@ -113,7 +118,7 @@ triggering finetuning. Validation is based on matching `keywords` and
 `mlm:tasks` / `label:tasks` between the model and dataset STAC items.
 
 A JSON schema in this repo defines the allowed keyword vocabulary and valid
-combinations. If a user picks `ramp` (keywords: `building`,
+combinations. If a user picks `unet-segmentation` (keywords: `building`,
 `semantic-segmentation`) with a dataset tagged `road`, `object-detection`,
 the request fails schema validation.
 

@@ -8,10 +8,10 @@ import pystac
 
 from fair.stac.builders import build_base_model_item, build_dataset_item
 from fair.zenml.config import (
-    _WORKER_NODE_SELECTOR,
-    _WORKER_TOLERATION,
     LABEL_DOMAIN,
-    _gpu_settings,
+    _scheduling_settings,
+    _workload_selector,
+    _workload_toleration,
     generate_inference_config,
     generate_training_config,
 )
@@ -62,6 +62,9 @@ def _base_model(**overrides: Any):
         "source_code_entrypoint": "mod:train",
         "training_runtime_href": "ghcr.io/hotosm/fair-unet:v1",
         "inference_runtime_href": "ghcr.io/hotosm/fair-unet:v1",
+        "title": "UNet test model",
+        "description": "Config test base model.",
+        "fair_metrics_spec": [{"name": "accuracy", "description": "Pixel accuracy", "higher_is_better": True}],
     }
     defaults.update(overrides)
     return build_base_model_item(**defaults)
@@ -92,18 +95,25 @@ def _dataset(tmp_path):
         keywords=["building"],
         chips_href="data/oam/",
         labels_href=str(path),
+        title="Test Dataset",
+        description="Config test dataset.",
+        user_id="osm-test",
     )
 
 
 def test_training_config(tmp_path):
     cfg = generate_training_config(_base_model(), _dataset(tmp_path), model_name="finetuned")
     p = cfg["parameters"]
+    hp = p["hyperparameters"]
     assert cfg["model"]["name"] == "finetuned"
-    assert p["epochs"] == 15 and p["batch_size"] == 4
+    assert hp["epochs"] == 15 and hp["batch_size"] == 4
     assert p["dataset_chips"] == "data/oam/"
-    assert p["chip_size"] == 512 and p["num_classes"] == 2
+    assert hp["chip_size"] == 512 and p["num_classes"] == 2
     assert p["base_model_weights"] == "weights.pt"
     assert cfg["settings"]["docker"]["parent_image"] == "ghcr.io/hotosm/fair-unet:v1"
+    assert cfg["steps"]["train_model"]["parameters"]["model_name"] == "finetuned"
+    assert cfg["steps"]["train_model"]["parameters"]["base_model_id"] == "unet"
+    assert cfg["steps"]["evaluate_model"]["parameters"]["class_names"] == ["bg", "building"]
 
 
 def test_training_overrides(tmp_path):
@@ -113,8 +123,9 @@ def test_training_overrides(tmp_path):
         model_name="t",
         overrides={"epochs": 1},
     )
-    assert cfg["parameters"]["epochs"] == 1
-    assert cfg["parameters"]["batch_size"] == 4  # non-overridden default preserved
+    hp = cfg["parameters"]["hyperparameters"]
+    assert hp["epochs"] == 1
+    assert hp["batch_size"] == 4  # non-overridden default preserved
 
 
 def test_inference_config():
@@ -139,9 +150,12 @@ def test_inference_config_with_artifact_id():
         model_href="s3://store/model/abc",
         mlm_hyperparameters={},
         keywords=["building"],
-        base_model_item_id="unet",
-        dataset_item_id="ds-1",
+        base_model_href="../base-models/unet/unet.json",
+        dataset_href="../datasets/ds-1/ds-1.json",
         version="1",
+        title="Local UNet",
+        description="Finetuned.",
+        user_id="osm-test",
         zenml_artifact_version_id="uuid-123",
     )
     cfg = generate_inference_config(local, "/data/input/")
@@ -150,11 +164,10 @@ def test_inference_config_with_artifact_id():
     assert p["zenml_artifact_version_id"] == "uuid-123"
 
 
-# --- _gpu_settings tests ---
+# --- scheduling settings tests ---
 
 
 def _item_with_accelerator(accelerator: str | None = None, count: int | None = None) -> pystac.Item:
-    """Build a base model item and inject mlm:accelerator properties."""
     item = _base_model()
     if accelerator is not None:
         item.properties["mlm:accelerator"] = accelerator
@@ -165,58 +178,95 @@ def _item_with_accelerator(accelerator: str | None = None, count: int | None = N
 
 def test_k8s_settings_cuda():
     item = _item_with_accelerator("cuda", 2)
-    settings = _gpu_settings(item)
+    settings = _scheduling_settings(item, "training")
     pod = settings["orchestrator.kubernetes"]["pod_settings"]
     assert pod["resources"]["requests"]["nvidia.com/gpu"] == "2"
     assert pod["resources"]["limits"]["nvidia.com/gpu"] == "2"
     assert len(pod["tolerations"]) == 2
-    assert _WORKER_TOLERATION in pod["tolerations"]
-    assert pod["node_selectors"] == _WORKER_NODE_SELECTOR
+    assert _workload_toleration("training") in pod["tolerations"]
+    assert pod["node_selectors"] == _workload_selector("training")
 
 
-def test_k8s_settings_cpu_returns_worker_toleration():
+def test_k8s_settings_cpu_returns_workload_toleration():
     item = _item_with_accelerator()
-    settings = _gpu_settings(item)
+    settings = _scheduling_settings(item, "training")
     pod = settings["orchestrator.kubernetes"]["pod_settings"]
-    assert pod["tolerations"] == [_WORKER_TOLERATION]
-    assert pod["node_selectors"] == _WORKER_NODE_SELECTOR
-    assert "resources" not in pod
+    assert pod["tolerations"] == [_workload_toleration("training")]
+    assert pod["node_selectors"] == _workload_selector("training")
+    assert pod["resources"]["requests"]["memory"] == "4Gi"
+    assert pod["resources"]["limits"]["memory"] == "6Gi"
 
 
 def test_k8s_settings_explicit_cpu():
-    settings = _gpu_settings(_item_with_accelerator("cpu"))
+    settings = _scheduling_settings(_item_with_accelerator("cpu"), "inference")
     pod = settings["orchestrator.kubernetes"]["pod_settings"]
-    assert pod["tolerations"] == [_WORKER_TOLERATION]
-    assert pod["node_selectors"] == _WORKER_NODE_SELECTOR
-    assert "resources" not in pod
+    assert pod["tolerations"] == [_workload_toleration("inference")]
+    assert pod["node_selectors"] == _workload_selector("inference")
+    assert pod["resources"]["requests"]["memory"] == "2Gi"
+    assert pod["resources"]["limits"]["memory"] == "4Gi"
 
 
 def test_k8s_settings_amd64():
-    settings = _gpu_settings(_item_with_accelerator("amd64"))
+    settings = _scheduling_settings(_item_with_accelerator("amd64"), "training")
     pod = settings["orchestrator.kubernetes"]["pod_settings"]
-    assert pod["tolerations"] == [_WORKER_TOLERATION]
-    assert pod["node_selectors"] == _WORKER_NODE_SELECTOR
-    assert "resources" not in pod
+    assert pod["tolerations"] == [_workload_toleration("training")]
+    assert pod["node_selectors"] == _workload_selector("training")
+    assert pod["resources"]["requests"]["memory"] == "4Gi"
+    assert pod["resources"]["limits"]["memory"] == "6Gi"
 
 
 def test_k8s_settings_default_count():
     item = _item_with_accelerator("cuda")
-    settings = _gpu_settings(item)
+    settings = _scheduling_settings(item, "training")
     assert settings["orchestrator.kubernetes"]["pod_settings"]["resources"]["limits"]["nvidia.com/gpu"] == "1"
+
+
+def test_k8s_resources_global_env_override(monkeypatch):
+    monkeypatch.setenv("FAIR_K8S_MEMORY_REQUEST", "8Gi")
+    monkeypatch.setenv("FAIR_K8S_MEMORY_LIMIT", "12Gi")
+    settings = _scheduling_settings(_item_with_accelerator(), "training")
+    resources = settings["orchestrator.kubernetes"]["pod_settings"]["resources"]
+    assert resources["requests"]["memory"] == "8Gi"
+    assert resources["limits"]["memory"] == "12Gi"
+
+
+def test_k8s_resources_workload_env_overrides_global(monkeypatch):
+    monkeypatch.setenv("FAIR_K8S_MEMORY_REQUEST", "8Gi")
+    monkeypatch.setenv("FAIR_TRAINING_MEMORY_REQUEST", "16Gi")
+    settings = _scheduling_settings(_item_with_accelerator(), "training")
+    assert settings["orchestrator.kubernetes"]["pod_settings"]["resources"]["requests"]["memory"] == "16Gi"
+
+
+def test_k8s_resources_inference_defaults():
+    settings = _scheduling_settings(_item_with_accelerator(), "inference")
+    resources = settings["orchestrator.kubernetes"]["pod_settings"]["resources"]
+    assert resources["requests"]["memory"] == "2Gi"
+    assert resources["limits"]["memory"] == "4Gi"
+
+
+def test_k8s_resources_cpu_env(monkeypatch):
+    monkeypatch.setenv("FAIR_TRAINING_CPU_REQUEST", "2")
+    monkeypatch.setenv("FAIR_TRAINING_CPU_LIMIT", "4")
+    settings = _scheduling_settings(_item_with_accelerator(), "training")
+    resources = settings["orchestrator.kubernetes"]["pod_settings"]["resources"]
+    assert resources["requests"]["cpu"] == "2"
+    assert resources["limits"]["cpu"] == "4"
 
 
 def test_k8s_settings_force_cpu_env(monkeypatch):
     monkeypatch.setenv("FAIR_FORCE_CPU", "1")
-    settings = _gpu_settings(_item_with_accelerator("cuda", 2))
+    settings = _scheduling_settings(_item_with_accelerator("cuda", 2), "training")
     pod = settings["orchestrator.kubernetes"]["pod_settings"]
-    assert pod["tolerations"] == [_WORKER_TOLERATION]
-    assert pod["node_selectors"] == _WORKER_NODE_SELECTOR
-    assert "resources" not in pod
+    assert pod["tolerations"] == [_workload_toleration("training")]
+    assert pod["node_selectors"] == _workload_selector("training")
+    assert pod["resources"] == {"requests": {"memory": "4Gi"}, "limits": {"memory": "6Gi"}}
 
 
-def test_label_domain_in_selectors():
-    assert f"{LABEL_DOMAIN}/workload" in _WORKER_NODE_SELECTOR
-    assert _WORKER_TOLERATION["key"] == f"{LABEL_DOMAIN}/workload"
+def test_workload_selectors_use_label_domain():
+    selector = _workload_selector("training")
+    assert f"{LABEL_DOMAIN}/training" in selector
+    toleration = _workload_toleration("inference")
+    assert toleration["key"] == f"{LABEL_DOMAIN}/inference"
 
 
 def test_training_config_includes_k8s_settings(tmp_path):

@@ -16,7 +16,7 @@ spec:
         app: postgres
     spec:
       nodeSelector:
-        ${FAIR_LABEL_DOMAIN}/role: infra
+        fair.dev/role: infra
       containers:
         - name: postgres
           image: imresamu/postgis:17-3.5

@@ -9,7 +9,15 @@ import pystac
 import pytest
 
 from fair.stac.builders import build_base_model_item, build_dataset_item
-from fair.stac.validators import validate_base_model_item, validate_compatibility, validate_mlm_schema
+from fair.stac.validators import (
+    validate_base_model_item,
+    validate_compatibility,
+    validate_hyperparameters,
+    validate_metrics_against_spec,
+    validate_mlm_schema,
+    validate_pipeline_config,
+    validate_predictions_geojson,
+)
 
 _MLM_INPUT = [
     {
@@ -60,6 +68,9 @@ def _model(keywords=None, tasks=None):
         source_code_entrypoint="mod:train",
         training_runtime_href="local",
         inference_runtime_href="local",
+        title="Validator test model",
+        description="Model used in validator tests.",
+        fair_metrics_spec=[{"name": "accuracy", "description": "Pixel accuracy", "higher_is_better": True}],
     )
 
 
@@ -85,6 +96,9 @@ def _dataset(tmp_path, keywords=None, label_tasks=None):
         keywords=keywords or ["building", "semantic-segmentation"],
         chips_href="chips/",
         labels_href=str(path),
+        title="Validator test dataset",
+        description="Dataset used in validator tests.",
+        user_id="osm-test",
     )
 
 
@@ -165,6 +179,10 @@ def _valid_base_model():
         source_code_entrypoint="mod:train",
         training_runtime_href="ghcr.io/hotosm/test:v1",
         inference_runtime_href="ghcr.io/hotosm/test:v1",
+        title="Valid test model",
+        description="A valid base model for validator tests.",
+        fair_metrics_spec=[{"name": "accuracy", "description": "Pixel accuracy", "higher_is_better": True}],
+        readme_href="https://example.com/README.md",
     )
     item.properties["license"] = "AGPL-3.0-only"
     return item
@@ -308,3 +326,254 @@ class TestGeometryTypeCompatibility:
             _dataset(tmp_path, keywords=["building", "semantic-segmentation"]),
         )
         assert not any("Geometry type mismatch" in e for e in errors)
+
+
+class TestValidatePipelineConfig:
+    def test_valid_training_config(self):
+        config = {
+            "parameters": {
+                "base_model_weights": "w.pt",
+                "dataset_chips": "chips/",
+                "dataset_labels": "labels.geojson",
+                "hyperparameters": {"epochs": 10, "batch_size": 4},
+            }
+        }
+        assert validate_pipeline_config(config, is_training=True) == []
+
+    def test_missing_training_parameter(self):
+        config = {"parameters": {"base_model_weights": "w.pt"}}
+        errors = validate_pipeline_config(config, is_training=True)
+        assert any("dataset_chips" in e for e in errors)
+        assert any("hyperparameters" in e for e in errors)
+
+    def test_missing_epochs_in_hyperparameters(self):
+        config = {
+            "parameters": {
+                "base_model_weights": "w.pt",
+                "dataset_chips": "chips/",
+                "dataset_labels": "labels.geojson",
+                "hyperparameters": {"batch_size": 4},
+            }
+        }
+        errors = validate_pipeline_config(config, is_training=True)
+        assert any("epochs" in e for e in errors)
+
+    def test_valid_inference_config(self):
+        config = {"parameters": {"model_uri": "s3://model.pt", "input_images": "/data/"}}
+        assert validate_pipeline_config(config, is_training=False) == []
+
+    def test_missing_inference_parameter(self):
+        config = {"parameters": {"model_uri": "s3://model.pt"}}
+        errors = validate_pipeline_config(config, is_training=False)
+        assert any("input_images" in e for e in errors)
+
+
+class TestValidatePredictionsGeojson:
+    def test_valid_feature_collection(self):
+        geojson = {
+            "type": "FeatureCollection",
+            "features": [
+                {
+                    "type": "Feature",
+                    "geometry": {"type": "Point", "coordinates": [0, 0]},
+                    "properties": {"class": 1},
+                }
+            ],
+        }
+        assert validate_predictions_geojson(geojson) == []
+
+    def test_wrong_type(self):
+        errors = validate_predictions_geojson({"type": "Feature"})
+        assert any("FeatureCollection" in e for e in errors)
+
+    def test_features_not_list(self):
+        errors = validate_predictions_geojson({"type": "FeatureCollection", "features": "bad"})
+        assert any("list" in e for e in errors)
+
+    def test_feature_missing_geometry(self):
+        geojson = {
+            "type": "FeatureCollection",
+            "features": [{"type": "Feature", "properties": {}}],
+        }
+        errors = validate_predictions_geojson(geojson)
+        assert any("geometry" in e for e in errors)
+
+
+class TestValidateMetricsAgainstSpec:
+    def test_all_metrics_present(self):
+        model = _model()
+        errors = validate_metrics_against_spec({"accuracy": 0.95}, model)
+        assert errors == []
+
+    def test_missing_declared_metric(self):
+        model = _model()
+        errors = validate_metrics_against_spec({}, model)
+        assert any("accuracy" in e for e in errors)
+
+    def test_no_spec_allows_any_metrics(self):
+        model = _model()
+        model.properties["fair:metrics_spec"] = []
+        assert validate_metrics_against_spec({"anything": 1.0}, model) == []
+
+
+class TestValidatePredictionsGeojsonGeometryType:
+    def _polygon_model(self):
+        m = _model(keywords=["building", "semantic-segmentation", "polygon"])
+        return m
+
+    def test_polygon_keyword_accepts_polygon(self):
+        geojson = {
+            "type": "FeatureCollection",
+            "features": [
+                {
+                    "type": "Feature",
+                    "geometry": {"type": "Polygon", "coordinates": [[[0, 0], [1, 0], [1, 1], [0, 0]]]},
+                    "properties": {},
+                }
+            ],
+        }
+        assert validate_predictions_geojson(geojson, self._polygon_model()) == []
+
+    def test_polygon_keyword_accepts_multipolygon(self):
+        geojson = {
+            "type": "FeatureCollection",
+            "features": [
+                {
+                    "type": "Feature",
+                    "geometry": {
+                        "type": "MultiPolygon",
+                        "coordinates": [[[[0, 0], [1, 0], [1, 1], [0, 0]]]],
+                    },
+                    "properties": {},
+                }
+            ],
+        }
+        assert validate_predictions_geojson(geojson, self._polygon_model()) == []
+
+    def test_polygon_keyword_rejects_point(self):
+        geojson = {
+            "type": "FeatureCollection",
+            "features": [
+                {
+                    "type": "Feature",
+                    "geometry": {"type": "Point", "coordinates": [0, 0]},
+                    "properties": {},
+                }
+            ],
+        }
+        errors = validate_predictions_geojson(geojson, self._polygon_model())
+        assert any("not allowed" in e for e in errors)
+
+    def test_no_base_model_skips_geometry_check(self):
+        geojson = {
+            "type": "FeatureCollection",
+            "features": [
+                {
+                    "type": "Feature",
+                    "geometry": {"type": "Point", "coordinates": [0, 0]},
+                    "properties": {},
+                }
+            ],
+        }
+        assert validate_predictions_geojson(geojson) == []
+
+
+class TestValidateHyperparameters:
+    def _model_with_spec(self):
+        m = _model()
+        m.properties["fair:hyperparameters_spec"] = [
+            {
+                "key": "epochs",
+                "type": "int",
+                "default": 5,
+                "min": 1,
+                "max": 500,
+                "description": "Number of training epochs",
+            },
+            {
+                "key": "learning_rate",
+                "type": "float",
+                "default": 0.001,
+                "min": 1e-7,
+                "max": 1.0,
+                "description": "Optimizer learning rate",
+            },
+            {
+                "key": "optimizer",
+                "type": "str",
+                "default": "AdamW",
+                "values": ["AdamW", "Adam", "SGD"],
+                "description": "Optimizer algorithm",
+            },
+            {
+                "key": "freeze_backbone",
+                "type": "bool",
+                "default": False,
+                "description": "Whether to freeze backbone weights",
+            },
+        ]
+        return m
+
+    def test_valid_hyperparameters(self):
+        m = self._model_with_spec()
+        hp = {"epochs": 10, "learning_rate": 0.01, "optimizer": "Adam", "freeze_backbone": True}
+        assert validate_hyperparameters(hp, m) == []
+
+    def test_wrong_type_int(self):
+        m = self._model_with_spec()
+        errors = validate_hyperparameters({"epochs": "five"}, m)
+        assert any("expected type 'int'" in e for e in errors)
+
+    def test_wrong_type_float(self):
+        m = self._model_with_spec()
+        errors = validate_hyperparameters({"learning_rate": "fast"}, m)
+        assert any("expected type 'float'" in e for e in errors)
+
+    def test_int_accepted_as_float(self):
+        m = self._model_with_spec()
+        assert validate_hyperparameters({"learning_rate": 1}, m) == []
+
+    def test_wrong_type_bool(self):
+        m = self._model_with_spec()
+        errors = validate_hyperparameters({"freeze_backbone": 1}, m)
+        assert any("expected type 'bool'" in e for e in errors)
+
+    def test_invalid_enum_value(self):
+        m = self._model_with_spec()
+        errors = validate_hyperparameters({"optimizer": "RMSprop"}, m)
+        assert any("not in allowed values" in e for e in errors)
+
+    def test_unknown_key_ignored(self):
+        m = self._model_with_spec()
+        assert validate_hyperparameters({"custom_param": 42}, m) == []
+
+    def test_no_spec_skips_validation(self):
+        m = _model()
+        assert validate_hyperparameters({"anything": "goes"}, m) == []
+
+    def test_below_minimum(self):
+        m = self._model_with_spec()
+        errors = validate_hyperparameters({"epochs": 0}, m)
+        assert any("below minimum" in e for e in errors)
+
+    def test_above_maximum(self):
+        m = self._model_with_spec()
+        errors = validate_hyperparameters({"epochs": 999}, m)
+        assert any("above maximum" in e for e in errors)
+
+    def test_float_below_minimum(self):
+        m = self._model_with_spec()
+        errors = validate_hyperparameters({"learning_rate": 1e-9}, m)
+        assert any("below minimum" in e for e in errors)
+
+    def test_float_above_maximum(self):
+        m = self._model_with_spec()
+        errors = validate_hyperparameters({"learning_rate": 5.0}, m)
+        assert any("above maximum" in e for e in errors)
+
+    def test_at_boundary_values(self):
+        m = self._model_with_spec()
+        assert validate_hyperparameters({"epochs": 1}, m) == []
+        assert validate_hyperparameters({"epochs": 500}, m) == []
+        assert validate_hyperparameters({"learning_rate": 1e-7}, m) == []
+        assert validate_hyperparameters({"learning_rate": 1.0}, m) == []

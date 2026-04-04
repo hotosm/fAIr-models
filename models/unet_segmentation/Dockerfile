@@ -7,11 +7,19 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # TODO: remove universal-pathlib once fair-py-ops is published with it as a dependency
+COPY pyproject.toml README.md fair_zenml_patch.pth /tmp/fair-src/
+COPY fair /tmp/fair-src/fair
 RUN --mount=type=cache,target=/root/.cache/uv \
+    SETUPTOOLS_SCM_PRETEND_VERSION=0.0.0 \
     uv pip install \
+    --extra-index-url https://download.pytorch.org/whl/cpu \
+    --index-strategy unsafe-best-match \
     torch==2.10.0 \
     torchgeo==0.9.0 \
-    fair-py-ops[k8s]==0.0.5
+    onnx \
+    onnxscript \
+    zenml==0.93.3 \
+    /tmp/fair-src[k8s]
 
 # Runtime stage: minimal image
 FROM python:3.13-slim-trixie
@@ -28,7 +36,7 @@ COPY --from=builder /usr/local/bin /usr/local/bin
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1
 
-COPY models/example_unet models/example_unet
+COPY models/unet_segmentation models/unet_segmentation
 
 ENTRYPOINT ["/usr/local/bin/python"]
 

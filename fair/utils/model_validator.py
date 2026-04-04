@@ -40,7 +40,7 @@ def validate_model(model_dir: Path) -> list[str]:
     Static analysis only — no imports needed, works in lightweight CI.
 
     Args:
-        model_dir: Path to model directory (e.g. models/example_unet).
+        model_dir: Path to model directory (e.g. models/unet_segmentation).
 
     Returns:
         List of error strings. Empty means valid.

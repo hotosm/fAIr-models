@@ -993,6 +993,7 @@ wheels = [
 name = "fair-py-ops"
 source = { editable = "." }
 dependencies = [
+    { name = "httpx" },
     { name = "mlflow" },
     { name = "pystac", extra = ["validation"] },
     { name = "universal-pathlib" },
@@ -1045,6 +1046,7 @@ local = [
 
 [package.metadata]
 requires-dist = [
+    { name = "httpx", specifier = ">=0.28.1" },
     { name = "mlflow", specifier = ">=2.1.1,<4" },
     { name = "pypgstac", extras = ["psycopg"], marker = "extra == 'k8s'", specifier = ">=0.9" },
     { name = "pystac", extras = ["validation"], specifier = ">=1.14.3,<2" },

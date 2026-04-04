@@ -93,6 +93,7 @@ example = [
     "torch",
     "torchgeo",
     "onnx",
+    "onnxscript",
 ]
 
 [tool.ruff]

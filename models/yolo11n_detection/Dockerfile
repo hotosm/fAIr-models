@@ -16,6 +16,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     torch==2.10.0 \
     "ultralytics>=8.4.0" \
     onnx \
+    onnxscript \
     zenml==0.93.3 \
     /tmp/fair-src[k8s]
 

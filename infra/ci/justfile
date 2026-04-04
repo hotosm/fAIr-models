@@ -35,13 +35,17 @@ setup:
     uv run zenml stack import ci-k8s -f stacks/ci-k8s.yaml --ignore-version-mismatch || true
     uv run zenml stack set ci-k8s
 
-[doc('Run E2E pipeline against k8s infra')]
+[doc('Run all E2E pipelines against k8s infra')]
 run-example:
     #!/usr/bin/env bash
     set -euo pipefail
     cd {{ root }}
-    AWS_ENDPOINT_URL=http://localhost:9000 \
-    FAIR_FORCE_CPU=1 \
-        uv run python examples/segmentation/run.py all \
-            --stac-api-url http://localhost:8082 \
-            --dsn "{{ pgstac_dsn }}"
+    uv run python scripts/convert_segmentation_to_classification.py
+    uv run python scripts/convert_segmentation_to_detection.py
+    for example in segmentation classification detection; do
+        AWS_ENDPOINT_URL=http://localhost:9000 \
+        FAIR_FORCE_CPU=1 \
+            uv run python "examples/$example/run.py" all \
+                --stac-api-url http://localhost:8082 \
+                --dsn "{{ pgstac_dsn }}"
+    done

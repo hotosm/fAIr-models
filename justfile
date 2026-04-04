@@ -61,15 +61,19 @@ validate:
 docs:
     uv sync --group docs && uv run zensical serve
 
-[doc('Run example pipeline')]
+[doc('Run all example pipelines')]
 example:
     #!/usr/bin/env bash
     set -euo pipefail
     if [[ "$(cat {{ mode_file }} 2>/dev/null || echo local)" == "k8s" ]]; then
         just --justfile infra/dev/justfile run-example
     else
-        uv run python examples/segmentation/run.py clean
-        uv run python examples/segmentation/run.py all
+        uv run python scripts/convert_segmentation_to_classification.py
+        uv run python scripts/convert_segmentation_to_detection.py
+        for ex in segmentation classification detection; do
+            uv run python "examples/$ex/run.py" clean
+            uv run python "examples/$ex/run.py" all
+        done
     fi
 
 [doc('Run pre-commit hooks and commitizen')]

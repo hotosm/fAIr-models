@@ -16,6 +16,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     --index-strategy unsafe-best-match \
     torch==2.10.0 \
     torchgeo==0.9.0 \
+    onnx \
     zenml==0.93.3 \
     /tmp/fair-src[k8s]
 

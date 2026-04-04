@@ -268,7 +268,7 @@
             "mlm:entrypoint": "models.unet_segmentation.pipeline:training_pipeline"
         },
         "mlm:training": {
-            "href": "ghcr.io/hotosm/fair-models/unet_segmentation:latest",
+            "href": "ghcr.io/hotosm/fair-models/unet_segmentation:pr-18",
             "type": "application/vnd.oci.image.index.v1+json",
             "title": "Training Docker Image",
             "roles": [
@@ -276,7 +276,7 @@
             ]
         },
         "mlm:inference": {
-            "href": "ghcr.io/hotosm/fair-models/unet_segmentation:latest",
+            "href": "ghcr.io/hotosm/fair-models/unet_segmentation:pr-18",
             "type": "application/vnd.oci.image.index.v1+json",
             "title": "Inference Docker Image",
             "roles": [

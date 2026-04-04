@@ -92,6 +92,7 @@ local = [
 example = [
     "torch",
     "torchgeo",
+    "onnx",
 ]
 
 [tool.ruff]

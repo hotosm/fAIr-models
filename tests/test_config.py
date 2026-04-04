@@ -104,10 +104,11 @@ def _dataset(tmp_path):
 def test_training_config(tmp_path):
     cfg = generate_training_config(_base_model(), _dataset(tmp_path), model_name="finetuned")
     p = cfg["parameters"]
+    hp = p["hyperparameters"]
     assert cfg["model"]["name"] == "finetuned"
-    assert p["epochs"] == 15 and p["batch_size"] == 4
+    assert hp["epochs"] == 15 and hp["batch_size"] == 4
     assert p["dataset_chips"] == "data/oam/"
-    assert p["chip_size"] == 512 and p["num_classes"] == 2
+    assert hp["chip_size"] == 512 and p["num_classes"] == 2
     assert p["base_model_weights"] == "weights.pt"
     assert cfg["settings"]["docker"]["parent_image"] == "ghcr.io/hotosm/fair-unet:v1"
     assert cfg["steps"]["train_model"]["parameters"]["model_name"] == "finetuned"
@@ -122,8 +123,9 @@ def test_training_overrides(tmp_path):
         model_name="t",
         overrides={"epochs": 1},
     )
-    assert cfg["parameters"]["epochs"] == 1
-    assert cfg["parameters"]["batch_size"] == 4  # non-overridden default preserved
+    hp = cfg["parameters"]["hyperparameters"]
+    assert hp["epochs"] == 1
+    assert hp["batch_size"] == 4  # non-overridden default preserved
 
 
 def test_inference_config():

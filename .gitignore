@@ -206,6 +206,11 @@ marimo/_static/
 marimo/_lsp/
 __marimo__/
 
+# Model weights
+*.pt
+
+# Generated pipeline configs (contain absolute local paths)
+examples/*/config/generated_*.yaml
 
 .zen
 artifacts

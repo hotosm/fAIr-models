@@ -157,17 +157,19 @@ def generate_training_config(
         msg = f"Base model item '{base_model_item.id}' missing 'model' asset"
         raise KeyError(msg)
 
+    hyperparams.update(input_spec)
+    if overrides:
+        hyperparams.update(overrides)
+
     parameters: dict[str, Any] = {
         "base_model_weights": model_asset.href,
         "dataset_chips": chips_href,
         "dataset_labels": labels_href,
-        **hyperparams,
-        **input_spec,
+        "hyperparameters": hyperparams,
     }
     if num_classes is not None:
         parameters["num_classes"] = num_classes
 
-    # Step-specific params that the pipeline entrypoint does not accept
     train_step_params: dict[str, Any] = {
         "model_name": model_name,
         "base_model_id": base_model_item.id,
@@ -176,9 +178,6 @@ def generate_training_config(
     eval_step_params: dict[str, Any] = {}
     if class_names is not None:
         eval_step_params["class_names"] = class_names
-
-    if overrides:
-        parameters.update(overrides)
 
     config: dict[str, Any] = {
         "model": {"name": model_name},

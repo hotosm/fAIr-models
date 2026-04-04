@@ -4,22 +4,48 @@ Entrypoints referenced by models/unet_segmentation/stac-item.json.
 Pretrained weights: OAM-TCD (arxiv.org/abs/2407.11743).
 """
 
-import time
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any
 
-from annotated_types import Ge, Le
 from zenml import log_metadata, pipeline, step
 
-from fair.zenml.metrics import log_fair_metrics, log_training_wall_time
+from fair.zenml.instrumentation import log_evaluation_results, mlflow_training_context
 from fair.zenml.steps import load_model
 
 _BUILDING_CLASSES = [{"name": "building", "selector": [{"building": "*"}]}]
 
 
-def _get_device() -> Literal["mps", "cuda", "cpu"]:
+def _get_device() -> str:
     import torch
 
-    return "mps" if torch.backends.mps.is_available() else "cuda" if torch.cuda.is_available() else "cpu"
+    if torch.backends.mps.is_available():
+        return "mps"
+    if torch.cuda.is_available():
+        return "cuda"
+    return "cpu"
+
+
+def _vectorize_segmentation_mask(mask, transform, crs):
+    import numpy as np
+    import rasterio.features
+    from pyproj import Transformer
+
+    mask_uint8 = mask.astype(np.uint8)
+    needs_reproject = crs is not None and str(crs) != "EPSG:4326"
+    transformer = Transformer.from_crs(crs, "EPSG:4326", always_xy=True) if needs_reproject else None
+
+    features = []
+    for geom, value in rasterio.features.shapes(mask_uint8, transform=transform):
+        if value == 0:
+            continue
+        if transformer:
+            coords = geom["coordinates"]
+            geom["coordinates"] = [[list(transformer.transform(x, y)) for x, y in ring] for ring in coords]
+        features.append({"type": "Feature", "properties": {"class": int(value)}, "geometry": geom})
+    return features
+
+
+def _build_feature_collection(features):
+    return {"type": "FeatureCollection", "features": features}
 
 
 def _resolve_weights(weight_id: str) -> Any:
@@ -93,67 +119,47 @@ def train_model(
     dataset_chips: str,
     dataset_labels: str,
     base_model_weights: str,
-    epochs: int,
-    batch_size: int,
-    learning_rate: float,
-    weight_decay: float,
-    chip_size: int,
+    hyperparameters: dict[str, Any],
     num_classes: int,
-    samples_per_epoch: int = 50,
-    optimizer: str = "AdamW",
-    loss: str = "CrossEntropyLoss",
     model_name: str | None = None,
     base_model_id: str | None = None,
     dataset_id: str | None = None,
-) -> Any:
-    import mlflow
+) -> Annotated[Any, "trained_model"]:
     from torchgeo.models import unet
 
-    mlflow.autolog()  # ty: ignore[possibly-missing-attribute]
-    mlflow.log_params(  # ty: ignore[possibly-missing-attribute]
-        {
-            "epochs": epochs,
-            "batch_size": batch_size,
-            "learning_rate": learning_rate,
-            "weight_decay": weight_decay,
-            "optimizer": optimizer,
-            "loss": loss,
-            "chip_size": chip_size,
-            "num_classes": num_classes,
-            "samples_per_epoch": samples_per_epoch,
-        }
-    )
-    if model_name:
-        mlflow.set_tags(  # ty: ignore[possibly-missing-attribute]
-            {
-                "fair.model_name": model_name,
-                "fair.base_model": base_model_id or "",
-                "fair.dataset": dataset_id or "",
-            }
+    epochs = hyperparameters["epochs"]
+    batch_size = hyperparameters.get("batch_size", 4)
+    learning_rate = hyperparameters.get("learning_rate", 0.0001)
+    weight_decay = hyperparameters.get("weight_decay", 0.0001)
+    chip_size = hyperparameters.get("chip_size", 256)
+    samples_per_epoch = hyperparameters.get("samples_per_epoch", 50)
+    optimizer_name = hyperparameters.get("optimizer", "AdamW")
+    loss_name = hyperparameters.get("loss", "CrossEntropyLoss")
+
+    with mlflow_training_context(hyperparameters, model_name, base_model_id, dataset_id):
+        device = _get_device()
+        model = unet(weights=_resolve_weights(base_model_weights), classes=num_classes)
+        model.to(device)
+        for param in model.encoder.parameters():  # ty: ignore[unresolved-attribute]
+            param.requires_grad = False
+        loader = _build_dataset(
+            dataset_chips, dataset_labels, chip_size, length=samples_per_epoch, batch_size=batch_size
         )
 
-    device = _get_device()
-    model = unet(weights=_resolve_weights(base_model_weights), classes=num_classes)
-    model.to(device)
-    for param in model.encoder.parameters():  # ty: ignore[unresolved-attribute]
-        param.requires_grad = False
-    loader = _build_dataset(dataset_chips, dataset_labels, chip_size, length=samples_per_epoch, batch_size=batch_size)
+        losses = _get_losses()
+        optimizers = _get_optimizers()
+        criterion = losses[loss_name]()
+        trainable = filter(lambda p: p.requires_grad, model.parameters())
+        opt = optimizers[optimizer_name](trainable, lr=learning_rate, weight_decay=weight_decay)
 
-    losses = _get_losses()
-    optimizers = _get_optimizers()
-    criterion = losses[loss]()
-    trainable = filter(lambda p: p.requires_grad, model.parameters())
-    opt = optimizers[optimizer](trainable, lr=learning_rate, weight_decay=weight_decay)
+        model.train()
+        for epoch in range(epochs):
+            total_loss = sum(_train_step(model, batch, criterion, opt, device) for batch in loader)
+            avg_loss = total_loss / len(loader)
+            import mlflow
 
-    model.train()
-    wall_start = time.perf_counter()
-    for epoch in range(epochs):
-        total_loss = sum(_train_step(model, batch, criterion, opt, device) for batch in loader)
-        avg_loss = total_loss / len(loader)
-        mlflow.log_metric("train_loss", avg_loss, step=epoch)  # ty: ignore[possibly-missing-attribute]
-        log_metadata(metadata={"loss": avg_loss, "epoch": epoch + 1})
-    wall_seconds = time.perf_counter() - wall_start
-    log_training_wall_time(wall_seconds)
+            mlflow.log_metric("train_loss", avg_loss, step=epoch)  # ty: ignore[possibly-missing-attribute]
+            log_metadata(metadata={"loss": avg_loss, "epoch": epoch + 1})
 
     return model.cpu()
 
@@ -179,13 +185,14 @@ def evaluate_model(
     trained_model: Any,
     dataset_chips: str,
     dataset_labels: str,
-    chip_size: int = 512,
+    hyperparameters: dict[str, Any],
     num_classes: int = 2,
-    samples_per_epoch: int = 50,
     class_names: list[str] | None = None,
-) -> dict[str, Any]:
-    import mlflow
+) -> Annotated[dict[str, Any], "metrics"]:
     import torch
+
+    chip_size = hyperparameters.get("chip_size", 512)
+    samples_per_epoch = hyperparameters.get("samples_per_epoch", 50)
 
     device = _get_device()
     model = trained_model.to(device)
@@ -207,7 +214,6 @@ def evaluate_model(
                 intersection[c] += ((preds == c) & (masks == c)).sum().item()
                 union[c] += ((preds == c) | (masks == c)).sum().item()
 
-    # Key per-class IoU by class name when available, otherwise by index
     resolved_names = (
         class_names if class_names and len(class_names) == num_classes else [str(c) for c in range(num_classes)]
     )
@@ -215,9 +221,8 @@ def evaluate_model(
 
     accuracy = total_correct / max(total_pixels, 1)
     mean_iou = sum(per_class_iou.values()) / num_classes
-    mlflow.log_metrics({"accuracy": accuracy, "mean_iou": mean_iou})  # ty: ignore[possibly-missing-attribute]
     metrics = {"accuracy": accuracy, "mean_iou": mean_iou, "per_class_iou": per_class_iou}
-    log_fair_metrics(metrics)
+    log_evaluation_results(metrics)
     return metrics
 
 
@@ -231,32 +236,13 @@ def load_base_model(
     return unet(weights=_resolve_weights(model_uri), classes=num_classes).cpu()
 
 
-def _vectorize_mask(mask: Any, transform: Any, crs: Any) -> list[dict[str, Any]]:
-    import numpy as np
-    import rasterio.features
-    from pyproj import Transformer
-
-    mask_uint8 = mask.astype(np.uint8)
-    transformer = Transformer.from_crs(crs, "EPSG:4326", always_xy=True) if str(crs) != "EPSG:4326" else None
-
-    features: list[dict[str, Any]] = []
-    for geom, value in rasterio.features.shapes(mask_uint8, transform=transform):
-        if value == 0:
-            continue
-        if transformer:
-            coords = geom["coordinates"]
-            geom["coordinates"] = [[list(transformer.transform(x, y)) for x, y in ring] for ring in coords]
-        features.append({"type": "Feature", "properties": {"class": int(value)}, "geometry": geom})
-    return features
-
-
 @step
 def run_inference(
     model: Any,
     input_images: str,
     chip_size: int,
     num_classes: int,
-) -> dict[str, Any]:
+) -> Annotated[dict[str, Any], "predictions"]:
     import rasterio
     import torch
     import torch.nn.functional as F
@@ -287,24 +273,23 @@ def run_inference(
                 tensor = F.interpolate(tensor, size=(chip_size, chip_size), mode="bilinear", align_corners=False)
 
             mask = postprocess(model(tensor.to(device)))[0]
-            all_features.extend(_vectorize_mask(mask, transform, crs))
+            all_features.extend(_vectorize_segmentation_mask(mask, transform, crs))
 
-    return {
-        "type": "FeatureCollection",
-        "features": all_features,
-    }
+    return _build_feature_collection(all_features)
 
 
 @step
 def export_onnx(
     trained_model: Any,
-    chip_size: int = 256,
+    hyperparameters: dict[str, Any],
     num_classes: int = 2,
-) -> str:
+) -> Annotated[str, "onnx_model"]:
     import os
     import tempfile
 
     import torch
+
+    chip_size = hyperparameters.get("chip_size", 256)
 
     model = trained_model.cpu()
     model.eval()
@@ -328,44 +313,26 @@ def training_pipeline(
     base_model_weights: str,
     dataset_chips: str,
     dataset_labels: str,
-    epochs: Annotated[int, Ge(1), Le(1000)],
-    batch_size: Annotated[int, Ge(1), Le(64)],
-    learning_rate: Annotated[float, Ge(1e-6), Le(1.0)],
-    weight_decay: Annotated[float, Ge(0.0), Le(1.0)],
-    chip_size: Annotated[int, Ge(64), Le(2048)],
-    num_classes: Annotated[int, Ge(2), Le(256)],
-    samples_per_epoch: Annotated[int, Ge(10), Le(100000)] = 50,
-    optimizer: Literal["Adam", "AdamW", "SGD"] = "AdamW",
-    loss: Literal["CrossEntropyLoss", "BCEWithLogitsLoss"] = "CrossEntropyLoss",
-    class_names: list[str] | None = None,
+    num_classes: int,
+    hyperparameters: dict[str, Any],
 ) -> None:
-    """Full training pipeline: finetune -> evaluate."""
     trained_model = train_model(
         dataset_chips=dataset_chips,
         dataset_labels=dataset_labels,
         base_model_weights=base_model_weights,
-        epochs=epochs,
-        batch_size=batch_size,
-        learning_rate=learning_rate,
-        weight_decay=weight_decay,
-        chip_size=chip_size,
+        hyperparameters=hyperparameters,
         num_classes=num_classes,
-        samples_per_epoch=samples_per_epoch,
-        optimizer=optimizer,
-        loss=loss,
     )
     evaluate_model(
         trained_model=trained_model,
         dataset_chips=dataset_chips,
         dataset_labels=dataset_labels,
-        chip_size=chip_size,
+        hyperparameters=hyperparameters,
         num_classes=num_classes,
-        samples_per_epoch=samples_per_epoch,
-        class_names=class_names,
     )
     export_onnx(
         trained_model=trained_model,
-        chip_size=chip_size,
+        hyperparameters=hyperparameters,
         num_classes=num_classes,
     )
 
@@ -374,14 +341,11 @@ def training_pipeline(
 def inference_pipeline(
     model_uri: str,
     input_images: str,
-    chip_size: Annotated[
-        int, Ge(64), Le(1024)
-    ],  # if chip_size is >1024 , we might need to adjust how to handle big images in single chip
-    num_classes: Annotated[int, Ge(1), Le(256)],
+    chip_size: int,
+    num_classes: int,
     zenml_artifact_version_id: str = "",
     use_base_model: bool = False,
 ) -> None:
-    """Inference pipeline: load model then predict. Supports both base and finetuned models."""
     if use_base_model:
         model = load_base_model(model_uri=model_uri, num_classes=num_classes)
     else:

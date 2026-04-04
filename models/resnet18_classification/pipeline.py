@@ -5,21 +5,43 @@ Pretrained backbone: torchvision ResNet18 ImageNet.
 """
 
 import csv
-import time
 from pathlib import Path
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any
 
-from annotated_types import Ge, Le
 from zenml import log_metadata, pipeline, step
 
-from fair.zenml.metrics import log_fair_metrics, log_training_wall_time
+from fair.zenml.instrumentation import log_evaluation_results, mlflow_training_context
 from fair.zenml.steps import load_model
 
 
-def _get_device() -> Literal["mps", "cuda", "cpu"]:
+def _get_device() -> str:
     import torch
 
-    return "mps" if torch.backends.mps.is_available() else "cuda" if torch.cuda.is_available() else "cpu"
+    if torch.backends.mps.is_available():
+        return "mps"
+    if torch.cuda.is_available():
+        return "cuda"
+    return "cpu"
+
+
+def _bounds_to_geo_feature(left, bottom, right, top, crs, properties):
+    from pyproj import Transformer
+
+    if crs is not None and str(crs) != "EPSG:4326":
+        t = Transformer.from_crs(crs, "EPSG:4326", always_xy=True)
+        left, bottom = t.transform(left, bottom)
+        right, top = t.transform(right, top)
+
+    coords = [[left, bottom], [right, bottom], [right, top], [left, top], [left, bottom]]
+    return {
+        "type": "Feature",
+        "properties": properties,
+        "geometry": {"type": "Polygon", "coordinates": [coords]},
+    }
+
+
+def _build_feature_collection(features):
+    return {"type": "FeatureCollection", "features": features}
 
 
 def preprocess(batch: dict[str, Any]) -> tuple[Any, Any]:
@@ -86,65 +108,54 @@ def train_model(
     dataset_chips: str,
     dataset_labels: str,
     base_model_weights: str,
-    epochs: int,
-    batch_size: int,
-    learning_rate: float,
-    weight_decay: float,
-    chip_size: int,
+    hyperparameters: dict[str, Any],
     num_classes: int = 2,
-    optimizer: str = "AdamW",
-    loss: str = "BCEWithLogitsLoss",
-) -> Any:
-    import mlflow
+    model_name: str | None = None,
+    base_model_id: str | None = None,
+    dataset_id: str | None = None,
+) -> Annotated[Any, "trained_model"]:
     import torch
     import torch.nn as nn
     from torchvision.models import ResNet18_Weights, resnet18
 
-    mlflow.autolog()  # ty: ignore[possibly-missing-attribute]
-    mlflow.log_params(  # ty: ignore[possibly-missing-attribute]
-        {
-            "epochs": epochs,
-            "batch_size": batch_size,
-            "learning_rate": learning_rate,
-            "weight_decay": weight_decay,
-            "optimizer": optimizer,
-            "loss": loss,
-            "chip_size": chip_size,
-        }
-    )
+    epochs = hyperparameters["epochs"]
+    batch_size = hyperparameters.get("batch_size", 8)
+    learning_rate = hyperparameters.get("learning_rate", 0.001)
+    weight_decay = hyperparameters.get("weight_decay", 0.0001)
+    chip_size = hyperparameters.get("chip_size", 256)
 
-    device = _get_device()
-    model = resnet18(weights=ResNet18_Weights.IMAGENET1K_V1)
-    for param in model.parameters():
-        param.requires_grad = False
-    model.fc = nn.Linear(model.fc.in_features, 1)
-    model.to(device)
+    with mlflow_training_context(hyperparameters, model_name, base_model_id, dataset_id):
+        device = _get_device()
+        model = resnet18(weights=ResNet18_Weights.IMAGENET1K_V1)
+        for param in model.parameters():
+            param.requires_grad = False
+        model.fc = nn.Linear(model.fc.in_features, 1)
+        model.to(device)
 
-    loader = _build_classification_dataset(dataset_chips, dataset_labels, chip_size, batch_size)
-    criterion = nn.BCEWithLogitsLoss()
-    trainable = filter(lambda p: p.requires_grad, model.parameters())
-    opt = torch.optim.AdamW(trainable, lr=learning_rate, weight_decay=weight_decay)
+        loader = _build_classification_dataset(dataset_chips, dataset_labels, chip_size, batch_size)
+        criterion = nn.BCEWithLogitsLoss()
+        trainable = filter(lambda p: p.requires_grad, model.parameters())
+        opt = torch.optim.AdamW(trainable, lr=learning_rate, weight_decay=weight_decay)
 
-    model.train()
-    wall_start = time.perf_counter()
-    for epoch in range(epochs):
-        total_loss = 0.0
-        count = 0
-        for batch in loader:
-            images, labels = preprocess(batch)
-            images, labels = images.to(device), labels.to(device)
-            logits = model(images).squeeze(-1)
-            batch_loss = criterion(logits, labels)
-            opt.zero_grad()
-            batch_loss.backward()
-            opt.step()
-            total_loss += batch_loss.item()
-            count += 1
-        avg_loss = total_loss / max(count, 1)
-        mlflow.log_metric("train_loss", avg_loss, step=epoch)  # ty: ignore[possibly-missing-attribute]
-        log_metadata(metadata={"loss": avg_loss, "epoch": epoch + 1})
-    wall_seconds = time.perf_counter() - wall_start
-    log_training_wall_time(wall_seconds)
+        model.train()
+        for epoch in range(epochs):
+            total_loss = 0.0
+            count = 0
+            for batch in loader:
+                images, labels = preprocess(batch)
+                images, labels = images.to(device), labels.to(device)
+                logits = model(images).squeeze(-1)
+                batch_loss = criterion(logits, labels)
+                opt.zero_grad()
+                batch_loss.backward()
+                opt.step()
+                total_loss += batch_loss.item()
+                count += 1
+            avg_loss = total_loss / max(count, 1)
+            import mlflow
+
+            mlflow.log_metric("train_loss", avg_loss, step=epoch)  # ty: ignore[possibly-missing-attribute]
+            log_metadata(metadata={"loss": avg_loss, "epoch": epoch + 1})
 
     return model.cpu()
 
@@ -154,11 +165,12 @@ def evaluate_model(
     trained_model: Any,
     dataset_chips: str,
     dataset_labels: str,
-    chip_size: int = 256,
+    hyperparameters: dict[str, Any],
     class_names: list[str] | None = None,
-) -> dict[str, Any]:
-    import mlflow
+) -> Annotated[dict[str, Any], "metrics"]:
     import torch
+
+    chip_size = hyperparameters.get("chip_size", 256)
 
     device = _get_device()
     model = trained_model.to(device)
@@ -182,25 +194,22 @@ def evaluate_model(
     recall = tp / max(tp + fn, 1)
     f1 = 2 * precision * recall / max(precision + recall, 1e-8)
 
-    mlflow.log_metrics(  # ty: ignore[possibly-missing-attribute]
-        {
-            "accuracy": accuracy,
-            "precision": precision,
-            "recall": recall,
-            "f1": f1,
-        }
-    )
     metrics = {"accuracy": accuracy, "precision": precision, "recall": recall, "f1": f1}
-    log_fair_metrics(metrics)
+    log_evaluation_results(metrics)
     return metrics
 
 
 @step
-def export_onnx(trained_model: Any, chip_size: int = 256) -> str:
+def export_onnx(
+    trained_model: Any,
+    hyperparameters: dict[str, Any],
+) -> Annotated[str, "onnx_model"]:
     import os
     import tempfile
 
     import torch
+
+    chip_size = hyperparameters.get("chip_size", 256)
 
     model = trained_model.cpu()
     model.eval()
@@ -224,45 +233,31 @@ def training_pipeline(
     base_model_weights: str,
     dataset_chips: str,
     dataset_labels: str,
-    epochs: Annotated[int, Ge(1), Le(1000)],
-    batch_size: Annotated[int, Ge(1), Le(64)],
-    learning_rate: Annotated[float, Ge(1e-6), Le(1.0)],
-    weight_decay: Annotated[float, Ge(0.0), Le(1.0)],
-    chip_size: Annotated[int, Ge(64), Le(2048)],
-    num_classes: Annotated[int, Ge(2), Le(256)] = 2,
-    optimizer: Literal["AdamW"] = "AdamW",
-    loss: Literal["BCEWithLogitsLoss"] = "BCEWithLogitsLoss",
-    class_names: list[str] | None = None,
+    num_classes: int,
+    hyperparameters: dict[str, Any],
 ) -> None:
     trained_model = train_model(
         dataset_chips=dataset_chips,
         dataset_labels=dataset_labels,
         base_model_weights=base_model_weights,
-        epochs=epochs,
-        batch_size=batch_size,
-        learning_rate=learning_rate,
-        weight_decay=weight_decay,
-        chip_size=chip_size,
+        hyperparameters=hyperparameters,
         num_classes=num_classes,
-        optimizer=optimizer,
-        loss=loss,
     )
     evaluate_model(
         trained_model=trained_model,
         dataset_chips=dataset_chips,
         dataset_labels=dataset_labels,
-        chip_size=chip_size,
-        class_names=class_names,
+        hyperparameters=hyperparameters,
     )
-    export_onnx(trained_model=trained_model, chip_size=chip_size)
+    export_onnx(trained_model=trained_model, hyperparameters=hyperparameters)
 
 
 @pipeline
 def inference_pipeline(
     model_uri: str,
     input_images: str,
-    chip_size: Annotated[int, Ge(64), Le(1024)] = 256,
-    num_classes: Annotated[int, Ge(1), Le(256)] = 2,
+    chip_size: int = 256,
+    num_classes: int = 2,
     zenml_artifact_version_id: str = "",
 ) -> None:
     model = load_model(model_uri=model_uri, zenml_artifact_version_id=zenml_artifact_version_id)
@@ -274,7 +269,8 @@ def classify(
     model: Any,
     input_images: str,
     chip_size: int = 256,
-) -> dict[str, Any]:
+) -> Annotated[dict[str, Any], "predictions"]:
+    import rasterio
     import torch
     from PIL import Image
     from torchvision import transforms
@@ -299,13 +295,31 @@ def classify(
         msg = f"No input images found in {input_dir}"
         raise FileNotFoundError(msg)
 
-    results: dict[str, str] = {}
+    features: list[dict[str, Any]] = []
     with torch.no_grad():
         for img_path in img_paths:
             img = Image.open(img_path).convert("RGB")
             tensor = transform(img).unsqueeze(0).to(device)
             logit = model(tensor).squeeze()
-            label = "building" if torch.sigmoid(logit).item() > 0.5 else "no_building"
-            results[img_path.name] = label
+            confidence = torch.sigmoid(logit).item()
+            label = "building" if confidence > 0.5 else "no_building"
 
-    return {"predictions": results}
+            with rasterio.open(img_path) as src:
+                b = src.bounds
+                crs = src.crs
+
+            feature = _bounds_to_geo_feature(
+                b.left,
+                b.bottom,
+                b.right,
+                b.top,
+                crs,
+                {
+                    "label": label,
+                    "confidence": round(confidence, 4),
+                    "source": img_path.name,
+                },
+            )
+            features.append(feature)
+
+    return _build_feature_collection(features)

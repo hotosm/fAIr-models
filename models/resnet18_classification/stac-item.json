@@ -165,7 +165,70 @@
             "chip_size": 256,
             "optimizer": "AdamW",
             "loss": "BCEWithLogitsLoss"
-        }
+        },
+        "fair:hyperparameters_spec": [
+            {
+                "key": "epochs",
+                "type": "int",
+                "default": 5,
+                "min": 1,
+                "max": 500,
+                "description": "Number of training epochs"
+            },
+            {
+                "key": "batch_size",
+                "type": "int",
+                "default": 8,
+                "min": 1,
+                "max": 128,
+                "description": "Samples per training batch"
+            },
+            {
+                "key": "learning_rate",
+                "type": "float",
+                "default": 0.001,
+                "min": 1e-7,
+                "max": 1.0,
+                "description": "Optimizer learning rate"
+            },
+            {
+                "key": "weight_decay",
+                "type": "float",
+                "default": 0.0001,
+                "min": 0.0,
+                "max": 1.0,
+                "description": "L2 regularization weight decay"
+            },
+            {
+                "key": "chip_size",
+                "type": "int",
+                "default": 256,
+                "min": 64,
+                "max": 1024,
+                "description": "Input image chip size in pixels"
+            },
+            {
+                "key": "optimizer",
+                "type": "str",
+                "default": "AdamW",
+                "values": [
+                    "AdamW",
+                    "Adam",
+                    "SGD"
+                ],
+                "description": "Optimizer algorithm"
+            },
+            {
+                "key": "loss",
+                "type": "str",
+                "default": "BCEWithLogitsLoss",
+                "values": [
+                    "BCEWithLogitsLoss",
+                    "CrossEntropyLoss"
+                ],
+                "description": "Loss function for training"
+            }
+        ]
     },
     "assets": {
         "model": {

@@ -33,8 +33,8 @@ def _geo_to_pixel_bbox(
     img_height: int,
 ) -> tuple[float, float, float, float] | None:
     minx, miny, maxx, maxy = polygon.bounds
-    row_min, col_min = rowcol(transform, maxy, minx)
-    row_max, col_max = rowcol(transform, miny, maxx)
+    row_min, col_min = rowcol(transform, minx, maxy)
+    row_max, col_max = rowcol(transform, maxx, miny)
 
     x = max(0, int(col_min))
     y = max(0, int(row_min))

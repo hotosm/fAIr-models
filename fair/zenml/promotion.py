@@ -74,7 +74,9 @@ def publish_promoted_model(
         run = run_links.items[0].pipeline_run
         step = run.steps.get("train_model")
         raw_params: dict[str, Any] | None = step.config.parameters if step else run.config.parameters
-        hyperparams = {k: v for k, v in (raw_params or {}).items() if k not in _INFRA_KEYS}
+        hyperparams = (raw_params or {}).get("hyperparameters", {})
+        if not hyperparams:
+            hyperparams = {k: v for k, v in (raw_params or {}).items() if k not in _INFRA_KEYS}
         if step and step.start_time is not None:
             training_started_at = step.start_time.isoformat()
             if step.end_time is not None:
@@ -86,7 +88,7 @@ def publish_promoted_model(
         training_duration_seconds = wall_time
     metrics = read_fair_metrics(raw_meta)
 
-    weights_art = mv.get_artifact("training_pipeline::train_model::output")
+    weights_art = mv.get_artifact("trained_model")
     if weights_art is None:
         msg = f"No model artifact found for {model_name} v{version}"
         raise RuntimeError(msg)

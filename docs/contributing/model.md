@@ -6,8 +6,15 @@ icon: lucide/box
 
 Guide for contributing a base model to fAIr. A base model is a reusable ML
 blueprint that users can finetune on their own datasets through the fAIr
-platform. See [`models/unet_segmentation/`](https://github.com/hotosm/fAIr-models/tree/master/models/unet_segmentation) for a complete
-reference implementation.
+platform.
+
+### Reference Implementations
+
+| Model | Task | Architecture | Directory |
+|---|---|---|---|
+| UNet segmentation | Semantic segmentation | UNet (torchgeo) | [`models/unet_segmentation/`](https://github.com/hotosm/fAIr-models/tree/master/models/unet_segmentation) |
+| ResNet18 classification | Binary classification | ResNet18 (torchvision) | [`models/resnet18_classification/`](https://github.com/hotosm/fAIr-models/tree/master/models/resnet18_classification) |
+| YOLOv11n detection | Object detection | YOLOv11 nano (ultralytics) | [`models/yolo11n_detection/`](https://github.com/hotosm/fAIr-models/tree/master/models/yolo11n_detection) |
 
 ## Model Scope
 
@@ -188,6 +195,33 @@ invalid values at submission time, before any pod is scheduled.
 
 Use `mlflow.log_params()` and `mlflow.log_metrics()` for experiment tracking.
 Use `zenml.log_metadata()` to attach metrics to the ZenML model version.
+
+### Auto-injected Parameters
+
+The platform automatically injects several parameters into your
+`training_pipeline` from the STAC items. Your function signature **must**
+accept them, but you do **not** declare them in `mlm:hyperparameters`:
+
+| Parameter | Source | Description |
+|---|---|---|
+| `model_name` | User input | ZenML model name for the finetuned model |
+| `base_model_id` | Base model STAC item ID | Identifies which base model is being finetuned |
+| `dataset_id` | Dataset STAC item ID | Identifies which dataset is used |
+| `num_classes` | `len(classification:classes)` | Extracted from STAC output spec |
+| `class_names` | `classification:classes[].name` | Class name list from STAC output spec |
+| `chip_size` | `mlm:input[0].input.shape[-1]` | Chip dimension from STAC input spec |
+| `dataset_chips` | Dataset `chips` asset href | Path to training images |
+| `dataset_labels` | Dataset `labels` asset href | Path to training labels |
+
+### Non-serializable Model Pattern (YOLO)
+
+Some ML frameworks produce model objects that are not pickle-serializable
+(e.g. ultralytics YOLO). In these cases, your `train_model` step should
+**return the file path to the saved checkpoint** instead of the model object
+itself. ZenML will materialize the `.pt` file into the artifact store.
+
+See `models/yolo11n_detection/pipeline.py` for a working example of this
+pattern.
 
 ### Inference Pipeline
 
@@ -592,5 +626,7 @@ just example                           # Run full example pipeline
 
 - [STAC MLM Extension v1.5.1](https://github.com/stac-extensions/mlm) -- MLM fields spec
 - [MLM Best Practices](https://github.com/stac-extensions/mlm/blob/main/best-practices.md)
-- [Example UNet model](https://github.com/hotosm/fAIr-models/tree/master/models/unet_segmentation) -- reference implementation
-- [Example UNet STAC item](https://github.com/hotosm/fAIr-models/blob/master/models/unet_segmentation/stac-item.json) -- valid STAC item template
+- [UNet segmentation model](https://github.com/hotosm/fAIr-models/tree/master/models/unet_segmentation) -- segmentation reference
+- [ResNet18 classification model](https://github.com/hotosm/fAIr-models/tree/master/models/resnet18_classification) -- classification reference
+- [YOLOv11n detection model](https://github.com/hotosm/fAIr-models/tree/master/models/yolo11n_detection) -- detection reference
+- [UNet STAC item](https://github.com/hotosm/fAIr-models/blob/master/models/unet_segmentation/stac-item.json) -- STAC item template

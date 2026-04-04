@@ -42,16 +42,43 @@ icon: lucide/rocket
     uv add fair-py-ops
     ```
 
-## Running the Example Pipeline
+## Running the Example Pipelines
 
-The included UNet example demonstrates the full workflow — register a base
-model, finetune it on sample data, promote the best version, and run inference.
+Three example pipelines demonstrate the full workflow for each supported task
+type: register a base model, finetune on sample data, promote the best version,
+and run inference.
 
-```bash title="Run the full pipeline"
-just example  # init -> register -> finetune -> promote -> predict
+| Example | Task | Model |
+|---|---|---|
+| `examples/segmentation/` | Semantic segmentation | UNet (torchgeo) |
+| `examples/classification/` | Binary classification | ResNet18 (torchvision) |
+| `examples/detection/` | Object detection | YOLOv11n (ultralytics) |
+
+### Data Preparation
+
+Classification and detection labels are derived from the segmentation labels. Run
+the conversion scripts before the first pipeline run:
+
+```bash title="Generate derived labels"
+python scripts/convert_segmentation_to_classification.py
+python scripts/convert_segmentation_to_detection.py
 ```
 
-??? example "Individual steps"
+### Running All Pipelines
+
+```bash title="Run all three pipelines"
+just example  # converts labels, then runs segmentation -> classification -> detection
+```
+
+??? example "Running a single example"
+
+    ```bash
+    python examples/segmentation/run.py all      # segmentation only
+    python examples/classification/run.py all     # classification only
+    python examples/detection/run.py all          # detection only
+    ```
+
+??? example "Individual steps (segmentation)"
 
     ```bash
     python examples/segmentation/run.py init       # Initialize ZenML + STAC catalog

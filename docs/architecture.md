@@ -16,22 +16,23 @@ Catalog: fair-models
 |     Each item = complete model card (weights, code, Docker, MLM spec).
 |     Versioned by contributors, registered via CLI utility.
 |     |
-|     +-- Item: ramp (v1)              category: semantic-segmentation
-|     +-- Item: yolo (v1)              category: object-detection
+|     +-- Item: unet-segmentation (v1)           category: semantic-segmentation
+|     +-- Item: resnet18-classification (v1)      category: classification
+|     +-- Item: yolo11n-detection (v1)            category: object-detection
 |
 +-- Collection: local-models
 |     Finetuned models produced by ZenML pipelines.
 |     Only promoted (production) versions appear here.
 |     |
-|     +-- Item: ramp-finetuned-nepal-v2   (production, latest-version)
-|     +-- Item: ramp-finetuned-nepal-v1   (deprecated: true)
-|     +-- Item: yolo-finetuned-uganda-v1  (production)
+|     +-- Item: unet-segmentation-finetuned-banepa-v2   (production, latest-version)
+|     +-- Item: unet-segmentation-finetuned-banepa-v1   (deprecated: true)
+|     +-- Item: yolo11n-detection-finetuned-banepa-v1   (production)
 |
 +-- Collection: datasets
       Training data registered via fAIr UI/backend.
       |
-      +-- Item: buildings-kathmandu       category: semantic-segmentation
-      +-- Item: trees-utr-in-masuri       category: object-detection
+      +-- Item: buildings-banepa                category: semantic-segmentation
+      +-- Item: buildings-banepa-detection       category: object-detection
 ```
 
 ??? note "What STAC Items Contain"
@@ -41,7 +42,8 @@ Catalog: fair-models
 
     ### Base model item
 
-    See [`models/unet_segmentation/stac-item.json`](https://github.com/hotosm/fAIr-models/blob/master/models/unet_segmentation/stac-item.json) for a complete example.
+    See [`models/unet_segmentation/stac-item.json`](https://github.com/hotosm/fAIr-models/tree/master/models/unet_segmentation/stac-item.json) for a complete example.
+    All three base models (`unet_segmentation`, `resnet18_classification`, `yolo11n_detection`) follow this structure.
 
     Key properties: `mlm:name`, `mlm:architecture`, `mlm:tasks`, `mlm:framework`,
     `mlm:input` (with `pre_processing_function`), `mlm:output` (with `post_processing_function`
@@ -152,10 +154,10 @@ information to run inference: model weights, inference runtime, input/output spe
 
 | Concept | Example | ZenML | STAC |
 |---|---|---|---|
-| Base model | `ramp` | Not in ZenML MCP | Item in `base-models` |
-| Finetuned model | `ramp-finetuned-nepal` | ZenML Model (many versions) | Item(s) in `local-models` |
-| Specific version | `ramp-finetuned-nepal` v3 | ZenML Model Version 3 | Item `ramp-finetuned-nepal-v3` |
-| Dataset | `buildings-kathmandu` | Not in ZenML MCP | Item in `datasets` |
+| Base model | `unet-segmentation` | Not in ZenML MCP | Item in `base-models` |
+| Finetuned model | `unet-segmentation-finetuned-banepa` | ZenML Model (many versions) | Item(s) in `local-models` |
+| Specific version | `unet-segmentation-finetuned-banepa` v2 | ZenML Model Version 2 | Item `unet-segmentation-finetuned-banepa-v2` |
+| Dataset | `buildings-banepa` | Not in ZenML MCP | Item in `datasets` |
 
 ## Infrastructure
 

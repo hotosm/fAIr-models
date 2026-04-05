@@ -50,11 +50,6 @@ case "$action" in
     echo "Running pgstac migration..."
     ENCODED_PW=$(python3 -c "import urllib.parse,os; print(urllib.parse.quote('$PG_PASSWORD', safe=''))")
     FAIR_DSN="postgresql://${PG_USER}:${ENCODED_PW}@${PG_HOST}:${PG_PORT}/fair_models?sslmode=require"
-    pypgstac migrate --dsn "$FAIR_DSN"
-    echo "pgstac migration complete."
-    echo "Running pgstac migration..."
-    ENCODED_PW=$(python3 -c "import urllib.parse,os; print(urllib.parse.quote('$PG_PASSWORD', safe=''))")
-    FAIR_DSN="postgresql://${PG_USER}:${ENCODED_PW}@${PG_HOST}:${PG_PORT}/fair_models?sslmode=require"
     uv run pypgstac migrate --dsn "$FAIR_DSN"
     echo "pgstac migration complete."
     ;;

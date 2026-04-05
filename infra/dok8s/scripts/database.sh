@@ -43,14 +43,13 @@ case "$action" in
     ;;
   init)
     SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-    psql "$(_db_uri)" -f "$SCRIPT_DIR/init.sql" 2>/dev/null
-    FAIR_URI=$(_db_uri | sed 's|/defaultdb|/fair_models|')
+    BASE_URI=$(_db_uri)
+    psql "$BASE_URI" -f "$SCRIPT_DIR/init.sql" 2>/dev/null
+    FAIR_URI=$(echo "$BASE_URI" | sed 's|/defaultdb|/fair_models|')
     psql "$FAIR_URI" -c "CREATE EXTENSION IF NOT EXISTS postgis; CREATE EXTENSION IF NOT EXISTS btree_gist;"
     echo "Databases initialized."
     echo "Running pgstac migration..."
-    ENCODED_PW=$(python3 -c "import urllib.parse,os; print(urllib.parse.quote('$PG_PASSWORD', safe=''))")
-    FAIR_DSN="postgresql://${PG_USER}:${ENCODED_PW}@${PG_HOST}:${PG_PORT}/fair_models?sslmode=require"
-    uv run pypgstac migrate --dsn "$FAIR_DSN"
+    uv run pypgstac migrate --dsn "$FAIR_URI"
     echo "pgstac migration complete."
     ;;
   write-env)

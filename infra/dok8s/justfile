@@ -14,9 +14,9 @@ up:
     {{ scripts }}/database.sh firewall
     {{ scripts }}/database.sh write-env
     {{ scripts }}/spaces.sh create
-    {{ scripts }}/database.sh init
     set -a && source .env && set +a
     source {{ scripts }}/env-derived.sh
+    {{ scripts }}/database.sh init
     {{ scripts }}/validate-env.sh
     {{ scripts }}/deploy.sh helm
     {{ scripts }}/deploy.sh cert-issuer

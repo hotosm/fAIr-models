@@ -62,7 +62,15 @@ EOF
   register-stack)
     SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
     source "$SCRIPT_DIR/scripts/env-derived.sh"
-    TOKEN=$(curl -fsS -X POST "https://zenml.${FAIR_DOMAIN}/api/v1/login" \
+    echo "Waiting for ZenML to become reachable..."
+    for attempt in $(seq 1 30); do
+      if curl -kfsS -o /dev/null "https://zenml.${FAIR_DOMAIN}/api/v1/info" 2>/dev/null; then
+        break
+      fi
+      echo "  attempt $attempt/30 - not ready yet"
+      sleep 10
+    done
+    TOKEN=$(curl -kfsS -X POST "https://zenml.${FAIR_DOMAIN}/api/v1/login" \
       -d "username=${ZENML_ADMIN_USER}&password=${ZENML_ADMIN_PASSWORD}&grant_type=password" | \
       python3 -c "import sys,json; print(json.load(sys.stdin)['access_token'])")
     [[ -n "$TOKEN" ]] || { echo "ERROR: Failed to obtain ZenML token"; exit 1; }

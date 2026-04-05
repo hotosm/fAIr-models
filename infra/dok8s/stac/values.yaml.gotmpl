@@ -13,25 +13,10 @@ postgrescluster:
   enabled: false
 
 pgstacBootstrap:
-  enabled: true
-  image:
-    name: ghcr.io/stac-utils/pgstac-pypgstac
-    tag: v0.9.9
-  settings:
-    loadSamples: false
-    queryables: []
-    user: {{ requiredEnv "PG_USER" }}
-    database: fair_models
-
-apiServices:
-  - stac
+  enabled: false
 
 stac:
-  enabled: true
   resources:
-    requests:
-      cpu: 100m
-      memory: 256Mi
     limits:
       cpu: 500m
       memory: 512Mi
@@ -45,6 +30,7 @@ stac:
       WEB_CONCURRENCY: "2"
       DB_MIN_CONN_SIZE: "1"
       DB_MAX_CONN_SIZE: "5"
+      PGSSLMODE: "require"
       STAC_FASTAPI_TITLE: "fAIr STAC Catalog"
       STAC_FASTAPI_DESCRIPTION: "fAIr model metadata catalog on DigitalOcean."
       ENABLE_TRANSACTIONS_EXTENSIONS: "true"

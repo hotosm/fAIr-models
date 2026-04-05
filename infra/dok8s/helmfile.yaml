@@ -43,7 +43,7 @@ releases:
     version: "0.12.2"
     labels:
       tier: app
-    wait: false
+    wait: true
     timeout: 600
     needs:
       - ingress-nginx/ingress-nginx

@@ -729,33 +729,14 @@ specs, and keywords ; the README is for everything else.
 
 ## PR Checklist
 
-Before submitting your pull request:
+Before opening a PR, make sure:
 
-- [ ] Directory created at `models/your-model/` with `pipeline.py`, `Dockerfile`, `stac-item.json`, `README.md`
-- [ ] `README.md` describes the model (architecture, limitations, usage, citation)
-- [ ] `stac-item.json` has `title`, `description`, `fair:metrics_spec`, and `fair:split_spec` properties
-- [ ] `mlm:hyperparameters` includes `val_ratio` and `split_seed`
-- [ ] `readme` asset href is an absolute GitHub raw URL (not `./README.md`)
-- [ ] `mlm:pretrained_source` is a valid URL (paper DOI or arXiv), not a free-form string
-- [ ] `cite-as` link added if model or weights come from a published paper
-- [ ] `pipeline.py` exports `training_pipeline` and `inference_pipeline` as `@pipeline`-decorated functions
-- [ ] `pipeline.py` defines a `@step`-decorated `split_dataset` function
-- [ ] `split_dataset` logs split metadata via `log_metadata(metadata={"fair/split": split_info})`
-- [ ] `train_model` trains on the train split only; `evaluate_model` evaluates on the val split only
-- [ ] `pipeline.py` defines `preprocess` and `postprocess` functions matching STAC entrypoints
-- [ ] `evaluate_model` calls `log_metadata(metadata=metrics, infer_model=True)` so metrics attach to the model version
-- [ ] `export_onnx` validates the exported model with `onnx.checker.check_model()`
-- [ ] Per-class IoU keys use class names from `classification:classes` (e.g. `iou_building`, not `iou_class_0`)
-- [ ] Pipeline parameters use `Annotated` bounds and `Literal` for constrained choices
-- [ ] `mlm:hyperparameters` in STAC item matches pipeline parameter names and defaults
-- [ ] `mlm:input` declares exactly 3 RGB bands
-- [ ] Dockerfile builds successfully and is self-contained
-- [ ] Model and STAC item pass `just validate`
-- [ ] License is one of: `AGPL-3.0-only`, `MIT`, `Apache-2.0`, `BSD-3-Clause`
-- [ ] Keywords include a feature category, task, and geometry type (`polygon`, `line`, or `point`)
-- [ ] Model weights are publicly accessible or included in the weight loading code
-- [ ] Model can run training on sample data in `data/sample/train/`
-- [ ] Model can run inference on sample data in `data/sample/predict/`
+- [ ] `models/your-model/` includes `pipeline.py`, `Dockerfile`, `stac-item.json`, and `README.md`
+- [ ] `README.md` explains the model clearly enough for another developer to use it
+- [ ] `just validate` passes for the model and STAC item
+- [ ] training and inference both run on the sample data ( if sample data doesn't match , consider adding one )
+
+The full requirements are described in the sections above, especially the STAC metadata, pipeline structure, assets, and README guidance. CI checks the detailed metadata, pipeline exports, Docker build, and consistency rules for you.
 
 ## CI Checks
 

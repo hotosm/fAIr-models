@@ -2,6 +2,9 @@
 set -euo pipefail
 
 action=${1:?Usage: cluster.sh <create|delete|kubeconfig>}
+INFRA_NODE_SIZE="${INFRA_NODE_SIZE:-s-2vcpu-4gb}"
+ML_NODE_SIZE="${ML_NODE_SIZE:-s-4vcpu-8gb}"
+FAIR_LABEL_DOMAIN="${FAIR_LABEL_DOMAIN:-${FAIR_DOMAIN:-fair}}"
 
 case "$action" in
   create)
@@ -14,7 +17,7 @@ case "$action" in
         --wait
       doctl kubernetes cluster node-pool create "$CLUSTER_NAME" \
         --name ml \
-        --size "${ML_NODE_SIZE:-s-4vcpu-8gb}" \
+        --size "$ML_NODE_SIZE" \
         --count 0 \
         --auto-scale \
         --min-nodes 0 \

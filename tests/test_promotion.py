@@ -245,13 +245,13 @@ def test_delete_version(mock_cls, cm):
 
 
 @patch("fair.zenml.promotion.Client")
-def test_duplicate_promotion_raises(mock_cls, cm):
+def test_duplicate_promotion_returns_existing(mock_cls, cm):
     mv, client = _mock_mv({"epochs": 1})
     mock_cls.return_value = client
     client.get_model_version.return_value = mv
-    _publish(cm, version=1)
-    with pytest.raises(ValueError, match="already promoted"):
-        _publish(cm, version=1)
+    first = _publish(cm, version=1)
+    second = _publish(cm, version=1)
+    assert second.id == first.id
 
 
 @patch("fair.zenml.promotion.Client")

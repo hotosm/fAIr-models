@@ -1,4 +1,5 @@
 set shell := ["bash", "-euo", "pipefail", "-c"]
+set dotenv-load
 
 ns := "fair"
 scripts := "scripts"
@@ -10,10 +11,11 @@ up:
     set -euo pipefail
     {{ scripts }}/cluster.sh create
     {{ scripts }}/database.sh create
+    {{ scripts }}/database.sh firewall
     {{ scripts }}/database.sh write-env
     {{ scripts }}/spaces.sh create
     {{ scripts }}/database.sh init
-    source .env
+    set -a && source .env && set +a
     source {{ scripts }}/env-derived.sh
     {{ scripts }}/validate-env.sh
     {{ scripts }}/deploy.sh helm
@@ -40,7 +42,8 @@ infra:
 deploy:
     #!/usr/bin/env bash
     set -euo pipefail
-    source .env
+    {{ scripts }}/database.sh write-env
+    set -a && source .env && set +a
     source {{ scripts }}/env-derived.sh
     {{ scripts }}/validate-env.sh
     {{ scripts }}/deploy.sh helm
@@ -55,7 +58,6 @@ deploy:
 tear:
     #!/usr/bin/env bash
     set -euo pipefail
-    source .env || true
     export FAIR_LABEL_DOMAIN="${FAIR_DOMAIN:-}"
     export DOKS_CONTEXT="do-${DO_REGION:-nyc3}-${CLUSTER_NAME:-fair}"
     export SPACES_ENDPOINT="https://${DO_REGION:-nyc3}.digitaloceanspaces.com"
@@ -68,7 +70,6 @@ tear:
 status:
     #!/usr/bin/env bash
     set -euo pipefail
-    source .env || true
     echo "Cluster:  $(doctl kubernetes cluster get "${CLUSTER_NAME:-fair}" --format Status --no-header 2>/dev/null || echo 'not found')"
     echo "Database: $(doctl databases list --format Status --no-header 2>/dev/null | head -1 || echo 'not found')"
     echo "Pods:"
@@ -80,7 +81,6 @@ status:
 urls:
     #!/usr/bin/env bash
     set -euo pipefail
-    source .env
     echo "ZenML:  https://zenml.${FAIR_DOMAIN}"
     echo "MLflow: https://mlflow.${FAIR_DOMAIN}"
     echo "STAC:   https://stac.${FAIR_DOMAIN}/stac"
@@ -89,9 +89,13 @@ urls:
 run-example:
     #!/usr/bin/env bash
     set -euo pipefail
-    source .env
+    {{ scripts }}/database.sh write-env
+    set -a && source .env && set +a
     source {{ scripts }}/env-derived.sh
-    TOKEN=$(curl -fsS -X POST "https://zenml.${FAIR_DOMAIN}/api/v1/login" \
+    echo "Checking database connectivity..."
+    psql "$PGSTAC_DSN" -c "SELECT 1" >/dev/null
+    echo "Database: ok"
+    TOKEN=$(curl -kfsS -X POST "https://zenml.${FAIR_DOMAIN}/api/v1/login" \
         -d "username=${ZENML_ADMIN_USER}&password=${ZENML_ADMIN_PASSWORD}&grant_type=password" | \
         python3 -c "import sys,json; print(json.load(sys.stdin)['access_token'])")
     [[ -n "$TOKEN" ]] || { echo "ERROR: Failed to obtain ZenML token"; exit 1; }

@@ -15,6 +15,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     --index-strategy unsafe-best-match \
     torch==2.10.0 \
     torchvision \
+    rasterio \
     onnx \
     onnxscript \
     zenml==0.93.3 \

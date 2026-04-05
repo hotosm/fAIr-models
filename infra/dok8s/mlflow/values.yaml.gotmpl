@@ -53,5 +53,6 @@ resources:
     memory: 1Gi
 
 extraEnvVars:
+  PGSSLMODE: "require"
   MLFLOW_S3_ENDPOINT_URL: {{ requiredEnv "SPACES_ENDPOINT" }}
   MLFLOW_SERVER_ALLOWED_HOSTS: "*"

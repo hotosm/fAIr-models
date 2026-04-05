@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-action=${1:?Usage: database.sh <create|init|write-env>}
+action=${1:?Usage: database.sh <create|init|write-env|firewall|delete>}
 DB_NAME="${CLUSTER_NAME}-pg"
 
 _db_id() {
@@ -11,6 +11,22 @@ _db_id() {
   echo "$id"
 }
 _db_uri() { doctl databases connection "$(_db_id)" --format URI --no-header; }
+
+_wait_ready() {
+  local uri
+  uri=$(_db_uri)
+  echo "Waiting for database to accept connections..."
+  for attempt in $(seq 1 30); do
+    if psql "$uri" -c "SELECT 1" >/dev/null 2>&1; then
+      echo "Database is ready."
+      return 0
+    fi
+    echo "  attempt $attempt/30"
+    sleep 10
+  done
+  echo "ERROR: Database not reachable after 300s"
+  exit 1
+}
 
 case "$action" in
   create)
@@ -23,6 +39,7 @@ case "$action" in
         --size db-s-2vcpu-4gb --num-nodes 1 \
         --wait
     fi
+    _wait_ready
     ;;
   init)
     SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
@@ -30,6 +47,16 @@ case "$action" in
     FAIR_URI=$(_db_uri | sed 's|/defaultdb|/fair_models|')
     psql "$FAIR_URI" -c "CREATE EXTENSION IF NOT EXISTS postgis; CREATE EXTENSION IF NOT EXISTS btree_gist;"
     echo "Databases initialized."
+    echo "Running pgstac migration..."
+    ENCODED_PW=$(python3 -c "import urllib.parse,os; print(urllib.parse.quote('$PG_PASSWORD', safe=''))")
+    FAIR_DSN="postgresql://${PG_USER}:${ENCODED_PW}@${PG_HOST}:${PG_PORT}/fair_models?sslmode=require"
+    pypgstac migrate --dsn "$FAIR_DSN"
+    echo "pgstac migration complete."
+    echo "Running pgstac migration..."
+    ENCODED_PW=$(python3 -c "import urllib.parse,os; print(urllib.parse.quote('$PG_PASSWORD', safe=''))")
+    FAIR_DSN="postgresql://${PG_USER}:${ENCODED_PW}@${PG_HOST}:${PG_PORT}/fair_models?sslmode=require"
+    uv run pypgstac migrate --dsn "$FAIR_DSN"
+    echo "pgstac migration complete."
     ;;
   write-env)
     SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
@@ -47,6 +74,24 @@ case "$action" in
       -e "s|^PG_PASSWORD=.*|PG_PASSWORD=$PG_PASSWORD|" "$ENV_FILE"
     rm -f "$ENV_FILE.bak"
     echo "PG credentials written to .env"
+    ;;
+  firewall)
+    DB_ID=$(_db_id)
+    DOKS_UUID=$(doctl kubernetes cluster get "$CLUSTER_NAME" --format ID --no-header)
+    MY_IP=$(curl -fsS https://api.ipify.org)
+    EXISTING=$(doctl databases firewalls list "$DB_ID" --format Type,Value --no-header 2>/dev/null || true)
+    if echo "$EXISTING" | grep -q "$DOKS_UUID"; then
+      echo "Firewall: DOKS cluster already trusted."
+    else
+      doctl databases firewalls append "$DB_ID" --rule "k8s:$DOKS_UUID"
+      echo "Firewall: added DOKS cluster $DOKS_UUID."
+    fi
+    if echo "$EXISTING" | grep -q "$MY_IP"; then
+      echo "Firewall: local IP $MY_IP already trusted."
+    else
+      doctl databases firewalls append "$DB_ID" --rule "ip_addr:$MY_IP"
+      echo "Firewall: added local IP $MY_IP."
+    fi
     ;;
   delete)
     DB_ID=$(_db_id)

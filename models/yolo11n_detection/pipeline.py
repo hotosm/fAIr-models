@@ -51,6 +51,18 @@ def _build_feature_collection(features):
     return {"type": "FeatureCollection", "features": features}
 
 
+def _restore_checkpoint(trained_model: Any):
+    from ultralytics import YOLO
+
+    if isinstance(trained_model, YOLO):
+        return trained_model
+    if isinstance(trained_model, bytes):
+        checkpoint = Path(tempfile.mkdtemp()) / "best.pt"
+        checkpoint.write_bytes(trained_model)
+        return YOLO(str(checkpoint))
+    return YOLO(trained_model)
+
+
 def postprocess(results: Any) -> list[dict[str, Any]]:
     detections: list[dict[str, Any]] = []
     for result in results:
@@ -206,7 +218,7 @@ def train_model(
 
     saved_path = Path(tempfile.mkdtemp()) / "best.pt"
     model.save(str(saved_path))
-    return str(saved_path)
+    return saved_path.read_bytes()
 
 
 @step
@@ -218,8 +230,6 @@ def evaluate_model(
     split_info: dict[str, Any],
     class_names: list[str] | None = None,
 ) -> Annotated[dict[str, Any], "metrics"]:
-    from ultralytics import YOLO
-
     chip_size = hyperparameters.get("chip_size", 640)
 
     yolo_dir = Path(split_info["_yolo_dir"])
@@ -227,7 +237,7 @@ def evaluate_model(
         val_ratio = split_info["val_ratio"]
         yolo_dir, _, _ = _prepare_yolo_dataset(dataset_chips, dataset_labels, chip_size, val_ratio)
 
-    model = trained_model if isinstance(trained_model, YOLO) else YOLO(trained_model)
+    model = _restore_checkpoint(trained_model)
     results = model.val(data=str(yolo_dir / "data.yaml"), imgsz=chip_size, verbose=False)
 
     if not hasattr(results, "results_dict") or not results.results_dict:
@@ -247,9 +257,8 @@ def evaluate_model(
 @step
 def export_onnx(trained_model: Any) -> Annotated[str, "onnx_model"]:
     import onnx
-    from ultralytics import YOLO
 
-    model = trained_model if isinstance(trained_model, YOLO) else YOLO(trained_model)
+    model = _restore_checkpoint(trained_model)
     onnx_path = model.export(format="onnx")
     onnx.checker.check_model(onnx_path)
     return onnx_path
@@ -262,11 +271,10 @@ def detect(
     chip_size: int = 640,
 ) -> Annotated[dict[str, Any], "predictions"]:
     import rasterio
-    from ultralytics import YOLO
 
     from fair.utils.data import resolve_directory
 
-    yolo_model = model if isinstance(model, YOLO) else YOLO(model)
+    yolo_model = _restore_checkpoint(model)
 
     input_dir = resolve_directory(input_images)
     patterns = ("*.png", "*.tif", "*.tiff", "*.jpg")

@@ -16,6 +16,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     torch==2.10.0 \
     torchvision \
     rasterio \
+    pyproj \
     onnx \
     onnxscript \
     zenml==0.93.3 \

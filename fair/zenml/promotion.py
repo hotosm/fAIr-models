@@ -49,8 +49,8 @@ def publish_promoted_model(
     new_item_id = str(mv.id)
 
     if catalog_manager.item_exists(LOCAL_MODELS_COLLECTION, new_item_id):
-        msg = f"Model version {model_name} v{version} already promoted as STAC item {new_item_id}"
-        raise ValueError(msg)
+        log.warning("%s v%d already promoted as STAC item %s; skipping", model_name, version, new_item_id)
+        return catalog_manager.get_item(LOCAL_MODELS_COLLECTION, new_item_id)
 
     # Extract tunable hyperparams from the training run, exclude infra-level keys
     _INFRA_KEYS = {

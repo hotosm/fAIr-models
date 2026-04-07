@@ -54,7 +54,7 @@ Catalog: fair-models
 +-- Collection: datasets
       Training data registered via fAIr UI/backend.
       |
-      +-- Item: buildings-banepa                category: semantic-segmentation
+      +-- Item: buildings-banepa-segmentation    category: semantic-segmentation
       +-- Item: buildings-banepa-detection       category: object-detection
 ```
 

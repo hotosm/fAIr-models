@@ -20,7 +20,7 @@ if __name__ == "__main__":
 
     base_model_id = client.register_base_model("models/unet_segmentation/stac-item.json")
 
-    dataset_id = client.register_dataset("data/sample/buildings-banepa/stac-item.json")
+    dataset_id = client.register_dataset("data/sample/buildings-banepa-segmentation/stac-item.json")
 
     finetuned_model_id = client.finetune(
         base_model_id=base_model_id,
@@ -31,7 +31,7 @@ if __name__ == "__main__":
 
     local_model_id = client.promote(
         finetuned_model_id,
-        description="UNet segmentation finetuned on buildings-banepa",
+        description="UNet segmentation finetuned on buildings-banepa-segmentation",
     )
 
     client.predict(local_model_id, image_path="data/sample/predict/oam")

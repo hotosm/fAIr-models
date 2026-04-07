@@ -7,7 +7,7 @@
         "https://stac-extensions.github.io/version/v1.2.0/schema.json",
         "https://hotosm.github.io/fAIr-models/v1.0.0/dataset/schema.json"
     ],
-    "id": "buildings-banepa",
+    "id": "buildings-banepa-segmentation",
     "geometry": {
         "type": "Polygon",
         "coordinates": [
@@ -25,7 +25,7 @@
         "datetime": "2024-01-01T00:00:00Z",
         "created": "2024-01-01T00:00:00Z",
         "updated": "2024-01-01T00:00:00Z",
-        "title": "buildings-banepa",
+        "title": "buildings-banepa-segmentation",
         "description": "OpenAerialMap chips with OSM building footprints for Banepa, Nepal.",
         "label:type": "vector",
         "label:tasks": ["segmentation"],

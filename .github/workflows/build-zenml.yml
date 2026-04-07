@@ -50,7 +50,7 @@ jobs:
           for model in unet-segmentation resnet18-classification yolo11n-detection; do
             test -f "stac_catalog/base-models/$model/$model.json" || { echo "Base model $model not registered"; exit 1; }
           done
-          for dataset in buildings-banepa buildings-banepa-classification buildings-banepa-detection; do
+          for dataset in buildings-banepa-segmentation buildings-banepa-classification buildings-banepa-detection; do
             test -f "stac_catalog/datasets/$dataset/$dataset.json" || { echo "Dataset $dataset not registered"; exit 1; }
           done
           test -n "$(ls -A stac_catalog/local-models/ 2>/dev/null)" || { echo "No local models published"; exit 1; }

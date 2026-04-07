@@ -46,7 +46,7 @@ uv run python examples/segmentation/run.py all
 | Command | Artifacts |
 |---|---|
 | `init` | `stac_catalog/` (3 collections: base-models, datasets, local-models) |
-| `register` | STAC items: `base-models/unet-segmentation`, `datasets/buildings-banepa` |
+| `register` | STAC items: `base-models/unet-segmentation`, `datasets/buildings-banepa-segmentation` |
 | `finetune` | `artifacts/` (ZenML artifact store + trained weights) |
 | `promote` | STAC item: `local-models/unet-segmentation-finetuned-banepa-vN` |
 | `predict` | `data/sample/predict/predictions/*.tif` (segmentation masks) |

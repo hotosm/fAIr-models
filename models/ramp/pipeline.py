@@ -1,7 +1,7 @@
 """ZenML pipeline for RAMP (EfficientNetB0 + U-Net) building semantic segmentation.
 
 Entrypoints referenced by stac-item.json.
-Runtime: ramp-fair (TensorFlow/Keras), hot-fair-utilities (preprocessing only).
+Runtime: ramp-fair (TensorFlow/Keras), hot-fair-utilities (preprocessing + training).
 
 Implements the fAIr entrypoints:
   - pre_processing_function  → preprocess()
@@ -9,167 +9,151 @@ Implements the fAIr entrypoints:
   - mlm:entrypoint (training) → training_pipeline()
   - inference (model from STAC mlm:model asset href) → inference_pipeline()
 
-Key architecture difference from YOLO packs:
-  - Preprocessing  → hot_fair_utilities.preprocess (shared)
-  - Training       → ramp.training.* (TF/Keras, NOT ultralytics)
-  - Inference      → tf.keras.models.load_model (TF SavedModel)
-  - Postprocessing → ramp.utils.mask_to_vec_utils (GDAL polygonize)
-
 Model weights: Backend passes model_uri from STAC Item (assets.model.href).
-Supports Google Drive, direct HTTP URLs, S3, and local paths.
-Weights are downloaded on first use and cached locally.
+Supports direct HTTP(S) URLs to .zip archives and local paths.
+Google Drive is not supported; weights should be published to HTTP or staged locally.
+
+Inference/postprocess use the **fairpredictor** PyPI distribution; its importable top-level
+package is ``predictor`` (``pip install fairpredictor`` → ``import predictor``), same as
+``hot_fair_utilities.inference.predict``.
 
 All heavy imports are lazy: this module is importable in the fAIr-models
 host environment where tensorflow, ramp, and solaris are not installed.
 """
 
-from __future__ import annotations
-
-import datetime
-import random
 import re
-import shutil
 import zipfile
 from pathlib import Path
+from shutil import copy2, rmtree
+from typing import Annotated, Any, Dict, List, Optional, Tuple, Union
 from urllib.request import urlretrieve
 
 from zenml import log_metadata, pipeline, step
 
-# Cache directory for downloaded models
 _DEFAULT_MODEL_CACHE = Path("/workspace/.ramp_model_cache")
+_DEFAULT_RAMP_BASELINE_URL = (
+    "https://api-prod.fair.hotosm.org/api/v1/workspace/download/ramp/baseline.zip"
+)
 
-# Google Drive folder URL pattern
-_GDRIVE_FOLDER_RE = re.compile(
-    r"https?://drive\.google\.com/drive/folders/([a-zA-Z0-9_-]+)",
-    re.IGNORECASE,
+
+def _download_and_extract_zip(zip_url: str, dest_dir: Path) -> None:
+    """Download a ZIP URL and extract in dest_dir."""
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    zip_name = Path(zip_url.split("/")[-1]).name or "archive.zip"
+    zip_path = dest_dir / zip_name
+    urlretrieve(zip_url, zip_path)
+    with zipfile.ZipFile(zip_path, "r") as zf:
+        zf.extractall(dest_dir)
+    zip_path.unlink(missing_ok=True)
+
+
+def _to_local_path(path_value: str, purpose: str) -> Path:
+    """Resolve a path with UPath and ensure local filesystem semantics."""
+    from upath import UPath
+
+    upath_obj = UPath(path_value)
+    protocol = getattr(upath_obj, "protocol", "") or ""
+    if protocol not in ("", "file"):
+        raise NotImplementedError(
+            f"{purpose} requires a local filesystem path. "
+            f"Received protocol={protocol!r} for {path_value!r}."
+        )
+    return Path(str(upath_obj))
+
+
+def _ensure_ramp_baseline(data_base_path: str, baseline_rel_path: str) -> Path:
+    """Return the directory that contains baseline weights; download under data_base_path if missing.
+
+    ``baseline_rel_path`` is e.g. ``ramp-data/baseline/checkpoint.tf`` (file relative to RAMP_HOME).
+    """
+    rel = Path(baseline_rel_path)
+    local_dir = Path(data_base_path) / rel.parent
+    local_ck = local_dir / rel.name
+    if local_ck.is_file() or (local_dir / "saved_model.pb").exists():
+        return local_dir
+    image_ck = Path("/app") / baseline_rel_path
+    if image_ck.is_file():
+        return image_ck.parent
+    _download_and_extract_zip(_DEFAULT_RAMP_BASELINE_URL, local_dir)
+    return local_dir
+
+
+_QUBVEL_EFFICIENTNET_RELEASE = (
+    "https://github.com/qubvel/efficientnet/releases/download/v0.0.1/"
 )
-_GDRIVE_FILE_RE = re.compile(
-    r"https?://drive\.google\.com/file/d/([a-zA-Z0-9_-]+)",
-    re.IGNORECASE,
-)
+
+
+def _patch_keras_get_file_for_efficientnet_weights() -> None:
+    """Redirect broken Callidior EfficientNet weight URLs to qubvel's GitHub release assets.
+
+    The ``efficientnet`` package (via ``segmentation_models``) downloads encoder weights from
+    ``github.com/Callidior/keras-applications/releases/...``; those assets now return **404**.
+    qubvel hosts compatible ``*_imagenet_1000_notop.h5`` files on the same model's releases.
+    """
+    import tensorflow as tf
+
+    ku = tf.keras.utils
+    if getattr(ku.get_file, "_ramp_efficientnet_mirror", False):
+        return
+
+    _orig = ku.get_file
+
+    def _get_file(fname, origin, *args, **kwargs):
+        if isinstance(origin, str) and "Callidior" in origin and isinstance(fname, str):
+            m = re.match(
+                r"^(efficientnet-b\d+)_weights_tf_dim_ordering_tf_kernels_autoaugment_notop\.h5$",
+                fname,
+            )
+            if m:
+                alt = f"{m.group(1)}_imagenet_1000_notop.h5"
+                origin = f"{_QUBVEL_EFFICIENTNET_RELEASE}{alt}"
+                kwargs = dict(kwargs)
+                kwargs["file_hash"] = None
+        return _orig(fname, origin, *args, **kwargs)
+
+    _get_file._ramp_efficientnet_mirror = True  # type: ignore[attr-defined]
+    ku.get_file = _get_file
 
 
 def resolve_model_href(
     model_uri: str,
-    cache_dir: Path | None = None,
+    cache_dir: Optional[Path] = None,
 ) -> str:
     """Resolve model_uri to a local SavedModel directory path.
 
     Supports:
-      - Local path: returned as-is if it exists and contains saved_model.pb
-      - Google Drive folder URL: downloaded via gdown, cached
+      - Local path: returned as-is if it exists
       - Direct HTTP(S) URL to .zip: downloaded, extracted, cached
-      - S3 URLs (s3://...): placeholder for future; raise if not implemented
 
-    Returns the absolute path to the SavedModel directory (contains saved_model.pb).
+    Returns the absolute path to the SavedModel directory.
     """
-    cache_dir = cache_dir or _DEFAULT_MODEL_CACHE
-    path = Path(model_uri)
+    if not isinstance(model_uri, str):
+        raise TypeError("model_uri must be a string")
+    if cache_dir is not None and not isinstance(cache_dir, Path):
+        raise TypeError("cache_dir must be a pathlib.Path or None")
 
-    # Local path: must exist and look like a SavedModel dir
-    if not (
-        model_uri.startswith("http://")
-        or model_uri.startswith("https://")
-        or model_uri.startswith("s3://")
-    ):
-        resolved = path.resolve()
-        if resolved.is_dir() and (resolved / "saved_model.pb").is_file():
-            return str(resolved)
+    cache_dir = cache_dir or _DEFAULT_MODEL_CACHE
+
+    if not (model_uri.startswith("http://") or model_uri.startswith("https://")):
+        resolved = _to_local_path(model_uri, "model_uri").resolve()
         if resolved.exists():
             return str(resolved)
-        raise FileNotFoundError(f"Model path not found or invalid: {resolved}")
+        raise FileNotFoundError(f"Model path not found: {resolved}")
 
-    # S3: future support (backend could download before calling)
-    if model_uri.startswith("s3://"):
-        raise NotImplementedError(
-            "S3 model URIs require backend pre-download or boto3 in container. "
-            "Use Google Drive or HTTP URL for now."
-        )
-
-    # Google Drive folder
-    folder_match = _GDRIVE_FOLDER_RE.search(model_uri)
-    if folder_match:
-        folder_id = folder_match.group(1)
-        dest_dir = cache_dir / f"gdrive_{folder_id}"
-        dest_dir.mkdir(parents=True, exist_ok=True)
-
-        # Check if already downloaded
-        if (dest_dir / "saved_model.pb").is_file():
-            return str(dest_dir)
-
-        try:
-            import gdown
-
-            gdown.download_folder(
-                id=folder_id,
-                output=str(dest_dir),
-                quiet=True,
-            )
-        except ImportError as e:
-            raise ImportError(
-                "gdown is required to download models from Google Drive. "
-                "Add 'gdown' to the RAMP Dockerfile."
-            ) from e
-
-        if not (dest_dir / "saved_model.pb").is_file():
-            # gdown may create a subfolder with the Drive folder name
-            subdirs = [d for d in dest_dir.iterdir() if d.is_dir()]
-            if len(subdirs) == 1 and (subdirs[0] / "saved_model.pb").is_file():
-                return str(subdirs[0])
-            raise RuntimeError(
-                f"Downloaded folder {dest_dir} does not contain saved_model.pb. "
-                "Ensure the Drive folder contains the full Keras SavedModel (saved_model.pb + variables/)."
-            )
-        return str(dest_dir)
-
-    # Google Drive single file (less common for SavedModel)
-    file_match = _GDRIVE_FILE_RE.search(model_uri)
-    if file_match:
-        file_id = file_match.group(1)
-        dest_dir = cache_dir / f"gdrive_file_{file_id}"
-        dest_dir.mkdir(parents=True, exist_ok=True)
-        out_file = dest_dir / "downloaded"
-        try:
-            import gdown
-
-            gdown.download(id=file_id, output=str(out_file), quiet=True)
-        except ImportError as e:
-            raise ImportError("gdown required for Google Drive downloads.") from e
-        if out_file.suffix == ".zip":
-            with zipfile.ZipFile(out_file, "r") as zf:
-                zf.extractall(dest_dir)
-            out_file.unlink()
-        saved_pb = dest_dir / "saved_model.pb"
-        if saved_pb.is_file():
-            return str(dest_dir)
-        for sub in dest_dir.rglob("saved_model.pb"):
-            return str(sub.parent)
-        raise RuntimeError(f"Downloaded file did not yield a valid SavedModel in {dest_dir}")
-
-    # Direct HTTP(S) URL to .zip
     if model_uri.lower().endswith(".zip"):
         base_name = Path(model_uri.split("/")[-1]).stem
         dest_dir = cache_dir / base_name
         dest_dir.mkdir(parents=True, exist_ok=True)
-        zip_path = cache_dir / (base_name + ".zip")
         if not any(dest_dir.rglob("saved_model.pb")):
-            urlretrieve(model_uri, zip_path)
-            with zipfile.ZipFile(zip_path, "r") as zf:
-                zf.extractall(dest_dir)
-            zip_path.unlink(missing_ok=True)
+            _download_and_extract_zip(model_uri, dest_dir)
         for sub in dest_dir.rglob("saved_model.pb"):
             return str(sub.parent)
         raise RuntimeError(f"Zip from {model_uri} did not contain a valid SavedModel")
 
     raise ValueError(
-        f"Unsupported model_uri format: {model_uri}. "
-        "Use: local path, Google Drive folder URL, or HTTP(S) URL to a .zip file."
+        f"Unsupported model_uri: {model_uri}. "
+        "Use a local path or an HTTP(S) URL to a .zip file containing the SavedModel."
     )
-
-
-# ---------------------------------------------------------------------------
-# STAC MLM processing-expression callables
-# ---------------------------------------------------------------------------
 
 
 def preprocess(
@@ -202,88 +186,66 @@ def preprocess(
     return output_path
 
 
-def postprocess(prediction_masks_dir: str, output_dir: str) -> str:
-    """Convert RAMP multichannel predicted masks to per-chip GeoJSON polygons.
+def postprocess(prediction_masks_dir: str, output_dir: str) -> dict:
+    """Run fairpredictor-style postprocessing and return merged prediction GeoJSON content."""
+    import json
 
-    For each .pred.tif in prediction_masks_dir:
-      1. Reads the 4-class sparse multimask (uint8, channels-first, 1 band).
-      2. Extracts a binary building footprint mask (class == 1, ignores boundary/contact).
-      3. Polygonizes via GDAL and writes a matching .geojson file.
+    from geomltoolkits.regularizer import VectorizeMasks
+    from geomltoolkits.utils import merge_rasters, validate_polygon_geometries
+    from predictor.utils import morphological_cleaning
 
-    Returns the output_dir path containing per-chip GeoJSONs.
-    """
-    from osgeo import gdal
-
-    from ramp.utils.img_utils import gdal_get_mask_tensor
-    from ramp.utils.mask_to_vec_utils import (
-        binary_mask_from_multichannel_mask,
-        binary_mask_to_geojson,
-    )
-
-    pred_dir = Path(prediction_masks_dir)
-    out_dir = Path(output_dir)
+    pred_dir = _to_local_path(prediction_masks_dir, "prediction_masks_dir")
+    out_dir = _to_local_path(output_dir, "output_dir")
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    pred_tifs = sorted(pred_dir.glob("*.pred.tif"))
+    pred_tifs = sorted(pred_dir.glob("*.tif"))
     if not pred_tifs:
-        raise RuntimeError(f"No *.pred.tif files found in {pred_dir}")
+        raise RuntimeError(f"No *.tif files found in {pred_dir}")
 
-    for mask_path in pred_tifs:
-        json_name = mask_path.stem.replace(".pred", "") + ".geojson"
-        json_path = str(out_dir / json_name)
+    merged_mask_path = out_dir / "merged_prediction_mask.tif"
+    merged_geojson_path = out_dir / "predictions.geojson"
+    tmp_dir = out_dir / "tmp"
+    tmp_dir.mkdir(parents=True, exist_ok=True)
 
-        ref_ds = gdal.Open(str(mask_path))
-        if ref_ds is None:
-            raise RuntimeError(f"GDAL could not open {mask_path}")
+    merge_rasters(str(pred_dir), str(merged_mask_path))
+    morphological_cleaning(str(merged_mask_path))
+    gdf = VectorizeMasks(
+        simplify_tolerance=0.5,
+        min_area=3,
+        orthogonalize=True,
+        tmp_dir=str(tmp_dir),
+        ortho_skew_tolerance_deg=15,
+        ortho_max_angle_change_deg=15,
+    ).convert(str(merged_mask_path), str(merged_geojson_path))
 
-        multimask = gdal_get_mask_tensor(str(mask_path))
-        bin_mask = binary_mask_from_multichannel_mask(multimask)
-        binary_mask_to_geojson(bin_mask, ref_ds, json_path)
+    if gdf.crs and gdf.crs != "EPSG:4326":
+        gdf = gdf.to_crs("EPSG:4326")
+    elif not gdf.crs:
+        gdf.set_crs("EPSG:3857", inplace=True)
+        gdf = gdf.to_crs("EPSG:4326")
+    # Pandas extension dtypes break some Fiona GeoJSON writes; coerce to object.
+    import pandas as pd
 
-    return output_dir
+    for col in gdf.columns:
+        if col == "geometry":
+            continue
+        if pd.api.types.is_extension_array_dtype(gdf[col].dtype):
+            gdf[col] = gdf[col].astype(object).where(gdf[col].notna(), None)
+    gdf.to_file(merged_geojson_path, driver="GeoJSON")
 
+    validated_geojson = validate_polygon_geometries(
+        json.loads(gdf.to_json()),
+        output_path=str(merged_geojson_path),
+    )
+    if isinstance(validated_geojson, str) and Path(validated_geojson).is_file():
+        if Path(validated_geojson) != merged_geojson_path:
+            copy2(validated_geojson, merged_geojson_path)
+        with merged_geojson_path.open("r", encoding="utf-8") as file_handle:
+            return json.load(file_handle)
 
-# ---------------------------------------------------------------------------
-# Private helpers
-# ---------------------------------------------------------------------------
-
-
-def _make_val_split(
-    chips_dir: Path,
-    masks_dir: Path,
-    val_chips_dir: Path,
-    val_masks_dir: Path,
-    val_fraction: float = 0.15,
-) -> None:
-    """Move val_fraction of chip+mask pairs to validation directories.
-
-    RAMP mask filenames follow the convention <chip_stem>.mask.tif so we
-    match chips to their masks by stem before moving.
-    """
-    chip_files = sorted(chips_dir.glob("*.tif"))
-    if not chip_files:
-        raise RuntimeError(f"No .tif chips found in {chips_dir}")
-
-    n_val = max(1, int(len(chip_files) * val_fraction))
-    random.shuffle(chip_files)
-    val_chips = chip_files[:n_val]
-
-    val_chips_dir.mkdir(parents=True, exist_ok=True)
-    val_masks_dir.mkdir(parents=True, exist_ok=True)
-
-    moved = 0
-    for chip_path in val_chips:
-        mask_path = masks_dir / (chip_path.stem + ".mask.tif")
-        if mask_path.is_file():
-            shutil.move(str(chip_path), val_chips_dir / chip_path.name)
-            shutil.move(str(mask_path), val_masks_dir / mask_path.name)
-            moved += 1
-
-    if moved == 0:
-        raise RuntimeError(
-            f"Val split produced 0 pairs. "
-            f"Check that chips in {chips_dir} match masks in {masks_dir}."
-        )
+    if isinstance(validated_geojson, dict):
+        return validated_geojson
+    return json.loads(gdf.to_json())
 
 
 def _load_hyperparams_from_stac(stac_item_path: str) -> dict:
@@ -293,7 +255,7 @@ def _load_hyperparams_from_stac(stac_item_path: str) -> dict:
     """
     import json
 
-    path = Path(stac_item_path)
+    path = _to_local_path(stac_item_path, "stac_item_path")
     if not path.is_absolute():
         for base in (Path("/workspace"), Path.cwd()):
             candidate = base / path
@@ -307,320 +269,279 @@ def _load_hyperparams_from_stac(stac_item_path: str) -> dict:
     return dict(item.get("properties", {}).get("mlm:hyperparameters", {}))
 
 
-def _build_train_config(
-    chips_subdir: str,
-    masks_subdir: str,
-    val_chips_subdir: str,
-    val_masks_subdir: str,
-    checkpts_subdir: str,
-    hyperparams: dict,
-    timestamp: str,
-) -> dict:
-    """Build a RAMP training config dict from STAC mlm:hyperparameters.
-
-    hyperparams: from STAC Item properties.mlm:hyperparameters.
-    Path params (chips_subdir, etc.) are runtime-derived and passed separately.
-    """
-    # Map STAC keys to RAMP config keys (STAC may use "epochs", RAMP uses "num_epochs")
-    num_epochs = hyperparams.get("num_epochs", hyperparams.get("epochs", 100))
-    batch_size = hyperparams.get("batch_size", 16)
-    learning_rate = hyperparams.get("learning_rate", 3e-4)
-    early_stopping_patience = hyperparams.get("early_stopping_patience", 35)
-    backbone = hyperparams.get("backbone", "efficientnetb0")
-    input_img_shape = hyperparams.get("input_img_shape", [256, 256])
-    output_img_shape = hyperparams.get("output_img_shape", [256, 256])
-    use_aug = hyperparams.get("augmentation", hyperparams.get("use_aug", False))
-
-    return {
-        "experiment_name": "RAMP EffUnet multimask training",
-        "discard_experiment": False,
-        "logging": {"log_experiment": False},
-        "datasets": {
-            "train_img_dir": chips_subdir,
-            "train_mask_dir": masks_subdir,
-            "val_img_dir": val_chips_subdir,
-            "val_mask_dir": val_masks_subdir,
-        },
-        "num_classes": hyperparams.get("num_classes", 4),
-        "num_epochs": num_epochs,
-        "batch_size": batch_size,
-        "input_img_shape": input_img_shape,
-        "output_img_shape": output_img_shape,
-        "loss": {
-            "get_loss_fn_name": "get_sparse_categorical_crossentropy_fn",
-            "loss_fn_parms": {},
-        },
-        "metrics": {
-            "use_metrics": True,
-            "get_metrics_fn_names": ["get_sparse_categorical_accuracy_fn"],
-            "metrics_fn_parms": [{}],
-        },
-        "optimizer": {
-            "get_optimizer_fn_name": "get_adam_optimizer",
-            "optimizer_fn_parms": {"learning_rate": learning_rate},
-        },
-        "model": {
-            "get_model_fn_name": "get_effunet_model",
-            "model_fn_parms": {
-                "backbone": backbone,
-                "classes": ["background", "building", "boundary", "contact"],
-            },
-        },
-        "saved_model": {"use_saved_model": False},
-        "augmentation": {"use_aug": use_aug},
-        "early_stopping": {
-            "use_early_stopping": True,
-            "early_stopping_parms": {
-                "monitor": "val_loss",
-                "min_delta": 0.005,
-                "patience": early_stopping_patience,
-                "verbose": 1,
-                "mode": "auto",
-                "restore_best_weights": True,
-            },
-        },
-        "cyclic_learning_scheduler": {"use_clr": False},
-        "tensorboard": {"use_tb": False},
-        "prediction_logging": {"use_prediction_logging": False},
-        "model_checkpts": {
-            "use_model_checkpts": True,
-            "model_checkpts_dir": checkpts_subdir,
-            "get_model_checkpt_callback_fn_name": "get_model_checkpt_callback_fn",
-            "model_checkpt_callback_parms": {"mode": "max", "save_best_only": True},
-        },
-        "random_seed": 20220523,
-        "timestamp": timestamp,
-    }
-
-
-# ---------------------------------------------------------------------------
-# ZenML steps
-# ---------------------------------------------------------------------------
-
-
 @step
 def run_preprocessing(
     input_path: str,
     output_path: str,
     boundary_width: int = 3,
     contact_spacing: int = 8,
-) -> str:
-    """Georeference OAM chips and generate 4-class multimasks. Returns preprocessed dir."""
-    return preprocess(input_path, output_path, boundary_width, contact_spacing)
+) -> List[Tuple[Any, Any]]:
+    """Georeference OAM chips and return chip/mask data arrays."""
+    import rasterio
+
+    preprocessed = Path(preprocess(input_path, output_path, boundary_width, contact_spacing))
+    chips_dir = preprocessed / "chips"
+    masks_dir = preprocessed / "multimasks"
+    data_loader: list[tuple[Any, Any]] = []
+    for chip in sorted(chips_dir.glob("*.tif")):
+        mask = masks_dir / f"{chip.stem}.mask.tif"
+        if mask.is_file():
+            with rasterio.open(chip) as chip_src:
+                chip_data = chip_src.read()
+            with rasterio.open(mask) as mask_src:
+                mask_data = mask_src.read()
+            data_loader.append((chip_data, mask_data))
+    return data_loader
 
 
 @step
 def train_model(
     data_base_path: str,
+    data_loader: List[Tuple[Any, Any]],
     preprocessed_path: str,
     stac_item_path: str = "models/ramp/stac-item.json",
-    val_fraction: float | None = None,
-) -> str:
+    val_fraction: Optional[float] = None,
+) -> Any:
+    """ZenML step wrapper for RAMP training; returns the best Keras SavedModel checkpoint."""
+    if not data_loader:
+        raise RuntimeError("Preprocessing returned an empty dataloader; no chip/mask pairs found.")
+    return train_ramp_model(
+        data_base_path=data_base_path,
+        preprocessed_path=preprocessed_path,
+        stac_item_path=stac_item_path,
+        val_fraction=val_fraction,
+        log_zenml_step_metadata=True,
+    )
+
+
+def train_ramp_model(
+    data_base_path: str,
+    preprocessed_path: str,
+    stac_item_path: str = "models/ramp/stac-item.json",
+    val_fraction: Annotated[Optional[float], "0.0 <= val_fraction <= 0.5"] = None,
+    num_epochs: Annotated[Optional[int], "1 <= num_epochs <= 20"] = None,
+    batch_size: Annotated[Optional[int], "1 <= batch_size <= 8"] = None,
+    backbone: Optional[str] = None,
+    early_stopping_patience: Annotated[Optional[int], "1 <= early_stopping_patience <= 20"] = None,
+    log_zenml_step_metadata: bool = False,
+) -> Any:
     """Fine-tune EfficientNetB0 + U-Net on 4-class multimask chips.
 
-    Hyperparameters are loaded from STAC Item (properties.mlm:hyperparameters).
-    stac_item_path: path to STAC Item JSON (relative to /workspace or cwd, or absolute).
-      Default matches current flat layout; for FAIr 3.0 versioned layout use
-      e.g. "models/ramp/1/stac-item.json".
-    val_fraction: optional override for validation split (not in STAC by default).
+    Uses hot_fair_utilities.training.ramp for training orchestration.
+    RAMP_CONFIG is used as the base configuration; hyperparameters from the
+    STAC Item and keyword arguments selectively override the base.
 
-    Returns the path to the best Keras SavedModel directory.
-    val_sparse_categorical_accuracy is logged as ZenML step metadata.
+    Val split is handled internally by split_training_2_validation:
+    preprocessed_path → ramp_training_work/ (train + val-chips + val-multimasks).
+
+    Sets ``RAMP_HOME`` before importing training helpers: ``run_training`` caches
+    ``working_ramp_home`` at import time, so ``/app`` is used when the GHCR baseline exists there.
+
+    If the RAMP baseline exists under the hot-fair-utilities image (``/app/ramp-data/baseline/``)
+    it is used for fine-tuning. Otherwise weights are resolved under ``data_base_path`` or downloaded.
+
+    Returns the best checkpoint as a loaded ``tf.keras.Model`` (SavedModel on disk is loaded with compile=False).
     """
     import os
 
+    # run_training.run_training sets ``working_ramp_home = os.environ["RAMP_HOME"]`` at *import* time.
+    # That value is used for ``Path(working_ramp_home) / saved_model_path`` when loading the baseline.
+    # Dataset paths in cfg are absolute (from manage_fine_tuning_config), so they still resolve correctly.
+    # Docker + GHCR base: baseline lives under /app; do not rely on /workspace/ramp-data (bind mount hides it).
+    resolved_base = str(Path(data_base_path).resolve())
+    image_baseline_ck = Path("/app/ramp-data/baseline/checkpoint.tf")
+    if image_baseline_ck.is_file():
+        os.environ["RAMP_HOME"] = "/app"
+    else:
+        os.environ["RAMP_HOME"] = resolved_base
+
+    # segmentation_models configures efficientnet at import time via SM_FRAMEWORK.
+    os.environ.setdefault("SM_FRAMEWORK", "tf.keras")
+    import tensorflow as tf
+
+    _patch_keras_get_file_for_efficientnet_weights()
     import segmentation_models as sm
+    from hot_fair_utilities.training.ramp.cleanup import extract_highest_accuracy_model
+    from hot_fair_utilities.training.ramp.config import RAMP_CONFIG
+    from hot_fair_utilities.training.ramp.prepare_data import split_training_2_validation
+    from hot_fair_utilities.training.ramp.run_training import (
+        manage_fine_tuning_config,
+        run_main_train_code,
+    )
 
     sm.set_framework("tf.keras")
 
-    from ramp.data_mgmt.data_generator import (
-        test_batches_from_gtiff_dirs,
-        training_batches_from_gtiff_dirs,
-    )
-    from ramp.training import (
-        callback_constructors,
-        loss_constructors,
-        metric_constructors,
-        model_constructors,
-        optimizer_constructors,
-    )
-    from ramp.utils.model_utils import get_best_model_value_and_epoch
-
-    os.environ["RAMP_HOME"] = data_base_path
-
+    # Load STAC hyperparams and apply call-site overrides
     hyperparams = _load_hyperparams_from_stac(stac_item_path)
     if val_fraction is not None:
+        if not 0.0 <= val_fraction <= 0.5:
+            raise ValueError("val_fraction must be in [0.0, 0.5]")
         hyperparams["val_fraction"] = val_fraction
+    if num_epochs is not None:
+        if not 1 <= num_epochs <= 20:
+            raise ValueError("num_epochs must be in [1, 20] for RAMP runtime limits")
+        hyperparams["num_epochs"] = num_epochs
+    if batch_size is not None:
+        if not 1 <= batch_size <= 8:
+            raise ValueError("batch_size must be in [1, 8] for RAMP runtime limits")
+        hyperparams["batch_size"] = batch_size
+    if backbone is not None:
+        hyperparams["backbone"] = backbone
+    if early_stopping_patience is not None:
+        if not 1 <= early_stopping_patience <= 20:
+            raise ValueError("early_stopping_patience must be in [1, 20]")
+        hyperparams["early_stopping_patience"] = early_stopping_patience
 
-    val_fraction_val = hyperparams.get("val_fraction", 0.15)
-    batch_size = hyperparams.get("batch_size", 16)
-    num_epochs = hyperparams.get("num_epochs", hyperparams.get("epochs", 100))
+    # Resolve effective values from STAC overrides or RAMP_CONFIG defaults
+    eff_epochs = hyperparams.get("num_epochs", hyperparams.get("epochs", RAMP_CONFIG["num_epochs"]))
+    eff_batch = hyperparams.get("batch_size", RAMP_CONFIG["batch_size"])
+    eff_backbone = hyperparams.get("backbone", RAMP_CONFIG["model"]["model_fn_parms"]["backbone"])
+    eff_lr = hyperparams.get("learning_rate", RAMP_CONFIG["optimizer"]["optimizer_fn_parms"]["learning_rate"])
+    eff_patience = hyperparams.get(
+        "early_stopping_patience",
+        RAMP_CONFIG["early_stopping"]["early_stopping_parms"]["patience"],
+    )
+    if not 1 <= int(eff_epochs) <= 20:
+        raise ValueError(f"Resolved num_epochs={eff_epochs} is outside [1, 20]")
+    if not 1 <= int(eff_batch) <= 8:
+        raise ValueError(f"Resolved batch_size={eff_batch} is outside [1, 8]")
+    if not 1 <= int(eff_patience) <= 20:
+        raise ValueError(f"Resolved early_stopping_patience={eff_patience} is outside [1, 20]")
 
-    # Paths under preprocessed_path ( = output_path/preprocessed ). Not persistent
-    # in the container unless output_path is on a mounted volume; per FAIr 3.0
-    # the backend/ZenML persists outputs (e.g. best checkpoint) to S3 after the run.
-    pre_path = Path(preprocessed_path)
-    chips_dir = pre_path / "chips"
-    masks_dir = pre_path / "multimasks"
-    val_chips_dir = pre_path / "val_chips"
-    val_masks_dir = pre_path / "val_multimasks"
-    checkpts_dir = pre_path / "checkpoints"
-
-    if not val_chips_dir.is_dir():
-        _make_val_split(chips_dir, masks_dir, val_chips_dir, val_masks_dir, val_fraction_val)
-
-    def _rel(d: Path) -> str:
-        return str(d.relative_to(data_base_path))
-
-    timestamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
-    cfg = _build_train_config(
-        chips_subdir=_rel(chips_dir),
-        masks_subdir=_rel(masks_dir),
-        val_chips_subdir=_rel(val_chips_dir),
-        val_masks_subdir=_rel(val_masks_dir),
-        checkpts_subdir=_rel(checkpts_dir),
-        hyperparams=hyperparams,
-        timestamp=timestamp,
+    # Split preprocessed_path into train + val dirs under a dedicated work dir
+    # (split_training_2_validation requires src != dst)
+    ramp_train_dir_path = _to_local_path(
+        str(Path(data_base_path) / "ramp_training_work"),
+        "ramp_training_work",
+    )
+    if ramp_train_dir_path.exists():
+        rmtree(ramp_train_dir_path)
+    ramp_train_dir = str(ramp_train_dir_path)
+    split_training_2_validation(
+        str(_to_local_path(preprocessed_path, "preprocessed_path")),
+        ramp_train_dir,
+        multimasks=True,
     )
 
-    loss_fn = loss_constructors.get_sparse_categorical_crossentropy_fn(cfg)
-    optimizer = optimizer_constructors.get_adam_optimizer(cfg)
-    accuracy_metric = metric_constructors.get_sparse_categorical_accuracy_fn({})
-    the_model = model_constructors.get_effunet_model(cfg)
-    the_model.compile(optimizer=optimizer, loss=loss_fn, metrics=[accuracy_metric])
+    # Build config from RAMP_CONFIG via the utilities helper, then apply overrides
+    cfg = manage_fine_tuning_config(ramp_train_dir, eff_epochs, eff_batch, freeze_layers=False, multimasks=True)
+    cfg["model"]["model_fn_parms"]["backbone"] = eff_backbone
+    cfg["optimizer"]["optimizer_fn_parms"]["learning_rate"] = eff_lr
+    cfg["early_stopping"]["early_stopping_parms"]["patience"] = eff_patience
 
-    n_train = len(list(chips_dir.glob("*.tif")))
-    n_val = len(list(val_chips_dir.glob("*.tif")))
-    steps_per_epoch = max(1, n_train // batch_size)
-    validation_steps = max(1, n_val // batch_size)
-    cfg["runtime"] = {
-        "n_training": n_train,
-        "n_val": n_val,
-        "steps_per_epoch": steps_per_epoch,
-        "validation_steps": validation_steps,
-    }
+    # Use baseline checkpoint for fine-tuning if present, else train from scratch
+    saved_rel = cfg["saved_model"]["saved_model_path"]
+    baseline_dir: Path
+    if cfg["saved_model"]["use_saved_model"]:
+        baseline_dir = _ensure_ramp_baseline(
+            data_base_path=data_base_path,
+            baseline_rel_path=saved_rel,
+        )
+        ck = baseline_dir / Path(saved_rel).name
+        cfg["saved_model"]["use_saved_model"] = ck.is_file() or (baseline_dir / "saved_model.pb").exists()
 
-    img_shape = cfg["input_img_shape"]
-    mask_shape = cfg["output_img_shape"]
+    run_main_train_code(cfg)
+    final_accuracy, final_model_path = extract_highest_accuracy_model(ramp_train_dir)
 
-    train_batches = training_batches_from_gtiff_dirs(
-        chips_dir, masks_dir, batch_size, img_shape, mask_shape
-    )
-    val_batches = test_batches_from_gtiff_dirs(
-        val_chips_dir, val_masks_dir, batch_size, img_shape, mask_shape
-    )
+    if log_zenml_step_metadata:
+        log_metadata(
+            metadata={
+                "best_val_accuracy": float(final_accuracy),
+                "best_model_path": str(final_model_path),
+            }
+        )
 
-    callbacks = [
-        callback_constructors.get_early_stopping_callback_fn(cfg),
-        callback_constructors.get_model_checkpt_callback_fn(cfg),
-    ]
-
-    history = the_model.fit(
-        train_batches,
-        epochs=num_epochs,
-        steps_per_epoch=steps_per_epoch,
-        validation_data=val_batches,
-        validation_steps=validation_steps,
-        callbacks=callbacks,
-    )
-
-    best_epoch, best_val_acc = get_best_model_value_and_epoch(history)
-    log_metadata(
-        metadata={
-            "best_val_sparse_categorical_accuracy": float(best_val_acc),
-            "best_epoch": int(best_epoch),
-        }
-    )
-
-    checkpts_ts_dir = checkpts_dir / timestamp
-    checkpoints = sorted(checkpts_ts_dir.glob("*.tf"))
-    if not checkpoints:
-        raise RuntimeError(f"No .tf checkpoint found in {checkpts_ts_dir}")
-    return str(checkpoints[-1])
+    return tf.keras.models.load_model(str(final_model_path), compile=False)
 
 
 @step
 def run_inference(
-    model_uri: str,
+    model_uri: Union[str, Path, Any],
     input_path: str,
     prediction_path: str,
-    model_cache_dir: str | None = None,
-) -> str:
-    """Run RAMP EfficientNetB0 U-Net inference on georeferenced chips.
+    output_dir: str,
+    model_cache_dir: Optional[str] = None,
+) -> Dict[str, Any]:
+    """ZenML step wrapper for RAMP inference returning final GeoJSON content.
 
-    model_uri: From STAC Item (assets.model.href). Can be:
-      - Local path to SavedModel directory
-      - Google Drive folder URL
-      - HTTP(S) URL to .zip containing SavedModel
-    Resolves URLs to local path (downloads and caches if needed).
-
-    Loads Keras SavedModel, runs prediction chip-by-chip, and writes
-    one .pred.tif (single-band uint8 sparse mask) per input chip.
-
-    Returns prediction_path containing the .pred.tif files.
+    model_uri may be a STAC/local path, HTTP(S) .zip URL, or a ``tf.keras.Model`` from training.
     """
-    import numpy as np
-    import rasterio as rio
-    import tensorflow as tf
-    from tqdm import tqdm
+    return infer_ramp_model(
+        model_uri=model_uri,
+        input_path=input_path,
+        prediction_path=prediction_path,
+        output_dir=output_dir,
+        model_cache_dir=model_cache_dir,
+    )
 
-    from ramp.data_mgmt.display_data import get_mask_from_prediction
-    from ramp.utils.file_utils import get_basename
-    from ramp.utils.img_utils import to_channels_first, to_channels_last
+
+def infer_ramp_model(
+    model_uri: Union[str, Path, Any],
+    input_path: str,
+    prediction_path: str,
+    output_dir: str,
+    model_cache_dir: Optional[str] = None,
+    max_chips: Optional[int] = None,
+) -> Dict[str, Any]:
+    """Run fairpredictor inference and return final merged GeoJSON content.
+
+    model_uri: local path, HTTP(S) URL to a .zip SavedModel, or a ``tf.keras.Model`` from ``train_ramp_model``.
+    """
+    import tempfile
+
+    import tensorflow as tf
+    from predictor.prediction import run_prediction
 
     cache = Path(model_cache_dir) if model_cache_dir else None
-    model_dir = resolve_model_href(model_uri, cache_dir=cache)
-    model = tf.keras.models.load_model(model_dir, compile=False)
-    out_dir = Path(prediction_path)
-    out_dir.mkdir(parents=True, exist_ok=True)
-
-    chip_files = sorted(Path(input_path).glob("**/*.tif"))
-    if not chip_files:
-        png_files = sorted(Path(input_path).glob("**/*.png"))
-        if png_files:
-            raise RuntimeError(
-                "No GeoTIFF chips (*.tif) found for inference. "
-                f"Found {len(png_files)} PNG(s) in {input_path}. "
-                "RAMP inference expects georeferenced RGB GeoTIFF chips (typically the output of "
-                "`preprocess(...)` under `<preprocessed>/chips/`). "
-                "Run preprocessing and point `input_path` to the resulting `chips/` directory."
-            )
-        raise RuntimeError(
-            f"No GeoTIFF chips (*.tif) found in {input_path}. "
-            "RAMP inference expects georeferenced RGB GeoTIFF chips (typically under `<preprocessed>/chips/`)."
+    if isinstance(model_uri, (str, Path)):
+        model_dir = resolve_model_href(str(model_uri), cache_dir=cache)
+    elif isinstance(model_uri, tf.keras.Model):
+        tmp = Path(tempfile.mkdtemp(prefix="ramp_infer_savedmodel_"))
+        model_uri.save(str(tmp))
+        model_dir = str(tmp)
+    else:
+        raise TypeError(
+            "model_uri must be a str, pathlib.Path, or a tf.keras.Model from training (compile=False load)."
         )
 
-    for chip_file in tqdm(chip_files, desc="RAMP inference"):
-        bname = get_basename(str(chip_file))
-        mask_name = bname + ".pred.tif"
-        with rio.open(chip_file) as src:
-            dst_profile = src.profile.copy()
-            dst_profile["count"] = 1
-            dst_profile["dtype"] = "uint8"
-            img = to_channels_last(src.read()).astype("float32")
-            max_val = float(img.max())
-            if max_val > 0:
-                img = img / max_val
-            predicted = get_mask_from_prediction(model.predict(np.expand_dims(img, 0)))
-            predicted = np.squeeze(predicted, axis=0)
-            with rio.open(out_dir / mask_name, "w", **dst_profile) as dst:
-                dst.write(to_channels_first(predicted))
+    input_dir = _to_local_path(input_path, "input_path")
+    out_dir = _to_local_path(prediction_path, "prediction_path")
+    out_dir.mkdir(parents=True, exist_ok=True)
 
-    return prediction_path
+    chip_files = sorted(input_dir.glob("**/*.tif"))
+    if not chip_files:
+        raise RuntimeError(
+            f"No GeoTIFF chips (*.tif) found in {input_dir}. "
+            "RAMP inference expects georeferenced chips."
+        )
+
+    run_input_dir = input_dir
+    if max_chips is not None and max_chips > 0:
+        subset_dir = out_dir / "subset_input"
+        if subset_dir.exists():
+            rmtree(subset_dir)
+        subset_dir.mkdir(parents=True, exist_ok=True)
+        for chip_file in chip_files[:max_chips]:
+            copy2(chip_file, subset_dir / chip_file.name)
+        run_input_dir = subset_dir
+
+    georef_dir = run_prediction(
+        checkpoint_path=model_dir,
+        input_path=str(run_input_dir),
+        prediction_path=str(out_dir),
+        confidence=0.5,
+        crs="3857",
+    )
+    return postprocess(str(georef_dir), output_dir)
 
 
 @step
 def run_postprocessing(
-    prediction_path: str,
+    prediction_path: Union[Path, str],
     output_dir: str,
-) -> str:
-    """Polygonize RAMP predicted masks into per-chip building GeoJSONs."""
-    return postprocess(prediction_path, output_dir)
-
-
-# ---------------------------------------------------------------------------
-# ZenML pipelines
-# ---------------------------------------------------------------------------
+) -> Dict[str, Any]:
+    """Run fairpredictor-style postprocessing and return merged GeoJSON content."""
+    return postprocess(str(prediction_path), output_dir)
 
 
 @pipeline
@@ -632,15 +553,13 @@ def training_pipeline(
     """Full RAMP training: georeference + multimask → val split → EfficientNetB0 U-Net.
 
     Hyperparameters (backbone, epochs, batch_size, boundary_width, contact_spacing, etc.)
-    are loaded from the STAC Item at stac_item_path. Default path matches the current
-    flat layout (models/ramp/stac-item.json); for FAIr 3.0 versioned layout use
-    e.g. stac_item_path="models/ramp/1/stac-item.json".
+    are loaded from the STAC Item at stac_item_path.
     """
     hyperparams = _load_hyperparams_from_stac(stac_item_path)
     boundary_width = hyperparams.get("boundary_width", 3)
     contact_spacing = hyperparams.get("contact_spacing", 8)
 
-    preprocessed_path = run_preprocessing(
+    data_loader = run_preprocessing(
         input_path=input_path,
         output_path=f"{output_path}/preprocessed",
         boundary_width=boundary_width,
@@ -648,30 +567,29 @@ def training_pipeline(
     )
     train_model(
         data_base_path=output_path,
-        preprocessed_path=preprocessed_path,
+        data_loader=data_loader,
+        preprocessed_path=f"{output_path}/preprocessed",
         stac_item_path=stac_item_path,
     )
 
 
 @pipeline
 def inference_pipeline(
-    model_uri: str,
+    model_uri: Union[str, Path, Any],
     input_path: str,
     prediction_path: str,
     output_dir: str,
-    model_cache_dir: str | None = None,
-) -> None:
-    """RAMP inference: load model (from STAC) → predict → polygonize to GeoJSONs.
+    model_cache_dir: Optional[str] = None,
+) -> Dict[str, Any]:
+    """RAMP inference: load model → predict → postprocess → final GeoJSON.
 
-    model_uri: From STAC Item assets.model.href. Supports:
-      - Local path (e.g. /workspace/checkpoints/model.tf)
-      - Google Drive folder URL
-      - HTTP URL to .zip containing SavedModel
+    model_uri: local path, HTTP(S) URL to a .zip SavedModel, or a ``tf.keras.Model`` from training.
     """
-    pred_path = run_inference(
+    final_geojson = run_inference(
         model_uri=model_uri,
         input_path=input_path,
         prediction_path=prediction_path,
+        output_dir=output_dir,
         model_cache_dir=model_cache_dir,
     )
-    run_postprocessing(prediction_path=pred_path, output_dir=output_dir)
+    return final_geojson

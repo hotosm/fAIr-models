@@ -2,11 +2,17 @@
 
 Run this script INSIDE the container. It validates:
 1) Critical imports (tensorflow, ramp, segmentation_models, osgeo.gdal, solaris)
-2) hot-fair-utilities preprocessing (georeference + multimask generation)
-3) Train/val split
-4) Short training run (2 epochs, checkpoint creation)
-5) Inference output generation (.pred.tif per chip)
-6) Polygonization (per-chip GeoJSON from predicted masks)
+2) ``pipeline.preprocess`` path (georeference + multimask generation)
+3) ``pipeline.run_preprocessing`` contract: chip/mask arrays + on-disk counts
+4) Training wrappers: ``pipeline.train_model`` and ``pipeline.train_ramp_model``
+   both return loaded ``tf.keras.Model``
+5) ``pipeline.resolve_model_href`` for local SavedModel directories
+6) ``pipeline.run_inference`` returns merged GeoJSON dict content
+7) ``pipeline.run_postprocessing`` wrapper returns dict and writes output
+8) Inference intermediate georeferenced rasters for debug visibility
+
+All training, inference, and postprocessing steps delegate to pipeline.py
+helpers so the smoke test exercises the same code paths as production.
 
 Data layouts supported:
   - data/sample layout: --dataset-root /workspace/data/sample
@@ -26,6 +32,7 @@ import argparse
 import os
 import shutil
 from pathlib import Path
+from typing import Any
 
 
 def _assert(condition: bool, message: str) -> None:
@@ -39,6 +46,18 @@ def _stage(name: str) -> None:
 
 def _count_files(path: Path, pattern: str) -> int:
     return len(list(path.glob(pattern)))
+
+
+def _load_ramp_pipeline_module():
+    """Import models/ramp/pipeline.py directly so smoke tests reuse production helpers."""
+    import sys
+
+    module_dir = Path("/workspace/models/ramp")
+    if str(module_dir) not in sys.path:
+        sys.path.insert(0, str(module_dir))
+    import pipeline as ramp_pipeline
+
+    return ramp_pipeline
 
 
 def parse_args() -> argparse.Namespace:
@@ -92,18 +111,25 @@ def _prepare_data_sample_layout(dataset_root: Path) -> Path:
     _assert(len(geojson_files) > 0, f"No .geojson files in {osm_dir}")
 
     import geopandas as gpd
+    import pandas as pd
 
     gdfs = [gpd.read_file(p) for p in geojson_files]
     if len(gdfs) == 1:
         merged = gdfs[0]
     else:
-        import pandas as pd
-
         crs = gdfs[0].crs or "EPSG:4326"
         merged = gpd.GeoDataFrame(
             pd.concat([g.to_crs(crs) for g in gdfs], ignore_index=True),
             crs=crs,
         )
+    # Fiona/GeoJSON writers cannot reliably handle pandas extension dtypes
+    # (for example string[python], Int64, boolean). Normalize to plain Python
+    # objects with None for missing values before writing.
+    for col in merged.columns:
+        if col == "geometry":
+            continue
+        if pd.api.types.is_extension_array_dtype(merged[col].dtype):
+            merged[col] = merged[col].astype(object).where(merged[col].notna(), None)
     labels_path = input_dir / "labels.geojson"
     merged.to_file(labels_path, driver="GeoJSON")
     print(f"PASS: prepared {len(tif_files)} PNG chip(s) + labels.geojson from data/sample")
@@ -115,6 +141,9 @@ def main() -> None:
     args = parse_args()
 
     os.environ.setdefault("RAMP_HOME", "/workspace")
+    # segmentation_models picks the backend when the package is first imported.
+    # Must be tf.keras for TF 2.15+ (Keras 3); calling set_framework() after import is too late.
+    os.environ.setdefault("SM_FRAMEWORK", "tf.keras")
 
     dataset_root = Path(args.dataset_root).resolve()
 
@@ -126,9 +155,6 @@ def main() -> None:
     preprocessed_dir = dataset_root / "preprocessed_test"
     chips_dir = preprocessed_dir / "chips"
     masks_dir = preprocessed_dir / "multimasks"
-    val_chips_dir = preprocessed_dir / "val_chips"
-    val_masks_dir = preprocessed_dir / "val_multimasks"
-    checkpts_dir = preprocessed_dir / "checkpoints"
     pred_input_dir = preprocessed_dir / "chips"
     pred_output_dir = dataset_root / "prediction_test" / "output"
     vectors_dir = dataset_root / "prediction_test" / "vectors"
@@ -136,16 +162,16 @@ def main() -> None:
     # -------------------------------------------------------------------------
     _stage("Test 1: Critical imports")
 
-    import segmentation_models as sm  # noqa: F401
-    import tensorflow as tf  # noqa: F401
-    from osgeo import gdal  # noqa: F401
-    import ramp  # noqa: F401
     import hot_fair_utilities  # noqa: F401
+    import ramp  # noqa: F401
+    import segmentation_models as sm
+    import solaris
+    import tensorflow as tf
+    from osgeo import gdal
 
-    sm.set_framework("tf.keras")
+    sm.set_framework("tf.keras")  # redundant if SM_FRAMEWORK already set; keeps intent explicit
     print(f"PASS: tensorflow {tf.__version__} / segmentation_models / ramp / gdal imported")
-
-    import solaris  # noqa: F401
+    print(f"PASS: GDAL runtime version {gdal.VersionInfo('--version')}")
     print(f"PASS: solaris {solaris.__version__} imported")
 
     # -------------------------------------------------------------------------
@@ -161,23 +187,19 @@ def main() -> None:
     _assert(n_png > 0, f"No PNG chips found in {input_dir}. Add OAM PNG chips to run this test.")
     print(f"PASS: found {n_png} PNG chip(s) + labels.geojson")
 
+    ramp_pipeline = _load_ramp_pipeline_module()
+
     # -------------------------------------------------------------------------
-    _stage("Test 3: Preprocessing (georeference + multimask generation)")
+    _stage("Test 3: Preprocessing via pipeline.preprocess + run_preprocessing contract")
 
     shutil.rmtree(preprocessed_dir, ignore_errors=True)
-
-    from hot_fair_utilities import preprocess as _preprocess
-
-    _preprocess(
+    out_path = ramp_pipeline.preprocess(
         input_path=str(input_dir),
         output_path=str(preprocessed_dir),
-        rasterize=True,
-        rasterize_options=["binary"],
-        georeference_images=True,
-        multimasks=True,
-        input_boundary_width=3,
-        input_contact_spacing=8,
+        boundary_width=3,
+        contact_spacing=8,
     )
+    _assert(Path(out_path).resolve() == preprocessed_dir.resolve(), f"Unexpected preprocess output: {out_path}")
 
     n_chips = _count_files(chips_dir, "*.tif")
     n_masks = _count_files(masks_dir, "*.mask.tif")
@@ -186,214 +208,111 @@ def main() -> None:
     _assert(n_chips == n_masks, f"Chip count ({n_chips}) != mask count ({n_masks})")
     print(f"PASS: preprocessing produced {n_chips} chip(s) + {n_masks} multimask(s)")
 
-    # -------------------------------------------------------------------------
-    _stage("Test 4: Train / val split")
-
-    import random
-
-    chip_files = sorted(chips_dir.glob("*.tif"))
-    n_val = max(1, int(len(chip_files) * 0.2))
-    random.shuffle(chip_files)
-    val_chip_files = chip_files[:n_val]
-
-    val_chips_dir.mkdir(parents=True, exist_ok=True)
-    val_masks_dir.mkdir(parents=True, exist_ok=True)
-
-    moved = 0
-    for chip_path in val_chip_files:
-        mask_path = masks_dir / (chip_path.stem + ".mask.tif")
-        if mask_path.is_file():
-            shutil.copy(str(chip_path), val_chips_dir / chip_path.name)
-            shutil.copy(str(mask_path), val_masks_dir / mask_path.name)
-            moved += 1
-
-    _assert(moved > 0, "Val split produced 0 pairs — check chip/mask naming")
-    print(f"PASS: val split created {moved} chip+mask pair(s)")
-
-    # -------------------------------------------------------------------------
-    _stage("Test 5: Training smoke run (2 epochs)")
-
-    checkpts_dir.mkdir(parents=True, exist_ok=True)
-
-    import datetime
-
-    import segmentation_models as sm
-
-    sm.set_framework("tf.keras")
-
-    from ramp.data_mgmt.data_generator import (
-        test_batches_from_gtiff_dirs,
-        training_batches_from_gtiff_dirs,
-    )
-    from ramp.training import (
-        callback_constructors,
-        loss_constructors,
-        metric_constructors,
-        optimizer_constructors,
-    )
-
-    timestamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
-    cfg = {
-        "experiment_name": "smoke_test",
-        "num_classes": 4,
-        "num_epochs": args.epochs,
-        "batch_size": args.batch_size,
-        "input_img_shape": [256, 256],
-        "output_img_shape": [256, 256],
-        "loss": {"get_loss_fn_name": "get_sparse_categorical_crossentropy_fn", "loss_fn_parms": {}},
-        "metrics": {
-            "use_metrics": True,
-            "get_metrics_fn_names": ["get_sparse_categorical_accuracy_fn"],
-            "metrics_fn_parms": [{}],
-        },
-        "optimizer": {
-            "get_optimizer_fn_name": "get_adam_optimizer",
-            "optimizer_fn_parms": {"learning_rate": 3e-4},
-        },
-        "model": {
-            "get_model_fn_name": "get_effunet_model",
-            "model_fn_parms": {
-                "backbone": args.backbone,
-                "classes": ["background", "building", "boundary", "contact"],
-            },
-        },
-        "saved_model": {"use_saved_model": False},
-        "augmentation": {"use_aug": False},
-        "early_stopping": {
-            "use_early_stopping": True,
-            "early_stopping_parms": {
-                "monitor": "val_loss",
-                "min_delta": 0.005,
-                "patience": 2,
-                "verbose": 0,
-                "mode": "auto",
-                "restore_best_weights": True,
-            },
-        },
-        "cyclic_learning_scheduler": {"use_clr": False},
-        "tensorboard": {"use_tb": False},
-        "prediction_logging": {"use_prediction_logging": False},
-        "model_checkpts": {
-            "use_model_checkpts": True,
-            "model_checkpts_dir": str(checkpts_dir),
-            "get_model_checkpt_callback_fn_name": "get_model_checkpt_callback_fn",
-            "model_checkpt_callback_parms": {"mode": "max", "save_best_only": True},
-        },
-        "random_seed": 42,
-        "timestamp": timestamp,
-    }
-
-    loss_fn = loss_constructors.get_sparse_categorical_crossentropy_fn(cfg)
-    optimizer = optimizer_constructors.get_adam_optimizer(cfg)
-    acc_metric = metric_constructors.get_sparse_categorical_accuracy_fn({})
-    # NOTE: For the container smoke test we intentionally disable any pretrained
-    # EfficientNet weight downloads (the old Keras Applications URL can 404).
-    # This keeps the test self-contained while still validating the end-to-end
-    # training + checkpoint + inference + polygonization flow.
-    the_model = sm.Unet(
-        backbone_name=args.backbone,
-        encoder_weights=None,
-        classes=4,
-        activation="softmax",
-    )
-    the_model.compile(optimizer=optimizer, loss=loss_fn, metrics=[acc_metric])
-
-    n_train = _count_files(chips_dir, "*.tif")
-    n_val_c = _count_files(val_chips_dir, "*.tif")
-    steps_per_epoch = max(1, n_train // args.batch_size)
-    validation_steps = max(1, n_val_c // args.batch_size)
-    cfg["runtime"] = {
-        "n_training": n_train,
-        "n_val": n_val_c,
-        "steps_per_epoch": steps_per_epoch,
-        "validation_steps": validation_steps,
-    }
-
-    train_batches = training_batches_from_gtiff_dirs(
-        chips_dir, masks_dir, args.batch_size, [256, 256], [256, 256]
-    )
-    val_batches = test_batches_from_gtiff_dirs(
-        val_chips_dir, val_masks_dir, args.batch_size, [256, 256], [256, 256]
-    )
-
-    callbacks = [callback_constructors.get_early_stopping_callback_fn(cfg)]
-
-    the_model.fit(
-        train_batches,
-        epochs=args.epochs,
-        steps_per_epoch=steps_per_epoch,
-        validation_data=val_batches,
-        validation_steps=validation_steps,
-        callbacks=callbacks,
-    )
-
-    model_save_path = str(checkpts_dir / f"smoke_{timestamp}.tf")
-    the_model.save(model_save_path)
-    _assert(Path(model_save_path).is_dir(), f"Saved model not found at {model_save_path}")
-    print(f"PASS: 2-epoch training completed; model saved to {model_save_path}")
-
-    # -------------------------------------------------------------------------
-    _stage("Test 6: Inference smoke run")
-
+    # Use pipeline.run_preprocessing directly so this smoke test follows pipeline.py behavior.
     import numpy as np
-    import rasterio as rio
 
-    from ramp.data_mgmt.display_data import get_mask_from_prediction
-    from ramp.utils.file_utils import get_basename
-    from ramp.utils.img_utils import to_channels_first, to_channels_last
+    data_loader_contract: list[tuple[Any, Any]] = ramp_pipeline.run_preprocessing(
+        input_path=str(input_dir),
+        output_path=str(preprocessed_dir),
+        boundary_width=3,
+        contact_spacing=8,
+    )
+    _assert(len(data_loader_contract) > 0, "Expected at least one chip/mask array pair.")
+    _assert(
+        isinstance(data_loader_contract[0][0], np.ndarray),
+        "Chip data must be a numpy ndarray (pipeline.run_preprocessing contract).",
+    )
+    _assert(
+        isinstance(data_loader_contract[0][1], np.ndarray),
+        "Mask data must be a numpy ndarray (pipeline.run_preprocessing contract).",
+    )
+    print(
+        f"PASS: dataloader contract — {len(data_loader_contract)} (chip, mask) ndarray pair(s), "
+        "matching pipeline.run_preprocessing"
+    )
 
-    pred_output_dir.mkdir(parents=True, exist_ok=True)
+    # -------------------------------------------------------------------------
+    _stage("Test 4: Training smoke run via train_model/train_ramp_model wrappers")
+    # train_model wraps train_ramp_model and validates preprocessing output.
+    # train_ramp_model handles val split internally and returns loaded tf.keras.Model.
+
+    import tensorflow as tf
+
+    trained_model_step = ramp_pipeline.train_model(
+        data_base_path=str(dataset_root),
+        data_loader=data_loader_contract,
+        preprocessed_path=str(preprocessed_dir),
+        stac_item_path="/workspace/models/ramp/stac-item.json",
+        val_fraction=0.15,
+    )
+    _assert(isinstance(trained_model_step, tf.keras.Model), "train_model did not return a Keras model checkpoint.")
+
+    trained_model = ramp_pipeline.train_ramp_model(
+        data_base_path=str(dataset_root),
+        preprocessed_path=str(preprocessed_dir),
+        stac_item_path="/workspace/models/ramp/stac-item.json",
+        num_epochs=args.epochs,
+        batch_size=args.batch_size,
+        backbone=args.backbone,
+        early_stopping_patience=2,
+        log_zenml_step_metadata=False,
+    )
+    _assert(isinstance(trained_model, tf.keras.Model), "train_ramp_model did not return a Keras model checkpoint.")
+    print(f"PASS: {args.epochs}-epoch training completed; train wrappers returned tf.keras.Model")
+
+    # -------------------------------------------------------------------------
+    _stage("Test 5: resolve_model_href local SavedModel resolution")
+
+    local_saved_model_dir = dataset_root / "local_smoke_savedmodel"
+    shutil.rmtree(local_saved_model_dir, ignore_errors=True)
+    trained_model.save(str(local_saved_model_dir))
+    resolved_model_dir = ramp_pipeline.resolve_model_href(str(local_saved_model_dir))
+    _assert(
+        (Path(resolved_model_dir) / "saved_model.pb").is_file(),
+        f"resolve_model_href did not return a SavedModel dir: {resolved_model_dir}",
+    )
+    print("PASS: resolve_model_href resolved a valid local SavedModel directory")
+
+    # -------------------------------------------------------------------------
+    _stage("Test 6: Inference smoke run via run_inference")
+
     shutil.rmtree(pred_output_dir, ignore_errors=True)
     pred_output_dir.mkdir(parents=True, exist_ok=True)
-
-    inference_model = tf.keras.models.load_model(model_save_path, compile=False)
-
-    chip_files = sorted(pred_input_dir.glob("*.tif"))
-    for chip_file in chip_files[:3]:
-        bname = get_basename(str(chip_file))
-        mask_name = bname + ".pred.tif"
-        with rio.open(chip_file) as src:
-            dst_profile = src.profile.copy()
-            dst_profile["count"] = 1
-            dst_profile["dtype"] = "uint8"
-            img = to_channels_last(src.read()).astype("float32")
-            max_val = float(img.max())
-            if max_val > 0:
-                img = img / max_val
-            predicted = get_mask_from_prediction(inference_model.predict(np.expand_dims(img, 0)))
-            predicted = np.squeeze(predicted, axis=0)
-            with rio.open(pred_output_dir / mask_name, "w", **dst_profile) as dst:
-                dst.write(to_channels_first(predicted))
-
-    n_pred = _count_files(pred_output_dir, "*.pred.tif")
-    _assert(n_pred > 0, f"No .pred.tif files produced in {pred_output_dir}")
-    print(f"PASS: inference produced {n_pred} .pred.tif file(s)")
+    final_geojson = ramp_pipeline.run_inference(
+        model_uri=resolved_model_dir,
+        input_path=str(pred_input_dir),
+        prediction_path=str(pred_output_dir),
+        output_dir=str(vectors_dir),
+    )
+    _assert(isinstance(final_geojson, dict), "Inference did not return GeoJSON dict content.")
+    _assert(final_geojson.get("type") == "FeatureCollection", "GeoJSON response missing FeatureCollection type.")
+    print(f"PASS: run_inference returned GeoJSON content with {len(final_geojson.get('features', []))} feature(s)")
 
     # -------------------------------------------------------------------------
-    _stage("Test 7: Polygonization")
+    _stage("Test 7: Postprocessing via run_postprocessing wrapper")
 
-    from osgeo import gdal
-
-    from ramp.utils.img_utils import gdal_get_mask_tensor
-    from ramp.utils.mask_to_vec_utils import (
-        binary_mask_from_multichannel_mask,
-        binary_mask_to_geojson,
+    georef_dir = pred_output_dir / "georeference"
+    postprocess_out_dir = dataset_root / "prediction_test" / "vectors_postprocess_wrapper"
+    shutil.rmtree(postprocess_out_dir, ignore_errors=True)
+    postprocess_out_dir.mkdir(parents=True, exist_ok=True)
+    wrapped_geojson = ramp_pipeline.run_postprocessing(
+        prediction_path=str(georef_dir),
+        output_dir=str(postprocess_out_dir),
     )
+    _assert(isinstance(wrapped_geojson, dict), "run_postprocessing did not return GeoJSON dict content.")
+    _assert(
+        (postprocess_out_dir / "predictions.geojson").is_file(),
+        "run_postprocessing did not write predictions.geojson",
+    )
+    print("PASS: run_postprocessing returned dict and wrote predictions.geojson")
 
-    vectors_dir.mkdir(parents=True, exist_ok=True)
+    # -------------------------------------------------------------------------
+    _stage("Test 8: Inference intermediate artifacts")
 
-    for pred_tif in sorted(pred_output_dir.glob("*.pred.tif")):
-        json_name = pred_tif.stem.replace(".pred", "") + ".geojson"
-        json_path = str(vectors_dir / json_name)
-        ref_ds = gdal.Open(str(pred_tif))
-        _assert(ref_ds is not None, f"GDAL could not open {pred_tif}")
-        multimask = gdal_get_mask_tensor(str(pred_tif))
-        bin_mask = binary_mask_from_multichannel_mask(multimask)
-        binary_mask_to_geojson(bin_mask, ref_ds, json_path)
-
-    n_geojson = _count_files(vectors_dir, "*.geojson")
-    _assert(n_geojson > 0, f"No GeoJSON files produced in {vectors_dir}")
-    print(f"PASS: polygonization produced {n_geojson} GeoJSON file(s)")
+    _assert(georef_dir.is_dir(), f"Georeferenced output directory not found: {georef_dir}")
+    n_pred = _count_files(georef_dir, "*.tif")
+    _assert(n_pred > 0, f"No georeferenced prediction .tif files produced in {georef_dir}")
+    print(f"PASS: fairpredictor produced {n_pred} georeferenced prediction .tif file(s)")
 
     # -------------------------------------------------------------------------
     _stage("ALL TESTS PASSED")

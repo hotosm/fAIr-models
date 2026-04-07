@@ -1,4 +1,11 @@
 #!/usr/bin/env bash
+# Run RAMP in-container smoke tests. Default: /workspace/data/sample, script defaults for epochs/batch.
+# Base images come from GHCR (no local build of fAIr-utilities needed):
+#   CPU: ghcr.io/hotosm/fair-utilities-ramp:cpu-latest  (default)
+#   GPU: ghcr.io/hotosm/fair-utilities-ramp:gpu-latest
+# Windows PowerShell: use run_docker_tests.ps1 (Bash-style VAR=1 ./script.sh does not work in PowerShell).
+# To pass --epochs / --batch-size / --backbone / a custom --dataset-root, use docker run manually
+# (see research/fAIr_3.0/ramp_model/03_ramp_test_explained.md).
 set -euo pipefail
 
 REPO_ROOT="${1:-$(pwd)}"
@@ -7,15 +14,16 @@ BUILD_IMAGE="${BUILD_IMAGE:-0}"
 CPU_ONLY="${CPU_ONLY:-0}"
 
 if [[ "$BUILD_IMAGE" == "1" ]]; then
-  BUILD_ARGS=""
   if [[ "$CPU_ONLY" == "1" ]]; then
-    BUILD_ARGS="--build-arg BUILD_TYPE=cpu"
     IMAGE="ramp-v1:cpu"
+    # No --build-arg needed; Dockerfile default is ghcr.io/hotosm/fair-utilities-ramp:cpu-latest
+    echo "Building image $IMAGE (base: ghcr.io/hotosm/fair-utilities-ramp:cpu-latest) ..."
+    docker build -t "$IMAGE" -f "$REPO_ROOT/models/ramp/Dockerfile" "$REPO_ROOT"
   else
-    BUILD_ARGS="--build-arg BUILD_TYPE=gpu"
+    echo "Building image $IMAGE (base: ghcr.io/hotosm/fair-utilities-ramp:gpu-latest) ..."
+    docker build --build-arg BASE_IMAGE=ghcr.io/hotosm/fair-utilities-ramp:gpu-latest \
+      -t "$IMAGE" -f "$REPO_ROOT/models/ramp/Dockerfile" "$REPO_ROOT"
   fi
-  echo "Building image $IMAGE ..."
-  docker build $BUILD_ARGS -t "$IMAGE" -f "$REPO_ROOT/models/ramp/Dockerfile" "$REPO_ROOT"
 fi
 
 GPU_ARGS=()

@@ -30,12 +30,13 @@
             "semantic-segmentation"
         ],
         "mlm:framework": "TensorFlow",
-        "mlm:framework_version": "2.9.3",
-        "mlm:pretrained": false,
-        "mlm:pretrained_source": null,
+        "mlm:framework_version": "2.15.1",
+        "mlm:pretrained": true,
+        "mlm:pretrained_source": "https://api-prod.fair.hotosm.org/api/v1/workspace/download/ramp/baseline.zip",
         "keywords": [
             "building",
-            "semantic-segmentation"
+            "semantic-segmentation",
+            "polygon"
         ],
         "version": "1",
         "license": "Apache-2.0",  
@@ -61,8 +62,8 @@
         },
         "pipeline_output": {
             "type": "directory",
-            "description": "Directory of GeoJSON files with building polygons (one per chip)",
-            "expected_files": "*.geojson",
+            "description": "Directory containing merged prediction GeoJSON (`predictions.geojson`) built from fairpredictor-style postprocessing",
+            "expected_files": "predictions.geojson",
             "geometry_types": ["Polygon", "MultiPolygon"]
         },
         "evaluation_metrics": [
@@ -148,8 +149,8 @@
         "mlm:hyperparameters": {
             "backbone": "efficientnetb0",
             "num_classes": 4,
-            "epochs": 100,
-            "batch_size": 16,
+            "epochs": 20,
+            "batch_size": 8,
             "learning_rate": 0.0003,
             "loss": "sparse_categorical_crossentropy",
             "optimizer": "adam",
@@ -158,13 +159,13 @@
             "boundary_width": 3,
             "contact_spacing": 8,
             "val_fraction": 0.15,
-            "early_stopping_patience": 35,
+            "early_stopping_patience": 10,
             "augmentation": false
         }
     },
     "assets": {
         "model": {
-            "href": "https://drive.google.com/drive/folders/1VHFPkAWVtI5UEyzbD6e1uZlqe80YtQpn",
+            "href": "https://api-prod.fair.hotosm.org/api/v1/workspace/download/ramp/baseline.zip",
             "type": "application/octet-stream; framework=tensorflow",
             "title": "RAMP EfficientNetB0 U-Net weights (Keras SavedModel)",
             "roles": ["mlm:model"],
@@ -182,17 +183,17 @@
             "roles": ["code"],
             "mlm:entrypoint": "models.ramp.pipeline:training_pipeline"
         },
-        "training-runtime": {
+        "mlm:training": {
             "href": "ghcr.io/hotosm/fair-models/ramp:v1",
             "type": "application/vnd.oci.image.index.v1+json",
             "title": "Training Docker Image",
-            "roles": ["training-runtime", "runtime"]
+            "roles": ["mlm:training-runtime"]
         },
-        "inference-runtime": {
+        "mlm:inference": {
             "href": "ghcr.io/hotosm/fair-models/ramp:v1",
             "type": "application/vnd.oci.image.index.v1+json",
             "title": "Inference Docker Image",
-            "roles": ["inference-runtime", "runtime"]
+            "roles": ["mlm:inference-runtime"]
         }
     },
     "links": []

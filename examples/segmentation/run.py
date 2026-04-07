@@ -6,6 +6,7 @@ client = FairClient(
     dsn=None,
     user_id="anonymous",
     config_dir="examples/segmentation/config",
+    upload_artifacts=False,
 )
 
 if __name__ == "__main__":

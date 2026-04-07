@@ -32,6 +32,19 @@ def _is_remote(href: str) -> bool:
     return "://" in href
 
 
+def s3_uri_to_http_url(s3_uri: str) -> str:
+    parsed = urlparse(s3_uri)
+    if parsed.scheme != "s3":
+        return s3_uri
+    bucket = parsed.netloc
+    key = parsed.path.lstrip("/")
+    endpoint = os.environ.get("AWS_ENDPOINT_URL", "").rstrip("/")
+    if endpoint:
+        return f"{endpoint}/{bucket}/{key}"
+    region = os.environ.get("AWS_REGION", os.environ.get("AWS_DEFAULT_REGION", "us-east-1"))
+    return f"https://{bucket}.s3.{region}.amazonaws.com/{key}"
+
+
 def list_files(href: str, pattern: str = "*") -> list[str]:
     """List files under href matching glob pattern.
 
@@ -163,20 +176,20 @@ def upload_item_assets(
         local = Path(asset.href)
 
         if local.is_dir():
-            _upload_local_directory(local, remote_base)
-            asset.href = remote_base
+            upload_local_directory(local, remote_base)
+            asset.href = s3_uri_to_http_url(remote_base)
         elif local.is_file():
             remote_path = f"{remote_base}/{local.name}"
             UPath(remote_path).write_bytes(local.read_bytes())
             logger.info("Uploaded %s -> %s", local, remote_path)
-            asset.href = remote_path
+            asset.href = s3_uri_to_http_url(remote_path)
         else:
             logger.warning("Asset '%s' href not found locally: %s", key, asset.href)
 
     return item
 
 
-def _upload_local_directory(local_dir: Path, remote_prefix: str) -> None:
+def upload_local_directory(local_dir: Path, remote_prefix: str) -> None:
     for f in sorted(local_dir.rglob("*")):
         if f.is_file():
             dest = UPath(remote_prefix) / f.relative_to(local_dir)

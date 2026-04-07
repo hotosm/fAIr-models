@@ -24,7 +24,7 @@ from fair.stac.collections import initialize_catalog
 from fair.stac.constants import BASE_MODELS_COLLECTION, DATASETS_COLLECTION, LOCAL_MODELS_COLLECTION
 from fair.stac.validators import validate_compatibility, validate_mlm_schema
 from fair.stac.versioning import archive_previous_version, find_previous_active_item
-from fair.utils.data import count_chips, create_dataset_archive
+from fair.utils.data import count_chips, create_dataset_archive, upload_item_assets, upload_local_directory
 from fair.zenml.config import generate_inference_config, generate_training_config
 from fair.zenml.promotion import promote_model_version, publish_promoted_model
 
@@ -48,6 +48,7 @@ class FairClient:
         catalog_path: str = _DEFAULT_CATALOG_PATH,
         user_id: str = "anonymous",
         config_dir: str = "config",
+        upload_artifacts: bool = False,
     ) -> None:
         self._zenml_store_url = zenml_store_url
         self._stac_api_url = stac_api_url
@@ -55,6 +56,24 @@ class FairClient:
         self._catalog_path = catalog_path
         self.user_id = user_id
         self._config_dir = Path(config_dir)
+        self._upload_artifacts = upload_artifacts
+
+    def _artifact_store_prefix(self) -> str | None:
+        try:
+            artifact_store = Client().active_stack.artifact_store
+            path = artifact_store.path
+            if "://" in path:
+                return path.rstrip("/")
+        except Exception:
+            pass
+        return None
+
+    def _upload_assets_if_remote(self, item: pystac.Item, collection_id: str) -> None:
+        if not self._upload_artifacts:
+            return
+        prefix = self._artifact_store_prefix()
+        if prefix:
+            upload_item_assets(item, prefix, collection_id)
 
     def _get_backend(self) -> StacCatalogManager | PgStacBackend:
         if self._stac_api_url:
@@ -91,6 +110,7 @@ class FairClient:
             item = build_base_model_item(**dataclasses.asdict(stac_item))
         if errs := validate_mlm_schema(item):
             raise FairClientError(f"MLM schema invalid: {errs}")
+        self._upload_assets_if_remote(item, BASE_MODELS_COLLECTION)
         published = cat.publish_item(BASE_MODELS_COLLECTION, item)
         print(f"register: base-model {published.id} v{published.properties['version']}")
         return published.id
@@ -156,6 +176,8 @@ class FairClient:
             download_href=str(archive_path),
         )
 
+        self._upload_assets_if_remote(dataset_item, DATASETS_COLLECTION)
+
         if prev:
             successor_href = cat.item_href(DATASETS_COLLECTION, dataset_item.id)
             archive_previous_version(cat, DATASETS_COLLECTION, prev, successor_href)
@@ -190,6 +212,8 @@ class FairClient:
             download_href=str(archive_path),
         )
         dataset_item = build_dataset_item(**fields)
+
+        self._upload_assets_if_remote(dataset_item, DATASETS_COLLECTION)
 
         if prev:
             successor_href = cat.item_href(DATASETS_COLLECTION, dataset_item.id)
@@ -297,6 +321,12 @@ class FairClient:
             raise FairClientError(f"Local model '{local_model_id}' not found. Run promote() first.") from exc
 
         pipeline_module = self._pipeline_module_from_item(model_item)
+
+        prefix = self._artifact_store_prefix()
+        if self._upload_artifacts and prefix and "://" not in image_path:
+            remote_path = f"{prefix}/predict/{local_model_id}/input"
+            upload_local_directory(Path(image_path), remote_path)
+            image_path = remote_path
 
         cfg_data = generate_inference_config(model_item, image_path)
         self._config_dir.mkdir(parents=True, exist_ok=True)

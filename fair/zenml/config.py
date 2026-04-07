@@ -6,6 +6,7 @@ from typing import Any
 import pystac
 
 from fair.stac.constants import CONTAINER_REGISTRIES, OCI_IMAGE_INDEX_TYPE
+from fair.utils.data import http_url_to_s3_uri
 
 LABEL_DOMAIN = os.environ.get("FAIR_LABEL_DOMAIN", "fair.dev")
 
@@ -149,8 +150,8 @@ def generate_training_config(
     if labels_asset is None:
         msg = f"Dataset item '{dataset_item.id}' missing 'labels' asset"
         raise KeyError(msg)
-    chips_href = chips_asset.href
-    labels_href = labels_asset.href
+    chips_href = http_url_to_s3_uri(chips_asset.href)
+    labels_href = http_url_to_s3_uri(labels_asset.href)
 
     model_asset = base_model_item.assets.get("model")
     if model_asset is None:
@@ -162,7 +163,7 @@ def generate_training_config(
         hyperparams.update(overrides)
 
     parameters: dict[str, Any] = {
-        "base_model_weights": model_asset.href,
+        "base_model_weights": http_url_to_s3_uri(model_asset.href),
         "dataset_chips": chips_href,
         "dataset_labels": labels_href,
         "hyperparameters": hyperparams,
@@ -240,8 +241,8 @@ def generate_inference_config(
     zenml_art_id = model_asset.extra_fields.get("zenml:artifact_version_id")
 
     parameters: dict[str, Any] = {
-        "model_uri": model_asset.href,
-        "input_images": input_images_path,
+        "model_uri": http_url_to_s3_uri(model_asset.href),
+        "input_images": http_url_to_s3_uri(input_images_path),
         **input_spec,
     }
 

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-from datetime import UTC, datetime
 from typing import Any
 
 import pystac
@@ -20,7 +19,6 @@ from fair.zenml.config import (
 def _base_model(**overrides: Any):
     defaults: dict[str, Any] = {
         "item_id": "unet",
-        "dt": datetime(2024, 1, 1, tzinfo=UTC),
         "geometry": {"type": "Polygon", "coordinates": [[[0, 0], [1, 0], [1, 1], [0, 1], [0, 0]]]},
         "mlm_name": "unet",
         "mlm_architecture": "UNet",
@@ -88,7 +86,6 @@ def _dataset(tmp_path):
     path.write_text(json.dumps(geojson))
     return build_dataset_item(
         item_id="ds",
-        dt=datetime(2024, 6, 1, tzinfo=UTC),
         label_type="vector",
         label_tasks=["segmentation"],
         label_classes=[{"name": "building", "classes": ["building"]}],
@@ -146,7 +143,6 @@ def test_inference_config_with_artifact_id():
     local = build_local_model_item(
         base_model_item=base,
         item_id="local-v1",
-        dt=datetime(2024, 6, 1, tzinfo=UTC),
         model_href="s3://store/model/abc",
         mlm_hyperparameters={},
         keywords=["building"],

@@ -3,133 +3,43 @@ from __future__ import annotations
 import functools
 import importlib.resources
 import json
-from typing import Any
 
 import pystac
 
-# TODO : extend the validation with complete set of requirements based on the prod stac , currently only handful checks
-#  are in place
+from fair.schemas import register_fair_schemas
 
 
-def validate_mlm_schema(item: pystac.Item) -> list[str]:
+def validate_item(item: pystac.Item) -> list[str]:
+    register_fair_schemas()
     errors: list[str] = []
     try:
         item.validate()
     except pystac.errors.STACValidationError as e:
         errors.append(str(e))
+    errors.extend(_validate_keyword_vocabulary(item))
     return errors
+
+
+def _validate_keyword_vocabulary(item: pystac.Item) -> list[str]:
+    schema = _load_keywords_schema()
+    allowed = (
+        set(schema["allowed_keywords"]) | set(schema["allowed_tasks"]) | set(schema.get("allowed_geometry_types", []))
+    )
+    keywords = set(item.properties.get("keywords", []))
+    unknown = keywords - allowed
+    if unknown:
+        return [f"Unknown keywords: {unknown}"]
+    return []
+
+
+# Alias kept for call sites that reference the old name
+validate_mlm_schema = validate_item
 
 
 @functools.cache
 def _load_keywords_schema() -> dict:
     ref = importlib.resources.files("fair.schemas").joinpath("keywords.json")
     return json.loads(ref.read_text(encoding="utf-8"))
-
-
-@functools.cache
-def _load_base_model_requirements() -> dict:
-    ref = importlib.resources.files("fair.schemas").joinpath("base_model_requirements.json")
-    return json.loads(ref.read_text(encoding="utf-8"))
-
-
-def _check_processing_fn(fn: object, path: str, required_fields: list[str], errors: list[str]) -> None:
-    if not isinstance(fn, dict):
-        errors.append(f"{path} must be an object")
-        return
-    for field in required_fields:
-        if field not in fn:
-            errors.append(f"{path} missing field: {field}")
-
-
-def validate_base_model_item(item: pystac.Item) -> list[str]:
-    """Validate a base-model STAC item against fAIr requirements from base_model_requirements.json."""
-    reqs = _load_base_model_requirements()
-    kw_schema = _load_keywords_schema()
-    errors: list[str] = []
-
-    declared = set(item.stac_extensions)
-    for ext in reqs["required_extensions"]:
-        if ext not in declared:
-            errors.append(f"Missing extension: {ext}")
-
-    props = item.properties
-    for prop in reqs["required_properties"]:
-        if prop not in props or props[prop] is None:
-            errors.append(f"Missing property: {prop}")
-
-    for prop in reqs["non_empty_list_properties"]:
-        val = props.get(prop)
-        if isinstance(val, list) and not val:
-            errors.append(f"Property must be non-empty list: {prop}")
-
-    allowed_kw = (
-        set(kw_schema["allowed_keywords"])
-        | set(kw_schema["allowed_tasks"])
-        | set(kw_schema.get("allowed_geometry_types", []))
-    )
-    unknown_kw = set(props.get("keywords", [])) - allowed_kw
-    if unknown_kw:
-        errors.append(f"Unknown keywords: {unknown_kw}")
-
-    if reqs.get("require_geometry_keyword"):
-        geom_types = set(kw_schema.get("allowed_geometry_types", []))
-        if not geom_types & set(props.get("keywords", [])):
-            errors.append(f"keywords must include at least one geometry type: {sorted(geom_types)}")
-
-    for prop, allowed in reqs.get("allowed_values", {}).items():
-        val = props.get(prop)
-        if val is None:
-            continue
-        items = val if isinstance(val, list) else [val]
-        invalid = set(items) - set(allowed)
-        if invalid:
-            errors.append(f"Invalid {prop} values: {invalid}. Allowed: {allowed}")
-
-    proc_fields = reqs["processing_function_fields"]
-    for i, inp in enumerate(props.get("mlm:input") or []):
-        for field in reqs["input_required_fields"]:
-            if field not in inp:
-                errors.append(f"mlm:input[{i}] missing: {field}")
-            elif field == "pre_processing_function":
-                _check_processing_fn(inp[field], f"mlm:input[{i}].{field}", proc_fields, errors)
-
-    for i, out in enumerate(props.get("mlm:output") or []):
-        for field in reqs["output_required_fields"]:
-            if field not in out:
-                errors.append(f"mlm:output[{i}] missing: {field}")
-            elif field == "post_processing_function":
-                _check_processing_fn(out[field], f"mlm:output[{i}].{field}", proc_fields, errors)
-
-    for asset_key, required_fields in reqs["required_assets"].items():
-        if asset_key not in item.assets:
-            errors.append(f"Missing asset: {asset_key}")
-            continue
-        for field in required_fields:
-            if field not in item.assets[asset_key].extra_fields:
-                errors.append(f"Asset '{asset_key}' missing field: {field}")
-
-    errors.extend(_validate_split_spec(props))
-
-    return errors
-
-
-_SPLIT_SPEC_REQUIRED_KEYS = frozenset({"strategy", "default_ratio", "seed", "description"})
-
-
-def _validate_split_spec(props: dict[str, Any]) -> list[str]:
-    errors: list[str] = []
-    spec = props.get("fair:split_spec")
-    if spec is None:
-        return errors
-    if not isinstance(spec, dict):
-        errors.append("fair:split_spec must be an object")
-        return errors
-    for key in sorted(_SPLIT_SPEC_REQUIRED_KEYS - set(spec)):
-        errors.append(f"fair:split_spec missing required key: {key}")
-    ratio = spec.get("default_ratio")
-    if isinstance(ratio, (int, float)) and not (0 < ratio < 1):
-        errors.append(f"fair:split_spec.default_ratio must be between 0 and 1, got {ratio}")
-    return errors
 
 
 def validate_compatibility(
@@ -179,7 +89,6 @@ def validate_compatibility(
 
 
 def validate_pipeline_config(config: dict, *, is_training: bool = True) -> list[str]:
-    """Validate a generated ZenML YAML config dict before running a pipeline."""
     errors: list[str] = []
     params = config.get("parameters", {})
 
@@ -202,7 +111,6 @@ def validate_predictions_geojson(
     geojson: dict,
     base_model_item: pystac.Item | None = None,
 ) -> list[str]:
-    """Validate that a predictions dict is a valid GeoJSON FeatureCollection."""
     errors: list[str] = []
     if geojson.get("type") != "FeatureCollection":
         errors.append(f"Expected type='FeatureCollection', got '{geojson.get('type')}'")
@@ -256,7 +164,6 @@ def validate_metrics_against_spec(
     metrics: dict,
     base_model_item: pystac.Item,
 ) -> list[str]:
-    """Check that returned metrics include all names declared in fair:metrics_spec."""
     errors: list[str] = []
     spec = base_model_item.properties.get("fair:metrics_spec", [])
     for entry in spec:
@@ -278,7 +185,6 @@ def validate_hyperparameters(
     hyperparameters: dict,
     base_model_item: pystac.Item,
 ) -> list[str]:
-    """Validate hyperparameters against fair:hyperparameters_spec from a base model item."""
     errors: list[str] = []
     spec = base_model_item.properties.get("fair:hyperparameters_spec", [])
     if not spec:

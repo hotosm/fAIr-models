@@ -1,30 +1,37 @@
-from fair.zenml.runner import DatasetConfig, FairWorkflowRunner
+import os
 
-runner = FairWorkflowRunner(
-    base_model_id="yolo11n-detection",
-    model_name="yolo11n-detection-finetuned-banepa",
-    stac_item_path="models/yolo11n_detection/stac-item.json",
-    pipeline_module="models.yolo11n_detection.pipeline",
+from fair.client import FairClient
+
+client = FairClient(
+    zenml_store_url=os.environ.get("FAIR_ZENML_STORE_URL"),
+    stac_api_url=os.environ.get("FAIR_STAC_API_URL"),
+    dsn=os.environ.get("FAIR_DSN"),
+    user_id=os.environ.get("FAIR_USER_ID", "anonymous"),
     config_dir="examples/detection/config",
-    dataset=DatasetConfig(
-        title="buildings-banepa-detection",
-        description=("COCO-format building detection labels derived from the Banepa OAM+OSM segmentation dataset."),
-        label_type="vector",
-        label_tasks=["object-detection"],
-        label_classes=[{"name": "building", "classes": ["building"]}],
-        keywords=["building", "object-detection", "polygon"],
-        train_chips_path="data/sample/train/oam",
-        train_labels_path="data/sample/train/detection_labels.json",
-        predict_images_path="data/sample/predict/oam",
-        source_imagery_href=(
-            "https://tiles.openaerialmap.org/62d85d11d8499800053796c1/0/62d85d11d8499800053796c2/{z}/{x}/{y}"
-        ),
-        label_description="Building detection labels in COCO format derived from segmentation masks",
-        label_methods=["automated"],
-    ),
-    finetune_overrides={"learning_rate": 0.01, "batch_size": 8, "chip_size": 640},
-    promote_description="YOLOv11n detection finetuned on buildings-banepa-detection",
+    upload_artifacts=os.environ.get("FAIR_UPLOAD_ARTIFACTS", "").lower() == "true",
 )
 
 if __name__ == "__main__":
-    runner.run()
+    from fair.utils import install_s3_cleanup_handler
+
+    install_s3_cleanup_handler()
+
+    client.setup()
+
+    base_model_id = client.register_base_model("models/yolo11n_detection/stac-item.json")
+
+    dataset_id = client.register_dataset("data/sample/buildings-banepa-detection/stac-item.json")
+
+    finetuned_model_id = client.finetune(
+        base_model_id=base_model_id,
+        dataset_id=dataset_id,
+        model_name="yolo11n-detection-finetuned-banepa",
+        overrides={"learning_rate": 0.01, "batch_size": 2, "chip_size": 640},
+    )
+
+    local_model_id = client.promote(
+        finetuned_model_id,
+        description="YOLOv11n detection finetuned on buildings-banepa-detection",
+    )
+
+    client.predict(local_model_id, image_path="data/sample/predict/oam")

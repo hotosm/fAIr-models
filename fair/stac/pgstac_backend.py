@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from datetime import UTC, datetime
 
 import httpx
 import pystac
@@ -50,6 +51,7 @@ class PgStacBackend:
 
     def publish_item(self, collection_id: str, item: pystac.Item) -> pystac.Item:
         item.properties.setdefault("version", "1")
+        item.properties["updated"] = datetime.now(UTC).isoformat()
         self._ensure_version_links(collection_id, item)
         self._normalize_version_link_hrefs(collection_id, item)
         item_dict = item.to_dict()

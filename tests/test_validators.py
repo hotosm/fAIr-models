@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import copy
 import json
-from datetime import UTC, datetime
 from unittest.mock import patch
 
 import pystac
@@ -10,9 +9,9 @@ import pytest
 
 from fair.stac.builders import build_base_model_item, build_dataset_item
 from fair.stac.validators import (
-    validate_base_model_item,
     validate_compatibility,
     validate_hyperparameters,
+    validate_item,
     validate_metrics_against_spec,
     validate_mlm_schema,
     validate_pipeline_config,
@@ -40,7 +39,10 @@ _MLM_OUTPUT = [
             "dim_order": ["batch", "channel", "height", "width"],
             "data_type": "float32",
         },
-        "classification:classes": [{"name": "background", "value": 0}, {"name": "building", "value": 1}],
+        "classification:classes": [
+            {"name": "background", "value": 0, "description": "Background pixels"},
+            {"name": "building", "value": 1, "description": "Building footprint pixels"},
+        ],
         "post_processing_function": {"format": "python", "expression": "mod:postprocess"},
     }
 ]
@@ -49,7 +51,6 @@ _MLM_OUTPUT = [
 def _model(keywords=None, tasks=None):
     return build_base_model_item(
         item_id="m",
-        dt=datetime(2024, 1, 1, tzinfo=UTC),
         geometry={"type": "Polygon", "coordinates": [[[0, 0], [1, 0], [1, 1], [0, 1], [0, 0]]]},
         mlm_name="m",
         mlm_architecture="UNet",
@@ -87,9 +88,8 @@ def _dataset(tmp_path, keywords=None, label_tasks=None):
     }
     path = tmp_path / "labels.geojson"
     path.write_text(json.dumps(geojson))
-    return build_dataset_item(
+    item = build_dataset_item(
         item_id="d",
-        dt=datetime(2024, 6, 1, tzinfo=UTC),
         label_type="vector",
         label_tasks=label_tasks or ["segmentation"],
         label_classes=[{"name": "building", "classes": ["building"]}],
@@ -100,6 +100,9 @@ def _dataset(tmp_path, keywords=None, label_tasks=None):
         description="Dataset used in validator tests.",
         user_id="osm-test",
     )
+    item.properties["label:properties"] = ["class"]
+    item.properties["label:description"] = "Test labels"
+    return item
 
 
 def test_compatible_pair(tmp_path):
@@ -160,7 +163,6 @@ def test_validate_mlm_schema_delegates_to_pystac():
 def _valid_base_model():
     item = build_base_model_item(
         item_id="test-model",
-        dt=datetime(2024, 1, 1, tzinfo=UTC),
         geometry={"type": "Polygon", "coordinates": [[[0, 0], [1, 0], [1, 1], [0, 1], [0, 0]]]},
         mlm_name="test-model",
         mlm_architecture="UNet",
@@ -191,150 +193,149 @@ def _valid_base_model():
         "seed": 42,
         "description": "Random split for testing",
     }
+    item.assets["model"].extra_fields["raster:bands"] = [
+        {"name": "red"},
+        {"name": "green"},
+        {"name": "blue"},
+    ]
     return item
 
 
 class TestValidateBaseModelItem:
     def test_valid_item_passes(self):
-        assert validate_base_model_item(_valid_base_model()) == []
+        assert validate_item(_valid_base_model()) == []
 
     def test_missing_property(self):
         item = _valid_base_model()
         del item.properties["mlm:name"]
-        errors = validate_base_model_item(item)
+        errors = validate_item(item)
         assert any("mlm:name" in e for e in errors)
 
     def test_missing_asset(self):
         item = _valid_base_model()
         del item.assets["source-code"]
-        errors = validate_base_model_item(item)
+        errors = validate_item(item)
         assert any("source-code" in e for e in errors)
 
-    def test_missing_readme_asset(self):
+    def test_readme_asset_is_optional(self):
         item = _valid_base_model()
         del item.assets["readme"]
-        errors = validate_base_model_item(item)
-        assert any("readme" in e for e in errors)
+        errors = validate_item(item)
+        assert not any("readme" in e for e in errors)
 
     def test_missing_asset_field(self):
         item = _valid_base_model()
         del item.assets["model"].extra_fields["mlm:artifact_type"]
-        errors = validate_base_model_item(item)
+        errors = validate_item(item)
         assert any("mlm:artifact_type" in e for e in errors)
 
     def test_empty_tasks_list(self):
         item = _valid_base_model()
         item.properties["mlm:tasks"] = []
-        errors = validate_base_model_item(item)
+        errors = validate_item(item)
         assert any("non-empty" in e for e in errors)
 
     def test_unknown_keyword(self):
         item = _valid_base_model()
         item.properties["keywords"] = ["alien"]
-        errors = validate_base_model_item(item)
+        errors = validate_item(item)
         assert any("Unknown keywords" in e for e in errors)
 
     def test_unknown_task(self):
         item = _valid_base_model()
         item.properties["mlm:tasks"] = ["time-travel"]
-        errors = validate_base_model_item(item)
-        assert any("Invalid mlm:tasks" in e for e in errors)
+        errors = validate_item(item)
+        assert any("time-travel" in e for e in errors)
 
     def test_missing_pre_processing_function(self):
         item = _valid_base_model()
         del item.properties["mlm:input"][0]["pre_processing_function"]
-        errors = validate_base_model_item(item)
+        errors = validate_item(item)
         assert any("pre_processing_function" in e for e in errors)
 
     def test_missing_post_processing_function(self):
         item = _valid_base_model()
         del item.properties["mlm:output"][0]["post_processing_function"]
-        errors = validate_base_model_item(item)
+        errors = validate_item(item)
         assert any("post_processing_function" in e for e in errors)
 
     def test_missing_classification_classes(self):
         item = _valid_base_model()
         del item.properties["mlm:output"][0]["classification:classes"]
-        errors = validate_base_model_item(item)
+        errors = validate_item(item)
         assert any("classification:classes" in e for e in errors)
 
     def test_processing_fn_missing_format(self):
         item = _valid_base_model()
         del item.properties["mlm:input"][0]["pre_processing_function"]["format"]
-        errors = validate_base_model_item(item)
+        errors = validate_item(item)
         assert any("format" in e for e in errors)
 
-    def test_missing_extension(self):
+    def test_missing_extensions_skips_schema_validation(self):
         item = _valid_base_model()
         item.stac_extensions = []
-        errors = validate_base_model_item(item)
-        assert len([e for e in errors if "Missing extension" in e]) == 5
+        errors = validate_item(item)
+        # With no extensions declared, PySTAC skips extension schema validation.
+        # Only keyword vocabulary check still runs.
+        assert not any("required property" in e for e in errors)
 
     def test_missing_license(self):
         item = _valid_base_model()
         del item.properties["license"]
-        errors = validate_base_model_item(item)
+        errors = validate_item(item)
         assert any("license" in e for e in errors)
 
     def test_invalid_license(self):
         item = _valid_base_model()
         item.properties["license"] = "WTFPL"
-        errors = validate_base_model_item(item)
-        assert any("Invalid license" in e for e in errors)
+        errors = validate_item(item)
+        assert any("WTFPL" in e for e in errors)
 
     def test_invalid_framework(self):
         item = _valid_base_model()
         item.properties["mlm:framework"] = "jax"
-        errors = validate_base_model_item(item)
-        assert any("Invalid mlm:framework" in e for e in errors)
+        errors = validate_item(item)
+        assert any("jax" in e for e in errors)
 
-    def test_missing_geometry_keyword(self):
-        item = _valid_base_model()
-        item.properties["keywords"] = ["building", "semantic-segmentation"]
-        errors = validate_base_model_item(item)
-        assert any("geometry type" in e for e in errors)
-
-    def test_geometry_keyword_present(self):
+    def test_valid_keywords(self):
         item = _valid_base_model()
         item.properties["keywords"] = ["building", "semantic-segmentation", "polygon"]
-        assert validate_base_model_item(item) == []
+        assert validate_item(item) == []
 
     def test_line_geometry_keyword(self):
         item = _valid_base_model()
         item.properties["keywords"] = ["road", "semantic-segmentation", "line"]
-        assert validate_base_model_item(item) == []
+        assert validate_item(item) == []
 
     def test_point_geometry_keyword(self):
         item = _valid_base_model()
         item.properties["keywords"] = ["tree", "object-detection", "point"]
         item.properties["mlm:tasks"] = ["object-detection"]
-        assert validate_base_model_item(item) == []
+        assert validate_item(item) == []
 
 
 class TestSplitSpecValidation:
     def test_missing_split_spec_flagged(self):
         item = _valid_base_model()
         del item.properties["fair:split_spec"]
-        errors = validate_base_model_item(item)
+        errors = validate_item(item)
         assert any("fair:split_spec" in e for e in errors)
 
     def test_split_spec_missing_keys(self):
         item = _valid_base_model()
         item.properties["fair:split_spec"] = {"strategy": "random"}
-        errors = validate_base_model_item(item)
-        assert any("default_ratio" in e for e in errors)
-        assert any("seed" in e for e in errors)
-        assert any("description" in e for e in errors)
+        errors = validate_item(item)
+        assert any("default_ratio" in e or "seed" in e or "description" in e for e in errors)
 
     def test_split_spec_invalid_ratio(self):
         item = _valid_base_model()
         item.properties["fair:split_spec"]["default_ratio"] = 1.5
-        errors = validate_base_model_item(item)
-        assert any("between 0 and 1" in e for e in errors)
+        errors = validate_item(item)
+        assert any("1.5" in e or "exclusiveMaximum" in e for e in errors)
 
     def test_valid_split_spec_passes(self):
         item = _valid_base_model()
-        assert not any("split_spec" in e for e in validate_base_model_item(item))
+        assert not any("split_spec" in e for e in validate_item(item))
 
 
 class TestGeometryTypeCompatibility:

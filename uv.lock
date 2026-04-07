@@ -1035,6 +1035,9 @@ docs = [
 example = [
     { name = "onnx" },
     { name = "onnxscript" },
+    { name = "pyproj" },
+    { name = "rasterio", version = "1.4.4", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
+    { name = "rasterio", version = "1.5.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
     { name = "torch" },
     { name = "torchgeo", version = "0.8.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
     { name = "torchgeo", version = "0.9.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
@@ -1085,6 +1088,8 @@ docs = [
 example = [
     { name = "onnx", specifier = ">=1.21.0" },
     { name = "onnxscript", specifier = ">=0.6.2" },
+    { name = "pyproj", specifier = ">=3.7" },
+    { name = "rasterio", specifier = ">=1.4" },
     { name = "torch" },
     { name = "torchgeo" },
     { name = "ultralytics", specifier = ">=8.4.33" },

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-from datetime import UTC, datetime
 from typing import Annotated, Any
 
 import pystac
@@ -13,6 +12,7 @@ from fair.stac.backend import StacBackend
 from fair.stac.builders import build_local_model_item
 from fair.stac.constants import BASE_MODELS_COLLECTION, DATASETS_COLLECTION, LOCAL_MODELS_COLLECTION
 from fair.stac.versioning import deprecate_and_link_successor, find_previous_active_item
+from fair.utils.data import s3_uri_to_http_url
 from fair.zenml.metrics import read_fair_metrics, read_training_wall_time
 
 log = logging.getLogger(__name__)
@@ -97,7 +97,7 @@ def publish_promoted_model(
     if weights_art is None:
         msg = f"No model artifact found for {model_name} v{version}"
         raise RuntimeError(msg)
-    model_href = weights_art.uri
+    model_href = s3_uri_to_http_url(weights_art.uri)
     artifact_version_id = str(weights_art.id)
 
     base_model_item = catalog_manager.get_item(BASE_MODELS_COLLECTION, base_model_item_id)
@@ -133,7 +133,6 @@ def publish_promoted_model(
     item = build_local_model_item(
         base_model_item=base_model_item,
         item_id=new_item_id,
-        dt=datetime.now(UTC),
         model_href=model_href,
         mlm_hyperparameters=hyperparams,
         keywords=kw,

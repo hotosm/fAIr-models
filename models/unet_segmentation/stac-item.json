@@ -6,7 +6,8 @@
         "https://stac-extensions.github.io/version/v1.2.0/schema.json",
         "https://stac-extensions.github.io/classification/v2.0.0/schema.json",
         "https://stac-extensions.github.io/file/v2.1.0/schema.json",
-        "https://stac-extensions.github.io/raster/v1.1.0/schema.json"
+        "https://stac-extensions.github.io/raster/v1.1.0/schema.json",
+        "https://hotosm.github.io/fAIr-models/v1.0.0/base-model/schema.json"
     ],
     "id": "unet-segmentation",
     "geometry": {
@@ -44,6 +45,8 @@
     ],
     "properties": {
         "datetime": "2024-01-01T00:00:00Z",
+        "created": "2024-01-01T00:00:00Z",
+        "updated": "2024-01-01T00:00:00Z",
         "title": "UNet Building Segmentation",
         "description": "UNet semantic segmentation model for building footprint extraction from very high resolution RGB aerial imagery. Pretrained on the OAM-TCD dataset (NeurIPS 2024) via torchgeo, intended for finetuning on OpenAerialMap + OpenStreetMap chip-label pairs.",
         "mlm:name": "unet-segmentation",

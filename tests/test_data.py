@@ -201,9 +201,15 @@ class TestUploadItemAssets:
 
         upload_item_assets(item, "s3://bucket/data", "datasets")
 
-        assert item.assets["chips"].href == "s3://bucket/data/datasets/test-dataset/chips"
-        assert item.assets["labels"].href == "s3://bucket/data/datasets/test-dataset/labels/a.geojson"
-        assert item.assets["download"].href == "s3://bucket/data/datasets/test-dataset/download/archive.zip"
+        assert item.assets["chips"].href == "https://bucket.s3.us-east-1.amazonaws.com/data/datasets/test-dataset/chips"
+        assert (
+            item.assets["labels"].href
+            == "https://bucket.s3.us-east-1.amazonaws.com/data/datasets/test-dataset/labels/a.geojson"
+        )
+        assert (
+            item.assets["download"].href
+            == "https://bucket.s3.us-east-1.amazonaws.com/data/datasets/test-dataset/download/archive.zip"
+        )
 
     def test_skips_remote_hrefs(self) -> None:
         item = pystac.Item(

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-from datetime import UTC, datetime
 from typing import Any
 
 import pystac
@@ -15,7 +14,6 @@ from fair.stac.builders import (
     build_local_model_item,
 )
 
-_DT = datetime(2024, 1, 1, tzinfo=UTC)
 _GEOM = {"type": "Polygon", "coordinates": [[[0, -90], [180, -90], [180, 90], [0, 90], [0, -90]]]}
 _MLM_INPUT = [
     {
@@ -71,7 +69,6 @@ _METRICS_SPEC = [
 _BASE_DEFAULTS: dict[str, Any] = {
     "item_id": "example-unet",
     "geometry": _GEOM,
-    "dt": _DT,
     "mlm_name": "example-unet",
     "mlm_architecture": "UNet",
     "mlm_tasks": ["semantic-segmentation"],
@@ -102,7 +99,6 @@ def _base_model(**kw: Any) -> pystac.Item:
 class TestBuildDatasetItem:
     def test_properties_assets_bbox(self, geojson_path):
         item = build_dataset_item(
-            dt=_DT,
             label_type="vector",
             label_tasks=["segmentation"],
             label_classes=[{"name": "building", "classes": ["building"]}],
@@ -125,7 +121,6 @@ class TestBuildDatasetItem:
 
     def test_slug_generated_when_item_id_none(self, geojson_path):
         item = build_dataset_item(
-            dt=_DT,
             label_type="vector",
             label_tasks=["segmentation"],
             label_classes=[],
@@ -143,7 +138,6 @@ class TestBuildDatasetItem:
         path.write_text('{"type": "FeatureCollection", "features": []}')
         with pytest.raises(ValueError, match="No coordinates"):
             build_dataset_item(
-                dt=_DT,
                 label_type="vector",
                 label_tasks=["segmentation"],
                 label_classes=[],
@@ -158,7 +152,6 @@ class TestBuildDatasetItem:
     def test_versioning_and_enriched_metadata(self, geojson_path):
         providers = [{"name": "HOTOSM", "roles": ["producer"], "url": "https://www.hotosm.org"}]
         item = build_dataset_item(
-            dt=_DT,
             label_type="vector",
             label_tasks=["segmentation"],
             label_classes=[],
@@ -225,7 +218,6 @@ class TestBuildLocalModelItem:
         local = build_local_model_item(
             base_model_item=base,
             item_id="local-v1",
-            dt=_DT,
             model_href="finetuned.pth",
             mlm_hyperparameters={"epochs": 1},
             keywords=["building"],
@@ -261,7 +253,6 @@ class TestBuildLocalModelItem:
         local = build_local_model_item(
             base_model_item=base,
             item_id="local-v1",
-            dt=_DT,
             model_href="s3://store/model/abc",
             mlm_hyperparameters={},
             keywords=["building"],
@@ -280,7 +271,6 @@ class TestBuildLocalModelItem:
         local = build_local_model_item(
             base_model_item=base,
             item_id="local-v1",
-            dt=_DT,
             model_href="weights.pth",
             mlm_hyperparameters={},
             keywords=["building"],
@@ -300,7 +290,6 @@ class TestBuildLocalModelItem:
             build_local_model_item(
                 base_model_item=base,
                 item_id="bad",
-                dt=_DT,
                 model_href="w.pth",
                 mlm_hyperparameters={},
                 keywords=["building"],
@@ -346,7 +335,6 @@ class TestLocalModelMetricsAndTiming:
         local = build_local_model_item(
             base_model_item=base,
             item_id="local-m",
-            dt=_DT,
             model_href="w.pth",
             mlm_hyperparameters={},
             keywords=["building"],
@@ -366,7 +354,6 @@ class TestLocalModelMetricsAndTiming:
         local = build_local_model_item(
             base_model_item=base,
             item_id="local-t",
-            dt=_DT,
             model_href="w.pth",
             mlm_hyperparameters={},
             keywords=["building"],
@@ -389,7 +376,6 @@ class TestLocalModelMetricsAndTiming:
         local = build_local_model_item(
             base_model_item=base,
             item_id="local-s",
-            dt=_DT,
             model_href="w.pth",
             mlm_hyperparameters={},
             keywords=["building"],

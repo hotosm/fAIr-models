@@ -3,15 +3,16 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any, Literal
 
 import pystac
 
 from fair.stac.constants import (
+    BASE_MODEL_EXTENSIONS,
     CONTAINER_REGISTRIES,
     DATASET_EXTENSIONS,
-    MODEL_EXTENSIONS,
+    LOCAL_MODEL_EXTENSIONS,
     OCI_IMAGE_INDEX_TYPE,
 )
 from fair.stac.versioning import add_version_links
@@ -19,7 +20,6 @@ from fair.stac.versioning import add_version_links
 
 @dataclass
 class DatasetItemParams:
-    dt: datetime
     label_type: Literal["vector", "raster"]
     label_tasks: list[str]
     label_classes: list[dict[str, Any]]
@@ -40,6 +40,7 @@ class DatasetItemParams:
     deprecated: bool = False
     license_id: str | None = None
     providers: list[dict[str, Any]] | None = None
+    label_properties: list[str] | None = None
     label_description: str | None = None
     label_methods: list[str] | None = None
     source_imagery_href: str | None = None
@@ -51,7 +52,6 @@ class DatasetItemParams:
 class BaseModelItemParams:
     item_id: str
     geometry: dict[str, Any]
-    dt: datetime
     mlm_name: str
     mlm_architecture: str
     mlm_tasks: list[str]
@@ -87,7 +87,6 @@ class BaseModelItemParams:
 @dataclass
 class LocalModelItemParams:
     base_model_item: pystac.Item
-    dt: datetime
     model_href: str
     mlm_hyperparameters: dict[str, Any]
     keywords: list[str]
@@ -188,7 +187,6 @@ def _slugify(text: str) -> str:
 
 
 def build_dataset_item(
-    dt: datetime,
     label_type: Literal["vector", "raster"],
     label_tasks: list[str],
     label_classes: list[dict[str, Any]],
@@ -209,6 +207,7 @@ def build_dataset_item(
     deprecated: bool = False,
     license_id: str | None = None,
     providers: list[dict[str, Any]] | None = None,
+    label_properties: list[str] | None = None,
     label_description: str | None = None,
     label_methods: list[str] | None = None,
     source_imagery_href: str | None = None,
@@ -220,12 +219,17 @@ def build_dataset_item(
 
     resolved_id = item_id if item_id is not None else _slugify(title)
 
+    resolved_label_properties = (
+        label_properties if label_properties is not None else (None if label_type == "raster" else ["class"])
+    )
+
     properties: dict[str, Any] = {
         "title": title,
         "description": description,
         "label:type": label_type,
         "label:tasks": label_tasks,
         "label:classes": label_classes,
+        "label:properties": resolved_label_properties,
         "keywords": keywords,
         "fair:user_id": user_id,
         "version": version,
@@ -244,11 +248,16 @@ def build_dataset_item(
     if label_methods is not None:
         properties["label:methods"] = label_methods
 
+    now = datetime.now(UTC)
+    now_str = now.isoformat()
+    properties["created"] = now_str
+    properties["updated"] = now_str
+
     item = pystac.Item(
         id=resolved_id,
         geometry=geometry,
         bbox=bbox,
-        datetime=dt,
+        datetime=now,
         properties=properties,
         stac_extensions=DATASET_EXTENSIONS,
     )
@@ -312,7 +321,6 @@ def build_dataset_item(
 def build_base_model_item(
     item_id: str,
     geometry: dict[str, Any],
-    dt: datetime,
     mlm_name: str,
     mlm_architecture: str,
     mlm_tasks: list[str],
@@ -346,14 +354,19 @@ def build_base_model_item(
 ) -> pystac.Item:
     bbox = _bbox_from_geometry(geometry)
 
+    now = datetime.now(UTC)
+    now_str = now.isoformat()
+
     item = pystac.Item(
         id=item_id,
         geometry=geometry,
         bbox=bbox,
-        datetime=dt,
+        datetime=now,
         properties={
             "title": title,
             "description": description,
+            "created": now_str,
+            "updated": now_str,
             "mlm:name": mlm_name,
             "mlm:architecture": mlm_architecture,
             "mlm:tasks": mlm_tasks,
@@ -368,7 +381,7 @@ def build_base_model_item(
             "version": "1",
             "fair:metrics_spec": fair_metrics_spec,
         },
-        stac_extensions=MODEL_EXTENSIONS,
+        stac_extensions=BASE_MODEL_EXTENSIONS,
     )
 
     item.add_asset(
@@ -421,7 +434,6 @@ def build_base_model_item(
 
 def build_local_model_item(
     base_model_item: pystac.Item,
-    dt: datetime,
     model_href: str,
     mlm_hyperparameters: dict[str, Any],
     keywords: list[str],
@@ -501,13 +513,18 @@ def build_local_model_item(
     if split_info:
         properties["fair:split"] = split_info
 
+    now = datetime.now(UTC)
+    now_str = now.isoformat()
+    properties["created"] = now_str
+    properties["updated"] = now_str
+
     item = pystac.Item(
         id=resolved_id,
         geometry=geom,
         bbox=bbox,
-        datetime=dt,
+        datetime=now,
         properties=properties,
-        stac_extensions=MODEL_EXTENSIONS,
+        stac_extensions=LOCAL_MODEL_EXTENSIONS,
     )
 
     base_mlm_name = base_props.get("mlm:name", "")

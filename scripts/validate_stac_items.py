@@ -1,24 +1,24 @@
 #!/usr/bin/env python
-"""Validate all models/*/stac-item.json against fAIr platform requirements."""
+"""Validate all STAC items (base models + datasets) against fAIr schemas."""
 
 import glob
 import sys
 
 import pystac
 
-from fair.stac.validators import validate_base_model_item
+from fair.stac.validators import validate_item
 
 
 def main() -> int:
-    paths = sorted(glob.glob("models/*/stac-item.json"))
+    paths = sorted(glob.glob("models/*/stac-item.json") + glob.glob("data/sample/*/stac-item.json"))
     if not paths:
-        print("No stac-item.json found under models/")
+        print("No stac-item.json found")
         return 1
 
     failed = False
     for path in paths:
         item = pystac.Item.from_file(path)
-        errors = validate_base_model_item(item)
+        errors = validate_item(item)
         if errors:
             failed = True
             print(f"FAIL {path}")

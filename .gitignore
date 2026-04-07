@@ -209,15 +209,15 @@ __marimo__/
 # Model weights
 *.pt
 
-# Generated pipeline configs (contain absolute local paths)
-examples/*/config/generated_*.yaml
+# Generated pipeline configs
+examples/*/config/*.yaml
 
 .zen
 artifacts
 *.pkl
 
 examples/data
-examples/segmentation/config/generated_*.yaml
+
 implementation.md
 
 

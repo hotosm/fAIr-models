@@ -7,12 +7,14 @@ on:
       - "docs/**"
       - "mkdocs.yml"
       - "fair/**"
+      - "fair/schemas/**"
       - "CHANGELOG.md"
   pull_request:
     paths:
       - "docs/**"
       - "mkdocs.yml"
       - "fair/**"
+      - "fair/schemas/**"
       - "CHANGELOG.md"
   workflow_dispatch:
 
@@ -37,6 +39,9 @@ jobs:
 
       - name: Install docs dependencies
         run: uv sync --group docs
+
+      - name: Copy schemas to docs
+        run: cp -r fair/schemas/v* docs/
 
       - name: Build docs
         run: uv run zensical build

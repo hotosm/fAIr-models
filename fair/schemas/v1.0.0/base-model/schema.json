@@ -1,17 +1,25 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "$id": "https://hotosm.github.io/fAIr-models/v1.0.0/base-model/schema.json",
+  "$id": "https://hotosm.github.io/fAIr-models/schemas/v1.0.0/base-model/schema.json",
   "title": "fAIr Base Model Extension",
   "description": "STAC extension for fAIr base model items. Extends MLM with fAIr-specific training metadata.",
   "oneOf": [
     {
       "allOf": [
-        { "$ref": "#/definitions/stac_extensions" },
+        {
+          "$ref": "#/definitions/stac_extensions"
+        },
         {
           "type": "object",
-          "required": ["type", "properties", "assets"],
+          "required": [
+            "type",
+            "properties",
+            "assets"
+          ],
           "properties": {
-            "type": { "const": "Feature" },
+            "type": {
+              "const": "Feature"
+            },
             "properties": {
               "allOf": [
                 {
@@ -34,18 +42,30 @@
                     "fair:split_spec"
                   ]
                 },
-                { "$ref": "#/definitions/fields" }
+                {
+                  "$ref": "#/definitions/fields"
+                }
               ]
             },
             "assets": {
               "type": "object",
-              "required": ["model", "source-code", "mlm:training", "mlm:inference"],
+              "required": [
+                "model",
+                "source-code",
+                "mlm:training",
+                "mlm:inference"
+              ],
               "properties": {
                 "model": {
                   "type": "object",
-                  "required": ["href"],
+                  "required": [
+                    "href"
+                  ],
                   "properties": {
-                    "href": { "type": "string", "minLength": 1 },
+                    "href": {
+                      "type": "string",
+                      "minLength": 1
+                    },
                     "mlm:artifact_type": {
                       "type": "string",
                       "enum": [
@@ -63,24 +83,42 @@
                 },
                 "source-code": {
                   "type": "object",
-                  "required": ["href"],
+                  "required": [
+                    "href"
+                  ],
                   "properties": {
-                    "href": { "type": "string", "minLength": 1 },
-                    "mlm:entrypoint": { "type": "string", "minLength": 1 }
+                    "href": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "mlm:entrypoint": {
+                      "type": "string",
+                      "minLength": 1
+                    }
                   }
                 },
                 "mlm:training": {
                   "type": "object",
-                  "required": ["href"],
+                  "required": [
+                    "href"
+                  ],
                   "properties": {
-                    "href": { "type": "string", "minLength": 1 }
+                    "href": {
+                      "type": "string",
+                      "minLength": 1
+                    }
                   }
                 },
                 "mlm:inference": {
                   "type": "object",
-                  "required": ["href"],
+                  "required": [
+                    "href"
+                  ],
                   "properties": {
-                    "href": { "type": "string", "minLength": 1 }
+                    "href": {
+                      "type": "string",
+                      "minLength": 1
+                    }
                   }
                 }
               }
@@ -93,12 +131,14 @@
   "definitions": {
     "stac_extensions": {
       "type": "object",
-      "required": ["stac_extensions"],
+      "required": [
+        "stac_extensions"
+      ],
       "properties": {
         "stac_extensions": {
           "type": "array",
           "contains": {
-            "const": "https://hotosm.github.io/fAIr-models/v1.0.0/base-model/schema.json"
+            "const": "https://hotosm.github.io/fAIr-models/schemas/v1.0.0/base-model/schema.json"
           }
         }
       }
@@ -111,24 +151,51 @@
           "minItems": 1,
           "items": {
             "type": "object",
-            "required": ["name"],
+            "required": [
+              "name"
+            ],
             "properties": {
-              "name": { "type": "string", "minLength": 1 }
+              "name": {
+                "type": "string",
+                "minLength": 1
+              }
             }
           }
         },
         "fair:split_spec": {
           "type": "object",
-          "required": ["strategy", "default_ratio", "seed", "description"],
+          "required": [
+            "strategy",
+            "default_ratio",
+            "seed",
+            "description"
+          ],
           "properties": {
-            "strategy": { "type": "string", "minLength": 1 },
-            "default_ratio": { "type": "number", "exclusiveMinimum": 0, "exclusiveMaximum": 1 },
-            "seed": { "type": "integer" },
-            "description": { "type": "string" }
+            "strategy": {
+              "type": "string",
+              "minLength": 1
+            },
+            "default_ratio": {
+              "type": "number",
+              "exclusiveMinimum": 0,
+              "exclusiveMaximum": 1
+            },
+            "seed": {
+              "type": "integer"
+            },
+            "description": {
+              "type": "string"
+            }
           }
         },
-        "mlm:name": { "type": "string", "minLength": 1 },
-        "mlm:architecture": { "type": "string", "minLength": 1 },
+        "mlm:name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "mlm:architecture": {
+          "type": "string",
+          "minLength": 1
+        },
         "mlm:tasks": {
           "type": "array",
           "minItems": 1,
@@ -144,23 +211,43 @@
         },
         "mlm:framework": {
           "type": "string",
-          "enum": ["PyTorch", "TensorFlow"]
+          "enum": [
+            "PyTorch",
+            "TensorFlow"
+          ]
         },
-        "mlm:framework_version": { "type": "string", "minLength": 1 },
-        "mlm:pretrained": { "type": "boolean" },
-        "mlm:pretrained_source": { "type": ["string", "null"] },
+        "mlm:framework_version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "mlm:pretrained": {
+          "type": "boolean"
+        },
+        "mlm:pretrained_source": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "mlm:input": {
           "type": "array",
           "minItems": 1,
           "items": {
             "type": "object",
-            "required": ["pre_processing_function"],
+            "required": [
+              "pre_processing_function"
+            ],
             "properties": {
               "pre_processing_function": {
                 "type": "object",
-                "required": ["format", "expression"],
+                "required": [
+                  "format",
+                  "expression"
+                ],
                 "properties": {
-                  "format": { "type": "string" },
+                  "format": {
+                    "type": "string"
+                  },
                   "expression": {}
                 }
               }
@@ -172,13 +259,21 @@
           "minItems": 1,
           "items": {
             "type": "object",
-            "required": ["post_processing_function", "classification:classes"],
+            "required": [
+              "post_processing_function",
+              "classification:classes"
+            ],
             "properties": {
               "post_processing_function": {
                 "type": "object",
-                "required": ["format", "expression"],
+                "required": [
+                  "format",
+                  "expression"
+                ],
                 "properties": {
-                  "format": { "type": "string" },
+                  "format": {
+                    "type": "string"
+                  },
                   "expression": {}
                 }
               },
@@ -186,25 +281,41 @@
                 "type": "array",
                 "items": {
                   "type": "object",
-                  "required": ["name"],
+                  "required": [
+                    "name"
+                  ],
                   "properties": {
-                    "name": { "type": "string" }
+                    "name": {
+                      "type": "string"
+                    }
                   }
                 }
               }
             }
           }
         },
-        "mlm:hyperparameters": { "type": "object" },
+        "mlm:hyperparameters": {
+          "type": "object"
+        },
         "keywords": {
           "type": "array",
           "minItems": 1,
-          "items": { "type": "string" }
+          "items": {
+            "type": "string"
+          }
         },
-        "version": { "type": "string", "minLength": 1 },
+        "version": {
+          "type": "string",
+          "minLength": 1
+        },
         "license": {
           "type": "string",
-          "enum": ["AGPL-3.0-only", "MIT", "Apache-2.0", "BSD-3-Clause"]
+          "enum": [
+            "AGPL-3.0-only",
+            "MIT",
+            "Apache-2.0",
+            "BSD-3-Clause"
+          ]
         }
       },
       "patternProperties": {

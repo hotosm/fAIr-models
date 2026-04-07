@@ -8,7 +8,7 @@ Each schema follows the [STAC Extension](https://stac-extensions.github.io/) pat
 
 Extends the [MLM Extension](https://stac-extensions.github.io/mlm/v1.5.1/schema.json) with training pipeline metadata: metrics spec, split spec, hyperparameter bounds, and runtime container references.
 
-**Schema URL:** [`v1.0.0/base-model/schema.json`](../../v1.0.0/base-model/schema.json)
+**Schema URL:** [`v1.0.0/base-model/schema.json`](../schemas/v1.0.0/base-model/schema.json)
 
 **Required properties:** `title`, `description`, `mlm:name`, `mlm:architecture`, `mlm:tasks`, `mlm:framework`, `mlm:framework_version`, `mlm:pretrained`, `mlm:input`, `mlm:output`, `mlm:hyperparameters`, `keywords`, `version`, `license`, `fair:metrics_spec`, `fair:split_spec`
 
@@ -18,7 +18,7 @@ Extends the [MLM Extension](https://stac-extensions.github.io/mlm/v1.5.1/schema.
 
 Extends the [Label Extension](https://stac-extensions.github.io/label/v1.0.1/schema.json) with fAIr training data metadata: user attribution, chip counts, and download archives.
 
-**Schema URL:** [`v1.0.0/dataset/schema.json`](../../v1.0.0/dataset/schema.json)
+**Schema URL:** [`v1.0.0/dataset/schema.json`](../schemas/v1.0.0/dataset/schema.json)
 
 **Required properties:** `title`, `description`, `label:type`, `label:tasks`, `label:classes`, `keywords`, `fair:user_id`, `version`, `deprecated`
 
@@ -28,7 +28,7 @@ Extends the [Label Extension](https://stac-extensions.github.io/label/v1.0.1/sch
 
 Extends the base model schema with training provenance: links to the base model and dataset, evaluation metrics, training duration, and ZenML artifact references.
 
-**Schema URL:** [`v1.0.0/local-model/schema.json`](../../v1.0.0/local-model/schema.json)
+**Schema URL:** [`v1.0.0/local-model/schema.json`](../schemas/v1.0.0/local-model/schema.json)
 
 **Required properties:** `title`, `description`, `mlm:name`, `mlm:architecture`, `mlm:tasks`, `mlm:framework`, `mlm:framework_version`, `mlm:pretrained`, `mlm:pretrained_source`, `mlm:input`, `mlm:output`, `mlm:hyperparameters`, `keywords`, `version`, `deprecated`, `fair:user_id`
 

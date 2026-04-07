@@ -112,7 +112,7 @@ def _build_classification_dataset(
         def __len__(self) -> int:
             return len(self.samples)
 
-        def __getitem__(self, idx: int) -> dict[str, Any]:  # ty: ignore[invalid-method-override]
+        def __getitem__(self, idx: int) -> dict[str, Any]:
             path, label = self.samples[idx]
             img = Image.open(path).convert("RGB")
             tensor = transform(img)

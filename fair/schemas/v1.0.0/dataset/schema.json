@@ -1,17 +1,25 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "$id": "https://hotosm.github.io/fAIr-models/v1.0.0/dataset/schema.json",
+  "$id": "https://hotosm.github.io/fAIr-models/schemas/v1.0.0/dataset/schema.json",
   "title": "fAIr Dataset Extension",
   "description": "STAC extension for fAIr dataset items. Extends Label Extension with fAIr-specific training data metadata.",
   "oneOf": [
     {
       "allOf": [
-        { "$ref": "#/definitions/stac_extensions" },
+        {
+          "$ref": "#/definitions/stac_extensions"
+        },
         {
           "type": "object",
-          "required": ["type", "properties", "assets"],
+          "required": [
+            "type",
+            "properties",
+            "assets"
+          ],
           "properties": {
-            "type": { "const": "Feature" },
+            "type": {
+              "const": "Feature"
+            },
             "properties": {
               "allOf": [
                 {
@@ -27,39 +35,64 @@
                     "deprecated"
                   ]
                 },
-                { "$ref": "#/definitions/fields" }
+                {
+                  "$ref": "#/definitions/fields"
+                }
               ]
             },
             "assets": {
               "type": "object",
-              "required": ["chips", "labels"],
+              "required": [
+                "chips",
+                "labels"
+              ],
               "properties": {
                 "chips": {
                   "type": "object",
-                  "required": ["href"],
+                  "required": [
+                    "href"
+                  ],
                   "properties": {
-                    "href": { "type": "string", "minLength": 1 }
+                    "href": {
+                      "type": "string",
+                      "minLength": 1
+                    }
                   }
                 },
                 "labels": {
                   "type": "object",
-                  "required": ["href"],
+                  "required": [
+                    "href"
+                  ],
                   "properties": {
-                    "href": { "type": "string", "minLength": 1 }
+                    "href": {
+                      "type": "string",
+                      "minLength": 1
+                    }
                   }
                 },
                 "download": {
                   "type": "object",
-                  "required": ["href"],
+                  "required": [
+                    "href"
+                  ],
                   "properties": {
-                    "href": { "type": "string", "minLength": 1 }
+                    "href": {
+                      "type": "string",
+                      "minLength": 1
+                    }
                   }
                 },
                 "thumbnail": {
                   "type": "object",
-                  "required": ["href"],
+                  "required": [
+                    "href"
+                  ],
                   "properties": {
-                    "href": { "type": "string", "minLength": 1 }
+                    "href": {
+                      "type": "string",
+                      "minLength": 1
+                    }
                   }
                 }
               }
@@ -72,12 +105,14 @@
   "definitions": {
     "stac_extensions": {
       "type": "object",
-      "required": ["stac_extensions"],
+      "required": [
+        "stac_extensions"
+      ],
       "properties": {
         "stac_extensions": {
           "type": "array",
           "contains": {
-            "const": "https://hotosm.github.io/fAIr-models/v1.0.0/dataset/schema.json"
+            "const": "https://hotosm.github.io/fAIr-models/schemas/v1.0.0/dataset/schema.json"
           }
         }
       }
@@ -85,57 +120,104 @@
     "fields": {
       "type": "object",
       "properties": {
-        "fair:user_id": { "type": "string", "minLength": 1 },
-        "fair:chip_count": { "type": "integer", "minimum": 1 },
-        "fair:source_imagery": { "type": "string" },
+        "fair:user_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "fair:chip_count": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "fair:source_imagery": {
+          "type": "string"
+        },
         "label:type": {
           "type": "string",
-          "enum": ["vector", "raster"]
+          "enum": [
+            "vector",
+            "raster"
+          ]
         },
         "label:tasks": {
           "type": "array",
-          "items": { "type": "string" }
+          "items": {
+            "type": "string"
+          }
         },
         "label:classes": {
           "type": "array",
           "items": {
             "type": "object",
-            "required": ["name", "classes"],
+            "required": [
+              "name",
+              "classes"
+            ],
             "properties": {
-              "name": { "type": ["string", "null"] },
+              "name": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
               "classes": {
                 "type": "array",
                 "items": {
-                  "type": ["string", "number"]
+                  "type": [
+                    "string",
+                    "number"
+                  ]
                 }
               }
             }
           }
         },
-        "label:description": { "type": "string" },
+        "label:description": {
+          "type": "string"
+        },
         "label:methods": {
           "type": "array",
-          "items": { "type": "string" }
+          "items": {
+            "type": "string"
+          }
         },
         "keywords": {
           "type": "array",
-          "items": { "type": "string" }
+          "items": {
+            "type": "string"
+          }
         },
-        "version": { "type": "string", "minLength": 1 },
-        "deprecated": { "type": "boolean" },
-        "license": { "type": "string" },
+        "version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "deprecated": {
+          "type": "boolean"
+        },
+        "license": {
+          "type": "string"
+        },
         "providers": {
           "type": "array",
           "items": {
             "type": "object",
-            "required": ["name", "roles"],
+            "required": [
+              "name",
+              "roles"
+            ],
             "properties": {
-              "name": { "type": "string" },
+              "name": {
+                "type": "string"
+              },
               "roles": {
                 "type": "array",
-                "items": { "type": "string" }
+                "items": {
+                  "type": "string"
+                }
               },
-              "url": { "type": "string", "format": "uri" }
+              "url": {
+                "type": "string",
+                "format": "uri"
+              }
             }
           }
         }

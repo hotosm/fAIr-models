@@ -7,7 +7,7 @@
         "https://stac-extensions.github.io/classification/v2.0.0/schema.json",
         "https://stac-extensions.github.io/file/v2.1.0/schema.json",
         "https://stac-extensions.github.io/raster/v1.1.0/schema.json",
-        "https://hotosm.github.io/fAIr-models/v1.0.0/base-model/schema.json"
+        "https://hotosm.github.io/fAIr-models/schemas/v1.0.0/base-model/schema.json"
     ],
     "id": "resnet18-classification",
     "geometry": {
@@ -261,7 +261,10 @@
                 "key": "scheduler",
                 "type": "str",
                 "default": "cosine",
-                "values": ["cosine", "none"],
+                "values": [
+                    "cosine",
+                    "none"
+                ],
                 "description": "Learning rate scheduler applied per epoch"
             },
             {

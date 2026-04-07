@@ -41,7 +41,7 @@ jobs:
         run: uv sync --group docs
 
       - name: Copy schemas to docs
-        run: cp -r fair/schemas/v* docs/
+        run: cp -r fair/schemas/v* docs/schemas/
 
       - name: Build docs
         run: uv run zensical build

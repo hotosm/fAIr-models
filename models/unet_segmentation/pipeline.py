@@ -207,7 +207,7 @@ def train_model(
         device = _get_device()
         model = unet(weights=_resolve_weights(base_model_weights), classes=num_classes)
         model.to(device)
-        for param in model.encoder.parameters():  # ty: ignore[unresolved-attribute]
+        for param in model.encoder.parameters():
             param.requires_grad = False
         loader = _build_dataset(
             dataset_chips,

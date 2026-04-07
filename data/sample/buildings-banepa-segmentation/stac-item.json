@@ -5,22 +5,42 @@
         "https://stac-extensions.github.io/label/v1.0.1/schema.json",
         "https://stac-extensions.github.io/file/v2.1.0/schema.json",
         "https://stac-extensions.github.io/version/v1.2.0/schema.json",
-        "https://hotosm.github.io/fAIr-models/v1.0.0/dataset/schema.json"
+        "https://hotosm.github.io/fAIr-models/schemas/v1.0.0/dataset/schema.json"
     ],
     "id": "buildings-banepa-segmentation",
     "geometry": {
         "type": "Polygon",
         "coordinates": [
             [
-                [85.518782, 27.629193],
-                [85.523263, 27.629193],
-                [85.523263, 27.634351],
-                [85.518782, 27.634351],
-                [85.518782, 27.629193]
+                [
+                    85.518782,
+                    27.629193
+                ],
+                [
+                    85.523263,
+                    27.629193
+                ],
+                [
+                    85.523263,
+                    27.634351
+                ],
+                [
+                    85.518782,
+                    27.634351
+                ],
+                [
+                    85.518782,
+                    27.629193
+                ]
             ]
         ]
     },
-    "bbox": [85.518782, 27.629193, 85.523263, 27.634351],
+    "bbox": [
+        85.518782,
+        27.629193,
+        85.523263,
+        27.634351
+    ],
     "properties": {
         "datetime": "2024-01-01T00:00:00Z",
         "created": "2024-01-01T00:00:00Z",
@@ -28,12 +48,29 @@
         "title": "buildings-banepa-segmentation",
         "description": "OpenAerialMap chips with OSM building footprints for Banepa, Nepal.",
         "label:type": "vector",
-        "label:tasks": ["segmentation"],
-        "label:classes": [{"name": "building", "classes": ["yes"]}],
-        "label:properties": ["building"],
+        "label:tasks": [
+            "segmentation"
+        ],
+        "label:classes": [
+            {
+                "name": "building",
+                "classes": [
+                    "yes"
+                ]
+            }
+        ],
+        "label:properties": [
+            "building"
+        ],
         "label:description": "Building footprints manually labeled from OpenAerialMap imagery",
-        "label:methods": ["manual"],
-        "keywords": ["building", "semantic-segmentation", "polygon"],
+        "label:methods": [
+            "manual"
+        ],
+        "keywords": [
+            "building",
+            "semantic-segmentation",
+            "polygon"
+        ],
         "fair:user_id": "anonymous",
         "version": "1",
         "deprecated": false,
@@ -41,7 +78,10 @@
         "providers": [
             {
                 "name": "HOTOSM",
-                "roles": ["producer", "licensor"],
+                "roles": [
+                    "producer",
+                    "licensor"
+                ],
                 "url": "https://www.hotosm.org"
             }
         ]
@@ -50,13 +90,17 @@
         "chips": {
             "href": "../train/oam",
             "type": "image/tiff; application=geotiff",
-            "roles": ["data"],
+            "roles": [
+                "data"
+            ],
             "title": "Training chips"
         },
         "labels": {
             "href": "../train/osm",
             "type": "application/geo+json",
-            "roles": ["labels"],
+            "roles": [
+                "labels"
+            ],
             "title": "OSM building footprints (GeoJSON)"
         }
     },

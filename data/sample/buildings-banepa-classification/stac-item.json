@@ -4,7 +4,8 @@
     "stac_extensions": [
         "https://stac-extensions.github.io/label/v1.0.1/schema.json",
         "https://stac-extensions.github.io/file/v2.1.0/schema.json",
-        "https://stac-extensions.github.io/version/v1.2.0/schema.json"
+        "https://stac-extensions.github.io/version/v1.2.0/schema.json",
+        "https://hotosm.github.io/fAIr-models/v1.0.0/dataset/schema.json"
     ],
     "id": "buildings-banepa-classification",
     "geometry": {
@@ -22,14 +23,20 @@
     "bbox": [85.518782, 27.629193, 85.523263, 27.634351],
     "properties": {
         "datetime": "2024-01-01T00:00:00Z",
+        "created": "2024-01-01T00:00:00Z",
+        "updated": "2024-01-01T00:00:00Z",
         "title": "buildings-banepa-classification",
         "description": "Binary classification labels (building/no_building) derived from the Banepa OAM+OSM segmentation dataset.",
         "label:type": "raster",
         "label:tasks": ["classification"],
-        "label:classes": [{"name": "building", "classes": ["building", "no_building"]}],
+        "label:classes": [{"name": null, "classes": ["building"]}],
+        "label:properties": null,
         "label:description": "Binary building labels derived from segmentation masks",
         "label:methods": ["automated"],
         "keywords": ["building", "classification", "polygon"],
+        "fair:user_id": "anonymous",
+        "version": "1",
+        "deprecated": false,
         "license": "CC-BY-4.0",
         "providers": [
             {

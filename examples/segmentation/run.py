@@ -1,12 +1,14 @@
+import os
+
 from fair.client import FairClient
 
 client = FairClient(
-    zenml_store_url=None,
-    stac_api_url=None,
-    dsn=None,
-    user_id="anonymous",
+    zenml_store_url=os.environ.get("FAIR_ZENML_STORE_URL"),
+    stac_api_url=os.environ.get("FAIR_STAC_API_URL"),
+    dsn=os.environ.get("FAIR_DSN"),
+    user_id=os.environ.get("FAIR_USER_ID", "anonymous"),
     config_dir="examples/segmentation/config",
-    upload_artifacts=False,
+    upload_artifacts=os.environ.get("FAIR_UPLOAD_ARTIFACTS", "").lower() == "true",
 )
 
 if __name__ == "__main__":

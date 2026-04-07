@@ -32,7 +32,6 @@ def cm(tmp_path) -> StacCatalogManager:
 def _base_model_item() -> pystac.Item:
     return build_base_model_item(
         item_id="example-unet",
-        dt=datetime(2024, 1, 1, tzinfo=UTC),
         geometry={"type": "Polygon", "coordinates": [[[0, 0], [1, 0], [1, 1], [0, 1], [0, 0]]]},
         mlm_name="example-unet",
         mlm_architecture="UNet",
@@ -60,7 +59,6 @@ def _base_model_item() -> pystac.Item:
 def _dataset_item() -> pystac.Item:
     return build_dataset_item(
         item_id="dataset-fixed-uuid",
-        dt=datetime(2024, 1, 1, tzinfo=UTC),
         label_type="vector",
         label_tasks=["segmentation"],
         label_classes=[{"name": "building", "classes": ["building"]}],
@@ -194,7 +192,7 @@ def test_publish_stores_artifact_metadata(mock_cls, cm):
     client.get_model_version.return_value = mv
     item = _publish(cm, version=1)
     model_asset = item.assets["model"]
-    assert model_asset.href == "s3://artifact-store/model/output/abc123"
+    assert model_asset.href == "https://artifact-store.s3.us-east-1.amazonaws.com/model/output/abc123"
     assert model_asset.extra_fields["zenml:artifact_version_id"] == "artifact-version-uuid-001"
 
 

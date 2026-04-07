@@ -66,6 +66,7 @@ nav:
   - Reference:
       - reference/index.md
       - STAC: reference/stac.md
+      - Schemas: reference/schemas.md
       - Utilities: reference/utils.md
       - ZenML Integration: reference/zenml.md
   - Changelog: changelog.md

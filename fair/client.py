@@ -4,7 +4,6 @@ import dataclasses
 import importlib
 import subprocess
 import sys
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -22,7 +21,7 @@ from fair.stac.builders import (
 from fair.stac.catalog_manager import StacCatalogManager
 from fair.stac.collections import initialize_catalog
 from fair.stac.constants import BASE_MODELS_COLLECTION, DATASETS_COLLECTION, LOCAL_MODELS_COLLECTION
-from fair.stac.validators import validate_compatibility, validate_mlm_schema
+from fair.stac.validators import validate_compatibility, validate_item
 from fair.stac.versioning import archive_previous_version, find_previous_active_item
 from fair.utils.data import count_chips, create_dataset_archive, upload_item_assets, upload_local_directory
 from fair.zenml.config import generate_inference_config, generate_training_config
@@ -108,9 +107,22 @@ class FairClient:
             item = pystac.Item.from_file(stac_item)
         else:
             item = build_base_model_item(**dataclasses.asdict(stac_item))
-        if errs := validate_mlm_schema(item):
-            raise FairClientError(f"MLM schema invalid: {errs}")
+        if errs := validate_item(item):
+            raise FairClientError(f"Schema validation failed: {errs}")
+
+        prev = find_previous_active_item(cat, BASE_MODELS_COLLECTION, "mlm:name", item.properties.get("mlm:name"))
+        if prev:
+            version = str(int(prev.properties["version"]) + 1)
+            item.properties["version"] = version
+        else:
+            item.properties.setdefault("version", "1")
+
         self._upload_assets_if_remote(item, BASE_MODELS_COLLECTION)
+
+        if prev:
+            successor_href = cat.item_href(BASE_MODELS_COLLECTION, item.id)
+            archive_previous_version(cat, BASE_MODELS_COLLECTION, prev, successor_href)
+
         published = cat.publish_item(BASE_MODELS_COLLECTION, item)
         print(f"register: base-model {published.id} v{published.properties['version']}")
         return published.id
@@ -138,6 +150,7 @@ class FairClient:
         label_classes = props.get("label:classes", [])
         keywords = props.get("keywords", [])
 
+        label_properties = props.get("label:properties")
         source_imagery_href = next((lnk.get_href() for lnk in item.links if lnk.rel == "source"), None)
 
         chip_count = count_chips(chips_href)
@@ -152,7 +165,6 @@ class FairClient:
         create_dataset_archive(chips_dir=chips_href, labels_dir=labels_dir_str, output_path=str(archive_path))
 
         dataset_item = build_dataset_item(
-            dt=datetime.now(UTC),
             label_type=label_type,
             label_tasks=label_tasks,
             label_classes=label_classes,
@@ -169,12 +181,16 @@ class FairClient:
             version=version,
             license_id=props.get("license"),
             providers=props.get("providers"),
+            label_properties=label_properties,
             label_description=props.get("label:description"),
             label_methods=props.get("label:methods"),
             source_imagery_href=source_imagery_href,
             predecessor_version_href=predecessor_href,
             download_href=str(archive_path),
         )
+
+        if errs := validate_item(dataset_item):
+            raise FairClientError(f"Schema validation failed: {errs}")
 
         self._upload_assets_if_remote(dataset_item, DATASETS_COLLECTION)
 
@@ -212,6 +228,9 @@ class FairClient:
             download_href=str(archive_path),
         )
         dataset_item = build_dataset_item(**fields)
+
+        if errs := validate_item(dataset_item):
+            raise FairClientError(f"Schema validation failed: {errs}")
 
         self._upload_assets_if_remote(dataset_item, DATASETS_COLLECTION)
 

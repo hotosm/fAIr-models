@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-from datetime import UTC, datetime
 from typing import Annotated, Any
 
 import pystac
@@ -134,7 +133,6 @@ def publish_promoted_model(
     item = build_local_model_item(
         base_model_item=base_model_item,
         item_id=new_item_id,
-        dt=datetime.now(UTC),
         model_href=model_href,
         mlm_hyperparameters=hyperparams,
         keywords=kw,

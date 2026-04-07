@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import os
+from datetime import UTC, datetime
 
 import pystac
 from pystac import CatalogType
@@ -47,6 +48,7 @@ class StacCatalogManager:
         else:
             item.properties.setdefault("version", "1")
 
+        item.properties["updated"] = datetime.now(UTC).isoformat()
         self._make_asset_hrefs_absolute(item)
         self._ensure_version_links(collection_id, item)
         collection.add_item(item)

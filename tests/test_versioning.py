@@ -17,11 +17,8 @@ _BBOX = [85.51, 27.63, 85.53, 27.64]
 
 
 def _make_dataset(item_id: str, version: str = "1", deprecated: bool = False) -> pystac.Item:
-    from datetime import UTC, datetime
-
     return build_dataset_item(
         item_id=item_id,
-        dt=datetime(2024, 1, 1, tzinfo=UTC),
         label_type="vector",
         label_tasks=["segmentation"],
         label_classes=[],

@@ -6,8 +6,6 @@ then verify the link chain integrity and archived item state.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
-
 import pystac
 import pytest
 
@@ -26,7 +24,6 @@ _BBOX = [85.51, 27.63, 85.53, 27.64]
 
 def _make_dataset(title: str, version: str = "1") -> pystac.Item:
     return build_dataset_item(
-        dt=datetime(2024, 1, 1, tzinfo=UTC),
         label_type="vector",
         label_tasks=["segmentation"],
         label_classes=[],

@@ -6,7 +6,8 @@
         "https://stac-extensions.github.io/version/v1.2.0/schema.json",
         "https://stac-extensions.github.io/classification/v2.0.0/schema.json",
         "https://stac-extensions.github.io/file/v2.1.0/schema.json",
-        "https://stac-extensions.github.io/raster/v1.1.0/schema.json"
+        "https://stac-extensions.github.io/raster/v1.1.0/schema.json",
+        "https://hotosm.github.io/fAIr-models/v1.0.0/base-model/schema.json"
     ],
     "id": "yolo11n-detection",
     "geometry": {
@@ -44,6 +45,8 @@
     ],
     "properties": {
         "datetime": "2024-01-01T00:00:00Z",
+        "created": "2024-01-01T00:00:00Z",
+        "updated": "2024-01-01T00:00:00Z",
         "title": "YOLOv11n Building Detection",
         "description": "YOLOv11 nano object detection model for building bounding box extraction from aerial imagery. Pretrained on COCO via Ultralytics, intended for finetuning on OAM + OSM derived detection labels.",
         "mlm:name": "yolo11n-detection",

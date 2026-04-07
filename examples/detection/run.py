@@ -1,12 +1,14 @@
+import os
+
 from fair.client import FairClient
 
 client = FairClient(
-    zenml_store_url=None,
-    stac_api_url=None,
-    dsn=None,
-    user_id="anonymous",
+    zenml_store_url=os.environ.get("FAIR_ZENML_STORE_URL"),
+    stac_api_url=os.environ.get("FAIR_STAC_API_URL"),
+    dsn=os.environ.get("FAIR_DSN"),
+    user_id=os.environ.get("FAIR_USER_ID", "anonymous"),
     config_dir="examples/detection/config",
-    upload_artifacts=False,
+    upload_artifacts=os.environ.get("FAIR_UPLOAD_ARTIFACTS", "").lower() == "true",
 )
 
 if __name__ == "__main__":
@@ -24,7 +26,7 @@ if __name__ == "__main__":
         base_model_id=base_model_id,
         dataset_id=dataset_id,
         model_name="yolo11n-detection-finetuned-banepa",
-        overrides={"learning_rate": 0.01, "batch_size": 8, "chip_size": 640},
+        overrides={"learning_rate": 0.01, "batch_size": 2, "chip_size": 640},
     )
 
     local_model_id = client.promote(

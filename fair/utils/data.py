@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import tempfile
 import zipfile
 from pathlib import Path
@@ -43,6 +44,23 @@ def s3_uri_to_http_url(s3_uri: str) -> str:
         return f"{endpoint}/{bucket}/{key}"
     region = os.environ.get("AWS_REGION", os.environ.get("AWS_DEFAULT_REGION", "us-east-1"))
     return f"https://{bucket}.s3.{region}.amazonaws.com/{key}"
+
+
+def http_url_to_s3_uri(url: str) -> str:
+    parsed = urlparse(url)
+    if parsed.scheme not in ("http", "https"):
+        return url
+    endpoint = os.environ.get("AWS_ENDPOINT_URL", "").rstrip("/")
+    if endpoint:
+        endpoint_parsed = urlparse(endpoint)
+        if parsed.hostname == endpoint_parsed.hostname:
+            path_parts = parsed.path.lstrip("/").split("/", 1)
+            if len(path_parts) == 2:
+                return f"s3://{path_parts[0]}/{path_parts[1]}"
+    s3_match = re.match(r"^https?://(.+?)\.s3\.(.+?)\.amazonaws\.com/(.+)$", url)
+    if s3_match:
+        return f"s3://{s3_match.group(1)}/{s3_match.group(3)}"
+    return url
 
 
 def list_files(href: str, pattern: str = "*") -> list[str]:

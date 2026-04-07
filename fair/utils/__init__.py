@@ -5,6 +5,20 @@ import atexit
 
 
 def install_s3_cleanup_handler() -> None:
+    """Work around s3fs/aiobotocore double-close at interpreter shutdown.
+
+    aiobotocore 3.x (PR #1402) added a non-idempotent assert in
+    AIOHTTPSession.__aexit__. s3fs registers a weakref finalizer that
+    can trigger __aexit__ a second time at process exit, raising
+    "Session was never entered". This installs two mitigations:
+
+    1. An atexit handler that eagerly clears the fsspec instance cache.
+    2. An asyncio exception handler that silences only this specific error.
+
+    References:
+        https://github.com/fsspec/s3fs/issues/1001
+        https://github.com/aio-libs/aiobotocore/pull/1402
+    """
 
     def _suppress_session_cleanup(
         loop: asyncio.AbstractEventLoop,

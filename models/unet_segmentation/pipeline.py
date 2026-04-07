@@ -1,3 +1,9 @@
+"""ZenML pipeline for UNet building segmentation.
+
+Entrypoints referenced by models/unet_segmentation/stac-item.json.
+Pretrained weights: OAM-TCD (arxiv.org/abs/2407.11743).
+"""
+
 from pathlib import Path
 from typing import Annotated, Any
 

@@ -1,4 +1,4 @@
-from fair.client import DatasetConfig, FairClient
+from fair.client import FairClient
 
 client = FairClient(
     zenml_store_url=None,
@@ -17,24 +17,7 @@ if __name__ == "__main__":
 
     base_model_id = client.register_base_model("models/unet_segmentation/stac-item.json")
 
-    dataset_id = client.register_dataset(
-        DatasetConfig(
-            title="buildings-banepa",
-            description="OpenAerialMap chips with OSM building footprints for Banepa, Nepal.",
-            label_type="vector",
-            label_tasks=["segmentation"],
-            label_classes=[{"name": "building", "classes": ["building"]}],
-            keywords=["building", "semantic-segmentation", "polygon"],
-            train_chips_path="data/sample/train/oam",
-            train_labels_path="data/sample/train/osm",
-            predict_images_path="data/sample/predict/oam",
-            labels_pattern="*.geojson",
-            source_imagery_href=(
-                "https://tiles.openaerialmap.org/62d85d11d8499800053796c1/0/62d85d11d8499800053796c2/{z}/{x}/{y}"
-            ),
-            label_description="Building footprints manually labeled from OpenAerialMap imagery",
-        )
-    )
+    dataset_id = client.register_dataset("data/sample/buildings-banepa/stac-item.json")
 
     finetuned_model_id = client.finetune(
         base_model_id=base_model_id,

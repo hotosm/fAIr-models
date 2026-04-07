@@ -1,4 +1,4 @@
-from fair.client import DatasetConfig, FairClient
+from fair.client import FairClient
 
 client = FairClient(
     zenml_store_url=None,
@@ -17,24 +17,7 @@ if __name__ == "__main__":
 
     base_model_id = client.register_base_model("models/yolo11n_detection/stac-item.json")
 
-    dataset_id = client.register_dataset(
-        DatasetConfig(
-            title="buildings-banepa-detection",
-            description=("COCO-format building detection labels derived from the Banepa OAM+OSM segmentation dataset."),
-            label_type="vector",
-            label_tasks=["object-detection"],
-            label_classes=[{"name": "building", "classes": ["building"]}],
-            keywords=["building", "object-detection", "polygon"],
-            train_chips_path="data/sample/train/oam",
-            train_labels_path="data/sample/train/detection_labels.json",
-            predict_images_path="data/sample/predict/oam",
-            source_imagery_href=(
-                "https://tiles.openaerialmap.org/62d85d11d8499800053796c1/0/62d85d11d8499800053796c2/{z}/{x}/{y}"
-            ),
-            label_description="Building detection labels in COCO format derived from segmentation masks",
-            label_methods=["automated"],
-        )
-    )
+    dataset_id = client.register_dataset("data/sample/buildings-banepa-detection/stac-item.json")
 
     finetuned_model_id = client.finetune(
         base_model_id=base_model_id,

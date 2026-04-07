@@ -1,0 +1,64 @@
+{
+    "type": "Feature",
+    "stac_version": "1.1.0",
+    "stac_extensions": [
+        "https://stac-extensions.github.io/label/v1.0.1/schema.json",
+        "https://stac-extensions.github.io/file/v2.1.0/schema.json",
+        "https://stac-extensions.github.io/version/v1.2.0/schema.json"
+    ],
+    "id": "buildings-banepa-detection",
+    "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+            [
+                [85.518782, 27.629193],
+                [85.523263, 27.629193],
+                [85.523263, 27.634351],
+                [85.518782, 27.634351],
+                [85.518782, 27.629193]
+            ]
+        ]
+    },
+    "bbox": [85.518782, 27.629193, 85.523263, 27.634351],
+    "properties": {
+        "datetime": "2024-01-01T00:00:00Z",
+        "title": "buildings-banepa-detection",
+        "description": "COCO-format building detection labels derived from the Banepa OAM+OSM segmentation dataset.",
+        "label:type": "vector",
+        "label:tasks": ["object-detection"],
+        "label:classes": [{"name": "building", "classes": ["building"]}],
+        "label:description": "Building detection labels in COCO format derived from segmentation masks",
+        "label:methods": ["automated"],
+        "keywords": ["building", "object-detection", "polygon"],
+        "license": "CC-BY-4.0",
+        "providers": [
+            {
+                "name": "HOTOSM",
+                "roles": ["producer", "licensor"],
+                "url": "https://www.hotosm.org"
+            }
+        ]
+    },
+    "assets": {
+        "chips": {
+            "href": "../train/oam",
+            "type": "image/tiff; application=geotiff",
+            "roles": ["data"],
+            "title": "Training chips"
+        },
+        "labels": {
+            "href": "../train/detection_labels.json",
+            "type": "application/geo+json",
+            "roles": ["labels"],
+            "title": "COCO building detection labels"
+        }
+    },
+    "links": [
+        {
+            "rel": "source",
+            "href": "https://tiles.openaerialmap.org/62d85d11d8499800053796c1/0/62d85d11d8499800053796c2/{z}/{x}/{y}",
+            "type": "image/tiff; application=geotiff",
+            "title": "Source OAM imagery"
+        }
+    ]
+}

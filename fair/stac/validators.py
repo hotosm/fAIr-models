@@ -202,7 +202,6 @@ def validate_predictions_geojson(
     geojson: dict,
     base_model_item: pystac.Item | None = None,
 ) -> list[str]:
-    """Validate that a predictions dict is a valid GeoJSON FeatureCollection."""
     errors: list[str] = []
     if geojson.get("type") != "FeatureCollection":
         errors.append(f"Expected type='FeatureCollection', got '{geojson.get('type')}'")
@@ -256,7 +255,6 @@ def validate_metrics_against_spec(
     metrics: dict,
     base_model_item: pystac.Item,
 ) -> list[str]:
-    """Check that returned metrics include all names declared in fair:metrics_spec."""
     errors: list[str] = []
     spec = base_model_item.properties.get("fair:metrics_spec", [])
     for entry in spec:
@@ -278,7 +276,6 @@ def validate_hyperparameters(
     hyperparameters: dict,
     base_model_item: pystac.Item,
 ) -> list[str]:
-    """Validate hyperparameters against fair:hyperparameters_spec from a base model item."""
     errors: list[str] = []
     spec = base_model_item.properties.get("fair:hyperparameters_spec", [])
     if not spec:

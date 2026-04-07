@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import dataclasses
 import importlib
 import subprocess
+import sys
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -11,7 +13,12 @@ import yaml
 from zenml.client import Client
 from zenml.enums import StackComponentType
 
-from fair.stac.builders import build_dataset_item, geometry_and_bbox_from_geojson
+from fair.stac.builders import (
+    BaseModelItemParams,
+    DatasetItemParams,
+    build_base_model_item,
+    build_dataset_item,
+)
 from fair.stac.catalog_manager import StacCatalogManager
 from fair.stac.collections import initialize_catalog
 from fair.stac.constants import BASE_MODELS_COLLECTION, DATASETS_COLLECTION, LOCAL_MODELS_COLLECTION
@@ -20,7 +27,6 @@ from fair.stac.versioning import archive_previous_version, find_previous_active_
 from fair.utils.data import count_chips, create_dataset_archive
 from fair.zenml.config import generate_inference_config, generate_training_config
 from fair.zenml.promotion import promote_model_version, publish_promoted_model
-from fair.zenml.runner import DatasetConfig
 
 if TYPE_CHECKING:
     from fair.stac.pgstac_backend import PgStacBackend
@@ -59,18 +65,6 @@ class FairClient:
             return PgStacBackend(dsn=self._dsn, stac_api_url=self._stac_api_url)
         return StacCatalogManager(self._catalog_path)
 
-    def _resolve_labels(self, dataset: DatasetConfig) -> tuple[str, str]:
-        if dataset.labels_pattern:
-            label_dir = Path(dataset.train_labels_path)
-            matches = sorted(label_dir.glob(dataset.labels_pattern))
-            if not matches:
-                raise FairClientError(f"No files matching '{dataset.labels_pattern}' in {label_dir}")
-            return str(matches[0]), str(matches[0].parent)
-        labels_path = Path(dataset.train_labels_path)
-        if not labels_path.exists():
-            raise FairClientError(f"Labels not found at {dataset.train_labels_path}")
-        return str(labels_path), str(labels_path.parent)
-
     def _pipeline_module_from_item(self, item: pystac.Item) -> str:
         src = item.assets.get("source-code")
         if src is None:
@@ -82,69 +76,82 @@ class FairClient:
         return module
 
     def setup(self) -> None:
-        subprocess.run(["zenml", "init"], check=True, capture_output=True)
+        zenml_bin = Path(sys.executable).parent / "zenml"
+        subprocess.run([str(zenml_bin), "init"], check=True, capture_output=True)
         Path("artifacts").mkdir(exist_ok=True)
         if not self._stac_api_url:
             initialize_catalog(self._catalog_path)
         print("setup: ok")
 
-    def register_base_model(self, stac_item_path: str) -> str:
+    def register_base_model(self, stac_item: str | BaseModelItemParams) -> str:
         cat = self._get_backend()
-        item = pystac.Item.from_file(stac_item_path)
+        if isinstance(stac_item, str):
+            item = pystac.Item.from_file(stac_item)
+        else:
+            item = build_base_model_item(**dataclasses.asdict(stac_item))
         if errs := validate_mlm_schema(item):
             raise FairClientError(f"MLM schema invalid: {errs}")
         published = cat.publish_item(BASE_MODELS_COLLECTION, item)
         print(f"register: base-model {published.id} v{published.properties['version']}")
         return published.id
 
-    def register_dataset(
-        self,
-        dataset: DatasetConfig,
-        *,
-        geojson_dir: str | None = None,
-    ) -> str:
+    def _register_dataset_from_item(self, stac_item_path: str) -> str:
         cat = self._get_backend()
-        labels_path_str, labels_dir_str = self._resolve_labels(dataset)
+        item = pystac.Item.from_file(stac_item_path)
+        item.make_asset_hrefs_absolute()
 
-        gj_dir = geojson_dir or dataset.geojson_dir
-        geojson_files = sorted(Path(gj_dir).glob("*.geojson"))
-        if not geojson_files:
-            raise FairClientError(f"No .geojson boundary files in {gj_dir}")
-        geometry, bbox = geometry_and_bbox_from_geojson(str(geojson_files[0]))
+        chips_asset = item.assets.get("chips")
+        labels_asset = item.assets.get("labels")
+        if chips_asset is None:
+            raise FairClientError(f"Dataset item '{item.id}' has no 'chips' asset")
+        if labels_asset is None:
+            raise FairClientError(f"Dataset item '{item.id}' has no 'labels' asset")
 
-        chip_count = count_chips(dataset.train_chips_path)
-        prev = find_previous_active_item(cat, DATASETS_COLLECTION, "title", dataset.title)
+        chips_href = chips_asset.href
+        labels_href = labels_asset.href
+
+        props = item.properties
+        title = props.get("title", item.id)
+        description = props.get("description", "")
+        label_type = props.get("label:type", "vector")
+        label_tasks = props.get("label:tasks", [])
+        label_classes = props.get("label:classes", [])
+        keywords = props.get("keywords", [])
+
+        source_imagery_href = next((lnk.get_href() for lnk in item.links if lnk.rel == "source"), None)
+
+        chip_count = count_chips(chips_href)
+        prev = find_previous_active_item(cat, DATASETS_COLLECTION, "title", title)
         version = str(int(prev.properties["version"]) + 1) if prev else "1"
         predecessor_href = cat.item_href(DATASETS_COLLECTION, prev.id) if prev else None
 
         Path("artifacts").mkdir(exist_ok=True)
-        archive_path = Path("artifacts") / f"{dataset.title}-v{version}.zip"
-        create_dataset_archive(
-            chips_dir=dataset.train_chips_path,
-            labels_dir=labels_dir_str,
-            output_path=str(archive_path),
-        )
+        archive_path = Path("artifacts") / f"{title}-v{version}.zip"
+        labels_path = Path(labels_href)
+        labels_dir_str = str(labels_path.parent) if labels_path.is_file() else labels_href
+        create_dataset_archive(chips_dir=chips_href, labels_dir=labels_dir_str, output_path=str(archive_path))
 
         dataset_item = build_dataset_item(
             dt=datetime.now(UTC),
-            label_type=dataset.label_type,
-            label_tasks=dataset.label_tasks,
-            label_classes=dataset.label_classes,
-            keywords=dataset.keywords,
-            chips_href=dataset.train_chips_path,
-            labels_href=labels_path_str,
-            title=dataset.title,
-            description=dataset.description,
+            label_type=label_type,
+            label_tasks=label_tasks,
+            label_classes=label_classes,
+            keywords=keywords,
+            chips_href=chips_href,
+            labels_href=labels_href,
+            title=title,
+            description=description,
             user_id=self.user_id,
+            item_id=item.id,
             chip_count=chip_count if chip_count > 0 else None,
-            geometry=geometry,
-            bbox=bbox,
+            geometry=item.geometry,
+            bbox=item.bbox,
             version=version,
-            license_id=dataset.license_id,
-            providers=dataset.providers,
-            label_description=dataset.label_description,
-            label_methods=dataset.label_methods,
-            source_imagery_href=dataset.source_imagery_href,
+            license_id=props.get("license"),
+            providers=props.get("providers"),
+            label_description=props.get("label:description"),
+            label_methods=props.get("label:methods"),
+            source_imagery_href=source_imagery_href,
             predecessor_version_href=predecessor_href,
             download_href=str(archive_path),
         )
@@ -156,6 +163,46 @@ class FairClient:
         published = cat.publish_item(DATASETS_COLLECTION, dataset_item)
         print(f"register: dataset {published.id} v{published.properties['version']}")
         return published.id
+
+    def _register_dataset_from_params(self, params: DatasetItemParams) -> str:
+        cat = self._get_backend()
+        title = params.title
+        chips_href = params.chips_href
+        labels_href = params.labels_href
+
+        chip_count = count_chips(chips_href)
+        prev = find_previous_active_item(cat, DATASETS_COLLECTION, "title", title)
+        version = str(int(prev.properties["version"]) + 1) if prev else "1"
+        predecessor_href = cat.item_href(DATASETS_COLLECTION, prev.id) if prev else None
+
+        Path("artifacts").mkdir(exist_ok=True)
+        archive_path = Path("artifacts") / f"{title}-v{version}.zip"
+        labels_path = Path(labels_href)
+        labels_dir_str = str(labels_path.parent) if labels_path.is_file() else labels_href
+        create_dataset_archive(chips_dir=chips_href, labels_dir=labels_dir_str, output_path=str(archive_path))
+
+        fields = dataclasses.asdict(params)
+        fields.update(
+            user_id=self.user_id,
+            chip_count=chip_count if chip_count > 0 else None,
+            version=version,
+            predecessor_version_href=predecessor_href,
+            download_href=str(archive_path),
+        )
+        dataset_item = build_dataset_item(**fields)
+
+        if prev:
+            successor_href = cat.item_href(DATASETS_COLLECTION, dataset_item.id)
+            archive_previous_version(cat, DATASETS_COLLECTION, prev, successor_href)
+
+        published = cat.publish_item(DATASETS_COLLECTION, dataset_item)
+        print(f"register: dataset {published.id} v{published.properties['version']}")
+        return published.id
+
+    def register_dataset(self, dataset: str | DatasetItemParams) -> str:
+        if isinstance(dataset, str):
+            return self._register_dataset_from_item(dataset)
+        return self._register_dataset_from_params(dataset)
 
     def finetune(
         self,

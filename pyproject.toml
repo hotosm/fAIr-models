@@ -94,6 +94,8 @@ local = [
 example = [
     "onnx>=1.21.0",
     "onnxscript>=0.6.2",
+    "pyproj>=3.7",
+    "rasterio>=1.4",
     "torch",
     "torchgeo",
     "ultralytics>=8.4.33",

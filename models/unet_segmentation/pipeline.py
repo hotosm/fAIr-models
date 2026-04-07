@@ -1,9 +1,4 @@
-"""ZenML pipeline for UNet building segmentation.
-
-Entrypoints referenced by models/unet_segmentation/stac-item.json.
-Pretrained weights: OAM-TCD (arxiv.org/abs/2407.11743).
-"""
-
+from pathlib import Path
 from typing import Annotated, Any
 
 from zenml import log_metadata, pipeline, step
@@ -86,7 +81,10 @@ def _build_dataset(
     from fair.utils.data import resolve_directory, resolve_path
 
     local_chips = str(resolve_directory(chips_path, "OAM-*"))
-    local_labels = resolve_path(labels_path)
+
+    # labels_path may be a directory (containing .geojson files) or a single file
+    labels_as_path = Path(labels_path)
+    local_labels_dir = labels_as_path if labels_as_path.is_dir() else resolve_path(labels_path).parent
 
     class _OAMDataset(RasterDataset):  # TODO : After OAM is released , replace this with OAM dataset directly
         filename_glob = "OAM-*.tif"
@@ -97,7 +95,7 @@ def _build_dataset(
     oam = _OAMDataset(paths=local_chips)
     b = oam.bounds
     bbox = (b[0].start, b[1].start, b[0].stop, b[1].stop)
-    osm = OpenStreetMap(bbox=bbox, classes=_BUILDING_CLASSES, paths=str(local_labels.parent), download=False)
+    osm = OpenStreetMap(bbox=bbox, classes=_BUILDING_CLASSES, paths=str(local_labels_dir), download=False)
     dataset = oam & osm
 
     if split == "val":

@@ -1,0 +1,356 @@
+{
+    "type": "Feature",
+    "stac_version": "1.1.0",
+    "stac_extensions": [
+        "https://stac-extensions.github.io/mlm/v1.5.1/schema.json",
+        "https://stac-extensions.github.io/version/v1.2.0/schema.json",
+        "https://stac-extensions.github.io/classification/v2.0.0/schema.json",
+        "https://stac-extensions.github.io/file/v2.1.0/schema.json",
+        "https://stac-extensions.github.io/raster/v1.1.0/schema.json",
+        "https://hotosm.github.io/fAIr-models/schemas/v1.0.0/base-model/schema.json"
+    ],
+    "id": "unet-segmentation",
+    "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+            [
+                [
+                    -180,
+                    -90
+                ],
+                [
+                    180,
+                    -90
+                ],
+                [
+                    180,
+                    90
+                ],
+                [
+                    -180,
+                    90
+                ],
+                [
+                    -180,
+                    -90
+                ]
+            ]
+        ]
+    },
+    "bbox": [
+        -180,
+        -90,
+        180,
+        90
+    ],
+    "properties": {
+        "datetime": "2024-01-01T00:00:00Z",
+        "created": "2024-01-01T00:00:00Z",
+        "updated": "2024-01-01T00:00:00Z",
+        "title": "UNet Building Segmentation",
+        "description": "UNet semantic segmentation model for building footprint extraction from very high resolution RGB aerial imagery. Pretrained on the OAM-TCD dataset (NeurIPS 2024) via torchgeo, intended for finetuning on OpenAerialMap + OpenStreetMap chip-label pairs.",
+        "mlm:name": "unet-segmentation",
+        "mlm:architecture": "UNet",
+        "mlm:tasks": [
+            "semantic-segmentation"
+        ],
+        "mlm:framework": "PyTorch",
+        "mlm:framework_version": "2.10.0",
+        "mlm:pretrained": true,
+        "mlm:pretrained_source": "https://arxiv.org/abs/2407.11743",
+        "mlm:accelerator": "amd64",
+        "mlm:accelerator_count": 1,
+        "keywords": [
+            "building",
+            "semantic-segmentation",
+            "polygon"
+        ],
+        "license": "AGPL-3.0-only",
+        "version": "1",
+        "fair:metrics_spec": [
+            {
+                "key": "fair:accuracy",
+                "name": "Pixel Accuracy",
+                "description": "Fraction of correctly classified pixels across all classes in the evaluation dataset"
+            },
+            {
+                "key": "fair:mean_iou",
+                "name": "Mean Intersection over Union (macro)",
+                "description": "Macro-averaged IoU across all output classes; each class weighted equally regardless of pixel frequency"
+            },
+            {
+                "key": "fair:per_class_iou",
+                "name": "Per-class Intersection over Union",
+                "description": "IoU for each output class, stored as an object keyed by class name from classification:classes in mlm:output"
+            }
+        ],
+        "mlm:input": [
+            {
+                "name": "RGB chips",
+                "bands": [
+                    {
+                        "name": "red"
+                    },
+                    {
+                        "name": "green"
+                    },
+                    {
+                        "name": "blue"
+                    }
+                ],
+                "input": {
+                    "shape": [
+                        -1,
+                        3,
+                        256,
+                        256
+                    ],
+                    "dim_order": [
+                        "batch",
+                        "bands",
+                        "height",
+                        "width"
+                    ],
+                    "data_type": "float32"
+                },
+                "pre_processing_function": {
+                    "format": "python",
+                    "expression": "models.unet_segmentation.pipeline:preprocess"
+                }
+            }
+        ],
+        "mlm:output": [
+            {
+                "name": "segmentation mask",
+                "tasks": [
+                    "semantic-segmentation"
+                ],
+                "result": {
+                    "shape": [
+                        -1,
+                        2,
+                        256,
+                        256
+                    ],
+                    "dim_order": [
+                        "batch",
+                        "channel",
+                        "height",
+                        "width"
+                    ],
+                    "data_type": "float32"
+                },
+                "classification:classes": [
+                    {
+                        "name": "background",
+                        "value": 0,
+                        "description": "Background pixels"
+                    },
+                    {
+                        "name": "building",
+                        "value": 1,
+                        "description": "Building footprints"
+                    }
+                ],
+                "post_processing_function": {
+                    "format": "python",
+                    "expression": "models.unet_segmentation.pipeline:postprocess"
+                },
+                "bands": []
+            }
+        ],
+        "mlm:hyperparameters": {
+            "epochs": 5,
+            "batch_size": 4,
+            "learning_rate": 0.0001,
+            "weight_decay": 0.0001,
+            "chip_size": 256,
+            "samples_per_epoch": 50,
+            "optimizer": "AdamW",
+            "loss": "CrossEntropyLoss",
+            "val_ratio": 0.2,
+            "split_seed": 42,
+            "scheduler": "cosine",
+            "max_grad_norm": 1.0
+        },
+        "fair:split_spec": {
+            "strategy": "spatial",
+            "default_ratio": 0.2,
+            "seed": 42,
+            "description": "Spatial split: RandomGeoSampler for train, GridGeoSampler for val (non-overlapping tiles)"
+        },
+        "fair:hyperparameters_spec": [
+            {
+                "key": "epochs",
+                "type": "int",
+                "default": 5,
+                "min": 1,
+                "max": 500,
+                "description": "Number of training epochs"
+            },
+            {
+                "key": "batch_size",
+                "type": "int",
+                "default": 4,
+                "min": 1,
+                "max": 128,
+                "description": "Samples per training batch"
+            },
+            {
+                "key": "learning_rate",
+                "type": "float",
+                "default": 0.0001,
+                "min": 1e-7,
+                "max": 1.0,
+                "description": "Optimizer learning rate"
+            },
+            {
+                "key": "weight_decay",
+                "type": "float",
+                "default": 0.0001,
+                "min": 0.0,
+                "max": 1.0,
+                "description": "L2 regularization weight decay"
+            },
+            {
+                "key": "chip_size",
+                "type": "int",
+                "default": 256,
+                "min": 64,
+                "max": 1024,
+                "description": "Input image chip size in pixels"
+            },
+            {
+                "key": "samples_per_epoch",
+                "type": "int",
+                "default": 50,
+                "min": 1,
+                "max": 100000,
+                "description": "Number of random samples drawn per epoch from the dataset"
+            },
+            {
+                "key": "optimizer",
+                "type": "str",
+                "default": "AdamW",
+                "values": [
+                    "AdamW",
+                    "Adam",
+                    "SGD"
+                ],
+                "description": "Optimizer algorithm"
+            },
+            {
+                "key": "loss",
+                "type": "str",
+                "default": "CrossEntropyLoss",
+                "values": [
+                    "CrossEntropyLoss",
+                    "FocalLoss"
+                ],
+                "description": "Loss function for training"
+            },
+            {
+                "key": "val_ratio",
+                "type": "float",
+                "default": 0.2,
+                "min": 0.05,
+                "max": 0.5,
+                "description": "Fraction of data held out for validation"
+            },
+            {
+                "key": "split_seed",
+                "type": "int",
+                "default": 42,
+                "min": 0,
+                "max": 2147483647,
+                "description": "Random seed for reproducible train/val split"
+            },
+            {
+                "key": "scheduler",
+                "type": "str",
+                "default": "cosine",
+                "values": [
+                    "cosine",
+                    "none"
+                ],
+                "description": "Learning rate scheduler applied per epoch"
+            },
+            {
+                "key": "max_grad_norm",
+                "type": "float",
+                "default": 1.0,
+                "min": 0.1,
+                "max": 100.0,
+                "description": "Maximum gradient norm for clipping"
+            }
+        ]
+    },
+    "assets": {
+        "model": {
+            "href": "torchgeo.models.Unet_Weights.OAM_RGB_RESNET34_TCD",
+            "title": "Pretrained weights (torchgeo enum reference, not a URL)",
+            "type": "application/octet-stream; framework=pytorch",
+            "roles": [
+                "mlm:model"
+            ],
+            "mlm:artifact_type": "torch.save",
+            "raster:bands": [
+                {
+                    "name": "red"
+                },
+                {
+                    "name": "green"
+                },
+                {
+                    "name": "blue"
+                }
+            ]
+        },
+        "source-code": {
+            "href": "https://github.com/hotosm/fAIr-models/tree/main/models/unet_segmentation",
+            "type": "text/html",
+            "roles": [
+                "code"
+            ],
+            "mlm:entrypoint": "models.unet_segmentation.pipeline:training_pipeline"
+        },
+        "mlm:training": {
+            "href": "ghcr.io/hotosm/fair-models/unet_segmentation:latest",
+            "type": "application/vnd.oci.image.index.v1+json",
+            "title": "Training Docker Image",
+            "roles": [
+                "mlm:training-runtime"
+            ]
+        },
+        "mlm:inference": {
+            "href": "ghcr.io/hotosm/fair-models/unet_segmentation:latest",
+            "type": "application/vnd.oci.image.index.v1+json",
+            "title": "Inference Docker Image",
+            "roles": [
+                "mlm:inference-runtime"
+            ]
+        },
+        "readme": {
+            "href": "https://raw.githubusercontent.com/hotosm/fAIr-models/refs/heads/main/models/unet_segmentation/README.md",
+            "type": "text/markdown",
+            "roles": [
+                "metadata"
+            ],
+            "title": "Model README"
+        }
+    },
+    "links": [
+        {
+            "rel": "license",
+            "href": "https://www.gnu.org/licenses/agpl-3.0.html",
+            "type": "text/html",
+            "title": "GNU Affero General Public License v3.0"
+        },
+        {
+            "rel": "cite-as",
+            "href": "https://arxiv.org/abs/2407.11743",
+            "type": "text/html",
+            "title": "OAM-TCD Pretrained Weights (NeurIPS 2024)"
+        }
+    ]
+}

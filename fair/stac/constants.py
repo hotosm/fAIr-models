@@ -7,9 +7,33 @@ FILE_SCHEMA = "https://stac-extensions.github.io/file/v2.1.0/schema.json"
 LABEL_SCHEMA = "https://stac-extensions.github.io/label/v1.0.1/schema.json"
 RASTER_SCHEMA = "https://stac-extensions.github.io/raster/v1.1.0/schema.json"
 
-MODEL_EXTENSIONS = [MLM_SCHEMA, VERSION_SCHEMA, CLASSIFICATION_SCHEMA, FILE_SCHEMA, RASTER_SCHEMA]
-DATASET_EXTENSIONS = [LABEL_SCHEMA, FILE_SCHEMA]
+FAIR_BASE_MODEL_SCHEMA = "https://hotosm.github.io/fAIr-models/schemas/v1.0.0/base-model/schema.json"
+FAIR_LOCAL_MODEL_SCHEMA = "https://hotosm.github.io/fAIr-models/schemas/v1.0.0/local-model/schema.json"
+FAIR_DATASET_SCHEMA = "https://hotosm.github.io/fAIr-models/schemas/v1.0.0/dataset/schema.json"
+
+BASE_MODEL_EXTENSIONS = [
+    MLM_SCHEMA,
+    VERSION_SCHEMA,
+    CLASSIFICATION_SCHEMA,
+    FILE_SCHEMA,
+    RASTER_SCHEMA,
+    FAIR_BASE_MODEL_SCHEMA,
+]
+LOCAL_MODEL_EXTENSIONS = [
+    MLM_SCHEMA,
+    VERSION_SCHEMA,
+    CLASSIFICATION_SCHEMA,
+    FILE_SCHEMA,
+    RASTER_SCHEMA,
+    FAIR_LOCAL_MODEL_SCHEMA,
+]
+DATASET_EXTENSIONS = [LABEL_SCHEMA, FILE_SCHEMA, VERSION_SCHEMA, FAIR_DATASET_SCHEMA]
+
+# Backwards compat alias
+MODEL_EXTENSIONS = BASE_MODEL_EXTENSIONS
 
 BASE_MODELS_COLLECTION = "base-models"
 LOCAL_MODELS_COLLECTION = "local-models"
 DATASETS_COLLECTION = "datasets"
+
+CONTAINER_REGISTRIES = ("ghcr.io", "docker.io", "quay.io")

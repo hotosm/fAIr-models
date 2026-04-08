@@ -206,13 +206,18 @@ marimo/_static/
 marimo/_lsp/
 __marimo__/
 
+# Model weights
+*.pt
+
+# Generated pipeline configs
+examples/*/config/*.yaml
 
 .zen
 artifacts
 *.pkl
 
 examples/data
-examples/unet/config/generated_*.yaml
+
 implementation.md
 
 
@@ -233,3 +238,17 @@ yolov8s_v2-seg.pt
 # hatch-vcs generated version file
 fair/_version.py
 
+# dev infra
+infra/dev/.port-forward.pids
+infra/dev/.pf-logs/
+
+# dok8s infra
+infra/dok8s/.env
+infra/dok8s/.dok8s-stack-resolved.yaml
+soul.md
+.fair-mode
+mlflow.db
+
+# mkdocs build output
+site/
+docs/schemas/

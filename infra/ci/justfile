@@ -1,0 +1,64 @@
+set shell := ["bash", "-euo", "pipefail", "-c"]
+
+ns := "fair"
+root := "../.."
+pgstac_dsn := "postgresql://postgres:postgres@localhost:5432/fair_models"
+zenml_url := "http://localhost:8080"
+
+[doc('Deploy infra, seed data, register ZenML stack')]
+setup:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    kubectl create ns {{ ns }} --dry-run=client -o yaml | kubectl apply -f -
+    kubectl apply -n {{ ns }} -f ../dev/postgres/
+    kubectl rollout status -n {{ ns }} statefulset/postgres --timeout=120s
+    helmfile sync
+    kubectl wait --for=condition=complete job --all -n {{ ns }} --timeout=300s
+    kubectl rollout status -n {{ ns }} deployment/stac-stac --timeout=300s
+    kubectl rollout status -n {{ ns }} deployment/zenml --timeout=300s
+    kubectl rollout status -n {{ ns }} deployment/minio --timeout=300s
+    kubectl rollout status -n {{ ns }} deployment/mlflow --timeout=300s
+    while read -r svc ports; do
+        kubectl port-forward -n {{ ns }} "svc/$svc" "$ports" &
+    done < ../dev/ports.conf
+    while read -r svc ports; do
+        for i in $(seq 1 30); do nc -z localhost "${ports%%:*}" 2>/dev/null && break; sleep 1; done
+    done < ../dev/ports.conf
+    uv run --with minio python ../dev/scripts/seed_data.py
+    TOKEN=""
+    for i in 1 2 3 4 5; do
+        TOKEN=$(curl -fsS -X POST "{{ zenml_url }}/api/v1/login" \
+            -d "username=default&password=&grant_type=password" | \
+            python3 -c "import sys,json; print(json.load(sys.stdin)['access_token'])" 2>/dev/null) && break
+        echo "zenml login: attempt $i failed, retrying in 5s..." >&2
+        sleep 5
+    done
+    [[ -n "$TOKEN" ]] || { echo "ERROR: Failed to obtain ZenML token"; exit 1; }
+    cd {{ root }}
+    ZENML_STORE_URL="{{ zenml_url }}" \
+    ZENML_STORE_API_TOKEN="$TOKEN" \
+        uv run zenml stack import ci-k8s -f stacks/ci-k8s.yaml --ignore-version-mismatch || true
+    ZENML_STORE_URL="{{ zenml_url }}" \
+    ZENML_STORE_API_TOKEN="$TOKEN" \
+        uv run zenml stack set ci-k8s
+
+[doc('Run all E2E pipelines against k8s infra')]
+run-example:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    TOKEN=$(curl -fsS -X POST "{{ zenml_url }}/api/v1/login" \
+        -d "username=default&password=&grant_type=password" | \
+        python3 -c "import sys,json; print(json.load(sys.stdin)['access_token'])")
+    [[ -n "$TOKEN" ]] || { echo "ERROR: Failed to obtain ZenML token"; exit 1; }
+    cd {{ root }}
+    uv run python scripts/convert_segmentation_to_classification.py
+    uv run python scripts/convert_segmentation_to_detection.py
+    for example in segmentation classification detection; do
+        ZENML_STORE_URL="{{ zenml_url }}" \
+        ZENML_STORE_API_TOKEN="$TOKEN" \
+        AWS_ENDPOINT_URL=http://localhost:9000 \
+        FAIR_FORCE_CPU=1 \
+            uv run python "examples/$example/run.py" all \
+                --stac-api-url http://localhost:8082 \
+                --dsn "{{ pgstac_dsn }}"
+    done

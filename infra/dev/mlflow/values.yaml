@@ -1,0 +1,32 @@
+# image:
+#   repository: mlflow/mlflow
+#   tag: "v3.9.0"
+
+backendStore:
+  databaseMigration: true
+  postgres:
+    enabled: true
+    host: postgres.fair.svc
+    port: 5432
+    database: mlflow
+    user: postgres
+    password: postgres
+
+artifactRoot:
+  s3:
+    enabled: true
+    bucket: mlflow
+    awsAccessKeyId: minioadmin
+    awsSecretAccessKey: minioadmin
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 512Mi
+  limits:
+    cpu: 500m
+    memory: 1Gi
+
+extraEnvVars:
+  MLFLOW_S3_ENDPOINT_URL: http://minio.fair.svc:9000
+  MLFLOW_SERVER_ALLOWED_HOSTS: "*"

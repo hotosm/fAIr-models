@@ -5,14 +5,16 @@ on:
     branches: [master]
     paths:
       - "docs/**"
-      - "docs.yml"
+      - ".github/workflows/docs.yml"
+      - "mkdocs.yml"
       - "fair/**"
       - "fair/schemas/**"
       - "CHANGELOG.md"
   pull_request:
     paths:
       - "docs/**"
-      - "docs.yml"
+      - ".github/workflows/docs.yml"
+      - "mkdocs.yml"
       - "fair/**"
       - "fair/schemas/**"
       - "CHANGELOG.md"

@@ -23,7 +23,7 @@ host environment where PyTorch, Ultralytics, and GDAL are not installed.
 
 import json
 from pathlib import Path
-from typing import Annotated, Any, Dict, Optional, Union
+from typing import Annotated, Any, Dict, List, Optional, Tuple, Union
 from urllib.request import urlretrieve
 
 from zenml import log_metadata, pipeline, step
@@ -308,14 +308,36 @@ def run_preprocessing(
     input_path: str,
     output_path: str,
     p_val: float = 0.05,
-) -> str:
-    """Preprocess raw chips + labels and write a YOLO dataset. Returns yolo_dir."""
-    return preprocess(input_path, output_path, p_val)
+) -> List[Tuple[Any, Any]]:
+    """Preprocess raw chips + labels and return chip/label data for ZenML artifact tracking."""
+    from pathlib import Path
+
+    import cv2
+
+    yolo_dir_str = preprocess(input_path, output_path, p_val)
+    yolo_dir = Path(yolo_dir_str)
+    
+    data_loader: list[tuple[Any, Any]] = []
+    
+    train_images_dir = yolo_dir / "images" / "train"
+    train_labels_dir = yolo_dir / "labels" / "train"
+    
+    if train_images_dir.exists() and train_labels_dir.exists():
+        for img_path in sorted(train_images_dir.glob("*.[jp][pn]*")):
+            label_path = train_labels_dir / f"{img_path.stem}.txt"
+            if label_path.is_file():
+                img_data = cv2.imread(str(img_path))
+                with label_path.open(encoding="utf-8") as f:
+                    label_data = f.read()
+                data_loader.append((img_data, label_data))
+                
+    return data_loader
 
 
 @step
 def train_model(
     data_base_path: str,
+    data_loader: List[Tuple[Any, Any]],
     yolo_data_dir: str,
     weights_path: str,
     epochs: int = 20,
@@ -327,6 +349,9 @@ def train_model(
     Returns the loaded Ultralytics YOLO model object. IoU accuracy is logged as ZenML metadata.
     """
     import ultralytics
+    
+    if not data_loader:
+        raise RuntimeError("Preprocessing returned an empty dataloader; no images/labels found.")
     
     model_path, iou_accuracy = train_yolo_model(
         data_base_path=data_base_path,
@@ -394,13 +419,17 @@ def training_pipeline(
     pc = hyperparams.get("pc", 2.0)
     p_val = hyperparams.get("p_val", 0.05)
 
-    yolo_dir = run_preprocessing(
+    data_loader = run_preprocessing(
         input_path=input_path,
         output_path=output_path,
         p_val=p_val,
     )
+    
+    yolo_dir = str(Path(output_path) / "yolo")
+
     train_model(
         data_base_path=output_path,
+        data_loader=data_loader,
         yolo_data_dir=yolo_dir,
         weights_path=weights_path,
         epochs=epochs,

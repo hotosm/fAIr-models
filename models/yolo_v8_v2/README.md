@@ -9,13 +9,25 @@ segmentation, wrapped in the `hot-fair-utilities` processing stack.
 | --- | --- |
 | `pipeline.py` | ZenML `@step` / `@pipeline` entrypoints (pre → train → infer → post) |
 | `stac-item.json` | STAC MLM item — registers the model in the fAIr catalog |
-| `Dockerfile` | Isolated runtime (TF 2.13 + PyTorch 2.1 + hot-fair-utilities) |
+| `Dockerfile` | Isolated runtime (thin layer on `fair-utilities-yolo` base image) |
 
 Data, weights, and configs are **not** stored here:
 
-- **Weights** → S3 (referenced by `stac-item.json` `assets.model.href`)
+- **Weights** → S3 / GitHub (referenced by `stac-item.json` `assets.model.href`)
 - **Training data** → S3 (referenced by the dataset STAC item)
 - **Hyperparameters** → `stac-item.json` `mlm:hyperparameters`
+
+## Architecture: what comes from where
+
+This model pack is intentionally **thin**. All heavy logic lives in `hot-fair-utilities`:
+
+| Pipeline step | Delegates to | Module |
+|---|---|---|
+| Preprocessing | `hot_fair_utilities.preprocess()` | Georeference + rasterize + clip labels |
+| YOLO formatting | `hot_fair_utilities.preprocessing.yolo_v8.yolo_format()` | Convert to YOLO dataset layout |
+| Training | `hot_fair_utilities.training.yolo_v8.train()` | YOLOv8-Seg fine-tuning with pos-weight |
+| Inference | `hot_fair_utilities.predict()` | fairpredictor-based prediction + georeferencing |
+| Postprocessing | `hot_fair_utilities.polygonize()` | geomltoolkits merge + vectorize + merge polygons |
 
 ## Pipeline steps
 
@@ -26,7 +38,7 @@ input chips (PNG/TIF) + labels.geojson
 [run_preprocessing]  hot_fair_utilities.preprocess + yolo_format
         │  yolo_dir/
         ▼
-[train_model]        hot_fair_utilities.training.yolo_v8_v2.train
+[train_model]        hot_fair_utilities.training.yolo_v8.train
         │  best.pt  (IoU% logged to ZenML)
         ▼
 [run_inference]      hot_fair_utilities.predict
@@ -47,10 +59,6 @@ from models.yolo_v8_v2.pipeline import training_pipeline, inference_pipeline
 training_pipeline(
     input_path="data/sample/yolo_work/input",
     output_path="data/sample/yolo_work/out",
-    weights_path="yolov8s_v2-seg.pt",
-    epochs=20,
-    batch_size=16,
-    pc=2.0,
 )
 
 # Inference (model_uri from STAC)
@@ -65,8 +73,29 @@ inference_pipeline(
 
 ## Building the Docker image
 
+### Bash (Linux/macOS/WSL)
+
 ```bash
-docker build -t yolo-v8-v2:latest \
+# CPU
+docker build -t yolo-v8-v2:cpu \
+    -f models/yolo_v8_v2/Dockerfile .
+
+# GPU
+docker build --build-arg BASE_IMAGE=ghcr.io/hotosm/fair-utilities-yolo:gpu-latest \
+    -t yolo-v8-v2:gpu \
+    -f models/yolo_v8_v2/Dockerfile .
+```
+
+### PowerShell (Windows)
+
+```powershell
+# CPU
+docker build -t yolo-v8-v2:cpu `
+    -f models/yolo_v8_v2/Dockerfile .
+
+# GPU
+docker build --build-arg BASE_IMAGE=ghcr.io/hotosm/fair-utilities-yolo:gpu-latest `
+    -t yolo-v8-v2:gpu `
     -f models/yolo_v8_v2/Dockerfile .
 ```
 
@@ -79,26 +108,30 @@ the container and validates:
 - dataset layout checks
 - preprocess + YOLO dataset formatting
 - short training run (checkpoint creation)
+- `resolve_model_href` for local .pt files
 - inference output generation
 - polygonization to GeoJSON
+- intermediate artifact checks
 
 Run on Windows PowerShell:
 
 ```powershell
-.\models\yolo_v8_v2\tests\run_docker_tests.ps1 -BuildImage
+.\models\yolo_v8_v2\tests\run_docker_tests.ps1 -Image yolo-v8-v2:cpu
+# or with build:
+$env:BUILD_IMAGE = "1"; $env:CPU_ONLY = "1"; .\models\yolo_v8_v2\tests\run_docker_tests.ps1
 ```
 
 Run on Linux/macOS/WSL:
 
 ```bash
-BUILD_IMAGE=1 ./models/yolo_v8_v2/tests/run_docker_tests.sh .
+BUILD_IMAGE=1 CPU_ONLY=1 ./models/yolo_v8_v2/tests/run_docker_tests.sh .
 ```
 
 Tests use `data/sample`. Run from fAIr-models repo root.
 
 Both scripts:
 
-- build the `yolo-v8-v2:latest` image (when the build flag is set),
+- build the image (when the build flag is set),
 - run the smoke test container with `--gpus all` (if available),
 - allocate `--shm-size 1g` to avoid PyTorch DataLoader `bus error` issues.
 
@@ -106,12 +139,11 @@ If you prefer to run the test manually, this is the equivalent one-liner
 (from the `fAIr-models` repo root):
 
 ```powershell
-docker run --rm --gpus all `
-  --shm-size 1g `
+docker run --rm --shm-size 1g `
   -v "${PWD}:/workspace" `
-  yolo-v8-v2:latest `
+  yolo-v8-v2:cpu `
   python /workspace/models/yolo_v8_v2/tests/inside_container_smoke_test.py `
-    --dataset-root /workspace/models/yolo_v8_v2/ramp-data/yolo_v8_v2_sample
+    --dataset-root /workspace/data/sample
 ```
 
 Register as a ZenML Docker settings image in `stacks/` before running
@@ -132,11 +164,11 @@ cm.register_model("models/yolo_v8_v2/stac-item.json")
 All preprocessing, training, inference, and polygonization logic lives in
 `hot-fair-utilities`. This pack is intentionally thin: it declares *how* to
 run the model (pipeline.py) and *what* it is (stac-item.json). Upgrading
-the model logic means bumping the `hot-fair-utilities` pin in the Dockerfile,
+the model logic means bumping the `hot-fair-utilities` pin in the base image,
 not changing this pack.
 
 **Why lazy imports in pipeline.py?**
-`hot-fair-utilities` pulls in TensorFlow, PyTorch, and Ultralytics. These
+`hot-fair-utilities` pulls in PyTorch, Ultralytics, and GDAL. These
 are not installed in the `fAIr-models` host environment (which only needs
 `pystac` and `zenml`). Lazy imports inside function bodies keep the module
 importable for STAC validation and catalog operations without triggering
@@ -146,3 +178,10 @@ heavy dependency errors.
 Each model has its own dependency graph (different TF/PyTorch/CUDA versions,
 different geospatial stacks). Per-model images prevent version conflicts
 between contributors and allow independent upgrades.
+
+**Why a thin Dockerfile on top of a base image?**
+The `fAIr-utilities` project publishes base images (`Dockerfile.yolo`) with
+all heavy dependencies (PyTorch, Ultralytics, GDAL, hot-fair-utilities).
+The model Dockerfile only adds orchestration tools (`fair-py-ops`, `zenml`,
+`pystac`, `fairpredictor`). This keeps model images small and aligned with
+the upstream dependency split.

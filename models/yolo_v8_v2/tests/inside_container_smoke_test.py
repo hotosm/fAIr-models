@@ -1,16 +1,26 @@
 """End-to-end smoke tests for models/yolo_v8_v2 Docker runtime.
 
-Run this script inside the container. It validates:
-1) critical imports (gdal/cv2/ultralytics/hot_fair_utilities),
-2) dataset layout and required inputs,
-3) preprocess + YOLO formatting,
-4) short training run (checkpoint creation),
-5) inference output generation,
-6) polygonization to GeoJSON.
+Run this script INSIDE the container. It validates:
+1) Critical imports (gdal, cv2, ultralytics, hot_fair_utilities)
+2) Dataset layout and required inputs
+3) Preprocess + YOLO formatting via pipeline.preprocess
+4) Short training run via pipeline.train_yolo_model (checkpoint creation)
+5) resolve_model_href for local .pt files
+6) Inference via pipeline.infer_yolo_model (output generation)
+7) Polygonization via pipeline.postprocess to GeoJSON
+8) Inference intermediate artifacts check
+
+All training, inference, and postprocessing steps delegate to pipeline.py
+helpers so the smoke test exercises the same code paths as production.
 
 Data layouts supported:
   - data/sample: --dataset-root /workspace/data/sample
+    Uses train/oam/*.tif + train/osm/*.geojson + predict/oam/*.tif.
   - Legacy: dataset/input/ + dataset/prediction/input/
+
+Usage inside container:
+  python /workspace/models/yolo_v8_v2/tests/inside_container_smoke_test.py \\
+      --dataset-root /workspace/data/sample
 """
 
 from __future__ import annotations
@@ -18,6 +28,7 @@ from __future__ import annotations
 import argparse
 import os
 import shutil
+import sys
 from pathlib import Path
 
 
@@ -34,6 +45,16 @@ def _count_images(path: Path) -> int:
     return len(list(path.glob("*.png"))) + len(list(path.glob("*.tif"))) + len(
         list(path.glob("*.tiff"))
     )
+
+
+def _load_yolo_pipeline_module():
+    """Import models/yolo_v8_v2/pipeline.py directly so smoke tests reuse production helpers."""
+    module_dir = Path("/workspace/models/yolo_v8_v2")
+    if str(module_dir) not in sys.path:
+        sys.path.insert(0, str(module_dir))
+    import pipeline as yolo_pipeline
+
+    return yolo_pipeline
 
 
 def parse_args() -> argparse.Namespace:
@@ -56,7 +77,14 @@ def parse_args() -> argparse.Namespace:
 
 
 def _prepare_data_sample_layout(dataset_root: Path) -> Path:
-    """Convert data/sample to YOLO input layout."""
+    """Convert data/sample to YOLO input layout.
+
+    hot_fair_utilities.preprocess expects input_path with *.png and labels.geojson.
+    data/sample has train/oam/*.tif and train/osm/*.geojson.
+    Creates dataset_root/yolo_work/input/ with PNG chips and labels.geojson,
+    plus dataset_root/yolo_work/prediction/input/ with prediction TIFs.
+    Returns the working root (yolo_work) for the test.
+    """
     oam_dir = dataset_root / "train" / "oam"
     osm_dir = dataset_root / "train" / "osm"
     predict_oam = dataset_root / "predict" / "oam"
@@ -97,6 +125,12 @@ def _prepare_data_sample_layout(dataset_root: Path) -> Path:
         pd.concat([g.to_crs(crs) for g in gdfs], ignore_index=True),
         crs=crs,
     )
+    # Normalize extension dtypes for Fiona GeoJSON compatibility
+    for col in merged.columns:
+        if col == "geometry":
+            continue
+        if pd.api.types.is_extension_array_dtype(merged[col].dtype):
+            merged[col] = merged[col].astype(object).where(merged[col].notna(), None)
     merged.to_file(input_dir / "labels.geojson", driver="GeoJSON")
 
     pred_tifs = list(predict_oam.glob("OAM-*.tif"))
@@ -104,7 +138,7 @@ def _prepare_data_sample_layout(dataset_root: Path) -> Path:
     for tif in pred_tifs[:5]:
         shutil.copy(tif, pred_input_dir / tif.name)
 
-    print(f"PASS: prepared from data/sample")
+    print("PASS: prepared from data/sample")
     return work_root
 
 
@@ -113,25 +147,29 @@ def main() -> None:
 
     os.environ.setdefault("RAMP_HOME", "/workspace")
 
+    # Load pipeline module early so helpers are available
+    yolo_pipeline = _load_yolo_pipeline_module()
+
     dataset_root = Path(args.dataset_root).resolve()
     if (dataset_root / "train" / "oam").is_dir() and (dataset_root / "train" / "osm").is_dir():
         dataset_root = _prepare_data_sample_layout(dataset_root)
 
     input_dir = dataset_root / "input"
     pred_input_dir = dataset_root / "prediction" / "input"
-    preprocessed_dir = dataset_root / "preprocessed_test"
-    yolo_dir = dataset_root / "yolo_test"
+    output_dir = dataset_root / "output_test"
     pred_output_dir = dataset_root / "prediction" / "output_test"
     geojson_output = pred_output_dir / "prediction.geojson"
 
+    # -------------------------------------------------------------------------
     _stage("Test 1: Critical imports")
     import cv2  # noqa: F401
     import hot_fair_utilities  # noqa: F401
+    import rasterio  # noqa: F401  # YOLO image has rasterio, not osgeo Python bindings
     import ultralytics  # noqa: F401
-    from osgeo import gdal  # noqa: F401
 
-    print("PASS: gdal/cv2/ultralytics/hot_fair_utilities imported successfully")
+    print("PASS: rasterio/cv2/ultralytics/hot_fair_utilities imported successfully")
 
+    # -------------------------------------------------------------------------
     _stage("Test 2: Dataset layout checks")
     _assert(dataset_root.is_dir(), f"Dataset root not found: {dataset_root}")
     _assert(input_dir.is_dir(), f"Training input folder not found: {input_dir}")
@@ -153,61 +191,63 @@ def main() -> None:
     )
     print("PASS: required dataset structure and files exist")
 
-    _stage("Test 3: Preprocess + YOLO format")
-    shutil.rmtree(preprocessed_dir, ignore_errors=True)
-    shutil.rmtree(yolo_dir, ignore_errors=True)
+    # -------------------------------------------------------------------------
+    _stage("Test 3: Preprocess + YOLO format via pipeline.preprocess")
+    shutil.rmtree(output_dir, ignore_errors=True)
 
-    from hot_fair_utilities.preprocessing.preprocess import preprocess
-    from hot_fair_utilities.preprocessing.yolo_v8_v2.yolo_format import yolo_format
-
-    preprocess(
+    yolo_dir = yolo_pipeline.preprocess(
         input_path=str(input_dir),
-        output_path=str(preprocessed_dir),
-        rasterize=True,
-        rasterize_options=["binary"],
-        georeference_images=True,
-        multimasks=True,
-    )
-    yolo_format(
-        preprocessed_dirs=str(preprocessed_dir),
-        yolo_dir=str(yolo_dir),
-        multimask=True,
+        output_path=str(output_dir),
         p_val=0.05,
     )
-    dataset_yaml = yolo_dir / "yolo_dataset.yaml"
+
+    dataset_yaml = Path(yolo_dir) / "yolo_dataset.yaml"
     _assert(dataset_yaml.is_file(), f"YOLO dataset yaml not found: {dataset_yaml}")
     print(f"PASS: yolo_dataset.yaml created at {dataset_yaml}")
 
-    _stage("Test 4: Training smoke test")
-    from hot_fair_utilities.training.yolo_v8_v2.train import train
+    # -------------------------------------------------------------------------
+    _stage("Test 4: Training smoke test via pipeline.train_yolo_model")
 
-    model_path, iou = train(
-        data=str(dataset_root),
-        weights=args.weights,
+    model_path, iou = yolo_pipeline.train_yolo_model(
+        data_base_path=str(dataset_root),
+        yolo_data_dir=yolo_dir,
+        weights_path=args.weights,
         epochs=args.epochs,
         batch_size=args.batch_size,
         pc=args.pc,
-        output_path=str(yolo_dir),
-        dataset_yaml_path=str(dataset_yaml),
     )
     model_path = Path(model_path)
     _assert(model_path.is_file(), f"Checkpoint not found after training: {model_path}")
     print(f"PASS: checkpoint created: {model_path}")
     print(f"INFO: reported IoU%: {iou}")
 
-    _stage("Test 5: Inference smoke test")
+    # -------------------------------------------------------------------------
+    _stage("Test 5: resolve_model_href local .pt resolution")
+
+    resolved = yolo_pipeline.resolve_model_href(str(model_path))
+    _assert(
+        Path(resolved).is_file(),
+        f"resolve_model_href did not return a valid .pt file: {resolved}",
+    )
+    print("PASS: resolve_model_href resolved a valid local .pt checkpoint")
+
+    # -------------------------------------------------------------------------
+    _stage("Test 6: Inference smoke test via pipeline.infer_yolo_model")
     shutil.rmtree(pred_output_dir, ignore_errors=True)
     pred_output_dir.mkdir(parents=True, exist_ok=True)
 
-    from hot_fair_utilities.inference.predict import predict
-
-    predict(
-        checkpoint_path=str(model_path),
+    result_dict = yolo_pipeline.infer_yolo_model(
+        model_uri=str(model_path),
         input_path=str(pred_input_dir),
         prediction_path=str(pred_output_dir),
+        output_dir=str(pred_output_dir),
         confidence=args.confidence,
-        remove_images=False,
     )
+
+    _assert(isinstance(result_dict, dict), "Inference did not return GeoJSON dict content.")
+    _assert(result_dict.get("type") == "FeatureCollection", "GeoJSON response missing FeatureCollection type.")
+    print(f"PASS: inference returned GeoJSON dict with {len(result_dict.get('features', []))} feature(s)")
+
     pred_tifs = list(pred_output_dir.glob("*.tif"))
     _assert(
         len(pred_tifs) > 0,
@@ -215,17 +255,27 @@ def main() -> None:
     )
     print(f"PASS: inference generated {len(pred_tifs)} tif predictions")
 
-    _stage("Test 6: Polygonization")
-    from hot_fair_utilities.postprocessing.polygonize import polygonize
+    # -------------------------------------------------------------------------
+    _stage("Test 7: Polygonization via pipeline.postprocess")
 
-    polygonize(
-        input_path=str(pred_output_dir),
-        output_path=str(geojson_output),
-        remove_inputs=False,
+    geojson_dict = yolo_pipeline.postprocess(
+        prediction_path=str(pred_output_dir),
+        output_geojson=str(geojson_output),
     )
-    _assert(geojson_output.is_file(), f"GeoJSON output not found: {geojson_output}")
+    _assert(isinstance(geojson_dict, dict), "postprocess did not return GeoJSON dict content.")
+    _assert(Path(geojson_output).is_file(), f"GeoJSON output not found: {geojson_output}")
     print(f"PASS: polygonization output created: {geojson_output}")
 
+    # -------------------------------------------------------------------------
+    _stage("Test 8: Inference intermediate artifacts")
+
+    _assert(
+        len(pred_tifs) > 0,
+        f"No georeferenced prediction .tif files found in {pred_output_dir}",
+    )
+    print(f"PASS: {len(pred_tifs)} georeferenced prediction .tif file(s) verified")
+
+    # -------------------------------------------------------------------------
     _stage("ALL TESTS PASSED")
 
 

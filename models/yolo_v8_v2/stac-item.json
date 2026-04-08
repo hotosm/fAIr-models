@@ -39,6 +39,7 @@
             "polygon"
         ],
         "version": "2",
+        "license": "Apache-2.0",
         "status": "active",
         "mlm:total_parameters": 11000000,
         "mlm:memory_size": 536870912,
@@ -162,17 +163,17 @@
             "roles": ["code"],
             "mlm:entrypoint": "models.yolo_v8_v2.pipeline:training_pipeline"
         },
-        "training-runtime": {
-            "href": "local",
-            "type": "text/plain",
-            "title": "Training runtime (Docker)",
-            "roles": ["training-runtime", "runtime"]
+        "mlm:training": {
+            "href": "ghcr.io/hotosm/fair-models/yolo-v8-v2:v1",
+            "type": "application/vnd.oci.image.index.v1+json",
+            "title": "Training Docker Image",
+            "roles": ["mlm:training-runtime"]
         },
-        "inference-runtime": {
-            "href": "local",
-            "type": "text/plain",
-            "title": "Inference runtime (Docker)",
-            "roles": ["inference-runtime", "runtime"]
+        "mlm:inference": {
+            "href": "ghcr.io/hotosm/fair-models/yolo-v8-v2:v1",
+            "type": "application/vnd.oci.image.index.v1+json",
+            "title": "Inference Docker Image",
+            "roles": ["mlm:inference-runtime"]
         }
     },
     "links": []

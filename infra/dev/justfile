@@ -57,8 +57,6 @@ run-example:
     #!/usr/bin/env bash
     set -euo pipefail
     cd ../..
-    uv run python scripts/convert_segmentation_to_classification.py
-    uv run python scripts/convert_segmentation_to_detection.py
     for example in segmentation classification detection; do
         AWS_ENDPOINT_URL=http://localhost:9000 \
             uv run python "examples/$example/run.py" all \
@@ -72,8 +70,6 @@ run-example-k8s:
     set -euo pipefail
     cd ../..
     uv run zenml stack set k8s
-    uv run python scripts/convert_segmentation_to_classification.py
-    uv run python scripts/convert_segmentation_to_detection.py
     for example in segmentation classification detection; do
         AWS_ENDPOINT_URL=http://localhost:9000 \
             uv run python "examples/$example/run.py" all \

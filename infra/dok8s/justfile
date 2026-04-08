@@ -64,6 +64,16 @@ tear:
     helmfile destroy 2>/dev/null || true
     {{ scripts }}/database.sh delete || true
     {{ scripts }}/cluster.sh delete || true
+    ENV_FILE="$(cd "$(dirname "$0")" && pwd)/.env"
+    if [[ -f "$ENV_FILE" ]]; then
+      sed -i.bak \
+        -e 's|^PG_HOST=.*|PG_HOST=|' \
+        -e 's|^PG_PORT=.*|PG_PORT=25060|' \
+        -e 's|^PG_USER=.*|PG_USER=|' \
+        -e 's|^PG_PASSWORD=.*|PG_PASSWORD=|' "$ENV_FILE"
+      rm -f "$ENV_FILE.bak"
+      echo "PG credentials cleared from .env"
+    fi
     echo "Spaces bucket ${SPACES_BUCKET:-} preserved. Delete manually if needed."
 
 [doc('Show cluster health')]
@@ -100,8 +110,6 @@ run-example:
         python3 -c "import sys,json; print(json.load(sys.stdin)['access_token'])")
     [[ -n "$TOKEN" ]] || { echo "ERROR: Failed to obtain ZenML token"; exit 1; }
     cd ../..
-    uv run python scripts/convert_segmentation_to_classification.py
-    uv run python scripts/convert_segmentation_to_detection.py
     for example in segmentation classification detection; do
         ZENML_STORE_URL="https://zenml.${FAIR_DOMAIN}" \
         ZENML_STORE_API_TOKEN="$TOKEN" \

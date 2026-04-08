@@ -6,6 +6,7 @@ Pretrained backbone: torchvision ResNet18 ImageNet.
 
 import csv
 import random
+import tempfile
 from pathlib import Path
 from typing import Annotated, Any
 
@@ -23,6 +24,17 @@ def _get_device() -> str:
     if torch.cuda.is_available():
         return "cuda"
     return "cpu"
+
+
+def resolve_weights(weight_id: str) -> Path:
+    import torch
+    from torchvision.models import ResNet18_Weights
+
+    enum_name = weight_id.rsplit(".", 1)[-1]
+    weights = ResNet18_Weights[enum_name]
+    checkpoint_path = Path(tempfile.mkdtemp()) / "resnet18_pretrained.pth"
+    torch.hub.download_url_to_file(weights.url, str(checkpoint_path))
+    return checkpoint_path
 
 
 def _bounds_to_geo_feature(left, bottom, right, top, crs, properties):

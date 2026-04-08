@@ -10,7 +10,7 @@ Object detection model for building bounding box extraction from aerial imagery.
 
 ## Dataset
 
-Derived from the same Banepa OAM+OSM dataset used for segmentation. Building polygons from the GeoJSON labels are converted to COCO format bounding boxes per chip. Conversion script: `scripts/convert_segmentation_to_detection.py`.
+Derived from the same Banepa OAM+OSM dataset used for segmentation. Building polygons from the GeoJSON labels are converted to COCO format bounding boxes per chip. Pre-generated labels are stored in `data/sample/train/detection_labels.json`.
 
 ## Training
 

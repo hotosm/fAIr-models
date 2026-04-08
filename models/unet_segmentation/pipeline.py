@@ -4,6 +4,7 @@ Entrypoints referenced by models/unet_segmentation/stac-item.json.
 Pretrained weights: OAM-TCD (arxiv.org/abs/2407.11743).
 """
 
+import tempfile
 from pathlib import Path
 from typing import Annotated, Any
 
@@ -53,6 +54,15 @@ def _resolve_weights(weight_id: str) -> Any:
     from torchgeo.models import Unet_Weights
 
     return Unet_Weights[weight_id.rsplit(".", 1)[-1]]
+
+
+def resolve_weights(weight_id: str) -> Path:
+    import torch
+
+    weights = _resolve_weights(weight_id)
+    checkpoint_path = Path(tempfile.mkdtemp()) / "unet_pretrained.pth"
+    torch.hub.download_url_to_file(weights.url, str(checkpoint_path))
+    return checkpoint_path
 
 
 def preprocess(batch: dict[str, Any]) -> tuple[Any, Any]:

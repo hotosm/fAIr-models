@@ -27,6 +27,17 @@ def _get_device() -> str:
     return "cpu"
 
 
+def resolve_weights(weight_id: str) -> Path:
+    from ultralytics import YOLO
+
+    checkpoint_dir = Path(tempfile.mkdtemp())
+    # YOLO() auto-downloads pretrained weights if not found locally
+    model = YOLO(weight_id)
+    checkpoint_path = checkpoint_dir / weight_id
+    model.save(str(checkpoint_path))
+    return checkpoint_path
+
+
 def _pixel_bbox_to_geo_feature(bbox_xyxy, transform, crs, properties):
     from pyproj import Transformer
 

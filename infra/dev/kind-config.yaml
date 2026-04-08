@@ -1,0 +1,41 @@
+# nvkind template: GPU worker needs extraMounts so nvkind detects the node
+# as GPU-enabled and installs nvidia-container-toolkit + configures containerd.
+# See: https://github.com/NVIDIA/nvkind/blob/main/pkg/nvkind/node.go#getNvidiaVisibleDevices
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+nodes:
+  - role: control-plane
+    labels:
+      fair.dev/role: infra
+    kubeadmConfigPatches:
+      - |
+        kind: InitConfiguration
+        nodeRegistration:
+          taints: []
+  - role: worker
+    labels:
+      fair.dev/role: inference
+      fair.dev/workload: ml
+    kubeadmConfigPatches:
+      - |
+        kind: JoinConfiguration
+        nodeRegistration:
+          taints:
+            - key: fair.dev/workload
+              value: ml
+              effect: NoSchedule
+  - role: worker
+    labels:
+      fair.dev/role: train
+      fair.dev/workload: ml
+    kubeadmConfigPatches:
+      - |
+        kind: JoinConfiguration
+        nodeRegistration:
+          taints:
+            - key: fair.dev/workload
+              value: ml
+              effect: NoSchedule
+    extraMounts:
+      - hostPath: /dev/null
+        containerPath: /var/run/nvidia-container-devices/all

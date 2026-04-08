@@ -1,0 +1,47 @@
+name: K8s Integration Test
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  k8s-integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.13"
+          enable-cache: true
+
+      - uses: extractions/setup-just@v2
+
+      - name: Install dependencies
+        run: uv sync --extra k8s --group example
+
+      - name: Create Kind cluster
+        uses: helm/kind-action@v1
+        with:
+          cluster_name: fair-ci
+          config: infra/ci/kind-config.yaml
+
+      - name: Install Helmfile
+        uses: helmfile/helmfile-action@v2
+        with:
+          helmfile-args: version
+          helmfile-workdirectory: infra/ci
+
+      - name: Setup infrastructure
+        working-directory: infra/ci
+        run: just setup
+
+      - name: Run pipeline
+        working-directory: infra/ci
+        run: just run-example

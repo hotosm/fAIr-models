@@ -11,10 +11,18 @@ catalog on promotion.
 ## Quickstart
 
 ```bash
-uv sync --group local --group example
-make init
-# See examples/unet/README.md for the full walkthrough
+just setup
+just example
 ```
+
+Run `just` to see all available recipes. For Kubernetes mode run
+`just k8s` first, then `just setup`. See the example walkthroughs for each task type:
+
+- [Segmentation](examples/segmentation/README.md) (UNet)
+- [Classification](examples/classification/README.md) (ResNet18)
+- [Detection](examples/detection/README.md) (YOLOv11n)
+
+See [docs/getting-started.md](docs/getting-started.md) for detailed setup instructions.
 
 ## Architecture
 
@@ -31,22 +39,23 @@ Catalog: fair-models
 |     Each item = complete model card (weights, code, Docker, MLM spec).
 |     Versioned by contributors, registered via CLI utility.
 |     |
-|     +-- Item: ramp (v1)              category: semantic-segmentation
-|     +-- Item: yolo (v1)              category: object-detection
+|     +-- Item: unet-segmentation (v1)           category: semantic-segmentation
+|     +-- Item: resnet18-classification (v1)      category: classification
+|     +-- Item: yolo11n-detection (v1)            category: object-detection
 |
 +-- Collection: local-models
 |     Finetuned models produced by ZenML pipelines.
 |     Only promoted (production) versions appear here.
 |     |
-|     +-- Item: ramp-finetuned-nepal-v2   (production, latest-version)
-|     +-- Item: ramp-finetuned-nepal-v1   (deprecated: true)
-|     +-- Item: yolo-finetuned-uganda-v1  (production)
+|     +-- Item: unet-segmentation-finetuned-banepa-v2   (production, latest-version)
+|     +-- Item: unet-segmentation-finetuned-banepa-v1   (deprecated: true)
+|     +-- Item: yolo11n-detection-finetuned-banepa-v1   (production)
 |
 +-- Collection: datasets
       Training data registered via fAIr UI/backend.
       |
-      +-- Item: buildings-kathmandu       category: semantic-segmentation
-      +-- Item: trees-utr-in-masuri       category: object-detection
+      +-- Item: buildings-banepa-segmentation    category: semantic-segmentation
+      +-- Item: buildings-banepa-detection       category: object-detection
 ```
 
 ### What STAC Items Contain
@@ -56,7 +65,7 @@ custom `fair:*` fields wherever a standard exists.
 
 **Base model item** (contributed by model developer):
 
-See [`models/example_unet/stac-item.json`](models/example_unet/stac-item.json) for a complete example.
+See [`models/unet_segmentation/stac-item.json`](models/unet_segmentation/stac-item.json) for a complete example.
 
 Key properties: `mlm:name`, `mlm:architecture`, `mlm:tasks`, `mlm:framework`,
 `mlm:input` (with `pre_processing_function`), `mlm:output` (with `post_processing_function`
@@ -109,7 +118,7 @@ triggering finetuning. Validation is based on matching `keywords` and
 `mlm:tasks` / `label:tasks` between the model and dataset STAC items.
 
 A JSON schema in this repo defines the allowed keyword vocabulary and valid
-combinations. If a user picks `ramp` (keywords: `building`,
+combinations. If a user picks `unet-segmentation` (keywords: `building`,
 `semantic-segmentation`) with a dataset tagged `road`, `object-detection`,
 the request fails schema validation.
 
@@ -304,7 +313,7 @@ A user might run 10 experiments, promote 3 of them over time. Only those 3 appea
 | **ZenML** | Pipeline orchestration, version tracking | SQLite (`~/.config/zenml/`) | ZenML Server (PostgreSQL) |
 | **Orchestrator** | Runs pipeline steps | `local` | Kubernetes |
 | **Artifact Store** | Weights, datasets, artifacts | local filesystem | S3 |
-| **Experiment Tracker** | Metrics logging | W&B | W&B |
+| **Experiment Tracker** | Metrics logging | Mlflow | Mlflow |
 | **Container Registry** | Model runtime images | local Docker | ghcr.io |
 | **fAIr Backend** | User-facing orchestration layer | -- | -- |
 
@@ -360,3 +369,9 @@ ZenML stack components NOT used:
 5. **YAML-based training & inference**: Every pipeline run is driven by a generated YAML config (STAC defaults + user overrides). Logged as a ZenML artifact. Re-run any experiment by re-running its YAML.
 
 6. **MLM Processing Expression for dispatch**: `pre_processing_function` and `post_processing_function` use `format: "python"` with entrypoint strings (e.g., `ramp.pipeline:preprocess`). Each model defines its own pre/post processing; the system does not assume a fixed pipeline shape. System considers each model having its own runtime , preprocessing , postprocessing and training pipeline.
+
+7. W&B self-hosted requires MySQL + Redis + a commercial license for team use. Mlflow is fully open source.
+
+8. **Pipeline contract**: Every model under `models/` must export `training_pipeline` and `inference_pipeline` as `@pipeline`-decorated functions in its `pipeline.py`. CI validates this via AST parsing (`scripts/validate_model.py`) — no runtime dependencies required. This ensures the orchestration layer can discover and dispatch any contributed model uniformly.
+
+9. **S3 data resolution via UPath/fsspec**: Production training data lives in S3 (MinIO in dev, AWS in prod). `fair/utils/data.py` provides helpers (`list_files`, `resolve_path`, `resolve_directory`) built on `universal-pathlib` (UPath) over fsspec/s3fs — no boto3 or GDAL env vars. fsspec reads `AWS_ENDPOINT_URL` natively for MinIO. Caching is available via fsspec URL-chaining (`simplecache::s3://`, `filecache::s3://`, `blockcache::s3://`) — model developers opt in as needed. Local paths pass through unchanged. Data is never baked into Docker images.

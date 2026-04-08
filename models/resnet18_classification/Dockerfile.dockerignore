@@ -1,0 +1,7 @@
+# BuildKit uses <Dockerfile>.dockerignore automatically (no repo-level side effects)
+*
+!models/resnet18_classification/
+!fair/
+!pyproject.toml
+!README.md
+!fair_zenml_patch.pth

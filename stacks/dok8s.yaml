@@ -1,0 +1,46 @@
+stack_name: dok8s
+zenml_version: 0.93.3
+
+_pod_defaults: &pod_defaults
+  env:
+    - name: ZENML_STORE_URL
+      value: "http://zenml.fair.svc:80"
+    - name: AWS_ENDPOINT_URL
+      value: "${SPACES_ENDPOINT}"
+    - name: AWS_ACCESS_KEY_ID
+      value: "${SPACES_ACCESS_KEY}"
+    - name: AWS_SECRET_ACCESS_KEY
+      value: "${SPACES_SECRET_KEY}"
+
+components:
+  orchestrator:
+    name: doks_orchestrator
+    flavor: kubernetes
+    type: orchestrator
+    configuration:
+      kubernetes_context: ${DOKS_CONTEXT}
+      kubernetes_namespace: fair
+      pod_settings: *pod_defaults
+      orchestrator_pod_settings: *pod_defaults
+  artifact_store:
+    name: spaces_artifacts
+    flavor: s3
+    type: artifact_store
+    configuration:
+      path: s3://${SPACES_BUCKET}/zenml
+      key: "${SPACES_ACCESS_KEY}"
+      secret: "${SPACES_SECRET_KEY}"
+  container_registry:
+    name: ghcr
+    flavor: default
+    type: container_registry
+    configuration:
+      uri: ghcr.io/hotosm
+  experiment_tracker:
+    name: mlflow_doks
+    flavor: mlflow
+    type: experiment_tracker
+    configuration:
+      tracking_uri: "http://mlflow.fair.svc:80"
+      tracking_username: "${MLFLOW_ADMIN_USER}"
+      tracking_password: "${MLFLOW_ADMIN_PASSWORD}"

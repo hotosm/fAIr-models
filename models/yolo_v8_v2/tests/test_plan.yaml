@@ -1,0 +1,53 @@
+tests:
+  - id: import_smoke
+    description: Verify critical runtime imports work inside container
+    checks:
+      - import osgeo.gdal
+      - import cv2
+      - import ultralytics
+      - import hot_fair_utilities
+
+  - id: dataset_layout
+    description: Verify required dataset folders/files are present
+    required_paths:
+      - input/
+      - input/labels.geojson
+      - prediction/input/
+    required_image_patterns:
+      - "*.png"
+      - "*.tif"
+      - "*.tiff"
+
+  - id: preprocess_and_format
+    description: Run pipeline.preprocess and validate yolo_dataset.yaml creation
+    delegates_to: pipeline.preprocess
+    expected_outputs:
+      - output_test/preprocessed/
+      - output_test/yolo/yolo_dataset.yaml
+
+  - id: train_smoke
+    description: Run 2-epoch training via pipeline.train_yolo_model and validate best checkpoint
+    delegates_to: pipeline.train_yolo_model
+    expected_outputs:
+      - output_test/yolo/checkpoints/**/weights/best.pt
+
+  - id: resolve_model_href
+    description: Verify pipeline.resolve_model_href can resolve a local .pt checkpoint
+    delegates_to: pipeline.resolve_model_href
+
+  - id: inference_smoke
+    description: Run prediction via pipeline.infer_yolo_model and validate georeferenced tif outputs
+    delegates_to: pipeline.infer_yolo_model
+    expected_outputs:
+      - prediction/output_test/*.tif
+
+  - id: polygonize_smoke
+    description: Polygonize via pipeline.postprocess and validate GeoJSON output
+    delegates_to: pipeline.postprocess
+    expected_outputs:
+      - prediction/output_test/prediction.geojson
+
+  - id: intermediate_artifacts
+    description: Verify intermediate georeferenced prediction TIF files exist
+    expected_outputs:
+      - prediction/output_test/*.tif

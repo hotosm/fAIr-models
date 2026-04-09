@@ -23,13 +23,22 @@ host environment where PyTorch, Ultralytics, and GDAL are not installed.
 
 import json
 from pathlib import Path
-from typing import Annotated, Any, Dict, List, Optional, Tuple, Union
+from typing import Annotated, Any, Dict, Optional, Union
 from urllib.request import urlretrieve
 
 from zenml import log_metadata, pipeline, step
 
 _DEFAULT_WEIGHTS_CACHE = Path("/workspace/.yolo_weights_cache")
 _DEFAULT_YOLO_WEIGHTS_URL = "https://github.com/hotosm/fAIr-utilities/raw/refs/heads/master/yolov8s_v2-seg.pt"
+
+
+def _resolve_input_directory(path_value: str, purpose: str) -> Path:
+    """Resolve local/remote dataset directories to a local path."""
+    from fair.utils.data import resolve_directory
+
+    if "://" in str(path_value):
+        return resolve_directory(path_value, pattern="*")
+    return _to_local_path(path_value, purpose)
 
 
 def _to_local_path(path_value: str, purpose: str) -> Path:
@@ -137,32 +146,25 @@ def preprocess(
     output_path: str,
     p_val: float = 0.05,
 ) -> str:
-    """Preprocess OAM chips + labels, then convert to YOLO dataset format.
+    """Preprocess OAM chips + labels into a georeferenced, clipped dataset.
 
     Step 1 — hot_fair_utilities.preprocess: georeference + rasterize + clip labels
-    Step 2 — hot_fair_utilities.preprocessing.yolo_v8.yolo_format: convert to YOLO layout
 
-    Returns the YOLO dataset directory path.
+    Returns the preprocessed directory path.
     """
     from hot_fair_utilities import preprocess as _preprocess
-    from hot_fair_utilities.preprocessing.yolo_v8 import yolo_format
 
+    local_input = _resolve_input_directory(input_path, "input_path")
     preprocessed_path = str(Path(output_path) / "preprocessed")
     _preprocess(
-        input_path=input_path,
+        input_path=str(local_input),
         output_path=preprocessed_path,
         rasterize=True,
         rasterize_options=["binary"],
         georeference_images=True,
         multimasks=False,
     )
-
-    yolo_dir = str(Path(output_path) / "yolo")
-    yolo_format(
-        input_path=preprocessed_path,
-        output_path=yolo_dir,
-    )
-    return yolo_dir
+    return preprocessed_path
 
 
 def postprocess(prediction_path: str, output_geojson: str) -> Dict[str, Any]:
@@ -279,9 +281,10 @@ def infer_yolo_model(
         else:
             raise TypeError("model_uri must be a str, Path, or an ultralytics.YOLO model.")
 
+    local_input = _resolve_input_directory(input_path, "input_path")
     predict(
         checkpoint_path=checkpoint_path,
-        input_path=input_path,
+        input_path=str(local_input),
         prediction_path=prediction_path,
         confidence=confidence,
     )
@@ -300,108 +303,54 @@ def infer_yolo_model(
 
 @step
 def split_dataset(
-    yolo_data_dir: str,
+    preprocessed_path: str,
+    output_path: str,
     hyperparameters: Optional[Dict[str, Any]] = None,
 ) -> Annotated[Dict[str, Any], "split_info"]:
-    """(Re)split an existing YOLO dataset directory into train/val splits.
+    """Generate the YOLO train/val split and return split metadata.
 
-    This step makes the split strategy *functional* (not only metadata): it reshuffles
-    the existing files under:
-
-    - ``images/{train,val,test}/``
-    - ``labels/{train,val,test}/``
-
-    into new ``train`` and ``val`` folders deterministically using ``split_seed``.
-    ``p_val`` controls the validation fraction; ``test`` is emptied by default.
+    `hot_fair_utilities.preprocessing.yolo_v8.yolo_format` performs the actual split and writes:
+    - `yolo_dataset.yaml`
+    - `images/{train,val,test}` and `labels/{train,val,test}`
     """
-    import random
-    import shutil
-    from pathlib import Path
+    from hot_fair_utilities.preprocessing.yolo_v8 import yolo_format
+
     hyperparameters = hyperparameters or {}
     p_val = float(hyperparameters.get("p_val", 0.05))
     seed = int(hyperparameters.get("split_seed", 42))
-    if not 0.0 <= p_val < 1.0:
-        raise ValueError(f"p_val must be in [0.0, 1.0). Received: {p_val}")
 
-    root = _to_local_path(yolo_data_dir, "yolo_data_dir")
-    images_dir = root / "images"
-    labels_dir = root / "labels"
-    if not images_dir.is_dir() or not labels_dir.is_dir():
-        raise RuntimeError(
-            f"Expected YOLO dataset structure under {root} with images/ and labels/. "
-            "Did preprocessing/yolo_format run successfully?"
-        )
+    if not 0.0 < p_val < 1.0:
+        raise ValueError("p_val must be in (0.0, 1.0)")
 
-    all_items: list[tuple[Path, Path]] = []
-    for split in ("train", "val", "test"):
-        img_split = images_dir / split
-        lbl_split = labels_dir / split
-        if not img_split.is_dir() or not lbl_split.is_dir():
-            continue
-        for img_path in sorted(img_split.glob("*")):
-            if not img_path.is_file():
-                continue
-            lbl_path = lbl_split / f"{img_path.stem}.txt"
-            if lbl_path.is_file():
-                all_items.append((img_path, lbl_path))
+    preprocessed_dir = _to_local_path(preprocessed_path, "preprocessed_path")
+    if not preprocessed_dir.is_dir():
+        raise FileNotFoundError(f"Preprocessed directory not found: {preprocessed_dir}")
 
-    if not all_items:
-        raise RuntimeError(f"No (image, label) pairs found under {images_dir} and {labels_dir}.")
+    out_dir = _to_local_path(output_path, "output_path")
+    yolo_dir = out_dir / "yolo"
 
-    rng = random.Random(seed)
-    rng.shuffle(all_items)
+    yolo_format(
+        input_path=str(preprocessed_dir),
+        output_path=str(yolo_dir),
+        seed=seed,
+        train_split=1.0 - p_val,
+        val_split=p_val,
+        test_split=0.0,
+    )
 
-    total = len(all_items)
-    if p_val <= 0.0:
-        n_val = 0
-    else:
-        n_val = int(total * p_val)
-        # Ensure at least one validation sample when possible.
-        if n_val == 0 and total >= 2:
-            n_val = 1
-        if n_val >= total:
-            n_val = total - 1
-
-    val_items = all_items[:n_val]
-    train_items = all_items[n_val:]
-
-    tmp_dir = root / ".split_tmp"
-    shutil.rmtree(tmp_dir, ignore_errors=True)
-    tmp_img = tmp_dir / "images"
-    tmp_lbl = tmp_dir / "labels"
-    tmp_img.mkdir(parents=True, exist_ok=True)
-    tmp_lbl.mkdir(parents=True, exist_ok=True)
-
-    # Stage all current files under a temp directory first, then rebuild train/val/test.
-    for img_path, lbl_path in all_items:
-        shutil.move(str(img_path), str(tmp_img / img_path.name))
-        shutil.move(str(lbl_path), str(tmp_lbl / lbl_path.name))
-
-    for split in ("train", "val", "test"):
-        shutil.rmtree(images_dir / split, ignore_errors=True)
-        shutil.rmtree(labels_dir / split, ignore_errors=True)
-        (images_dir / split).mkdir(parents=True, exist_ok=True)
-        (labels_dir / split).mkdir(parents=True, exist_ok=True)
-
-    for img_path, lbl_path in train_items:
-        shutil.move(str(tmp_img / img_path.name), str(images_dir / "train" / img_path.name))
-        shutil.move(str(tmp_lbl / lbl_path.name), str(labels_dir / "train" / lbl_path.name))
-
-    for img_path, lbl_path in val_items:
-        shutil.move(str(tmp_img / img_path.name), str(images_dir / "val" / img_path.name))
-        shutil.move(str(tmp_lbl / lbl_path.name), str(labels_dir / "val" / lbl_path.name))
-
-    shutil.rmtree(tmp_dir, ignore_errors=True)
+    train_count = len(list((yolo_dir / "images" / "train").glob("*")))
+    val_count = len(list((yolo_dir / "images" / "val").glob("*")))
+    test_count = len(list((yolo_dir / "images" / "test").glob("*")))
 
     split_info: Dict[str, Any] = {
         "strategy": "ratio",
         "val_ratio": p_val,
         "seed": seed,
-        "yolo_data_dir": str(root),
-        "total_pairs": total,
-        "train_pairs": len(train_items),
-        "val_pairs": len(val_items),
-        "test_pairs": 0,
+        "train_count": train_count,
+        "val_count": val_count,
+        "test_count": test_count,
+        "yolo_data_dir": str(yolo_dir),
+        "dataset_yaml": str(yolo_dir / "yolo_dataset.yaml")
     }
     log_metadata(metadata={"fair/split": split_info})
     return split_info
@@ -412,36 +361,14 @@ def run_preprocessing(
     input_path: str,
     output_path: str,
     p_val: float = 0.05,
-) -> List[Tuple[Any, Any]]:
-    """Preprocess raw chips + labels and return chip/label data for ZenML artifact tracking."""
-    from pathlib import Path
-
-    import cv2
-
-    yolo_dir_str = preprocess(input_path, output_path, p_val)
-    yolo_dir = Path(yolo_dir_str)
-    
-    data_loader: list[tuple[Any, Any]] = []
-    
-    train_images_dir = yolo_dir / "images" / "train"
-    train_labels_dir = yolo_dir / "labels" / "train"
-    
-    if train_images_dir.exists() and train_labels_dir.exists():
-        for img_path in sorted(train_images_dir.glob("*.[jp][pn]*")):
-            label_path = train_labels_dir / f"{img_path.stem}.txt"
-            if label_path.is_file():
-                img_data = cv2.imread(str(img_path))
-                with label_path.open(encoding="utf-8") as f:
-                    label_data = f.read()
-                data_loader.append((img_data, label_data))
-                
-    return data_loader
+) -> str:
+    """Preprocess raw chips + labels. Returns the preprocessed directory path."""
+    return preprocess(input_path, output_path, p_val)
 
 
 @step
 def train_model(
     data_base_path: str,
-    data_loader: List[Tuple[Any, Any]],
     yolo_data_dir: str,
     weights_path: str,
     epochs: int = 20,
@@ -453,10 +380,7 @@ def train_model(
     Returns the loaded Ultralytics YOLO model object. IoU accuracy is logged as ZenML metadata.
     """
     import ultralytics
-    
-    if not data_loader:
-        raise RuntimeError("Preprocessing returned an empty dataloader; no images/labels found.")
-    
+
     model_path, iou_accuracy = train_yolo_model(
         data_base_path=data_base_path,
         yolo_data_dir=yolo_data_dir,
@@ -522,20 +446,21 @@ def training_pipeline(
     batch_size = hyperparams.get("batch_size", 16)
     pc = hyperparams.get("pc", 2.0)
     p_val = hyperparams.get("p_val", 0.05)
+    split_seed = hyperparams.get("split_seed", 42)
 
-    data_loader = run_preprocessing(
+    preprocessed_dir = run_preprocessing(
         input_path=input_path,
         output_path=output_path,
         p_val=p_val,
     )
-    
-    yolo_dir = str(Path(output_path) / "yolo")
-
-    split_dataset(yolo_data_dir=yolo_dir, hyperparameters=hyperparams)
+    split_info = split_dataset(
+        preprocessed_path=preprocessed_dir,
+        output_path=output_path,
+        hyperparameters={**hyperparams, "p_val": p_val, "split_seed": split_seed},
+    )
     train_model(
         data_base_path=output_path,
-        data_loader=data_loader,
-        yolo_data_dir=yolo_dir,
+        yolo_data_dir=split_info["yolo_data_dir"],
         weights_path=weights_path,
         epochs=epochs,
         batch_size=batch_size,

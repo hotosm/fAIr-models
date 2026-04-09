@@ -140,7 +140,8 @@
             "degrees": 30.0,
             "backbone": "yolov8s-seg",
             "multimasks": true,
-            "p_val": 0.05
+            "p_val": 0.05,
+            "split_seed": 42
         }
     },
     "assets": {

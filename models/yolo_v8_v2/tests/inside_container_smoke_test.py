@@ -3,7 +3,7 @@
 Run this script INSIDE the container. It validates:
 1) Critical imports (gdal, cv2, ultralytics, hot_fair_utilities)
 2) Dataset layout and required inputs
-3) Preprocess + YOLO formatting via pipeline.preprocess
+3) Preprocess via pipeline.preprocess + YOLO formatting via pipeline.split_dataset
 4) Short training run via pipeline.train_yolo_model (checkpoint creation)
 5) resolve_model_href for local .pt files
 6) Inference via pipeline.infer_yolo_model (output generation)
@@ -194,16 +194,22 @@ def main() -> None:
     print("PASS: required dataset structure and files exist")
 
     # -------------------------------------------------------------------------
-    _stage("Test 3: Preprocess + YOLO format via pipeline.preprocess")
+    _stage("Test 3: Preprocess + YOLO format via pipeline.preprocess + split_dataset")
     shutil.rmtree(output_dir, ignore_errors=True)
 
-    yolo_dir = yolo_pipeline.preprocess(
+    preprocessed_dir = yolo_pipeline.preprocess(
         input_path=str(input_dir),
         output_path=str(output_dir),
         p_val=0.05,
     )
 
-    dataset_yaml = Path(yolo_dir) / "yolo_dataset.yaml"
+    split_info = yolo_pipeline.split_dataset(
+        preprocessed_path=str(preprocessed_dir),
+        output_path=str(output_dir),
+        hyperparameters={"p_val": 0.05, "split_seed": 42},
+    )
+    yolo_dir = Path(split_info["yolo_data_dir"])
+    dataset_yaml = Path(split_info["dataset_yaml"])
     _assert(dataset_yaml.is_file(), f"YOLO dataset yaml not found: {dataset_yaml}")
     print(f"PASS: yolo_dataset.yaml created at {dataset_yaml}")
 
@@ -212,7 +218,7 @@ def main() -> None:
 
     model_path, iou = yolo_pipeline.train_yolo_model(
         data_base_path=str(dataset_root),
-        yolo_data_dir=yolo_dir,
+        yolo_data_dir=str(yolo_dir),
         weights_path=args.weights,
         epochs=args.epochs,
         batch_size=args.batch_size,

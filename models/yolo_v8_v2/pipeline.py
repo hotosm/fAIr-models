@@ -350,7 +350,7 @@ def split_dataset(
         "val_count": val_count,
         "test_count": test_count,
         "yolo_data_dir": str(yolo_dir),
-        "dataset_yaml": str(yolo_dir / "yolo_dataset.yaml")
+        "dataset_yaml": str(yolo_dir / "yolo_dataset.yaml"),
     }
     log_metadata(metadata={"fair/split": split_info})
     return split_info

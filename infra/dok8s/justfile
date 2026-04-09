@@ -105,10 +105,7 @@ run-example:
     echo "Checking database connectivity..."
     psql "$PGSTAC_DSN" -c "SELECT 1" >/dev/null
     echo "Database: ok"
-    TOKEN=$(curl -kfsS -X POST "https://zenml.${FAIR_DOMAIN}/api/v1/login" \
-        -d "username=${ZENML_ADMIN_USER}&password=${ZENML_ADMIN_PASSWORD}&grant_type=password" | \
-        python3 -c "import sys,json; print(json.load(sys.stdin)['access_token'])")
-    [[ -n "$TOKEN" ]] || { echo "ERROR: Failed to obtain ZenML token"; exit 1; }
+    TOKEN=$({{ scripts }}/zenml-token.sh)
     cd ../..
     for example in segmentation classification detection; do
         ZENML_STORE_URL="https://zenml.${FAIR_DOMAIN}" \

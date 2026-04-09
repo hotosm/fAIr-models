@@ -28,6 +28,14 @@ def _get_device() -> str:
 
 def resolve_weights(weight_id: str) -> Path:
     import torch
+
+    if "://" in weight_id or "/" in weight_id:
+        from upath import UPath
+
+        local_path = Path(tempfile.mkdtemp()) / UPath(weight_id).name
+        local_path.write_bytes(UPath(weight_id).read_bytes())
+        return local_path
+
     from torchvision.models import ResNet18_Weights
 
     enum_name = weight_id.rsplit(".", 1)[-1]
@@ -124,8 +132,8 @@ def _build_classification_dataset(
         def __len__(self) -> int:
             return len(self.samples)
 
-        def __getitem__(self, idx: int) -> dict[str, Any]:
-            path, label = self.samples[idx]
+        def __getitem__(self, index: int) -> dict[str, Any]:
+            path, label = self.samples[index]
             img = Image.open(path).convert("RGB")
             tensor = transform(img)
             return {"image": tensor, "label": torch.tensor(label, dtype=torch.float32)}
@@ -181,14 +189,16 @@ def train_model(
     chip_size = hyperparameters.get("chip_size", 256)
     max_grad_norm = hyperparameters.get("max_grad_norm", 1.0)
     scheduler_name = hyperparameters.get("scheduler", "cosine")
+    freeze_encoder = hyperparameters.get("freeze_encoder", True)
     val_ratio = split_info["val_ratio"]
     seed = split_info["seed"]
 
     with mlflow_training_context(hyperparameters, model_name, base_model_id, dataset_id):
         device = _get_device()
         model = resnet18(weights=ResNet18_Weights.IMAGENET1K_V1)
-        for param in model.parameters():
-            param.requires_grad = False
+        if freeze_encoder:
+            for param in model.parameters():
+                param.requires_grad = False
         model.fc = nn.Linear(model.fc.in_features, 1)
         model.to(device)
 

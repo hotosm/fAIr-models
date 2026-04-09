@@ -30,6 +30,7 @@ class PgStacBackend:
     def __init__(self, dsn: str, stac_api_url: str) -> None:
         self._dsn = dsn
         self._stac_api_url = stac_api_url
+        self._http = httpx.Client(timeout=30)
         self._bootstrap_collections()
 
     def _get_db(self) -> PgstacDB:
@@ -83,7 +84,7 @@ class PgStacBackend:
 
     def get_item(self, collection_id: str, item_id: str) -> pystac.Item:
         url = f"{self._stac_api_url}/collections/{collection_id}/items/{item_id}"
-        resp = httpx.get(url, timeout=30)
+        resp = self._http.get(url)
         if resp.status_code == 404:
             msg = f"Item '{item_id}' not found in collection '{collection_id}'"
             raise KeyError(msg)
@@ -92,7 +93,7 @@ class PgStacBackend:
 
     def item_exists(self, collection_id: str, item_id: str) -> bool:
         url = f"{self._stac_api_url}/collections/{collection_id}/items/{item_id}"
-        resp = httpx.get(url, timeout=30)
+        resp = self._http.get(url)
         return resp.status_code == 200
 
     def list_items(self, collection_id: str, *, limit: int | None = None) -> list[pystac.Item]:
@@ -100,7 +101,7 @@ class PgStacBackend:
         payload: dict[str, object] = {"collections": [collection_id]}
         if limit is not None:
             payload["limit"] = limit
-        resp = httpx.post(url, json=payload, timeout=30)
+        resp = self._http.post(url, json=payload)
         resp.raise_for_status()
         features = resp.json().get("features", [])
         return [pystac.Item.from_dict(f) for f in features]

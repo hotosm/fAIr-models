@@ -4,6 +4,7 @@ set dotenv-load
 ns := "fair"
 scripts := "scripts"
 infra_node_size := env("INFRA_NODE_SIZE", "s-2vcpu-4gb")
+required_vars := "DO_TOKEN FAIR_DOMAIN MLFLOW_ADMIN_USER MLFLOW_ADMIN_PASSWORD ZENML_ADMIN_USER ZENML_ADMIN_PASSWORD LETSENCRYPT_EMAIL SPACES_BUCKET SPACES_ACCESS_KEY SPACES_SECRET_KEY"
 
 [doc('Provision infra, deploy, configure DNS')]
 up:
@@ -17,7 +18,7 @@ up:
     set -a && source .env && set +a
     source {{ scripts }}/env-derived.sh
     {{ scripts }}/database.sh init
-    {{ scripts }}/validate-env.sh
+    just _validate-env
     {{ scripts }}/deploy.sh helm
     {{ scripts }}/deploy.sh cert-issuer
     {{ scripts }}/deploy.sh stac-ingress
@@ -45,7 +46,7 @@ deploy:
     {{ scripts }}/database.sh write-env
     set -a && source .env && set +a
     source {{ scripts }}/env-derived.sh
-    {{ scripts }}/validate-env.sh
+    just _validate-env
     {{ scripts }}/deploy.sh helm
     {{ scripts }}/deploy.sh cert-issuer
     {{ scripts }}/deploy.sh stac-ingress
@@ -110,14 +111,28 @@ run-example:
     for example in segmentation classification detection; do
         ZENML_STORE_URL="https://zenml.${FAIR_DOMAIN}" \
         ZENML_STORE_API_TOKEN="$TOKEN" \
-        ZENML_STORE_VERIFY_SSL=false \
         FAIR_FORCE_CPU=1 \
+        FAIR_DSN="$PGSTAC_DSN" \
+        FAIR_STAC_API_URL="$STAC_API_URL" \
         FAIR_LABEL_DOMAIN="$FAIR_LABEL_DOMAIN" \
+        FAIR_UPLOAD_ARTIFACTS=true \
         AWS_ENDPOINT_URL="$SPACES_ENDPOINT" \
         AWS_ACCESS_KEY_ID="${SPACES_ACCESS_KEY}" \
         AWS_SECRET_ACCESS_KEY="${SPACES_SECRET_KEY}" \
-        uv run python "examples/$example/run.py" all \
-            --stac-api-url "$STAC_API_URL" \
-            --dsn "$PGSTAC_DSN" \
-            --data-prefix "s3://${SPACES_BUCKET}/data/sample"
+        uv run python "examples/$example/run.py"
     done
+
+[private]
+_validate-env:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    missing=()
+    for var in {{ required_vars }}; do
+      [[ -n "${!var:-}" ]] || missing+=("$var")
+    done
+    if (( ${#missing[@]} > 0 )); then
+      echo "ERROR: Missing required environment variables:"
+      printf '  %s\n' "${missing[@]}"
+      echo "Copy env.example to .env and fill in the values."
+      exit 1
+    fi

@@ -51,7 +51,8 @@ def _mock_deps():
 def backend(_mock_deps):
     from fair.stac.pgstac_backend import PgStacBackend
 
-    return PgStacBackend(dsn="postgresql://u:p@localhost/db", stac_api_url="http://localhost:8082")
+    with patch("fair.stac.pgstac_backend.httpx.Client"):
+        return PgStacBackend(dsn="postgresql://u:p@localhost/db", stac_api_url="http://localhost:8082")
 
 
 class TestBootstrap:
@@ -89,67 +90,61 @@ class TestPublishItem:
 
 
 class TestGetItem:
-    @patch("fair.stac.pgstac_backend.httpx")
-    def test_returns_item(self, mock_httpx, _mock_deps, backend):
+    def test_returns_item(self, _mock_deps, backend):
         expected = _make_item("found")
         mock_resp = MagicMock()
         mock_resp.status_code = 200
         mock_resp.json.return_value = expected.to_dict()
-        mock_httpx.get.return_value = mock_resp
+        backend._http.get.return_value = mock_resp
 
         result = backend.get_item("base-models", "found")
         assert result.id == "found"
-        mock_httpx.get.assert_called_once_with(
+        backend._http.get.assert_called_once_with(
             "http://localhost:8082/collections/base-models/items/found",
-            timeout=30,
         )
 
-    @patch("fair.stac.pgstac_backend.httpx")
-    def test_raises_on_missing(self, mock_httpx, _mock_deps, backend):
+    def test_raises_on_missing(self, _mock_deps, backend):
         mock_resp = MagicMock()
         mock_resp.status_code = 404
-        mock_httpx.get.return_value = mock_resp
+        backend._http.get.return_value = mock_resp
 
         with pytest.raises(KeyError, match="not found"):
             backend.get_item("base-models", "missing")
 
 
 class TestListItems:
-    @patch("fair.stac.pgstac_backend.httpx")
-    def test_returns_list(self, mock_httpx, _mock_deps, backend):
+    def test_returns_list(self, _mock_deps, backend):
         items = [_make_item("a"), _make_item("b")]
         mock_resp = MagicMock()
         mock_resp.status_code = 200
         mock_resp.json.return_value = {"features": [i.to_dict() for i in items]}
         mock_resp.raise_for_status = MagicMock()
-        mock_httpx.post.return_value = mock_resp
+        backend._http.post.return_value = mock_resp
 
         result = backend.list_items("base-models")
         assert len(result) == 2
 
-    @patch("fair.stac.pgstac_backend.httpx")
-    def test_limit_passed_to_search(self, mock_httpx, _mock_deps, backend):
+    def test_limit_passed_to_search(self, _mock_deps, backend):
         mock_resp = MagicMock()
         mock_resp.status_code = 200
         mock_resp.json.return_value = {"features": [_make_item("a").to_dict()]}
         mock_resp.raise_for_status = MagicMock()
-        mock_httpx.post.return_value = mock_resp
+        backend._http.post.return_value = mock_resp
 
         backend.list_items("base-models", limit=5)
-        call_kwargs = mock_httpx.post.call_args[1]
+        call_kwargs = backend._http.post.call_args[1]
         assert call_kwargs["json"]["limit"] == 5
 
 
 class TestDeprecateItem:
-    @patch("fair.stac.pgstac_backend.httpx")
-    def test_sets_deprecated_and_upserts(self, mock_httpx, _mock_deps, backend):
+    def test_sets_deprecated_and_upserts(self, _mock_deps, backend):
         _, mock_loader = _mock_deps
 
         item = _make_item("dep")
         mock_resp = MagicMock()
         mock_resp.status_code = 200
         mock_resp.json.return_value = item.to_dict()
-        mock_httpx.get.return_value = mock_resp
+        backend._http.get.return_value = mock_resp
 
         mock_loader.reset_mock()
         result = backend.deprecate_item("base-models", "dep")

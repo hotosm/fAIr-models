@@ -33,7 +33,8 @@ def resolve_weights(weight_id: str) -> Path:
     checkpoint_dir = Path(tempfile.mkdtemp())
     # YOLO() auto-downloads pretrained weights if not found locally
     model = YOLO(weight_id)
-    checkpoint_path = checkpoint_dir / weight_id
+    filename = Path(weight_id).name if "://" not in weight_id else weight_id.rsplit("/", 1)[-1]
+    checkpoint_path = checkpoint_dir / filename
     model.save(str(checkpoint_path))
     return checkpoint_path
 
@@ -195,6 +196,7 @@ def train_model(
     batch_size = hyperparameters.get("batch_size", 8)
     chip_size = hyperparameters.get("chip_size", 640)
     learning_rate = hyperparameters.get("learning_rate", 0.01)
+    freeze_encoder = hyperparameters.get("freeze_encoder", True)
 
     yolo_dir = Path(split_info["_yolo_dir"])
     if not (yolo_dir / "data.yaml").exists():
@@ -221,6 +223,7 @@ def train_model(
             imgsz=chip_size,
             device=device,
             lr0=learning_rate,
+            freeze=10 if freeze_encoder else 0,
             cos_lr=True,
             verbose=False,
         )

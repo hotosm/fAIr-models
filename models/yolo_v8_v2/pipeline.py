@@ -299,6 +299,115 @@ def infer_yolo_model(
 
 
 @step
+def split_dataset(
+    yolo_data_dir: str,
+    hyperparameters: Optional[Dict[str, Any]] = None,
+) -> Annotated[Dict[str, Any], "split_info"]:
+    """(Re)split an existing YOLO dataset directory into train/val splits.
+
+    This step makes the split strategy *functional* (not only metadata): it reshuffles
+    the existing files under:
+
+    - ``images/{train,val,test}/``
+    - ``labels/{train,val,test}/``
+
+    into new ``train`` and ``val`` folders deterministically using ``split_seed``.
+    ``p_val`` controls the validation fraction; ``test`` is emptied by default.
+    """
+    import random
+    import shutil
+    from pathlib import Path
+    hyperparameters = hyperparameters or {}
+    p_val = float(hyperparameters.get("p_val", 0.05))
+    seed = int(hyperparameters.get("split_seed", 42))
+    if not 0.0 <= p_val < 1.0:
+        raise ValueError(f"p_val must be in [0.0, 1.0). Received: {p_val}")
+
+    root = _to_local_path(yolo_data_dir, "yolo_data_dir")
+    images_dir = root / "images"
+    labels_dir = root / "labels"
+    if not images_dir.is_dir() or not labels_dir.is_dir():
+        raise RuntimeError(
+            f"Expected YOLO dataset structure under {root} with images/ and labels/. "
+            "Did preprocessing/yolo_format run successfully?"
+        )
+
+    all_items: list[tuple[Path, Path]] = []
+    for split in ("train", "val", "test"):
+        img_split = images_dir / split
+        lbl_split = labels_dir / split
+        if not img_split.is_dir() or not lbl_split.is_dir():
+            continue
+        for img_path in sorted(img_split.glob("*")):
+            if not img_path.is_file():
+                continue
+            lbl_path = lbl_split / f"{img_path.stem}.txt"
+            if lbl_path.is_file():
+                all_items.append((img_path, lbl_path))
+
+    if not all_items:
+        raise RuntimeError(f"No (image, label) pairs found under {images_dir} and {labels_dir}.")
+
+    rng = random.Random(seed)
+    rng.shuffle(all_items)
+
+    total = len(all_items)
+    if p_val <= 0.0:
+        n_val = 0
+    else:
+        n_val = int(total * p_val)
+        # Ensure at least one validation sample when possible.
+        if n_val == 0 and total >= 2:
+            n_val = 1
+        if n_val >= total:
+            n_val = total - 1
+
+    val_items = all_items[:n_val]
+    train_items = all_items[n_val:]
+
+    tmp_dir = root / ".split_tmp"
+    shutil.rmtree(tmp_dir, ignore_errors=True)
+    tmp_img = tmp_dir / "images"
+    tmp_lbl = tmp_dir / "labels"
+    tmp_img.mkdir(parents=True, exist_ok=True)
+    tmp_lbl.mkdir(parents=True, exist_ok=True)
+
+    # Stage all current files under a temp directory first, then rebuild train/val/test.
+    for img_path, lbl_path in all_items:
+        shutil.move(str(img_path), str(tmp_img / img_path.name))
+        shutil.move(str(lbl_path), str(tmp_lbl / lbl_path.name))
+
+    for split in ("train", "val", "test"):
+        shutil.rmtree(images_dir / split, ignore_errors=True)
+        shutil.rmtree(labels_dir / split, ignore_errors=True)
+        (images_dir / split).mkdir(parents=True, exist_ok=True)
+        (labels_dir / split).mkdir(parents=True, exist_ok=True)
+
+    for img_path, lbl_path in train_items:
+        shutil.move(str(tmp_img / img_path.name), str(images_dir / "train" / img_path.name))
+        shutil.move(str(tmp_lbl / lbl_path.name), str(labels_dir / "train" / lbl_path.name))
+
+    for img_path, lbl_path in val_items:
+        shutil.move(str(tmp_img / img_path.name), str(images_dir / "val" / img_path.name))
+        shutil.move(str(tmp_lbl / lbl_path.name), str(labels_dir / "val" / lbl_path.name))
+
+    shutil.rmtree(tmp_dir, ignore_errors=True)
+
+    split_info: Dict[str, Any] = {
+        "strategy": "ratio",
+        "val_ratio": p_val,
+        "seed": seed,
+        "yolo_data_dir": str(root),
+        "total_pairs": total,
+        "train_pairs": len(train_items),
+        "val_pairs": len(val_items),
+        "test_pairs": 0,
+    }
+    log_metadata(metadata={"fair/split": split_info})
+    return split_info
+
+
+@step
 def run_preprocessing(
     input_path: str,
     output_path: str,
@@ -394,6 +503,7 @@ def training_pipeline(
         output_path=output_path,
         p_val=p_val,
     )
+    split_dataset(yolo_data_dir=yolo_dir, hyperparameters=hyperparams)
     train_model(
         data_base_path=output_path,
         yolo_data_dir=yolo_dir,

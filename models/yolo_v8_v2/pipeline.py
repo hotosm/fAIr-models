@@ -29,9 +29,7 @@ from urllib.request import urlretrieve
 from zenml import log_metadata, pipeline, step
 
 _DEFAULT_WEIGHTS_CACHE = Path("/workspace/.yolo_weights_cache")
-_DEFAULT_YOLO_WEIGHTS_URL = (
-    "https://github.com/hotosm/fAIr-utilities/raw/refs/heads/master/yolov8s_v2-seg.pt"
-)
+_DEFAULT_YOLO_WEIGHTS_URL = "https://github.com/hotosm/fAIr-utilities/raw/refs/heads/master/yolov8s_v2-seg.pt"
 
 
 def _to_local_path(path_value: str, purpose: str) -> Path:
@@ -42,8 +40,7 @@ def _to_local_path(path_value: str, purpose: str) -> Path:
     protocol = getattr(upath_obj, "protocol", "") or ""
     if protocol not in ("", "file"):
         raise NotImplementedError(
-            f"{purpose} requires a local filesystem path. "
-            f"Received protocol={protocol!r} for {path_value!r}."
+            f"{purpose} requires a local filesystem path. Received protocol={protocol!r} for {path_value!r}."
         )
     return Path(str(upath_obj))
 
@@ -184,7 +181,7 @@ def postprocess(prediction_path: str, output_geojson: str) -> Dict[str, Any]:
         output_path=output_geojson,
         remove_inputs=False,
     )
-    
+
     with open(output_geojson, encoding="utf-8") as f:
         return json.load(f)
 
@@ -222,11 +219,9 @@ def train_yolo_model(
         model_val_metrics = model_val.val().results_dict
         precision = model_val_metrics.get("metrics/precision(M)", 0.0)
         recall = model_val_metrics.get("metrics/recall(M)", 0.0)
-        
-        iou_accuracy = (
-            0.0 if precision <= 0.0 or recall <= 0.0 else 1.0 / (1.0 / precision + 1.0 / recall - 1.0)
-        )
-            
+
+        iou_accuracy = 0.0 if precision <= 0.0 or recall <= 0.0 else 1.0 / (1.0 / precision + 1.0 / recall - 1.0)
+
         final_accuracy = iou_accuracy * 100
         del model_val
         gc.collect()
@@ -262,13 +257,13 @@ def infer_yolo_model(
 
     Delegates to hot_fair_utilities.predict which uses fairpredictor internally:
       run_prediction → georeference → move output TIFs
-      
+
     Then calls postprocess() to generate and parse the GeoJSON.
     """
     from hot_fair_utilities import predict
 
     cache = Path(model_cache_dir) if model_cache_dir else None
-    
+
     if isinstance(model_uri, (str, Path)):
         checkpoint_path = resolve_model_href(str(model_uri), cache_dir=cache)
     else:
@@ -290,11 +285,11 @@ def infer_yolo_model(
         prediction_path=prediction_path,
         confidence=confidence,
     )
-    
+
     out_dir_path = Path(output_dir)
     out_dir_path.mkdir(parents=True, exist_ok=True)
     output_geojson = str(out_dir_path / "prediction.geojson")
-    
+
     return postprocess(prediction_path, output_geojson)
 
 
@@ -327,7 +322,7 @@ def train_model(
     Returns the loaded Ultralytics YOLO model object. IoU accuracy is logged as ZenML metadata.
     """
     import ultralytics
-    
+
     model_path, iou_accuracy = train_yolo_model(
         data_base_path=data_base_path,
         yolo_data_dir=yolo_data_dir,

@@ -42,9 +42,7 @@ def _stage(name: str) -> None:
 
 
 def _count_images(path: Path) -> int:
-    return len(list(path.glob("*.png"))) + len(list(path.glob("*.tif"))) + len(
-        list(path.glob("*.tiff"))
-    )
+    return len(list(path.glob("*.png"))) + len(list(path.glob("*.tif"))) + len(list(path.glob("*.tiff")))
 
 
 def _load_yolo_pipeline_module():
@@ -121,9 +119,13 @@ def _prepare_data_sample_layout(dataset_root: Path) -> Path:
 
     gdfs = [gpd.read_file(p) for p in geojson_files]
     crs = gdfs[0].crs or "EPSG:4326"
-    merged = gdfs[0] if len(gdfs) == 1 else gpd.GeoDataFrame(
-        pd.concat([g.to_crs(crs) for g in gdfs], ignore_index=True),
-        crs=crs,
+    merged = (
+        gdfs[0]
+        if len(gdfs) == 1
+        else gpd.GeoDataFrame(
+            pd.concat([g.to_crs(crs) for g in gdfs], ignore_index=True),
+            crs=crs,
+        )
     )
     # Normalize extension dtypes for Fiona GeoJSON compatibility
     for col in merged.columns:

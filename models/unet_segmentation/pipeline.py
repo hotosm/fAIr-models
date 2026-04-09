@@ -51,12 +51,16 @@ def _build_feature_collection(features):
 
 
 def _resolve_weights(weight_id: str) -> Any:
-    if "://" in weight_id or "/" in weight_id:
+    if "://" in weight_id:
         return None
 
     from torchgeo.models import Unet_Weights
 
-    return Unet_Weights[weight_id.rsplit(".", 1)[-1]]
+    candidate = weight_id.rsplit(".", 1)[-1]  # TODO : this is not good example , need to find better solution
+    try:
+        return Unet_Weights[candidate]
+    except KeyError:
+        return None
 
 
 def _download_s3(uri: str) -> Path:

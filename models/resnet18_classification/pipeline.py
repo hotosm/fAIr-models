@@ -27,19 +27,20 @@ def _get_device() -> str:
 
 
 def resolve_weights(weight_id: str) -> Path:
-    import torch
+    from torchvision.models import ResNet18_Weights
 
-    if "://" in weight_id or "/" in weight_id:
+    candidate = weight_id.rsplit(".", 1)[-1]
+    try:
+        weights = ResNet18_Weights[candidate]
+    except KeyError:
         from upath import UPath
 
         local_path = Path(tempfile.mkdtemp()) / UPath(weight_id).name
         local_path.write_bytes(UPath(weight_id).read_bytes())
         return local_path
 
-    from torchvision.models import ResNet18_Weights
+    import torch
 
-    enum_name = weight_id.rsplit(".", 1)[-1]
-    weights = ResNet18_Weights[enum_name]
     checkpoint_path = Path(tempfile.mkdtemp()) / "resnet18_pretrained.pth"
     torch.hub.download_url_to_file(weights.url, str(checkpoint_path))
     return checkpoint_path

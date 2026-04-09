@@ -179,10 +179,58 @@ Your `pipeline.py` must also define:
 | --- | --- | --- |
 | `preprocess` | Normalize/transform input data before the model | `stac-item.json` `mlm:input[].pre_processing_function` |
 | `postprocess` | Convert raw model output to usable predictions | `stac-item.json` `mlm:output[].post_processing_function` |
+| `resolve_weights` | Download pretrained weights to a local checkpoint file | Required when model asset href is not a URL |
 
 These are referenced as Python entrypoints in the STAC item (e.g.
 `models.your_model.pipeline:preprocess`). The platform calls them dynamically
 ; your model owns its own pre/post processing logic entirely.
+
+### resolve_weights
+
+If your model's `stac-item.json` `model` asset `href` is **not** a direct URL
+(e.g. a framework weight enum like `torchvision.models.ResNet18_Weights.IMAGENET1K_V1`
+or a short name like `yolo11n.pt`), your `pipeline.py` **must** define a
+`resolve_weights` function. CI enforces this via AST parsing.
+
+```python title="resolve_weights contract"
+def resolve_weights(weight_id: str) -> Path:
+    """Download pretrained weights and return the local checkpoint path."""
+    ...
+```
+
+The function receives the raw `href` string from the STAC item and must
+return a `pathlib.Path` to a locally saved checkpoint file. The platform
+calls this when `upload_artifacts=True` to download the weights, upload them
+to S3, and update the STAC item href to the S3 URL.
+
+If the `model` asset `href` is already a URL (`https://...`, `s3://...`),
+`resolve_weights` is not required. When a URL is provided, CI validates
+that it is accessible via HTTP HEAD request.
+
+Examples from reference implementations:
+
+```python title="torchvision (ResNet18)"
+def resolve_weights(weight_id: str) -> Path:
+    import torch
+    from torchvision.models import ResNet18_Weights
+
+    enum_name = weight_id.rsplit(".", 1)[-1]
+    weights = ResNet18_Weights[enum_name]
+    checkpoint_path = Path(tempfile.mkdtemp()) / "resnet18_pretrained.pth"
+    torch.hub.download_url_to_file(weights.url, str(checkpoint_path))
+    return checkpoint_path
+```
+
+```python title="ultralytics (YOLO)"
+def resolve_weights(weight_id: str) -> Path:
+    from ultralytics import YOLO
+
+    checkpoint_dir = Path(tempfile.mkdtemp())
+    model = YOLO(weight_id)
+    checkpoint_path = checkpoint_dir / weight_id
+    model.save(str(checkpoint_path))
+    return checkpoint_path
+```
 
 ### Training Pipeline
 
@@ -664,6 +712,14 @@ Model weights must be downloadable from the `model` asset `href`. This can be
 a direct URL, S3 path, or a framework-specific weight enum (e.g.
 `torchgeo.models.Unet_Weights.OAM_RGB_RESNET50_TCD`). Your `pipeline.py` is
 responsible for resolving and loading the weights at runtime.
+
+!!! info "Weight upload to S3"
+
+    When `upload_artifacts=True`, the platform downloads the pretrained weights
+    via your `resolve_weights` function, uploads them to S3, and updates the
+    STAC item href to the S3 URL. If your model asset href is already a URL,
+    CI validates it is accessible. If it is a framework weight reference,
+    CI validates that `resolve_weights` exists in `pipeline.py`.
 
 The `readme` asset `href` must be an **absolute URL** to the raw file, not a
 relative path. Use the GitHub raw URL pattern:

@@ -14,7 +14,7 @@ Given an aerial imagery chip (256x256 RGB), predict whether the chip contains a 
 
 ## Dataset
 
-Derived from the same Banepa OAM+OSM dataset used for segmentation. Building polygons from the GeoJSON labels are intersected with each chip to produce per-chip binary labels (building / no_building). Conversion script: `scripts/convert_segmentation_to_classification.py`.
+Derived from the same Banepa OAM+OSM dataset used for segmentation. Building polygons from the GeoJSON labels are intersected with each chip to produce per-chip binary labels (building / no_building). Pre-generated labels are stored in `data/sample/train/classification_labels.csv`.
 
 ## Training
 

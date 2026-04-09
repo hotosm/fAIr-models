@@ -4,6 +4,7 @@ Entrypoints referenced by models/unet_segmentation/stac-item.json.
 Pretrained weights: OAM-TCD (arxiv.org/abs/2407.11743).
 """
 
+import tempfile
 from pathlib import Path
 from typing import Annotated, Any
 
@@ -50,9 +51,29 @@ def _build_feature_collection(features):
 
 
 def _resolve_weights(weight_id: str) -> Any:
+    if "://" in weight_id or "/" in weight_id:
+        return None
+
     from torchgeo.models import Unet_Weights
 
     return Unet_Weights[weight_id.rsplit(".", 1)[-1]]
+
+
+def _download_s3(uri: str) -> Path:
+    from upath import UPath
+
+    local_path = Path(tempfile.mkdtemp()) / UPath(uri).name
+    local_path.write_bytes(UPath(uri).read_bytes())
+    return local_path
+
+
+def resolve_weights(weight_id: str) -> Path:
+    import torch
+
+    weights = _resolve_weights(weight_id)
+    checkpoint_path = Path(tempfile.mkdtemp()) / "unet_pretrained.pth"
+    torch.hub.download_url_to_file(weights.url, str(checkpoint_path))
+    return checkpoint_path
 
 
 def preprocess(batch: dict[str, Any]) -> tuple[Any, Any]:
@@ -77,20 +98,16 @@ def _build_dataset(
     seed: int = 42,
 ) -> Any:
     """Intersect OAM + OSM GeoDatasets. chip_size in pixels; bounds are slices per torchgeo 0.10.x dev.
-    labels_path is the exact GeoJSON file path stored in STAC; OpenStreetMap.paths requires its parent dir.
     Downloads chips and labels to local cache via UPath/fsspec.
     """
     from torch.utils.data import DataLoader
     from torchgeo.datasets import OpenStreetMap, RasterDataset, stack_samples
     from torchgeo.samplers import GridGeoSampler, RandomGeoSampler, Units
 
-    from fair.utils.data import resolve_directory, resolve_path
+    from fair.utils.data import resolve_directory
 
     local_chips = str(resolve_directory(chips_path, "OAM-*"))
-
-    # labels_path may be a directory (containing .geojson files) or a single file
-    labels_as_path = Path(labels_path)
-    local_labels_dir = labels_as_path if labels_as_path.is_dir() else resolve_path(labels_path).parent
+    local_labels_dir = str(resolve_directory(labels_path, "*.geojson"))
 
     class _OAMDataset(RasterDataset):  # TODO : After OAM is released , replace this with OAM dataset directly
         filename_glob = "OAM-*.tif"
@@ -201,14 +218,25 @@ def train_model(
     loss_name = hyperparameters.get("loss", "CrossEntropyLoss")
     max_grad_norm = hyperparameters.get("max_grad_norm", 1.0)
     scheduler_name = hyperparameters.get("scheduler", "cosine")
+    freeze_encoder = hyperparameters.get("freeze_encoder", True)
     seed = split_info["seed"]
 
     with mlflow_training_context(hyperparameters, model_name, base_model_id, dataset_id):
         device = _get_device()
-        model = unet(weights=_resolve_weights(base_model_weights), classes=num_classes)
+        resolved = _resolve_weights(base_model_weights)
+        model = unet(weights=resolved, classes=num_classes)
+        if resolved is None:
+            import torch
+
+            local_path = _download_s3(base_model_weights)
+            state = torch.load(local_path, map_location=device, weights_only=True)
+            model.load_state_dict(state, strict=False)
         model.to(device)
-        for param in model.encoder.parameters():
-            param.requires_grad = False
+        if freeze_encoder:
+            encoder = getattr(model, "encoder", None)
+            if encoder is not None:
+                for param in encoder.parameters():
+                    param.requires_grad = False
         loader = _build_dataset(
             dataset_chips,
             dataset_labels,

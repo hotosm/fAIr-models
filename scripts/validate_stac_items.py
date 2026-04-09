@@ -6,7 +6,7 @@ import sys
 
 import pystac
 
-from fair.stac.validators import validate_item
+from fair.stac.validators import validate_item, validate_model_weight_href
 
 
 def main() -> int:
@@ -19,6 +19,11 @@ def main() -> int:
     for path in paths:
         item = pystac.Item.from_file(path)
         errors = validate_item(item)
+
+        is_model = path.startswith("models/")
+        if is_model:
+            errors.extend(validate_model_weight_href(item))
+
         if errors:
             failed = True
             print(f"FAIL {path}")

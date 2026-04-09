@@ -49,7 +49,7 @@ case "$action" in
     psql "$FAIR_URI" -c "CREATE EXTENSION IF NOT EXISTS postgis; CREATE EXTENSION IF NOT EXISTS btree_gist;"
     echo "Databases initialized."
     echo "Running pgstac migration..."
-    uv run pypgstac migrate --dsn "$FAIR_URI"
+    uv run --extra k8s pypgstac migrate --dsn "$FAIR_URI"
     echo "pgstac migration complete."
     ;;
   write-env)

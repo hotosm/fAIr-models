@@ -6,26 +6,13 @@ OAM imagery with binary building/no_building labels derived from OSM segmentatio
 ## Prerequisites
 
 - zenml
-- Sample data in `data/sample/` (OAM tiles + OSM labels)
-- Classification labels generated from segmentation labels (see below)
-
-## Label Conversion
-
-Classification labels are derived from the segmentation GeoJSON labels. Run the
-conversion script before training:
-
-```bash
-python scripts/convert_segmentation_to_classification.py
-```
-
-This produces `data/sample/train/classification_labels.csv` with per-chip binary labels.
+- Sample data in `data/sample/` (OAM tiles + OSM labels, including pre-generated `classification_labels.csv`)
 
 ## Quick Start
 
 ```bash
 uv sync --group example --group local
 just setup
-python scripts/convert_segmentation_to_classification.py
 python examples/classification/run.py all
 ```
 
@@ -50,7 +37,6 @@ python examples/classification/run.py <command>
 ### CI Usage
 
 ```bash
-python scripts/convert_segmentation_to_classification.py
 uv run python examples/classification/run.py clean
 uv run python examples/classification/run.py all
 ```

@@ -68,8 +68,6 @@ example:
     if [[ "$(cat {{ mode_file }} 2>/dev/null || echo local)" == "k8s" ]]; then
         just --justfile infra/dev/justfile run-example
     else
-        uv run python scripts/convert_segmentation_to_classification.py
-        uv run python scripts/convert_segmentation_to_detection.py
         for ex in segmentation classification detection; do
             uv run python "examples/$ex/run.py" clean
             uv run python "examples/$ex/run.py" all

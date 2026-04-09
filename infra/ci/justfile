@@ -51,8 +51,6 @@ run-example:
         python3 -c "import sys,json; print(json.load(sys.stdin)['access_token'])")
     [[ -n "$TOKEN" ]] || { echo "ERROR: Failed to obtain ZenML token"; exit 1; }
     cd {{ root }}
-    uv run python scripts/convert_segmentation_to_classification.py
-    uv run python scripts/convert_segmentation_to_detection.py
     for example in segmentation classification detection; do
         ZENML_STORE_URL="{{ zenml_url }}" \
         ZENML_STORE_API_TOKEN="$TOKEN" \

@@ -93,6 +93,26 @@ class FairClient:
             raise FairClientError(f"Cannot determine pipeline module from entrypoint '{entrypoint}'")
         return module
 
+    def _resolve_base_model_weights(self, item: pystac.Item) -> None:
+        model_asset = item.assets.get("model")
+        if model_asset is None:
+            return
+        if "://" in model_asset.href:
+            return
+        if Path(model_asset.href).is_file():
+            return
+
+        module_path = self._pipeline_module_from_item(item)
+        mod = importlib.import_module(module_path)
+        resolver = getattr(mod, "resolve_weights", None)
+        if resolver is None:
+            raise FairClientError(
+                f"Pipeline module '{module_path}' has no resolve_weights function "
+                f"but model asset href '{model_asset.href}' is not a URL or local file"
+            )
+        checkpoint = resolver(model_asset.href)
+        model_asset.href = str(checkpoint)
+
     def setup(self) -> None:
         zenml_bin = Path(sys.executable).parent / "zenml"
         subprocess.run([str(zenml_bin), "init"], check=True, capture_output=True)
@@ -117,6 +137,8 @@ class FairClient:
         else:
             item.properties.setdefault("version", "1")
 
+        if self._upload_artifacts:
+            self._resolve_base_model_weights(item)
         self._upload_assets_if_remote(item, BASE_MODELS_COLLECTION)
 
         if prev:

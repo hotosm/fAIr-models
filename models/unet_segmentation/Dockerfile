@@ -18,7 +18,6 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     torchgeo==0.9.0 \
     onnx \
     onnxscript \
-    zenml==0.93.3 \
     /tmp/fair-src[k8s,test]
 
 # Runtime stage: minimal image

@@ -70,7 +70,7 @@ test-models model="":
         docker run --rm --entrypoint "" \
             -e FAIR_FORCE_CPU=1 \
             "fair-models/$name:test" \
-            bash -c "zenml init && python -m pytest models/$name/tests/ -v --tb=short"
+            bash -c "python -m pytest models/$name/tests/ -v --tb=short"
     done
 
 [doc('Validate STAC items and model pipelines')]

@@ -19,7 +19,6 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     pyproj \
     onnx \
     onnxscript \
-    zenml==0.93.3 \
     /tmp/fair-src[k8s,test]
 
 # Runtime stage: minimal image

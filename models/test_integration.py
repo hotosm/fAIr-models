@@ -240,4 +240,6 @@ def test_full_pipeline(
     local_model_id = fair_client.promote(finetuned_id, description="integration test")
     assert local_model_id
 
-    fair_client.predict(local_model_id, image_path=predict_images)
+    predictions = fair_client.predict(local_model_id, image_path=predict_images)
+    assert predictions["type"] == "FeatureCollection"
+    assert len(predictions["features"]) > 0

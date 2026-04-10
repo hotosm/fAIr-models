@@ -19,7 +19,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     pyproj \
     onnx \
     onnxscript \
-    /tmp/fair-src[k8s,test]
+    /tmp/fair-src[k8s]
 
 # Runtime stage: minimal image
 FROM python:3.13-slim-trixie

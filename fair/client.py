@@ -380,4 +380,4 @@ class FairClient:
             raise RuntimeError("Inference pipeline returned no run")
         print(f"predict: {run.id} ({run.status})")
         last_step = list(run.steps.values())[-1]
-        return last_step.outputs["predictions"].load()
+        return last_step.outputs["predictions"][0].load()

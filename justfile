@@ -67,10 +67,16 @@ test-models model="":
         name=$(basename "$model_dir")
         echo "=== Testing $name ==="
         docker build -f "$model_dir/Dockerfile" -t "fair-models/$name:test" .
+        echo "Step tests :"
         docker run --rm --entrypoint "" \
             -e FAIR_FORCE_CPU=1 \
             "fair-models/$name:test" \
-            bash -c "python -m pytest models/$name/tests/ -v --tb=short"
+            bash -c "pip install pytest && python -m pytest models/$name/tests/ -v --tb=short"
+        echo "Integration test :"
+        docker run --rm --entrypoint "" \
+            -e FAIR_FORCE_CPU=1 \
+            "fair-models/$name:test" \
+            bash -c "pip install pytest 'zenml[server]' && python -m pytest models/test_integration.py -v --tb=short -m slow --model-dir=models/$name"
     done
 
 [doc('Validate STAC items and model pipelines')]

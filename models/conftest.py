@@ -27,9 +27,9 @@ def model_dir(request: pytest.FixtureRequest) -> Path:
     raw = request.config.getoption("--model-dir", default=None)
     if raw:
         return Path(raw).resolve()
-    test_path = Path(str(request.fspath)).resolve() if hasattr(request, "fspath") else None
-    if test_path:
-        for parent in test_path.parents:
+    for arg in request.config.args:
+        candidate = Path(arg).resolve()
+        for parent in [candidate, *candidate.parents]:
             if (parent / "stac-item.json").exists() and (parent / "pipeline.py").exists():
                 return parent
     msg = "Cannot determine model directory. Pass --model-dir or run from models/<name>/tests/"

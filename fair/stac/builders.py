@@ -159,32 +159,6 @@ def _flatten_coords(coords: Any) -> list[list[float]]:
     return result
 
 
-def geometry_and_bbox_from_chips(chips_href: str) -> tuple[dict[str, Any], list[float]]:
-    """Derive geometry and bbox from GeoTIFF chip files using rasterio."""
-    import rasterio
-
-    chips_path = Path(chips_href)
-    tiff_files = sorted(chips_path.glob("*.tif")) + sorted(chips_path.glob("*.tiff"))
-    if not tiff_files:
-        msg = f"No GeoTIFF files found in {chips_href} to derive spatial extent"
-        raise ValueError(msg)
-
-    west, south, east, north = float("inf"), float("inf"), float("-inf"), float("-inf")
-    for tif in tiff_files:
-        with rasterio.open(tif) as src:
-            b = src.bounds
-            west = min(west, b.left)
-            south = min(south, b.bottom)
-            east = max(east, b.right)
-            north = max(north, b.top)
-
-    geometry = {
-        "type": "Polygon",
-        "coordinates": [[[west, south], [east, south], [east, north], [west, north], [west, south]]],
-    }
-    return geometry, [west, south, east, north]
-
-
 def geometry_and_bbox_from_geojson(labels_href: str) -> tuple[dict[str, Any], list[float]]:
     labels_path = Path(labels_href)
     if labels_path.is_dir():
@@ -261,7 +235,8 @@ def build_dataset_item(
         if labels_path.is_dir() or labels_path.suffix.lower() == ".geojson":
             geometry, bbox = geometry_and_bbox_from_geojson(labels_href)
         else:
-            geometry, bbox = geometry_and_bbox_from_chips(chips_href)
+            msg = "geometry and bbox are required when labels are not GeoJSON"
+            raise ValueError(msg)
 
     resolved_id = item_id if item_id is not None else _slugify(title)
 

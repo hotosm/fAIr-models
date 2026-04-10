@@ -13,6 +13,13 @@ from rasterio.transform import from_bounds
 CHIP_COUNT = 6
 CHIP_SIZE = 256
 BASE_LON, BASE_LAT, STEP = 85.5, 27.6, 0.001
+_WEST, _SOUTH = BASE_LON, BASE_LAT
+_EAST, _NORTH = BASE_LON + 3 * STEP, BASE_LAT + 2 * STEP
+_GEOMETRY = {
+    "type": "Polygon",
+    "coordinates": [[[_WEST, _SOUTH], [_EAST, _SOUTH], [_EAST, _NORTH], [_WEST, _NORTH], [_WEST, _SOUTH]]],
+}
+_BBOX = [_WEST, _SOUTH, _EAST, _NORTH]
 
 
 def create_toy_data(root: Path) -> dict[str, Path]:
@@ -74,8 +81,8 @@ def _build_dataset_stac_item(chips_dir: Path, labels_dir: Path) -> dict[str, Any
             "https://stac-extensions.github.io/label/v1.0.1/schema.json",
         ],
         "id": "toy-segmentation",
-        "geometry": None,
-        "bbox": None,
+        "geometry": _GEOMETRY,
+        "bbox": _BBOX,
         "properties": {
             "datetime": "2024-01-01T00:00:00Z",
             "description": "Toy segmentation dataset",

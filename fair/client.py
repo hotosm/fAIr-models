@@ -354,7 +354,7 @@ class FairClient:
         print(f"promote: {item.id}")
         return item.id
 
-    def predict(self, local_model_id: str, image_path: str) -> None:
+    def predict(self, local_model_id: str, image_path: str) -> dict[str, Any]:
         cat = self._get_backend()
         try:
             model_item = cat.get_item(LOCAL_MODELS_COLLECTION, local_model_id)
@@ -379,3 +379,5 @@ class FairClient:
         if run is None:
             raise RuntimeError("Inference pipeline returned no run")
         print(f"predict: {run.id} ({run.status})")
+        last_step = list(run.steps.values())[-1]
+        return last_step.outputs["predictions"][0].load()

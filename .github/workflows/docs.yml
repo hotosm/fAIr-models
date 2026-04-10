@@ -37,7 +37,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      - uses: astral-sh/setup-uv@v5
+      - uses: astral-sh/setup-uv@v8
 
       - name: Install docs dependencies
         run: uv sync --group docs

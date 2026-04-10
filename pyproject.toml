@@ -46,6 +46,7 @@ test = [
     "pytest>=8.0",
 ]
 k8s = [
+    "opentelemetry-proto>=1.25.0",
     "pypgstac[psycopg]>=0.9",
     "pystac-client>=0.9,<1",
     "zenml[connectors-aws,connectors-kubernetes,s3fs]>=0.93.3",

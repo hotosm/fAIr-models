@@ -4,6 +4,7 @@ import json
 import re
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any, Literal
 
 import pystac
@@ -158,17 +159,44 @@ def _flatten_coords(coords: Any) -> list[list[float]]:
     return result
 
 
-def geometry_and_bbox_from_geojson(labels_href: str) -> tuple[dict[str, Any], list[float]]:
-    with open(labels_href, encoding="utf-8") as f:
-        geojson: Any = json.load(f)
+def geometry_and_bbox_from_chips(chips_href: str) -> tuple[dict[str, Any], list[float]]:
+    """Derive geometry and bbox from GeoTIFF chip files using rasterio."""
+    import rasterio
 
-    all_coords: list[list[float]] = []
-    features: Any = geojson.get("features", [])
-    if features:
-        for feat in features:
-            all_coords.extend(_flatten_coords(feat["geometry"]["coordinates"]))
-    elif "coordinates" in geojson:
-        all_coords.extend(_flatten_coords(geojson["coordinates"]))
+    chips_path = Path(chips_href)
+    tiff_files = sorted(chips_path.glob("*.tif")) + sorted(chips_path.glob("*.tiff"))
+    if not tiff_files:
+        msg = f"No GeoTIFF files found in {chips_href} to derive spatial extent"
+        raise ValueError(msg)
+
+    west, south, east, north = float("inf"), float("inf"), float("-inf"), float("-inf")
+    for tif in tiff_files:
+        with rasterio.open(tif) as src:
+            b = src.bounds
+            west = min(west, b.left)
+            south = min(south, b.bottom)
+            east = max(east, b.right)
+            north = max(north, b.top)
+
+    geometry = {
+        "type": "Polygon",
+        "coordinates": [[[west, south], [east, south], [east, north], [west, north], [west, south]]],
+    }
+    return geometry, [west, south, east, north]
+
+
+def geometry_and_bbox_from_geojson(labels_href: str) -> tuple[dict[str, Any], list[float]]:
+    labels_path = Path(labels_href)
+    if labels_path.is_dir():
+        geojson_files = sorted(labels_path.rglob("*.geojson"))
+        if not geojson_files:
+            msg = f"No .geojson files found in {labels_href}"
+            raise ValueError(msg)
+        all_coords: list[list[float]] = []
+        for gf in geojson_files:
+            all_coords.extend(_extract_coords_from_file(gf))
+    else:
+        all_coords = _extract_coords_from_file(labels_path)
 
     if not all_coords:
         msg = f"No coordinates found in {labels_href}"
@@ -180,6 +208,20 @@ def geometry_and_bbox_from_geojson(labels_href: str) -> tuple[dict[str, Any], li
         "coordinates": [[[west, south], [east, south], [east, north], [west, north], [west, south]]],
     }
     return geometry, [west, south, east, north]
+
+
+def _extract_coords_from_file(path: Path) -> list[list[float]]:
+    with open(path, encoding="utf-8") as f:
+        geojson: Any = json.load(f)
+
+    coords: list[list[float]] = []
+    features: Any = geojson.get("features", [])
+    if features:
+        for feat in features:
+            coords.extend(_flatten_coords(feat["geometry"]["coordinates"]))
+    elif "coordinates" in geojson:
+        coords.extend(_flatten_coords(geojson["coordinates"]))
+    return coords
 
 
 def _slugify(text: str) -> str:
@@ -215,7 +257,11 @@ def build_dataset_item(
     predecessor_version_href: str | None = None,
 ) -> pystac.Item:
     if geometry is None or bbox is None:
-        geometry, bbox = geometry_and_bbox_from_geojson(labels_href)
+        labels_path = Path(labels_href)
+        if labels_path.is_dir() or labels_path.suffix.lower() == ".geojson":
+            geometry, bbox = geometry_and_bbox_from_geojson(labels_href)
+        else:
+            geometry, bbox = geometry_and_bbox_from_chips(chips_href)
 
     resolved_id = item_id if item_id is not None else _slugify(title)
 
@@ -243,8 +289,7 @@ def build_dataset_item(
         properties["license"] = license_id
     if providers is not None:
         properties["providers"] = providers
-    if label_description is not None:
-        properties["label:description"] = label_description
+    properties["label:description"] = label_description if label_description is not None else description
     if label_methods is not None:
         properties["label:methods"] = label_methods
 

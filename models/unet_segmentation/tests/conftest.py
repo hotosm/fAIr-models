@@ -6,43 +6,64 @@ from typing import Any
 
 import numpy as np
 import pytest
-from PIL import Image
+import rasterio
+from rasterio.crs import CRS
+from rasterio.transform import from_bounds
 
 CHIP_COUNT = 6
 CHIP_SIZE = 256
+BASE_LON, BASE_LAT, STEP = 85.5, 27.6, 0.001
 
 
-@pytest.fixture(scope="session")
-def generate_toy_dataset(tmp_path_factory: pytest.TempPathFactory) -> dict[str, Path]:
-    root = tmp_path_factory.mktemp("toy_segmentation")
+def create_toy_data(root: Path) -> dict[str, Path]:
     chips_dir = root / "chips"
     chips_dir.mkdir()
 
     for i in range(CHIP_COUNT):
-        img = np.random.randint(0, 255, (CHIP_SIZE, CHIP_SIZE, 3), dtype=np.uint8)
-        Image.fromarray(img).save(chips_dir / f"chip_{i:03d}.png")
+        lon = BASE_LON + (i % 3) * STEP
+        lat = BASE_LAT + (i // 3) * STEP
+        transform = from_bounds(lon, lat, lon + STEP, lat + STEP, CHIP_SIZE, CHIP_SIZE)
+        with rasterio.open(
+            chips_dir / f"OAM-{i:04d}-0000-0000.tif",
+            "w",
+            driver="GTiff",
+            width=CHIP_SIZE,
+            height=CHIP_SIZE,
+            count=3,
+            dtype="uint8",
+            crs=CRS.from_epsg(4326),
+            transform=transform,
+        ) as dst:
+            dst.write(np.random.randint(0, 255, (3, CHIP_SIZE, CHIP_SIZE), dtype=np.uint8))
 
     labels_dir = root / "labels"
     labels_dir.mkdir()
-    features = [
-        {
-            "type": "Feature",
-            "properties": {"building": "yes"},
-            "geometry": {
-                "type": "Polygon",
-                "coordinates": [[[0, 0], [10, 0], [10, 10], [0, 10], [0, 0]]],
-            },
-        }
-        for _ in range(CHIP_COUNT)
-    ]
-    geojson = {"type": "FeatureCollection", "features": features}
-    (labels_dir / "buildings.geojson").write_text(json.dumps(geojson))
+    features = []
+    for i in range(CHIP_COUNT):
+        lon = BASE_LON + (i % 3) * STEP
+        lat = BASE_LAT + (i // 3) * STEP
+        features.append(
+            {
+                "type": "Feature",
+                "properties": {"label": 1},
+                "geometry": {
+                    "type": "Polygon",
+                    "coordinates": [
+                        [[lon, lat], [lon + STEP, lat], [lon + STEP, lat + STEP], [lon, lat + STEP], [lon, lat]]
+                    ],
+                },
+            }
+        )
+    (labels_dir / "labels.geojson").write_text(json.dumps({"type": "FeatureCollection", "features": features}))
 
-    stac_item = _build_dataset_stac_item(chips_dir, labels_dir)
     stac_path = root / "dataset-stac-item.json"
-    stac_path.write_text(json.dumps(stac_item, indent=2))
-
+    stac_path.write_text(json.dumps(_build_dataset_stac_item(chips_dir, labels_dir), indent=2))
     return {"chips": chips_dir, "labels": labels_dir, "dataset_stac_item": stac_path}
+
+
+@pytest.fixture(scope="session")
+def generate_toy_dataset(tmp_path_factory: pytest.TempPathFactory) -> dict[str, Path]:
+    return create_toy_data(tmp_path_factory.mktemp("toy_segmentation"))
 
 
 def _build_dataset_stac_item(chips_dir: Path, labels_dir: Path) -> dict[str, Any]:
@@ -57,12 +78,19 @@ def _build_dataset_stac_item(chips_dir: Path, labels_dir: Path) -> dict[str, Any
         "bbox": None,
         "properties": {
             "datetime": "2024-01-01T00:00:00Z",
+            "description": "Toy segmentation dataset",
             "label:type": "vector",
             "label:tasks": ["segmentation"],
             "label:classes": [{"name": "building", "classes": ["yes"]}],
+            "label:description": "Segmentation labels",
+            "keywords": ["building"],
+            "fair:user_id": "test",
+            "version": "1",
+            "deprecated": False,
+            "license": "CC-BY-4.0",
         },
         "assets": {
-            "chips": {"href": str(chips_dir), "type": "image/png", "roles": ["data"]},
+            "chips": {"href": str(chips_dir), "type": "image/tiff", "roles": ["data"]},
             "labels": {"href": str(labels_dir), "type": "application/geo+json", "roles": ["labels"]},
         },
         "links": [],

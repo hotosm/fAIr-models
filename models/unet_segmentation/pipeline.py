@@ -13,8 +13,6 @@ from zenml import log_metadata, pipeline, step
 from fair.zenml.instrumentation import log_evaluation_results, mlflow_training_context
 from fair.zenml.steps import load_model
 
-_BUILDING_CLASSES = [{"name": "building", "selector": [{"building": "*"}]}]
-
 
 def _get_device() -> str:
     import torch
@@ -101,11 +99,10 @@ def _build_dataset(
     split: str = "train",
     seed: int = 42,
 ) -> Any:
-    """Intersect OAM + OSM GeoDatasets. chip_size in pixels; bounds are slices per torchgeo 0.10.x dev.
-    Downloads chips and labels to local cache via UPath/fsspec.
-    """
+    """Intersect OAM raster + GeoJSON vector GeoDatasets via torchgeo."""
+    from pyproj import CRS
     from torch.utils.data import DataLoader
-    from torchgeo.datasets import OpenStreetMap, RasterDataset, stack_samples
+    from torchgeo.datasets import RasterDataset, VectorDataset, stack_samples
     from torchgeo.samplers import GridGeoSampler, RandomGeoSampler, Units
 
     from fair.utils.data import resolve_directory
@@ -113,17 +110,15 @@ def _build_dataset(
     local_chips = str(resolve_directory(chips_path, "OAM-*"))
     local_labels_dir = str(resolve_directory(labels_path, "*.geojson"))
 
-    class _OAMDataset(RasterDataset):  # TODO : After OAM is released , replace this with OAM dataset directly
+    class _OAMDataset(RasterDataset):  # TODO: replace with OAM dataset after torchgeo release
         filename_glob = "OAM-*.tif"
         filename_regex = r"^OAM-(?P<x>\d+)-(?P<y>\d+)-(?P<z>\d+)\.tif$"
         is_image = True
         separate_files = False
 
     oam = _OAMDataset(paths=local_chips)
-    b = oam.bounds
-    bbox = (b[0].start, b[1].start, b[0].stop, b[1].stop)
-    osm = OpenStreetMap(bbox=bbox, classes=_BUILDING_CLASSES, paths=str(local_labels_dir), download=False)
-    dataset = oam & osm
+    labels = VectorDataset(paths=local_labels_dir, crs=CRS.from_epsg(4326), res=oam.res, label_name="label")
+    dataset = oam & labels
 
     if split == "val":
         sampler = GridGeoSampler(dataset, size=chip_size, stride=chip_size, units=Units.PIXELS)

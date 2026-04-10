@@ -8,6 +8,7 @@ the full torchgeo data loading path.
 
 from __future__ import annotations
 
+import tempfile
 from pathlib import Path
 from typing import Any
 from unittest.mock import patch
@@ -61,8 +62,16 @@ def test_train_model(toy_chips: Path, toy_labels: Path, base_hyperparameters: di
         batch_masks = torch.stack([dummy_masks[i] for i in range(4)])
         return [{"image": batch_images, "mask": batch_masks}]
 
+    def mock_download_s3(_uri: str) -> Path:
+        from torchgeo.models import unet as build_unet
+
+        tmp = Path(tempfile.mkdtemp()) / "weights.pth"
+        torch.save(build_unet(weights=None, classes=2).state_dict(), tmp)
+        return tmp
+
     with (
         patch("models.unet_segmentation.pipeline._build_dataset", mock_build_dataset),
+        patch("models.unet_segmentation.pipeline._download_s3", mock_download_s3),
         patch("models.unet_segmentation.pipeline.mlflow_training_context") as mock_ctx,
         patch("models.unet_segmentation.pipeline.log_metadata"),
         patch("mlflow.log_metric"),

@@ -185,6 +185,48 @@ class TestBuildDatasetItem:
         self_links = [lnk for lnk in item.links if lnk.rel == "self"]
         assert len(self_links) == 1
 
+    def test_raster_classification_derives_geometry_from_chips(self, tmp_path):
+        import numpy as np
+        import rasterio
+        from rasterio.crs import CRS
+        from rasterio.transform import from_bounds
+
+        chips_dir = tmp_path / "chips"
+        chips_dir.mkdir()
+        transform = from_bounds(85.5, 27.6, 85.51, 27.61, 256, 256)
+        data = np.zeros((3, 256, 256), dtype=np.uint8)
+        with rasterio.open(
+            chips_dir / "chip_0.tif",
+            "w",
+            driver="GTiff",
+            width=256,
+            height=256,
+            count=3,
+            dtype="uint8",
+            crs=CRS.from_epsg(4326),
+            transform=transform,
+        ) as dst:
+            dst.write(data)
+
+        labels_csv = tmp_path / "labels.csv"
+        labels_csv.write_text("filename,class_name\nchip_0.tif,building\n")
+        item = build_dataset_item(
+            label_type="raster",
+            label_tasks=["classification"],
+            label_classes=[{"name": None, "classes": ["building"]}],
+            keywords=["building"],
+            chips_href=str(chips_dir),
+            labels_href=str(labels_csv),
+            title="Classification Dataset",
+            description="Binary classification labels",
+            user_id="u",
+        )
+        assert item.geometry is not None
+        assert item.bbox is not None
+        assert item.bbox == [85.5, 27.6, 85.51, 27.61]
+        assert item.properties["label:type"] == "raster"
+        assert item.properties["label:tasks"] == ["classification"]
+
 
 class TestBuildBaseModelItem:
     def test_mlm_fields_and_assets(self):

@@ -49,18 +49,14 @@ def task_type(model_stac_item: dict[str, Any]) -> str:
 
 @pytest.fixture(scope="session")
 def chip_size(model_stac_item: dict[str, Any]) -> int:
-    mlm_input = model_stac_item["properties"].get("mlm:input", {})
-    shape = mlm_input.get("shape", [])
-    if len(shape) >= 3:
-        return shape[-1]
-    return 256
+    shape = model_stac_item["properties"]["mlm:input"][0]["input"]["shape"]
+    return shape[-1]
 
 
 @pytest.fixture(scope="session")
 def class_names(model_stac_item: dict[str, Any]) -> list[str]:
-    mlm_output = model_stac_item["properties"].get("mlm:output", {})
-    classes = mlm_output.get("classification:classes", [])
-    return [cls["name"] for cls in classes] if classes else ["building"]
+    classes = model_stac_item["properties"]["mlm:output"][0]["classification:classes"]
+    return [cls["name"] for cls in classes]
 
 
 @pytest.fixture(scope="session")

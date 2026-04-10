@@ -92,8 +92,6 @@ def base_hyperparameters(chip_size: int) -> dict[str, Any]:
         "chip_size": min(chip_size, 32),
         "val_ratio": 0.3,
         "split_seed": 42,
-        "scheduler": "cosine",
-        "max_grad_norm": 1.0,
     }
 
 

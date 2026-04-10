@@ -139,6 +139,9 @@ models/your-model/
   Dockerfile           # Self-contained runtime environment
   stac-item.json       # STAC MLM item (model metadata)
   README.md            # Model overview, limitations, citation
+  tests/
+    conftest.py        # generate_toy_dataset fixture
+    test_steps.py      # Step-level tests
 ```
 
 ## pipeline.py
@@ -452,6 +455,24 @@ ENTRYPOINT ["/usr/local/bin/python"]
 
 The image is built from the repository root (not from `models/your_model/`),
 so paths in `COPY` are relative to the repo root.
+
+## Testing
+
+Each model needs a `tests/` directory with two files:
+
+- `conftest.py` : a `generate_toy_dataset` fixture that creates toy chips + labels at test time
+- `test_steps.py` : four test functions : `test_split_dataset`, `test_train_model`, `test_evaluate_model`, `test_export_onnx`
+
+The shared `models/conftest.py` provides common fixtures (`toy_chips`,
+`toy_labels`, `base_hyperparameters`, etc.) automatically. You only write
+`generate_toy_dataset`.
+
+See `models/resnet18_classification/tests/`, `models/yolo11n_detection/tests/`,
+or `models/unet_segmentation/tests/` for complete working examples.
+
+```bash
+just test-models your-model   # Build Docker image + run tests
+```
 
 ## stac-item.json
 
@@ -788,9 +809,11 @@ specs, and keywords ; the README is for everything else.
 Before opening a PR, make sure:
 
 - [ ] `models/your-model/` includes `pipeline.py`, `Dockerfile`, `stac-item.json`, and `README.md`
+- [ ] `tests/test_steps.py` defines `test_split_dataset`, `test_train_model`, `test_evaluate_model`, `test_export_onnx`
+- [ ] `tests/conftest.py` defines `generate_toy_dataset` fixture returning `{"chips", "labels", "dataset_stac_item"}`
 - [ ] `README.md` explains the model clearly enough for another developer to use it
 - [ ] `just validate` passes for the model and STAC item
-- [ ] training and inference both run on the sample data ( if sample data doesn't match , consider adding one )
+- [ ] `just test-models your-model` passes inside Docker
 
 The full requirements are described in the sections above, especially the STAC metadata, pipeline structure, assets, and README guidance. CI checks the detailed metadata, pipeline exports, Docker build, and consistency rules for you.
 
@@ -798,10 +821,10 @@ The full requirements are described in the sections above, especially the STAC m
 
 On PR submission, CI will:
 
-1. **Validate pipeline exports** : `scripts/validate_model.py` checks for `training_pipeline` and `inference_pipeline` (`@pipeline`) and `split_dataset` (`@step`) via AST parsing
+1. **Validate pipeline exports** : `scripts/validate_model.py` checks for `training_pipeline` and `inference_pipeline` (`@pipeline`), `split_dataset` (`@step`), and required test functions via AST parsing
 2. **Validate STAC item** : `scripts/validate_stac_items.py` checks all required properties (including `fair:split_spec`), extensions, assets, keywords (including geometry type), and license
-3. **Build Docker image** -- verifies the Dockerfile builds successfully
-4. **Run tests with sample data** -- executes against `data/sample/`
+3. **Build Docker image** : verifies the Dockerfile builds successfully
+4. **Run step tests** : `python -m pytest models/<name>/tests/` inside Docker validates all 4 pipeline steps with toy data
 
 All checks must pass before the PR is reviewed.
 

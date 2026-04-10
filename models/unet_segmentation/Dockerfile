@@ -19,7 +19,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     onnx \
     onnxscript \
     zenml==0.93.3 \
-    /tmp/fair-src[k8s]
+    /tmp/fair-src[k8s,test]
 
 # Runtime stage: minimal image
 FROM python:3.13-slim-trixie
@@ -37,6 +37,8 @@ ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1
 
 COPY models/unet_segmentation models/unet_segmentation
+COPY models/conftest.py models/conftest.py
+COPY models/test_integration.py models/test_integration.py
 
 ENTRYPOINT ["/usr/local/bin/python"]
 

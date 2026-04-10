@@ -68,7 +68,26 @@ jobs:
             type=raw,value=v${{ matrix.version }},enable={{is_default_branch}}
             type=raw,value=latest,enable={{is_default_branch}}
 
-      - uses: docker/build-push-action@v6
+      - name: Build image (local)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ matrix.path }}/Dockerfile
+          load: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=${{ matrix.name }}
+
+      - name: Run model tests
+        run: |
+          IMAGE_TAG=$(echo "${{ steps.meta.outputs.tags }}" | head -1)
+          docker run --rm --entrypoint "" \
+            -e FAIR_FORCE_CPU=1 \
+            "$IMAGE_TAG" \
+            bash -c "zenml init && python -m pytest models/${{ matrix.name }}/tests/ -v --tb=short"
+
+      - name: Push image
+        uses: docker/build-push-action@v6
         with:
           context: .
           file: ${{ matrix.path }}/Dockerfile

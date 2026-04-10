@@ -53,6 +53,26 @@ clean:
 test:
     uv run pytest tests/ -v
 
+[doc('Run model tests inside Docker (requires built images)')]
+test-models model="":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [[ -n "{{ model }}" ]]; then
+        dirs=("models/{{ model }}")
+    else
+        dirs=(models/*/tests)
+        dirs=("${dirs[@]%/tests}")
+    fi
+    for model_dir in "${dirs[@]}"; do
+        name=$(basename "$model_dir")
+        echo "=== Testing $name ==="
+        docker build -f "$model_dir/Dockerfile" -t "fair-models/$name:test" .
+        docker run --rm --entrypoint "" \
+            -e FAIR_FORCE_CPU=1 \
+            "fair-models/$name:test" \
+            bash -c "zenml init && python -m pytest models/$name/tests/ -v --tb=short"
+    done
+
 [doc('Validate STAC items and model pipelines')]
 validate:
     uv run python scripts/validate_stac_items.py && uv run python scripts/validate_model.py

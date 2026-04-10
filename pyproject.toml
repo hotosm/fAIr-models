@@ -44,6 +44,7 @@ dependencies = [
 [project.optional-dependencies]
 test = [
     "pytest>=8.0",
+    "zenml[server]>=0.93.3",
 ]
 k8s = [
     "opentelemetry-proto>=1.25.0",

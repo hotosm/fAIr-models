@@ -1009,6 +1009,7 @@ k8s = [
 ]
 test = [
     { name = "pytest" },
+    { name = "zenml", extra = ["server"] },
 ]
 
 [package.dev-dependencies]
@@ -1063,6 +1064,7 @@ requires-dist = [
     { name = "universal-pathlib", specifier = ">=0.3.10" },
     { name = "zenml", specifier = ">=0.93.3" },
     { name = "zenml", extras = ["connectors-aws", "connectors-kubernetes", "s3fs"], marker = "extra == 'k8s'", specifier = ">=0.93.3" },
+    { name = "zenml", extras = ["server"], marker = "extra == 'test'", specifier = ">=0.93.3" },
 ]
 provides-extras = ["k8s", "test"]
 

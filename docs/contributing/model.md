@@ -415,46 +415,26 @@ local_labels = resolve_path(labels_path)
 
 ## Dockerfile
 
-Your Dockerfile must be **self-contained**: building and running the image
-alone should be sufficient to execute both training and inference pipelines.
-No external dependencies beyond what is installed in the image.
+Your Dockerfile must be **self-contained** and use **three named stages**:
+
+| Stage | Purpose |
+|---|---|
+| `builder` | Install and compile all dependencies |
+| `runtime` | Production image (ML framework + fair-py-ops, no test deps) |
+| `test` | Extends `runtime` with `fair-py-ops[test]` (pytest + zenml[server]) for CI |
 
 Requirements:
 
-1. Multi-stage build recommended (builder + slim runtime)
-2. Install all Python dependencies including `fair-py-ops` and your ML framework
-3. Copy your model code into the image at `models/your_model/`
+1. Use `uv pip install` in the builder (not bare `pip`)
+2. Install `/tmp/fair-src[k8s]` from the copied project source
+3. The `test` stage must install `/tmp/fair-src[test]` via `uv pip install --system`
 4. Set `ENTRYPOINT ["/usr/local/bin/python"]`
+5. Never install test dependencies in the `runtime` stage
 
-Reference Dockerfile structure:
+CI builds `--target test` to run tests, then pushes only `--target runtime`.
 
-```dockerfile title="Dockerfile"
-FROM ghcr.io/astral-sh/uv:python3.13-trixie-slim AS builder
-ENV UV_SYSTEM_PYTHON=1 UV_LINK_MODE=copy
-
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential libgdal-dev && rm -rf /var/lib/apt/lists/*
-
-RUN --mount=type=cache,target=/root/.cache/uv \
-    uv pip install \
-    your-ml-framework \
-    fair-py-ops 
-
-FROM python:3.13-slim-trixie
-WORKDIR /app
-
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    libexpat1 libgdal36 && rm -rf /var/lib/apt/lists/*
-
-COPY --from=builder /usr/local/lib/python3.13/site-packages /usr/local/lib/python3.13/site-packages
-COPY --from=builder /usr/local/bin /usr/local/bin
-
-COPY models/your_model models/your_model
-ENTRYPOINT ["/usr/local/bin/python"]
-```
-
-The image is built from the repository root (not from `models/your_model/`),
-so paths in `COPY` are relative to the repo root.
+See any existing model Dockerfile (e.g. `models/unet_segmentation/Dockerfile`)
+for the full pattern.
 
 ## Testing
 
@@ -809,6 +789,7 @@ specs, and keywords ; the README is for everything else.
 Before opening a PR, make sure:
 
 - [ ] `models/your-model/` includes `pipeline.py`, `Dockerfile`, `stac-item.json`, and `README.md`
+- [ ] `Dockerfile` has three stages: `builder`, `runtime` (production), and `test` (CI)
 - [ ] `tests/test_steps.py` defines `test_split_dataset`, `test_train_model`, `test_evaluate_model`, `test_export_onnx`
 - [ ] `tests/conftest.py` defines `generate_toy_dataset` fixture returning `{"chips", "labels", "dataset_stac_item"}`
 - [ ] `README.md` explains the model clearly enough for another developer to use it
@@ -823,8 +804,9 @@ On PR submission, CI will:
 
 1. **Validate pipeline exports** : `scripts/validate_model.py` checks for `training_pipeline` and `inference_pipeline` (`@pipeline`), `split_dataset` (`@step`), and required test functions via AST parsing
 2. **Validate STAC item** : `scripts/validate_stac_items.py` checks all required properties (including `fair:split_spec`), extensions, assets, keywords (including geometry type), and license
-3. **Build Docker image** : verifies the Dockerfile builds successfully
-4. **Run step tests** : `python -m pytest models/<name>/tests/` inside Docker validates all 4 pipeline steps with toy data
+3. **Build test Docker image** : builds `--target test` which includes pytest and zenml[server]
+4. **Run step tests** : `python -m pytest models/<name>/tests/` inside the test image validates all 4 pipeline steps with toy data
+5. **Push production image** : builds `--target runtime` (no test deps) and pushes to the container registry
 
 All checks must pass before the PR is reviewed.
 

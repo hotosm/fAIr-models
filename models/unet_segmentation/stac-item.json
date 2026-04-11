@@ -67,6 +67,7 @@
         ],
         "license": "AGPL-3.0-only",
         "version": "1",
+        "deprecated": false,
         "fair:metrics_spec": [
             {
                 "key": "fair:accuracy",

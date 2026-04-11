@@ -399,6 +399,7 @@ def build_base_model_item(
             "mlm:hyperparameters": mlm_hyperparameters,
             "keywords": keywords,
             "version": "1",
+            "deprecated": False,
             "fair:metrics_spec": fair_metrics_spec,
         },
         stac_extensions=BASE_MODEL_EXTENSIONS,

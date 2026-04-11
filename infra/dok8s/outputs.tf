@@ -19,11 +19,6 @@ output "pgstac_dsn" {
   sensitive = true
 }
 
-output "pg_uri" {
-  value     = digitalocean_database_cluster.this.uri
-  sensitive = true
-}
-
 output "spaces_endpoint" {
   value = local.spaces_endpoint
 }
@@ -66,4 +61,8 @@ output "zenml_admin_user" {
 output "zenml_admin_password" {
   value     = var.zenml_admin_password
   sensitive = true
+}
+
+output "verify_ssl" {
+  value = !var.insecure_ssl
 }

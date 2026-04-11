@@ -1,7 +1,6 @@
 set shell := ["bash", "-euo", "pipefail", "-c"]
 
 ns := "fair"
-env := ".env"
 
 [doc('Initialize OpenTofu')]
 init:
@@ -16,7 +15,6 @@ up:
     #!/usr/bin/env bash
     set -euo pipefail
     tofu apply -auto-approve
-    just _write-env
     just _save-kubeconfig
     just _cluster-issuer
     just _db-init
@@ -52,16 +50,16 @@ urls:
 run-example:
     #!/usr/bin/env bash
     set -euo pipefail
-    set -a && source {{ env }} && set +a
+    eval "$(tofu output -json | jq -r 'to_entries[] | "export \(.key | ascii_upcase)=\(.value.value | @sh)"')"
     echo "Checking database connectivity..."
     psql "$PGSTAC_DSN" -c "SELECT 1" >/dev/null
     echo "Database: ok"
     TOKEN=$(scripts/zenml-token.sh)
     cd ../..
     for example in segmentation classification detection; do
-        ZENML_STORE_URL="https://zenml.${FAIR_DOMAIN}" \
+        ZENML_STORE_URL="$ZENML_URL" \
         ZENML_STORE_API_TOKEN="$TOKEN" \
-        ZENML_STORE_VERIFY_SSL=false \
+        ZENML_STORE_VERIFY_SSL="$VERIFY_SSL" \
         FAIR_FORCE_CPU=1 \
         FAIR_DSN="$PGSTAC_DSN" \
         FAIR_STAC_API_URL="$STAC_URL" \
@@ -76,55 +74,47 @@ run-example:
 # ---- Internal ----
 
 [private]
-_write-env:
-    tofu output -json | jq -r 'to_entries[] | "\(.key | ascii_upcase)=\(.value.value)"' > {{ env }}
-    @echo ".env written from tofu outputs."
-
-[private]
 _save-kubeconfig:
     #!/usr/bin/env bash
     set -euo pipefail
-    set -a && source {{ env }} && set +a
-    doctl kubernetes cluster kubeconfig save "$(echo "$DOKS_CONTEXT" | sed 's/^do-[^-]*-//')"
+    CONTEXT="$(tofu output -raw doks_context)"
+    doctl kubernetes cluster kubeconfig save "${CONTEXT#do-*-}"
 
 [private]
 _cluster-issuer:
     #!/usr/bin/env bash
     set -euo pipefail
-    set -a && source {{ env }} && set +a
-    sed "s/LETSENCRYPT_EMAIL/$LETSENCRYPT_EMAIL/" cluster-issuer.yaml | kubectl apply -f -
+    sed "s/LETSENCRYPT_EMAIL/$(tofu output -raw letsencrypt_email)/" cluster-issuer.yaml | kubectl apply -f -
 
 [private]
 _db-init:
     #!/usr/bin/env bash
     set -euo pipefail
-    set -a && source {{ env }} && set +a
-    FAIR_URI=$(echo "$PG_URI" | sed 's|/defaultdb|/fair_models|')
-    psql "$FAIR_URI" -c "CREATE EXTENSION IF NOT EXISTS postgis; CREATE EXTENSION IF NOT EXISTS btree_gist;" 2>/dev/null
+    DSN="$(tofu output -raw pgstac_dsn)"
+    psql "$DSN" -c "CREATE EXTENSION IF NOT EXISTS postgis; CREATE EXTENSION IF NOT EXISTS btree_gist;" 2>/dev/null
     echo "Extensions installed."
-    uv run --extra k8s pypgstac migrate --dsn "$FAIR_URI"
+    uv run --extra k8s pypgstac migrate --dsn "$DSN"
     echo "pgstac migration complete."
 
 [private]
 _seed:
     #!/usr/bin/env bash
     set -euo pipefail
-    set -a && source {{ env }} && set +a
-    AWS_ENDPOINT_URL="$SPACES_ENDPOINT" \
-    AWS_ACCESS_KEY_ID="$SPACES_ACCESS_KEY" \
-    AWS_SECRET_ACCESS_KEY="$SPACES_SECRET_KEY" \
-    SPACES_BUCKET="$SPACES_BUCKET" \
+    AWS_ENDPOINT_URL="$(tofu output -raw spaces_endpoint)" \
+    AWS_ACCESS_KEY_ID="$(tofu output -raw spaces_access_key)" \
+    AWS_SECRET_ACCESS_KEY="$(tofu output -raw spaces_secret_key)" \
+    SPACES_BUCKET="$(tofu output -raw spaces_bucket)" \
     uv run --with boto3 python scripts/seed_data.py
 
 [private]
 _register-stack:
     #!/usr/bin/env bash
     set -euo pipefail
-    set -a && source {{ env }} && set +a
+    eval "$(tofu output -json | jq -r 'to_entries[] | "export \(.key | ascii_upcase)=\(.value.value | @sh)"')"
     TOKEN=$(scripts/zenml-token.sh --wait)
     export ZENML_STORE_URL="https://zenml.${FAIR_DOMAIN}"
     export ZENML_STORE_API_TOKEN="$TOKEN"
-    export ZENML_STORE_VERIFY_SSL=false
+    export ZENML_STORE_VERIFY_SSL="$VERIFY_SSL"
     RESOLVED=".dok8s-stack-resolved.yaml"
     envsubst < ../../stacks/dok8s.yaml > "$RESOLVED"
     uv run zenml stack import dok8s -f "$RESOLVED" --ignore-version-mismatch 2>/dev/null || true

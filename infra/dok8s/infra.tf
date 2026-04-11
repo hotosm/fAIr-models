@@ -89,9 +89,10 @@ resource "digitalocean_database_firewall" "this" {
 # ---------- DO Spaces ----------
 
 resource "digitalocean_spaces_bucket" "this" {
-  name   = var.spaces_bucket
-  region = var.region
-  acl    = "private"
+  name          = var.spaces_bucket
+  region        = var.region
+  acl           = "private"
+  force_destroy = true
 }
 
 # ---------- Wildcard DNS ----------

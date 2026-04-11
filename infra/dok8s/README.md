@@ -57,7 +57,7 @@ just tear           # destroy all resources (keeps Spaces bucket data)
 just run-example    # submit all pipelines to cluster
 ```
 
-`just up` runs the full sequence: `tofu apply`, writes `.env` from outputs, saves kubeconfig, applies cluster-issuer, installs PostGIS extensions, runs pgstac migration, seeds data, and registers the ZenML stack.
+`just up` runs the full sequence: `tofu apply`, saves kubeconfig, applies cluster-issuer, installs PostGIS extensions, runs pgstac migration, seeds data, and registers the ZenML stack.
 
 ## GPU Node Pool
 

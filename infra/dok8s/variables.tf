@@ -62,3 +62,8 @@ variable "zenml_admin_password" {
 variable "letsencrypt_email" {
   type = string
 }
+
+variable "insecure_ssl" {
+  type    = bool
+  default = false
+}

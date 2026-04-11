@@ -84,7 +84,10 @@ resource "helm_release" "stac" {
     postgrescluster = { enabled = false }
     pgstacBootstrap = { enabled = false }
     stac = {
-      resources        = { limits = { cpu = "500m", memory = "512Mi" } }
+      resources = {
+        requests = { cpu = "100m", memory = "256Mi" }
+        limits   = { cpu = "500m", memory = "512Mi" }
+      }
       ingress          = { enabled = false }
       overrideRootPath = ""
       settings = {

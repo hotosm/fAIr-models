@@ -48,7 +48,7 @@ Each item type follows the [STAC Version Extension](https://github.com/stac-exte
 |------|-----|----------------|
 | Base model | Human-readable slug | `item_id` from the STAC JSON file (e.g. `yolo11n-detection`) |
 | Dataset | Human-readable slug | `_slugify(title)` or `item_id` from the STAC JSON file |
-| Local model | UUID | ZenML model version ID (unique per user/training run) |
+| Local model | ZenML model version UUID | Unique per user/training run, passed as `item_id` on promotion |
 
 Local models use UUIDs because the same base model + dataset pair can produce different finetuned models across users and training runs.
 

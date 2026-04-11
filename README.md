@@ -72,7 +72,7 @@ Key properties: `mlm:name`, `mlm:architecture`, `mlm:tasks`, `mlm:framework`,
 and `classification:classes`), `mlm:hyperparameters`, `keywords`.
 
 Key assets: `model` (weights), `source-code` (with `mlm:entrypoint`),
-`training-runtime` / `inference-runtime` (Docker image or "local").
+`mlm:training` / `mlm:inference` (Docker image or "local").
 
 The `mlm:entrypoint` tells the backend which Python function to call.
 `pre_processing_function` / `post_processing_function` are standard MLM

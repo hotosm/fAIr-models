@@ -24,6 +24,10 @@ up:
     just _register-stack
     just urls
 
+[doc('Apply infra/service changes only (no seed, no stack re-register)')]
+deploy:
+    tofu apply -auto-approve
+
 [doc('Destroy all resources (keeps Spaces bucket data)')]
 tear:
     tofu destroy -auto-approve

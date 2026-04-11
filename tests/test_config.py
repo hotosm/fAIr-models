@@ -189,8 +189,8 @@ def test_k8s_settings_cpu_returns_workload_toleration():
     pod = settings["orchestrator.kubernetes"]["pod_settings"]
     assert pod["tolerations"] == [_workload_toleration("training")]
     assert pod["node_selectors"] == _workload_selector("training")
-    assert pod["resources"]["requests"]["memory"] == "4Gi"
-    assert pod["resources"]["limits"]["memory"] == "6Gi"
+    assert pod["resources"]["requests"]["memory"] == "2Gi"
+    assert pod["resources"]["limits"]["memory"] == "2.5Gi"
 
 
 def test_k8s_settings_explicit_cpu():
@@ -198,8 +198,8 @@ def test_k8s_settings_explicit_cpu():
     pod = settings["orchestrator.kubernetes"]["pod_settings"]
     assert pod["tolerations"] == [_workload_toleration("inference")]
     assert pod["node_selectors"] == _workload_selector("inference")
-    assert pod["resources"]["requests"]["memory"] == "2Gi"
-    assert pod["resources"]["limits"]["memory"] == "4Gi"
+    assert pod["resources"]["requests"]["memory"] == "1Gi"
+    assert pod["resources"]["limits"]["memory"] == "2Gi"
 
 
 def test_k8s_settings_amd64():
@@ -207,8 +207,8 @@ def test_k8s_settings_amd64():
     pod = settings["orchestrator.kubernetes"]["pod_settings"]
     assert pod["tolerations"] == [_workload_toleration("training")]
     assert pod["node_selectors"] == _workload_selector("training")
-    assert pod["resources"]["requests"]["memory"] == "4Gi"
-    assert pod["resources"]["limits"]["memory"] == "6Gi"
+    assert pod["resources"]["requests"]["memory"] == "2Gi"
+    assert pod["resources"]["limits"]["memory"] == "2.5Gi"
 
 
 def test_k8s_settings_default_count():
@@ -236,8 +236,8 @@ def test_k8s_resources_workload_env_overrides_global(monkeypatch):
 def test_k8s_resources_inference_defaults():
     settings = _scheduling_settings(_item_with_accelerator(), "inference")
     resources = settings["orchestrator.kubernetes"]["pod_settings"]["resources"]
-    assert resources["requests"]["memory"] == "2Gi"
-    assert resources["limits"]["memory"] == "4Gi"
+    assert resources["requests"]["memory"] == "1Gi"
+    assert resources["limits"]["memory"] == "2Gi"
 
 
 def test_k8s_resources_cpu_env(monkeypatch):
@@ -255,7 +255,7 @@ def test_k8s_settings_force_cpu_env(monkeypatch):
     pod = settings["orchestrator.kubernetes"]["pod_settings"]
     assert pod["tolerations"] == [_workload_toleration("training")]
     assert pod["node_selectors"] == _workload_selector("training")
-    assert pod["resources"] == {"requests": {"memory": "4Gi"}, "limits": {"memory": "6Gi"}}
+    assert pod["resources"] == {"requests": {"memory": "2Gi"}, "limits": {"memory": "2.5Gi"}}
 
 
 def test_workload_selectors_use_label_domain():

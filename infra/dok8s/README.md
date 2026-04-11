@@ -1,76 +1,75 @@
 # DigitalOcean Deployment
 
-Deploys fAIr-models on DOKS with managed PostgreSQL and DO Spaces.
+Deploys fAIr-models on DOKS with managed PostgreSQL and DO Spaces using OpenTofu.
 
 ## Architecture
 
 - **DOKS cluster**: `infra` pool + autoscaling `ml` pool (0-1 nodes)
 - **Managed PostgreSQL 17**: PostGIS-enabled (databases: zenml, fair_models, mlflow, mlflow_auth)
 - **DO Spaces**: S3-compatible artifact store
-- **nginx-ingress**: single DO Load Balancer, wildcard DNS `*.FAIR_DOMAIN`
+- **nginx-ingress**: single DO Load Balancer, wildcard DNS `*.{domain}`
 - **cert-manager**: automated HTTPS via Let's Encrypt
 
-Pipelines run in-cluster via ZenML K8s orchestrator. Training and inference pods schedule on ML pool nodes labeled `FAIR_DOMAIN/training=true` and `FAIR_DOMAIN/inference=true` (labels set at pool level, not manually).
+Services exposed at `stac.{domain}`, `mlflow.{domain}`, `zenml.{domain}`.
+
+Pipelines run in-cluster via ZenML K8s orchestrator. Training and inference pods schedule on ML pool nodes labeled `{domain}/training=true` and `{domain}/inference=true`.
 
 ## Prerequisites
 
-- `doctl` (authenticated), `helm`, `helmfile`, `kubectl`
-- `psql`, `aws` CLI, `uv`
+- `tofu` (OpenTofu), `doctl` (authenticated), `helm`, `kubectl`
+- `psql`, `jq`, `envsubst`, `uv`
 
-## Environment
+## Configuration
 
-All configuration lives in `.env`. Copy the example and fill in your values:
+Copy the tfvars example and fill in your values:
 
 ```
-cp env.example .env
+cp terraform.tfvars.example terraform.tfvars
 ```
 
-| Variable | Source |
+| Variable | Description |
 |---|---|
-| `DO_TOKEN` | DO API token |
-| `CLUSTER_NAME` | Cluster name (default: `fair`) |
-| `DO_REGION` | DO region (default: `nyc3`) |
-| `FAIR_DOMAIN` | Your wildcard domain |
-| `PG_*` | Auto-populated by `just infra` |
-| `SPACES_BUCKET` | S3 bucket name |
-| `SPACES_ACCESS_KEY` | Spaces access key |
-| `SPACES_SECRET_KEY` | Spaces secret key |
-| `MLFLOW_ADMIN_USER` | MLflow admin username |
-| `MLFLOW_ADMIN_PASSWORD` | MLflow admin password |
-| `ZENML_ADMIN_USER` | ZenML admin username |
-| `ZENML_ADMIN_PASSWORD` | ZenML admin password |
-| `LETSENCRYPT_EMAIL` | Email for Let's Encrypt certs |
+| `do_token` | DigitalOcean API token |
+| `domain` | Base domain for wildcard DNS (e.g. `fair.example.com`) |
+| `spaces_bucket` | DO Spaces bucket name |
+| `spaces_access_key` | Spaces access key |
+| `spaces_secret_key` | Spaces secret key |
+| `mlflow_admin_user` | MLflow admin username |
+| `mlflow_admin_password` | MLflow admin password |
+| `zenml_admin_user` | ZenML admin username |
+| `zenml_admin_password` | ZenML admin password |
+| `letsencrypt_email` | Email for Let's Encrypt certificates |
+| `cluster_name` | Cluster name (default: `fair`) |
+| `region` | DO region (default: `nyc3`) |
+| `infra_node_size` | Infra node size (default: `s-2vcpu-4gb`) |
+| `ml_node_size` | ML node size (default: `s-4vcpu-8gb`) |
 
 ## Usage
 
-```
-just up             # provision infra + deploy + DNS
-just run-example    # submit UNet pipeline to cluster
+```bash
+just init           # initialize OpenTofu
+just plan           # preview changes
+just up             # first-time setup: provision, deploy, seed, register stack
+just deploy         # apply infra/service changes only (no seed, no stack re-register)
 just status         # check cluster health
 just urls           # print service URLs
-just tear           # destroy (keeps Spaces bucket)
+just tear           # destroy all resources (keeps Spaces bucket data)
+just run-example    # submit all pipelines to cluster
 ```
 
-Individual steps can be run directly:
-
-```
-scripts/cluster.sh create       # create DOKS cluster
-scripts/database.sh create      # create managed Postgres
-scripts/database.sh write-env   # populate .env with PG creds
-scripts/deploy.sh helm          # deploy helm releases
-scripts/deploy.sh dns           # set up wildcard DNS
-```
+`just up` runs the full sequence: `tofu apply`, writes `.env` from outputs, saves kubeconfig, applies cluster-issuer, installs PostGIS extensions, runs pgstac migration, seeds data, and registers the ZenML stack.
 
 ## GPU Node Pool
 
-To add a GPU pool for accelerated training:
+The ML node pool uses CPU instances by default. To add a GPU pool for accelerated training:
 
 ```bash
 doctl kubernetes cluster node-pool create fair \
   --name gpu \
   --size gpu_1x_nvidia_a100 \
   --count 0 --auto-scale --min-nodes 0 --max-nodes 1 \
-  --label "FAIR_DOMAIN/training=true" \
-  --taint "FAIR_DOMAIN/training=true:NoSchedule"
+  --label "{domain}/training=true" \
+  --taint "{domain}/training=true:NoSchedule"
 ```
 
+Replace `{domain}` with the value of your `domain` variable.

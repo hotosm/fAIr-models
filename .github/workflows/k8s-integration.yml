@@ -3,7 +3,19 @@ name: K8s Integration Test
 on:
   push:
     branches: [master]
+    paths:
+      - "fair/**"
+      - "examples/**"
+      - "models/**"
+      - "stacks/**"
+      - "infra/ci/**"
+      - "pyproject.toml"
+      - "uv.lock"
+      - ".github/workflows/k8s-integration.yml"
   workflow_dispatch:
+
+permissions:
+  contents: read
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}

@@ -15,3 +15,4 @@ letsencrypt_email  = ""
 # infra_node_size = "s-2vcpu-4gb"
 # ml_node_size    = "s-4vcpu-8gb"
 # insecure_ssl    = false
+# public_read     = false

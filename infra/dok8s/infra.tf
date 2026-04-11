@@ -95,6 +95,22 @@ resource "digitalocean_spaces_bucket" "this" {
   force_destroy = true
 }
 
+resource "digitalocean_spaces_bucket_policy" "public_read" {
+  count  = var.public_read ? 1 : 0
+  region = digitalocean_spaces_bucket.this.region
+  bucket = digitalocean_spaces_bucket.this.name
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Sid       = "PublicRead"
+      Effect    = "Allow"
+      Principal = "*"
+      Action    = "s3:GetObject"
+      Resource  = "arn:aws:s3:::${digitalocean_spaces_bucket.this.name}/*"
+    }]
+  })
+}
+
 # ---------- Wildcard DNS ----------
 
 resource "digitalocean_record" "wildcard" {

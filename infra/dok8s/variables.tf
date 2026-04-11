@@ -67,3 +67,8 @@ variable "insecure_ssl" {
   type    = bool
   default = false
 }
+
+variable "public_read" {
+  type    = bool
+  default = false
+}

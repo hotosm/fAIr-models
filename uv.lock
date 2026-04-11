@@ -1062,9 +1062,9 @@ requires-dist = [
     { name = "pystac-client", marker = "extra == 'k8s'", specifier = ">=0.9,<1" },
     { name = "pytest", marker = "extra == 'test'", specifier = ">=8.0" },
     { name = "universal-pathlib", specifier = ">=0.3.10" },
-    { name = "zenml", specifier = ">=0.93.3" },
-    { name = "zenml", extras = ["connectors-aws", "connectors-kubernetes", "s3fs"], marker = "extra == 'k8s'", specifier = ">=0.93.3" },
-    { name = "zenml", extras = ["server"], marker = "extra == 'test'", specifier = ">=0.93.3" },
+    { name = "zenml", specifier = "==0.93.3" },
+    { name = "zenml", extras = ["connectors-aws", "connectors-kubernetes", "s3fs"], marker = "extra == 'k8s'", specifier = "==0.93.3" },
+    { name = "zenml", extras = ["server"], marker = "extra == 'test'", specifier = "==0.93.3" },
 ]
 provides-extras = ["k8s", "test"]
 

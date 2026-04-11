@@ -38,19 +38,19 @@ dependencies = [
     "mlflow>=2.1.1,<4",
     "pystac[validation]>=1.14.3,<2",
     "universal-pathlib>=0.3.10",
-    "zenml>=0.93.3",
+    "zenml==0.93.3",
 ]
 
 [project.optional-dependencies]
 test = [
     "pytest>=8.0",
-    "zenml[server]>=0.93.3",
+    "zenml[server]==0.93.3",
 ]
 k8s = [
     "opentelemetry-proto>=1.25.0",
     "pypgstac[psycopg]>=0.9",
     "pystac-client>=0.9,<1",
-    "zenml[connectors-aws,connectors-kubernetes,s3fs]>=0.93.3",
+    "zenml[connectors-aws,connectors-kubernetes,s3fs]==0.93.3",
 ]
 
 [project.urls]

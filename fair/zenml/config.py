@@ -54,8 +54,8 @@ def _workload_toleration(workload: str) -> dict[str, str]:
 
 
 _WORKLOAD_RESOURCE_DEFAULTS: dict[str, dict[str, str]] = {
-    "training": {"memory_request": "4Gi", "memory_limit": "6Gi"},
-    "inference": {"memory_request": "2Gi", "memory_limit": "4Gi"},
+    "training": {"memory_request": "2Gi", "memory_limit": "2.5Gi"},
+    "inference": {"memory_request": "1Gi", "memory_limit": "2Gi"},
 }
 
 
@@ -221,7 +221,8 @@ def generate_training_config(
 
     k8s = _scheduling_settings(base_model_item, "training")
     if k8s:
-        config.setdefault("settings", {}).update(k8s)
+        config.setdefault("steps", {}).setdefault("train_model", {}).setdefault("settings", {}).update(k8s)
+        config.setdefault("steps", {}).setdefault("evaluate_model", {}).setdefault("settings", {}).update(k8s)
 
     return config
 
@@ -274,6 +275,6 @@ def generate_inference_config(
 
     k8s = _scheduling_settings(model_item, "inference")
     if k8s:
-        config.setdefault("settings", {}).update(k8s)
+        config.setdefault("steps", {}).setdefault("predict", {}).setdefault("settings", {}).update(k8s)
 
     return config

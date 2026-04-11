@@ -298,7 +298,7 @@ class FairClient:
         train_cfg.write_text(yaml.dump(cfg_data, sort_keys=False))
 
         mod = importlib.import_module(pipeline_module)
-        run = mod.training_pipeline.with_options(config_path=str(train_cfg))()
+        run = mod.training_pipeline.with_options(config_path=str(train_cfg), enable_cache=False)()
         if run is None:
             raise RuntimeError("Training pipeline returned no run")
         print(f"finetune: {run.id} ({run.status})")

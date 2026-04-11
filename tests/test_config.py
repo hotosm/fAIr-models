@@ -269,10 +269,13 @@ def test_training_config_includes_k8s_settings(tmp_path):
     item = _item_with_accelerator("cuda", 1)
     ds = _dataset(tmp_path)
     cfg = generate_training_config(item, ds, model_name="gpu-test")
-    assert "orchestrator.kubernetes" in cfg["settings"]
+    assert "orchestrator.kubernetes" in cfg["steps"]["train_model"]["settings"]
+    assert "orchestrator.kubernetes" in cfg["steps"]["evaluate_model"]["settings"]
+    assert "orchestrator.kubernetes" not in cfg.get("settings", {})
 
 
 def test_inference_config_includes_k8s_settings():
     item = _item_with_accelerator("cuda")
     cfg = generate_inference_config(item, "/images/")
-    assert "orchestrator.kubernetes" in cfg["settings"]
+    assert "orchestrator.kubernetes" in cfg["steps"]["predict"]["settings"]
+    assert "orchestrator.kubernetes" not in cfg.get("settings", {})

@@ -6,6 +6,7 @@ Pretrained backbone: Ultralytics YOLOv11n COCO.
 
 import hashlib
 import json
+import random
 import shutil
 import tempfile
 from pathlib import Path
@@ -75,6 +76,20 @@ def _restore_checkpoint(trained_model: Any):
     return YOLO(trained_model)
 
 
+def preprocess(image_path: Any, chip_size: int = 640) -> Any:
+    import numpy as np
+    import rasterio
+    import torch
+    import torch.nn.functional as F
+
+    with rasterio.open(image_path) as src:
+        arr = src.read([1, 2, 3]).astype(np.float32) / 255.0
+    tensor = torch.from_numpy(arr).unsqueeze(0)
+    if tensor.shape[-2:] != (chip_size, chip_size):
+        tensor = F.interpolate(tensor, size=(chip_size, chip_size), mode="bilinear", align_corners=False)
+    return tensor
+
+
 def postprocess(results: Any) -> list[dict[str, Any]]:
     detections: list[dict[str, Any]] = []
     for result in results:
@@ -99,6 +114,7 @@ def _prepare_yolo_dataset(
     coco_json_path: str,
     chip_size: int,
     val_ratio: float = 0.2,
+    seed: int = 42,
 ) -> tuple[Path, int, int]:
     from fair.utils.data import resolve_directory, resolve_path
 
@@ -127,6 +143,8 @@ def _prepare_yolo_dataset(
         (yolo_dir / "labels" / split).mkdir(parents=True)
 
     available_ids = [img_id for img_id, fn in img_id_to_name.items() if (local_chips / fn).exists()]
+    rng = random.Random(seed)
+    rng.shuffle(available_ids)
     val_count = max(1, int(len(available_ids) * val_ratio))
     val_ids = set(available_ids[-val_count:])
 
@@ -162,16 +180,17 @@ def split_dataset(
 ) -> Annotated[dict[str, Any], "split_info"]:
     val_ratio = hyperparameters.get("val_ratio", 0.2)
     chip_size = hyperparameters.get("chip_size", 640)
+    seed = hyperparameters.get("split_seed", 42)
 
-    yolo_dir, train_count, val_count = _prepare_yolo_dataset(dataset_chips, dataset_labels, chip_size, val_ratio)
+    yolo_dir, train_count, val_count = _prepare_yolo_dataset(dataset_chips, dataset_labels, chip_size, val_ratio, seed)
 
     split_info = {
         "strategy": "random",
         "val_ratio": val_ratio,
-        "seed": 0,
+        "seed": seed,
         "train_count": train_count,
         "val_count": val_count,
-        "description": f"Last {val_ratio:.0%} of sorted image IDs held out for validation",
+        "description": f"Seeded random shuffle of image IDs, last {val_ratio:.0%} held out for validation",
         "_yolo_dir": str(yolo_dir),
     }
     log_metadata(metadata={"fair/split": {k: v for k, v in split_info.items() if not k.startswith("_")}})
@@ -299,7 +318,8 @@ def detect(
 
     all_features: list[dict[str, Any]] = []
     for img_path in img_paths:
-        results = yolo_model(str(img_path), imgsz=chip_size, verbose=False)
+        tensor = preprocess(img_path, chip_size)
+        results = yolo_model(tensor, verbose=False)
         with rasterio.open(img_path) as src:
             img_transform = src.transform
             crs = src.crs
@@ -351,6 +371,15 @@ def training_pipeline(
     export_onnx(trained_model=trained_model)
 
 
+@step
+def load_base_model(
+    model_uri: str,
+    num_classes: int,
+) -> Any:
+    checkpoint = resolve_weights(model_uri)
+    return Path(checkpoint).read_bytes()
+
+
 @pipeline
 def inference_pipeline(
     model_uri: str,
@@ -358,6 +387,10 @@ def inference_pipeline(
     chip_size: int = 640,
     num_classes: int = 1,
     zenml_artifact_version_id: str = "",
+    use_base_model: bool = False,
 ) -> None:
-    model = load_model(model_uri=model_uri, zenml_artifact_version_id=zenml_artifact_version_id)
+    if use_base_model:
+        model = load_base_model(model_uri=model_uri, num_classes=num_classes)
+    else:
+        model = load_model(model_uri=model_uri, zenml_artifact_version_id=zenml_artifact_version_id)
     detect(model=model, input_images=input_images, chip_size=chip_size)

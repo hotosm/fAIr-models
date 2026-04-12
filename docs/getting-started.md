@@ -8,7 +8,7 @@ icon: lucide/rocket
 
 !!! info "Required tools"
 
-    - :simple-python: Python 3.12+
+    - :simple-python: Python 3.11+
     - :simple-astral: [uv](https://docs.astral.sh/uv/) (package manager)
     - :simple-docker: Docker (for model runtime containers)
 
@@ -94,11 +94,13 @@ just example  # converts labels, then runs segmentation -> classification -> det
 ```text
 fair/                  # Core library (pip-installable as fair-py-ops)
   stac/                # STAC catalog management, builders, validators
-  utils/               # Data helpers, model validation
+  utils/               # Data helpers
   zenml/               # ZenML config generation, promotion, steps
 models/                # Base model contributions (one subdir per model)
 examples/              # CLI runners for local development
-infra/dev/             # Kind cluster Helm values for K8s dev stack
+infra/ci/              # Kind cluster config for CI integration tests
+infra/dev/             # Helmfile stack for local Kubernetes dev
+infra/dok8s/           # OpenTofu config for the DigitalOcean deployment
 tests/                 # pytest suite
 ```
 

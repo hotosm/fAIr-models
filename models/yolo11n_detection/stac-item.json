@@ -171,7 +171,7 @@
             "strategy": "random",
             "default_ratio": 0.2,
             "seed": 42,
-            "description": "Last N% of sorted image IDs held out for validation. Ultralytics manages LR scheduling and gradient clipping internally."
+            "description": "Seeded random shuffle of image IDs, last N% held out for validation. Ultralytics manages LR scheduling and gradient clipping internally."
         },
         "fair:hyperparameters_spec": [
             {

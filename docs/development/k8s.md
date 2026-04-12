@@ -116,7 +116,7 @@ Follow the [nvkind prerequisites and setup guide](https://github.com/NVIDIA/nvki
 ### Label domain
 
 Node labels and taints use the `fair.dev` prefix (hardcoded in all dev/CI config files).
-For production (dok8s), the label domain comes from `FAIR_DOMAIN` in `.env`.
+For production (dok8s), the label domain comes from the `domain` OpenTofu variable in `infra/dok8s/terraform.tfvars` (exposed as the `fair_domain` output and consumed by the `infra/dok8s/justfile` recipes).
 
 The runtime default in `fair/zenml/config.py` can be overridden via `FAIR_LABEL_DOMAIN` env var.
 

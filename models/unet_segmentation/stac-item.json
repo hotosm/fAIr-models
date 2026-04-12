@@ -247,7 +247,7 @@
                 "default": "CrossEntropyLoss",
                 "values": [
                     "CrossEntropyLoss",
-                    "FocalLoss"
+                    "BCEWithLogitsLoss"
                 ],
                 "description": "Loss function for training"
             },

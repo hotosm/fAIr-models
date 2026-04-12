@@ -8,7 +8,7 @@ Guide for contributing a base model to fAIr. A base model is a reusable ML
 blueprint that users can finetune on their own datasets through the fAIr
 platform.
 
-### Reference Implementations
+## Reference Implementations
 
 | Model | Task | Architecture | Directory |
 |---|---|---|---|
@@ -131,10 +131,10 @@ Before starting, ensure you have:
 ## Directory Structure
 
 Create a subdirectory under `models/` named after your model (lowercase,
-hyphens for spaces):
+underscores for spaces, must be a valid Python package name):
 
 ```text title="Model directory structure"
-models/your-model/
+models/your_model/
   pipeline.py          # ZenML pipeline with training + inference
   Dockerfile           # Self-contained runtime environment
   stac-item.json       # STAC MLM item (model metadata)
@@ -151,95 +151,14 @@ functions that the platform discovers and dispatches automatically.
 
 ### Required Exports
 
-```python title="pipeline.py"
+CI AST-parses `pipeline.py` via `scripts/validate_model.py` and requires
+these signatures (bodies omitted; see the reference models for the full
+implementations):
+
+```python title="pipeline.py required exports"
+from typing import Annotated, Any
 from zenml import pipeline, step
 
-@pipeline
-def training_pipeline(...) -> None:
-    """Finetune the model on a dataset."""
-    ...
-
-@pipeline
-def inference_pipeline(...) -> None:
-    """Run prediction on input imagery."""
-    ...
-
-@step
-def split_dataset(...) -> Annotated[dict[str, Any], "split_info"]:
-    """Split data into train/val sets and log split metadata."""
-    ...
-```
-
-CI validates these exports via AST parsing (`scripts/validate_model.py`).
-Both `@pipeline` functions and the `@step split_dataset` function are
-required. No runtime dependencies are needed for the check to pass.
-
-### Required Functions
-
-Your `pipeline.py` must also define:
-
-| Function | Role | Referenced by |
-| --- | --- | --- |
-| `preprocess` | Normalize/transform input data before the model | `stac-item.json` `mlm:input[].pre_processing_function` |
-| `postprocess` | Convert raw model output to usable predictions | `stac-item.json` `mlm:output[].post_processing_function` |
-| `resolve_weights` | Download pretrained weights to a local checkpoint file | Required when model asset href is not a URL |
-
-These are referenced as Python entrypoints in the STAC item (e.g.
-`models.your_model.pipeline:preprocess`). The platform calls them dynamically
-; your model owns its own pre/post processing logic entirely.
-
-### resolve_weights
-
-If your model's `stac-item.json` `model` asset `href` is **not** a direct URL
-(e.g. a framework weight enum like `torchvision.models.ResNet18_Weights.IMAGENET1K_V1`
-or a short name like `yolo11n.pt`), your `pipeline.py` **must** define a
-`resolve_weights` function. CI enforces this via AST parsing.
-
-```python title="resolve_weights contract"
-def resolve_weights(weight_id: str) -> Path:
-    """Download pretrained weights and return the local checkpoint path."""
-    ...
-```
-
-The function receives the raw `href` string from the STAC item and must
-return a `pathlib.Path` to a locally saved checkpoint file. The platform
-calls this when `upload_artifacts=True` to download the weights, upload them
-to S3, and update the STAC item href to the S3 URL.
-
-If the `model` asset `href` is already a URL (`https://...`, `s3://...`),
-`resolve_weights` is not required. When a URL is provided, CI validates
-that it is accessible via HTTP HEAD request.
-
-Examples from reference implementations:
-
-```python title="torchvision (ResNet18)"
-def resolve_weights(weight_id: str) -> Path:
-    import torch
-    from torchvision.models import ResNet18_Weights
-
-    enum_name = weight_id.rsplit(".", 1)[-1]
-    weights = ResNet18_Weights[enum_name]
-    checkpoint_path = Path(tempfile.mkdtemp()) / "resnet18_pretrained.pth"
-    torch.hub.download_url_to_file(weights.url, str(checkpoint_path))
-    return checkpoint_path
-```
-
-```python title="ultralytics (YOLO)"
-def resolve_weights(weight_id: str) -> Path:
-    from ultralytics import YOLO
-
-    checkpoint_dir = Path(tempfile.mkdtemp())
-    model = YOLO(weight_id)
-    checkpoint_path = checkpoint_dir / weight_id
-    model.save(str(checkpoint_path))
-    return checkpoint_path
-```
-
-### Training Pipeline
-
-The `training_pipeline` must follow this step sequence:
-
-```python title="Required pipeline shape"
 @pipeline
 def training_pipeline(
     base_model_weights: str,
@@ -247,12 +166,77 @@ def training_pipeline(
     dataset_labels: str,
     num_classes: int,
     hyperparameters: dict[str, Any],
-) -> None:
-    split_info = split_dataset(dataset_chips, dataset_labels, hyperparameters)
-    trained_model = train_model(..., split_info=split_info)
-    evaluate_model(trained_model, ..., split_info=split_info)
-    export_onnx(trained_model, ...)
+) -> None: ...
+
+@pipeline
+def inference_pipeline(
+    model_uri: str,
+    input_images: str,
+    chip_size: int,
+    num_classes: int,
+    zenml_artifact_version_id: str = "",
+    use_base_model: bool = False,
+) -> None: ...
+
+@step
+def split_dataset(
+    dataset_chips: str,
+    dataset_labels: str,
+    hyperparameters: dict[str, Any],
+) -> Annotated[dict[str, Any], "split_info"]: ...
 ```
+
+### Required Functions
+
+Your `pipeline.py` must also define three module-level helpers that the
+STAC item references by dotted path:
+
+```python title="pipeline.py required helpers"
+from pathlib import Path
+from typing import Any
+
+def preprocess(image_path: Any, chip_size: int) -> Any: ...
+def postprocess(raw_output: Any) -> Any: ...
+def resolve_weights(weight_id: str) -> Path: ...
+```
+
+| Function | Role | Referenced from STAC |
+| --- | --- | --- |
+| `preprocess` | Normalize/transform input before the model | `mlm:input[].pre_processing_function` |
+| `postprocess` | Convert raw model output to usable predictions | `mlm:output[].post_processing_function` |
+| `resolve_weights` | Resolve a weight identifier to a local checkpoint path | Required when the `model` asset `href` is not a URL |
+
+The platform dispatches `preprocess` / `postprocess` via the Python
+entrypoints declared in the STAC item (e.g.
+`models.your_model.pipeline:preprocess`). Your model owns its own pre/post
+processing logic entirely. Return types are model-specific — typically a
+`torch.Tensor` for `preprocess` and a list/dict of decoded predictions for
+`postprocess`.
+
+### resolve_weights
+
+`resolve_weights(weight_id: str) -> Path` must be defined whenever the
+`model` asset `href` is not a direct URL (e.g. a framework weight enum like
+`torchvision.models.ResNet18_Weights.IMAGENET1K_V1` or a short name like
+`yolo11n.pt`). It receives the raw `href` string and returns a local
+checkpoint `Path`. CI enforces its presence via AST parsing.
+
+When `upload_artifacts=True` the platform calls `resolve_weights`, uploads
+the result to S3, and rewrites the STAC item `href` to the S3 URL. If the
+`href` is already a URL (`https://...`, `s3://...`), `resolve_weights` is
+not required and CI validates the URL via HTTP HEAD.
+
+See `models/resnet18_classification/pipeline.py` (torchvision enum +
+fallback download) and `models/yolo11n_detection/pipeline.py` (ultralytics
+auto-download) for reference implementations.
+
+### Training Pipeline
+
+`training_pipeline` is called with `(base_model_weights, dataset_chips,
+dataset_labels, num_classes, hyperparameters)` and must run the following
+step sequence in order:
+
+`split_dataset → train_model → evaluate_model → export_onnx`
 
 | Step | Required | Purpose |
 | --- | --- | --- |
@@ -275,12 +259,15 @@ The pipeline receives its parameters from a generated YAML config
 - `chip_size`, `num_classes` : model-specific configuration
 - `val_ratio`, `split_seed` : train/val split configuration
 
-All hyperparameters must have validation constraints in the function
+Hyperparameter validation (types, bounds, allowed values) is declared in
+the STAC item under `fair:hyperparameters_spec`, not in the Python
 signature (see [Hyperparameters](#hyperparameters)). The platform rejects
 invalid values at submission time, before any pod is scheduled.
 
-Use `mlflow.log_params()` and `mlflow.log_metrics()` for experiment tracking.
-Use `zenml.log_metadata()` to attach metrics to the ZenML model version.
+Use `fair.zenml.instrumentation.mlflow_training_context` to open an MLflow
+run that logs params and training metrics automatically, and
+`zenml.log_metadata()` to attach arbitrary metadata to the ZenML model
+version.
 
 ### Auto-injected Parameters
 
@@ -324,32 +311,9 @@ The `split_info` dict must contain:
 | `val_count` | int | Number of validation samples |
 | `description` | string | Human-readable explanation of how the split works |
 
-Example implementation:
-
-```python title="split_dataset step"
-@step
-def split_dataset(
-    dataset_chips: str,
-    dataset_labels: str,
-    hyperparameters: dict[str, Any],
-) -> Annotated[dict[str, Any], "split_info"]:
-    val_ratio = hyperparameters.get("val_ratio", 0.2)
-    seed = hyperparameters.get("split_seed", 42)
-
-    # Your split logic here
-    train_samples, val_samples = do_split(dataset_chips, dataset_labels, val_ratio, seed)
-
-    split_info = {
-        "strategy": "random",
-        "val_ratio": val_ratio,
-        "seed": seed,
-        "train_count": len(train_samples),
-        "val_count": len(val_samples),
-        "description": "Random split by seeded shuffle of sorted filenames",
-    }
-    log_metadata(metadata={"fair/split": split_info})
-    return split_info
-```
+See `models/resnet18_classification/pipeline.py` (random split) and
+`models/unet_segmentation/pipeline.py` (spatial split) for reference
+implementations.
 
 The split metadata flows through the promotion pipeline into the local model
 STAC item as `fair:split`, giving users full visibility into how each
@@ -365,49 +329,45 @@ finetuned model was trained.
 ### Non-serializable Model Pattern (YOLO)
 
 Some ML frameworks produce model objects that are not pickle-serializable
-(e.g. ultralytics YOLO). In these cases, your `train_model` step should
-**return the file path to the saved checkpoint** instead of the model object
-itself. ZenML will materialize the `.pt` file into the artifact store.
+(e.g. ultralytics YOLO). In these cases, your `train_model` and
+`load_base_model` steps should **return the raw checkpoint bytes**
+(`Path(checkpoint).read_bytes()`) instead of the model object. ZenML stores
+the bytes in the artifact store, and downstream steps write them back to a
+temp file and reopen with the framework's native loader
+(e.g. `YOLO(tmp_path)`).
 
 See `models/yolo11n_detection/pipeline.py` for a working example of this
 pattern.
 
 ### Inference Pipeline
 
-The `inference_pipeline` loads weights and runs prediction. It must support
-both base model weights (pretrained) and finetuned weights (from ZenML
-artifact store). Use `fair.zenml.steps.load_model` to load finetuned weights:
+`inference_pipeline` loads weights and runs prediction. It must support
+both finetuned weights and raw base model weights:
 
-```python title="Inference pipeline example"
-from fair.zenml.steps import load_model
+- **Finetuned** (`zenml_artifact_version_id` set, or resolved by
+  `model_uri`): load via `fair.zenml.steps.load_model`; the materializer
+  handles deserialization.
+- **Base model** (`use_base_model=True`): load via your own
+  `load_base_model` step, which calls `resolve_weights(model_uri)` and
+  builds a fresh model from the downloaded checkpoint.
 
-@pipeline
-def inference_pipeline(
-    model_uri: str,
-    input_images: str,
-    chip_size: int,
-    num_classes: int,
-    zenml_artifact_version_id: str = "",
-    use_base_model: bool = False,
-) -> None:
-    if use_base_model:
-        model = load_base_model(model_uri=model_uri, num_classes=num_classes)
-    else:
-        model = load_model(model_uri=model_uri, zenml_artifact_version_id=zenml_artifact_version_id)
-    run_inference(model=model, input_images=input_images, chip_size=chip_size, num_classes=num_classes)
+The platform injects `use_base_model=True` whenever the target STAC item
+has no ZenML artifact attached, so every model **must** handle both
+branches. Define `load_base_model` as a `@step` with this signature:
+
+```python title="load_base_model contract"
+@step
+def load_base_model(model_uri: str, num_classes: int) -> Any: ...
 ```
+
+See the three reference implementations for concrete patterns.
 
 ### Data Resolution
 
-Training data lives in S3 (production) or local filesystem (dev). Use the
-helpers from `fair.utils.data` to handle both transparently:
-
-```python title="Data resolution helpers"
-from fair.utils.data import resolve_directory, resolve_path
-
-local_chips = str(resolve_directory(chips_path, "OAM-*.tif"))
-local_labels = resolve_path(labels_path)
-```
+Training data lives in S3 (production) or the local filesystem (dev). Use
+`fair.utils.data.resolve_directory` and `fair.utils.data.resolve_path` to
+handle both transparently; both return local `Path` objects that your step
+can read from.
 
 !!! warning
 
@@ -484,7 +444,7 @@ validated by CI against the platform's requirements schema.
 | `mlm:framework` | string | `PyTorch` or `TensorFlow` |
 | `mlm:framework_version` | string | Framework version |
 | `mlm:pretrained` | boolean | Whether pretrained weights are used |
-| `mlm:pretrained_source` | string | URL of the paper or dataset the weights come from |
+| `mlm:pretrained_source` | string | Origin of the pretrained weights: a URL to the paper/dataset/checkpoint, or a descriptive string when no canonical URL exists |
 | `mlm:input` | object[] | Input specification with `pre_processing_function` |
 | `mlm:output` | object[] | Output specification with `post_processing_function` and `classification:classes` |
 | `mlm:hyperparameters` | object | Default training hyperparameters |
@@ -509,27 +469,8 @@ Each entry must declare:
 | `name` | string | Human-readable metric name |
 | `description` | string | Precise definition including averaging strategy |
 
-Example:
-
-```json title="fair:metrics_spec example"
-"fair:metrics_spec": [
-    {
-        "key": "fair:accuracy",
-        "name": "Pixel Accuracy",
-        "description": "Fraction of correctly classified pixels across all classes"
-    },
-    {
-        "key": "fair:mean_iou",
-        "name": "Mean IoU (macro)",
-        "description": "Macro-averaged IoU across classes; each class weighted equally"
-    },
-    {
-        "key": "fair:per_class_iou",
-        "name": "Per-class IoU",
-        "description": "IoU per class, stored as object keyed by class name from classification:classes"
-    }
-]
-```
+See `models/unet_segmentation/stac-item.json` and
+`models/yolo11n_detection/stac-item.json` for complete examples.
 
 When `evaluate_model` logs metrics via `log_metadata(infer_model=True)`, the platform
 copies those values to the promoted local model STAC item. Class IoU keys use the
@@ -557,17 +498,6 @@ The split strategy depends on the task type:
 | Segmentation | `spatial` | `RandomGeoSampler` for train, `GridGeoSampler` for val (non-overlapping tiles) |
 | Detection | `random` | Last N% of sorted image IDs held out for validation |
 
-Example:
-
-```json title="fair:split_spec example"
-"fair:split_spec": {
-    "strategy": "random",
-    "default_ratio": 0.2,
-    "seed": 42,
-    "description": "Random split by seeded shuffle of sorted filenames. Deterministic given the same seed."
-}
-```
-
 Contributors can define custom split strategies as long as they document the
 approach in `description` and implement the corresponding `split_dataset`
 step. The `val_ratio` and `split_seed` hyperparameters allow users to
@@ -591,113 +521,57 @@ these defaults and merges any user overrides into a generated YAML config
 (via `fair.zenml.config.generate_training_config`). This YAML is then passed
 to your `training_pipeline`.
 
-Every key in `mlm:hyperparameters` becomes a pipeline parameter. Your
-`training_pipeline` signature **must** accept all of them and apply
-validation constraints using `typing.Annotated` and `typing.Literal`:
+Your `training_pipeline` receives all hyperparameters as a single
+`hyperparameters: dict[str, Any]` argument. Each step reads values with
+`hyperparameters.get("epochs", ...)` and applies defaults locally.
+Validation is declared in the STAC item under `fair:hyperparameters_spec`,
+**not** in the Python signature.
 
-```python title="Hyperparameter validation example"
-from typing import Annotated, Literal
-from annotated_types import Ge, Le
+Each entry in `fair:hyperparameters_spec` declares:
 
-@pipeline
-def training_pipeline(
-    # ...dataset and model params...
-    epochs: Annotated[int, Ge(1), Le(1000)],
-    batch_size: Annotated[int, Ge(1), Le(64)],
-    learning_rate: Annotated[float, Ge(1e-6), Le(1.0)],
-    weight_decay: Annotated[float, Ge(0.0), Le(1.0)],
-    chip_size: Annotated[int, Ge(64), Le(2048)],
-    num_classes: Annotated[int, Ge(2), Le(256)],
-    optimizer: Literal["Adam", "AdamW", "SGD"] = "AdamW",
-    loss: Literal["CrossEntropyLoss", "BCEWithLogitsLoss"] = "CrossEntropyLoss",
-) -> None:
-    ...
-```
+| Field | Description |
+| --- | --- |
+| `key` | Hyperparameter name, must also appear in `mlm:hyperparameters` |
+| `type` | One of `int`, `float`, `str`, `bool` |
+| `default` | Default value |
+| `min` / `max` | Bounds for numeric types |
+| `values` | Allowed values for `str` with a fixed choice set |
+| `description` | Short human-readable explanation |
 
-This serves two purposes:
+The platform uses this spec to render the finetuning form, validate user
+overrides at submission time, and populate the YAML config passed to
+`training_pipeline`.
 
-1. **ZenML validates inputs** at submission time — invalid overrides are
-   rejected before any pod is scheduled
-2. **STAC item documents the contract** — users and the platform know
-   exactly what hyperparameters your model accepts and their valid ranges
+In addition to model-specific hyperparameters, you **must** declare these
+split parameters (the others are recommended unless the training framework
+manages them internally, e.g. Ultralytics):
 
-In addition to model-specific hyperparameters, you **must** include these
-split and training parameters:
+| Parameter | Required | Description |
+| --- | --- | --- |
+| `val_ratio` | Yes | Fraction of data held out for validation (default 0.2) |
+| `split_seed` | Yes | Random seed for reproducible train/val split (default 42) |
+| `scheduler` | Recommended | LR scheduler: `"cosine"` or `"none"` |
+| `max_grad_norm` | Recommended | Maximum gradient norm for clipping |
 
-| Parameter | Type | Required | Description |
-| --- | --- | --- | --- |
-| `val_ratio` | float | Yes | Fraction of data held out for validation (default 0.2) |
-| `split_seed` | int | Yes | Random seed for reproducible train/val split (default 42) |
-| `scheduler` | string | Recommended | LR scheduler: `"cosine"` or `"none"` |
-| `max_grad_norm` | float | Recommended | Maximum gradient norm for clipping (default 1.0) |
-
-Example `mlm:hyperparameters`:
-
-```json title="mlm:hyperparameters example"
-"mlm:hyperparameters": {
-    "epochs": 15,
-    "batch_size": 4,
-    "learning_rate": 0.0001,
-    "weight_decay": 0.0001,
-    "chip_size": 512,
-    "optimizer": "AdamW",
-    "loss": "CrossEntropyLoss",
-    "val_ratio": 0.2,
-    "split_seed": 42,
-    "scheduler": "cosine",
-    "max_grad_norm": 1.0
-}
-```
+See the three reference models under `models/` for working
+`fair:hyperparameters_spec` and `mlm:hyperparameters` blocks.
 
 The platform auto-extracts `chip_size` from `mlm:input[0].input.shape[-1]`
 and `num_classes` from `classification:classes` length, so those don't need
 to be duplicated in `mlm:hyperparameters` unless your defaults differ.
 
-??? note "Input Specification"
+Each entry in `mlm:input` must declare exactly 3 RGB bands
+(`shape: [-1, 3, H, W]`, `dim_order: [batch, bands, height, width]`,
+`data_type: float32`) and a `pre_processing_function` pointing to your
+`preprocess` entrypoint (`models.your_model.pipeline:preprocess`).
 
-    Each entry in `mlm:input` must declare exactly 3 RGB bands and include a
-    `pre_processing_function` with `format` and `expression` fields:
+Each entry in `mlm:output` must declare `result` (shape, dim_order,
+data_type), `classification:classes` (one entry per output class with
+`name` and `value`), and a `post_processing_function` pointing to your
+`postprocess` entrypoint.
 
-    ```json title="mlm:input example"
-    "mlm:input": [{
-        "name": "RGB chips",
-        "bands": [{"name": "red"}, {"name": "green"}, {"name": "blue"}],
-        "input": {
-            "shape": [-1, 3, 512, 512],
-            "dim_order": ["batch", "bands", "height", "width"],
-            "data_type": "float32"
-        },
-        "pre_processing_function": {
-            "format": "python",
-            "expression": "models.your_model.pipeline:preprocess"
-        }
-    }]
-    ```
-
-??? note "Output Specification"
-
-    Each entry in `mlm:output` must include `post_processing_function` and
-    `classification:classes`:
-
-    ```json title="mlm:output example"
-    "mlm:output": [{
-        "name": "segmentation mask",
-        "tasks": ["semantic-segmentation"],
-        "result": {
-            "shape": [-1, 2, 512, 512],
-            "dim_order": ["batch", "channel", "height", "width"],
-            "data_type": "float32"
-        },
-        "classification:classes": [
-            {"name": "background", "value": 0},
-            {"name": "building", "value": 1}
-        ],
-        "post_processing_function": {
-            "format": "python",
-            "expression": "models.your_model.pipeline:postprocess"
-        }
-    }]
-    ```
+See the three reference models for complete `mlm:input` / `mlm:output`
+blocks per task type.
 
 ### Required Assets
 
@@ -711,7 +585,7 @@ to be duplicated in `mlm:hyperparameters` unless your defaults differ.
 
 Model weights must be downloadable from the `model` asset `href`. This can be
 a direct URL, S3 path, or a framework-specific weight enum (e.g.
-`torchgeo.models.Unet_Weights.OAM_RGB_RESNET50_TCD`). Your `pipeline.py` is
+`torchgeo.models.Unet_Weights.OAM_RGB_RESNET34_TCD`). Your `pipeline.py` is
 responsible for resolving and loading the weights at runtime.
 
 !!! info "Weight upload to S3"
@@ -722,18 +596,8 @@ responsible for resolving and loading the weights at runtime.
     CI validates it is accessible. If it is a framework weight reference,
     CI validates that `resolve_weights` exists in `pipeline.py`.
 
-The `readme` asset `href` must be an **absolute URL** to the raw file, not a
-relative path. Use the GitHub raw URL pattern:
-
-```json
-"readme": {
-    "href": "https://raw.githubusercontent.com/hotosm/fAIr-models/refs/heads/main/models/your_model/README.md",
-    "type": "text/markdown",
-    "roles": ["metadata"],
-    "title": "Model README"
-}
-```
-
+The `readme` asset `href` must be an **absolute URL** to the raw file
+(e.g. `https://raw.githubusercontent.com/hotosm/fAIr-models/refs/heads/main/models/your_model/README.md`).
 Relative paths such as `./README.md` are not accessible from deployed STAC
 catalogs and will be flagged by validation.
 
@@ -744,19 +608,8 @@ the model's catalog page.
 ### cite-as Link
 
 If your model or its pretrained weights come from a published paper, add a
-`cite-as` link pointing to the canonical DOI or arXiv URL:
-
-```json title="cite-as link example"
-{
-    "rel": "cite-as",
-    "href": "https://arxiv.org/abs/2407.11743",
-    "type": "text/html",
-    "title": "Paper title"
-}
-```
-
-This link is displayed in the catalog UI. Use the canonical DOI URL when
-available (`https://doi.org/...`).
+`cite-as` link under `links[]` pointing to the canonical DOI (preferred)
+or arXiv URL. This link is displayed in the catalog UI.
 
 ## README.md
 
@@ -788,13 +641,15 @@ specs, and keywords ; the README is for everything else.
 
 Before opening a PR, make sure:
 
-- [ ] `models/your-model/` includes `pipeline.py`, `Dockerfile`, `stac-item.json`, and `README.md`
+- [ ] `models/your_model/` includes `pipeline.py`, `Dockerfile`, `stac-item.json`, and `README.md`
 - [ ] `Dockerfile` has three stages: `builder`, `runtime` (production), and `test` (CI)
 - [ ] `tests/test_steps.py` defines `test_split_dataset`, `test_train_model`, `test_evaluate_model`, `test_export_onnx`
 - [ ] `tests/conftest.py` defines `generate_toy_dataset` fixture returning `{"chips", "labels", "dataset_stac_item"}`
+- [ ] `pipeline.py` exports `preprocess`, `postprocess`, and (if weights are not a direct URL) `resolve_weights`
+- [ ] `stac-item.json` declares `fair:metrics_spec`, `fair:split_spec`, and `fair:hyperparameters_spec`
 - [ ] `README.md` explains the model clearly enough for another developer to use it
 - [ ] `just validate` passes for the model and STAC item
-- [ ] `just test-models your-model` passes inside Docker
+- [ ] `just test-models your_model` passes inside Docker
 
 The full requirements are described in the sections above, especially the STAC metadata, pipeline structure, assets, and README guidance. CI checks the detailed metadata, pipeline exports, Docker build, and consistency rules for you.
 
@@ -803,7 +658,7 @@ The full requirements are described in the sections above, especially the STAC m
 On PR submission, CI will:
 
 1. **Validate pipeline exports** : `scripts/validate_model.py` checks for `training_pipeline` and `inference_pipeline` (`@pipeline`), `split_dataset` (`@step`), and required test functions via AST parsing
-2. **Validate STAC item** : `scripts/validate_stac_items.py` checks all required properties (including `fair:split_spec`), extensions, assets, keywords (including geometry type), and license
+2. **Validate STAC item** : `scripts/validate_stac_items.py` runs `pystac` validation against the fAIr base model schema (requires `fair:metrics_spec`, `fair:split_spec`, all MLM fields, assets, keywords including a geometry type, and a supported license)
 3. **Build test Docker image** : builds `--target test` which includes pytest and zenml[server]
 4. **Run step tests** : `python -m pytest models/<name>/tests/` inside the test image validates all 4 pipeline steps with toy data
 5. **Push production image** : builds `--target runtime` (no test deps) and pushes to the container registry

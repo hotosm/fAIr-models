@@ -67,6 +67,7 @@
         ],
         "license": "AGPL-3.0-only",
         "version": "1",
+        "deprecated": false,
         "fair:metrics_spec": [
             {
                 "key": "fair:accuracy",
@@ -171,7 +172,8 @@
             "val_ratio": 0.2,
             "split_seed": 42,
             "scheduler": "cosine",
-            "max_grad_norm": 1.0
+            "max_grad_norm": 1.0,
+            "freeze_encoder": true
         },
         "fair:split_spec": {
             "strategy": "random",
@@ -274,6 +276,12 @@
                 "min": 0.1,
                 "max": 100.0,
                 "description": "Maximum gradient norm for clipping"
+            },
+            {
+                "key": "freeze_encoder",
+                "type": "bool",
+                "default": true,
+                "description": "Freeze pretrained backbone weights during finetuning"
             }
         ]
     },

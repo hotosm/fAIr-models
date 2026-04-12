@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from fair.utils.model_validator import REQUIRED_FILES, _find_decorated_names, validate_model
+from fair.utils.model_validator import REQUIRED_FILES, REQUIRED_TEST_FUNCTIONS, _find_decorated_names, validate_model
 
 
 class TestFindDecoratedNames:
@@ -53,6 +53,14 @@ def _scaffold(tmp_path: Path) -> None:
     """Create all required files except pipeline.py."""
     (tmp_path / "README.md").write_text("# Model\n")
     (tmp_path / "stac-item.json").write_text("{}\n")
+    tests_dir = tmp_path / "tests"
+    tests_dir.mkdir()
+    (tests_dir / "test_steps.py").write_text(
+        "def test_split_dataset(): ...\n"
+        "def test_train_model(): ...\n"
+        "def test_evaluate_model(): ...\n"
+        "def test_export_onnx(): ...\n"
+    )
 
 
 class TestValidateModel:
@@ -130,6 +138,14 @@ def inference_pipeline(): ...
 
     def test_missing_readme_only(self, tmp_path: Path) -> None:
         (tmp_path / "stac-item.json").write_text("{}\n")
+        tests_dir = tmp_path / "tests"
+        tests_dir.mkdir()
+        (tests_dir / "test_steps.py").write_text(
+            "def test_split_dataset(): ...\n"
+            "def test_train_model(): ...\n"
+            "def test_evaluate_model(): ...\n"
+            "def test_export_onnx(): ...\n"
+        )
         (tmp_path / "pipeline.py").write_text("""
 from zenml import pipeline, step
 
@@ -151,3 +167,76 @@ def inference_pipeline(): ...
         model_dir = Path(__file__).resolve().parent.parent / "models" / "unet_segmentation"
         if model_dir.exists():
             assert validate_model(model_dir) == []
+
+
+class TestValidateTestSteps:
+    def test_missing_test_dir(self, tmp_path: Path) -> None:
+        _scaffold(tmp_path)
+        (tmp_path / "tests").rename(tmp_path / "_tests_bak")
+        (tmp_path / "pipeline.py").write_text("""
+from zenml import pipeline, step
+
+@step
+def split_dataset(): ...
+
+@pipeline
+def training_pipeline(): ...
+
+@pipeline
+def inference_pipeline(): ...
+""")
+        errors = validate_model(tmp_path)
+        assert any("missing tests/test_steps.py" in e for e in errors)
+
+    def test_missing_test_functions(self, tmp_path: Path) -> None:
+        _scaffold(tmp_path)
+        (tmp_path / "tests" / "test_steps.py").write_text("def test_split_dataset(): ...\n")
+        (tmp_path / "pipeline.py").write_text("""
+from zenml import pipeline, step
+
+@step
+def split_dataset(): ...
+
+@pipeline
+def training_pipeline(): ...
+
+@pipeline
+def inference_pipeline(): ...
+""")
+        errors = validate_model(tmp_path)
+        missing = [e for e in errors if "missing test function" in e]
+        assert len(missing) == len(REQUIRED_TEST_FUNCTIONS) - 1
+
+    def test_valid_test_steps(self, tmp_path: Path) -> None:
+        _scaffold(tmp_path)
+        (tmp_path / "pipeline.py").write_text("""
+from zenml import pipeline, step
+
+@step
+def split_dataset(): ...
+
+@pipeline
+def training_pipeline(): ...
+
+@pipeline
+def inference_pipeline(): ...
+""")
+        assert validate_model(tmp_path) == []
+
+    def test_syntax_error_in_test(self, tmp_path: Path) -> None:
+        _scaffold(tmp_path)
+        (tmp_path / "tests" / "test_steps.py").write_text("def (broken\n")
+        (tmp_path / "pipeline.py").write_text("""
+from zenml import pipeline, step
+
+@step
+def split_dataset(): ...
+
+@pipeline
+def training_pipeline(): ...
+
+@pipeline
+def inference_pipeline(): ...
+""")
+        errors = validate_model(tmp_path)
+        assert any("syntax error" in e for e in errors)

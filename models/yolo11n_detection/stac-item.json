@@ -67,6 +67,7 @@
         ],
         "license": "AGPL-3.0-only",
         "version": "1",
+        "deprecated": false,
         "fair:metrics_spec": [
             {
                 "key": "fair:accuracy",
@@ -163,7 +164,8 @@
             "learning_rate": 0.01,
             "chip_size": 640,
             "val_ratio": 0.2,
-            "split_seed": 42
+            "split_seed": 42,
+            "freeze_encoder": true
         },
         "fair:split_spec": {
             "strategy": "random",
@@ -219,6 +221,12 @@
                 "min": 0,
                 "max": 2147483647,
                 "description": "Random seed for reproducible train/val split"
+            },
+            {
+                "key": "freeze_encoder",
+                "type": "bool",
+                "default": true,
+                "description": "Freeze pretrained backbone layers during finetuning"
             }
         ]
     },

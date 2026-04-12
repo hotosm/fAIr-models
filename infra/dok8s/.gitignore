@@ -1,3 +1,10 @@
 .env
 .env.bak
 .dok8s-stack-resolved.yaml
+
+# OpenTofu
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+.terraform.lock.hcl

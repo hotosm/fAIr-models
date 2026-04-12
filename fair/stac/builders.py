@@ -4,6 +4,7 @@ import json
 import re
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any, Literal
 
 import pystac
@@ -159,16 +160,17 @@ def _flatten_coords(coords: Any) -> list[list[float]]:
 
 
 def geometry_and_bbox_from_geojson(labels_href: str) -> tuple[dict[str, Any], list[float]]:
-    with open(labels_href, encoding="utf-8") as f:
-        geojson: Any = json.load(f)
-
-    all_coords: list[list[float]] = []
-    features: Any = geojson.get("features", [])
-    if features:
-        for feat in features:
-            all_coords.extend(_flatten_coords(feat["geometry"]["coordinates"]))
-    elif "coordinates" in geojson:
-        all_coords.extend(_flatten_coords(geojson["coordinates"]))
+    labels_path = Path(labels_href)
+    if labels_path.is_dir():
+        geojson_files = sorted(labels_path.rglob("*.geojson"))
+        if not geojson_files:
+            msg = f"No .geojson files found in {labels_href}"
+            raise ValueError(msg)
+        all_coords: list[list[float]] = []
+        for gf in geojson_files:
+            all_coords.extend(_extract_coords_from_file(gf))
+    else:
+        all_coords = _extract_coords_from_file(labels_path)
 
     if not all_coords:
         msg = f"No coordinates found in {labels_href}"
@@ -180,6 +182,20 @@ def geometry_and_bbox_from_geojson(labels_href: str) -> tuple[dict[str, Any], li
         "coordinates": [[[west, south], [east, south], [east, north], [west, north], [west, south]]],
     }
     return geometry, [west, south, east, north]
+
+
+def _extract_coords_from_file(path: Path) -> list[list[float]]:
+    with open(path, encoding="utf-8") as f:
+        geojson: Any = json.load(f)
+
+    coords: list[list[float]] = []
+    features: Any = geojson.get("features", [])
+    if features:
+        for feat in features:
+            coords.extend(_flatten_coords(feat["geometry"]["coordinates"]))
+    elif "coordinates" in geojson:
+        coords.extend(_flatten_coords(geojson["coordinates"]))
+    return coords
 
 
 def _slugify(text: str) -> str:
@@ -215,7 +231,12 @@ def build_dataset_item(
     predecessor_version_href: str | None = None,
 ) -> pystac.Item:
     if geometry is None or bbox is None:
-        geometry, bbox = geometry_and_bbox_from_geojson(labels_href)
+        labels_path = Path(labels_href)
+        if labels_path.is_dir() or labels_path.suffix.lower() == ".geojson":
+            geometry, bbox = geometry_and_bbox_from_geojson(labels_href)
+        else:
+            msg = "geometry and bbox are required when labels are not GeoJSON"
+            raise ValueError(msg)
 
     resolved_id = item_id if item_id is not None else _slugify(title)
 
@@ -243,8 +264,7 @@ def build_dataset_item(
         properties["license"] = license_id
     if providers is not None:
         properties["providers"] = providers
-    if label_description is not None:
-        properties["label:description"] = label_description
+    properties["label:description"] = label_description if label_description is not None else description
     if label_methods is not None:
         properties["label:methods"] = label_methods
 
@@ -379,6 +399,7 @@ def build_base_model_item(
             "mlm:hyperparameters": mlm_hyperparameters,
             "keywords": keywords,
             "version": "1",
+            "deprecated": False,
             "fair:metrics_spec": fair_metrics_spec,
         },
         stac_extensions=BASE_MODEL_EXTENSIONS,

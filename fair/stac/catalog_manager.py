@@ -99,9 +99,11 @@ class StacCatalogManager:
         # Resolve local relative hrefs to absolute before save so PySTAC's
         # SELF_CONTAINED roundtrip restores the correct absolute paths on read.
         # Remote hrefs (s3://, https://, etc.) are left untouched.
+        # Hrefs without path separators (e.g. dotted enum identifiers) are not
+        # file paths and must be left as-is.
         for asset in item.assets.values():
             path = UPath(asset.href)
-            if not path.protocol and not path.is_absolute():
+            if not path.protocol and not path.is_absolute() and "/" in asset.href:
                 asset.href = str(path.resolve())
 
     def item_href(self, collection_id: str, item_id: str) -> str:

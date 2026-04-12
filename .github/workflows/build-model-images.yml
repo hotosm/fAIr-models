@@ -28,7 +28,7 @@ jobs:
       - name: Fetch base ref
         if: github.event_name == 'pull_request'
         run: git fetch origin ${{ github.event.pull_request.base.ref }}
-      - uses: astral-sh/setup-uv@v5
+      - uses: astral-sh/setup-uv@v8.0.0
         with:
           python-version: "3.13"
           enable-cache: true
@@ -68,10 +68,36 @@ jobs:
             type=raw,value=v${{ matrix.version }},enable={{is_default_branch}}
             type=raw,value=latest,enable={{is_default_branch}}
 
-      - uses: docker/build-push-action@v6
+      - name: Build test image
+        uses: docker/build-push-action@v6
         with:
           context: .
           file: ${{ matrix.path }}/Dockerfile
+          target: test
+          load: true
+          tags: ${{ matrix.name }}:test
+          cache-from: type=gha,scope=${{ matrix.name }}
+
+      - name: Run step tests
+        run: |
+          docker run --rm --entrypoint "" \
+            -e FAIR_FORCE_CPU=1 \
+            "${{ matrix.name }}:test" \
+            python -m pytest models/${{ matrix.name }}/tests/ -v --tb=short
+
+      - name: Run integration test
+        run: |
+          docker run --rm --entrypoint "" \
+            -e FAIR_FORCE_CPU=1 \
+            "${{ matrix.name }}:test" \
+            python -m pytest models/test_integration.py -v --tb=short -m slow --model-dir=models/${{ matrix.name }}
+
+      - name: Push image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ matrix.path }}/Dockerfile
+          target: runtime
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}

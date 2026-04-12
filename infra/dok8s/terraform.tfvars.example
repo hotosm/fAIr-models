@@ -1,0 +1,18 @@
+do_token           = ""
+domain             = "fair.example.com"
+spaces_bucket      = "hotosm-fair"
+spaces_access_key  = ""
+spaces_secret_key  = ""
+mlflow_admin_user  = ""
+mlflow_admin_password = ""
+zenml_admin_user   = ""
+zenml_admin_password = ""
+letsencrypt_email  = ""
+
+# Optional (defaults shown)
+# cluster_name    = "fair"
+# region          = "nyc3"
+# infra_node_size = "s-2vcpu-4gb"
+# ml_node_size    = "s-4vcpu-8gb"
+# insecure_ssl    = false
+# public_read     = false

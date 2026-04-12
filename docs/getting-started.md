@@ -54,16 +54,6 @@ and run inference.
 | `examples/classification/` | Binary classification | ResNet18 (torchvision) |
 | `examples/detection/` | Object detection | YOLOv11n (ultralytics) |
 
-### Data Preparation
-
-Classification and detection labels are derived from the segmentation labels. Run
-the conversion scripts before the first pipeline run:
-
-```bash title="Generate derived labels"
-python scripts/convert_segmentation_to_classification.py
-python scripts/convert_segmentation_to_detection.py
-```
-
 ### Running All Pipelines
 
 ```bash title="Run all three pipelines"

@@ -1,118 +1,122 @@
 set shell := ["bash", "-euo", "pipefail", "-c"]
-set dotenv-load
 
 ns := "fair"
-scripts := "scripts"
-infra_node_size := env("INFRA_NODE_SIZE", "s-2vcpu-4gb")
 
-[doc('Provision infra, deploy, configure DNS')]
+[doc('Initialize OpenTofu')]
+init:
+    tofu init
+
+[doc('Preview changes')]
+plan:
+    tofu plan
+
+[doc('Provision infra, deploy services, configure post-deploy')]
 up:
     #!/usr/bin/env bash
     set -euo pipefail
-    {{ scripts }}/cluster.sh create
-    {{ scripts }}/database.sh create
-    {{ scripts }}/database.sh firewall
-    {{ scripts }}/database.sh write-env
-    {{ scripts }}/spaces.sh create
-    set -a && source .env && set +a
-    source {{ scripts }}/env-derived.sh
-    {{ scripts }}/database.sh init
-    {{ scripts }}/validate-env.sh
-    {{ scripts }}/deploy.sh helm
-    {{ scripts }}/deploy.sh cert-issuer
-    {{ scripts }}/deploy.sh stac-ingress
-    {{ scripts }}/deploy.sh dns
-    {{ scripts }}/spaces.sh seed
-    {{ scripts }}/deploy.sh register-stack
-    echo "ZenML:  https://zenml.${FAIR_DOMAIN}"
-    echo "MLflow: https://mlflow.${FAIR_DOMAIN}"
-    echo "STAC:   https://stac.${FAIR_DOMAIN}/stac"
-
-[doc('Provision cloud infrastructure only')]
-infra:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    {{ scripts }}/cluster.sh create
-    {{ scripts }}/database.sh create
-    {{ scripts }}/database.sh write-env
-    {{ scripts }}/spaces.sh create
-    {{ scripts }}/database.sh init
-
-[doc('Deploy services (requires .env to be populated)')]
-deploy:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    {{ scripts }}/database.sh write-env
-    set -a && source .env && set +a
-    source {{ scripts }}/env-derived.sh
-    {{ scripts }}/validate-env.sh
-    {{ scripts }}/deploy.sh helm
-    {{ scripts }}/deploy.sh cert-issuer
-    {{ scripts }}/deploy.sh stac-ingress
-    {{ scripts }}/deploy.sh dns
-    {{ scripts }}/spaces.sh seed
-    {{ scripts }}/deploy.sh register-stack
+    tofu apply -auto-approve
+    just _save-kubeconfig
+    just _cluster-issuer
+    just _db-init
+    just _seed
+    just _register-stack
     just urls
 
-[doc('Destroy cluster and database (keeps Spaces bucket)')]
+[doc('Apply infra/service changes only (no seed, no stack re-register)')]
+deploy:
+    tofu apply -auto-approve
+
+[doc('Destroy all resources (keeps Spaces bucket data)')]
 tear:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    export FAIR_LABEL_DOMAIN="${FAIR_DOMAIN:-}"
-    export DOKS_CONTEXT="do-${DO_REGION:-nyc3}-${CLUSTER_NAME:-fair}"
-    export SPACES_ENDPOINT="https://${DO_REGION:-nyc3}.digitaloceanspaces.com"
-    helmfile destroy 2>/dev/null || true
-    {{ scripts }}/database.sh delete || true
-    {{ scripts }}/cluster.sh delete || true
-    echo "Spaces bucket ${SPACES_BUCKET:-} preserved. Delete manually if needed."
+    tofu destroy -auto-approve
 
 [doc('Show cluster health')]
 status:
     #!/usr/bin/env bash
     set -euo pipefail
-    echo "Cluster:  $(doctl kubernetes cluster get "${CLUSTER_NAME:-fair}" --format Status --no-header 2>/dev/null || echo 'not found')"
-    echo "Database: $(doctl databases list --format Status --no-header 2>/dev/null | head -1 || echo 'not found')"
+    just urls 2>/dev/null || echo "No tofu state yet."
     echo "Pods:"
     kubectl get pods -n {{ ns }} --no-headers 2>/dev/null | sed 's/^/  /' || echo "  no context"
-    echo ""
-    just urls 2>/dev/null || true
 
 [doc('Print service URLs')]
 urls:
     #!/usr/bin/env bash
     set -euo pipefail
-    echo "ZenML:  https://zenml.${FAIR_DOMAIN}"
-    echo "MLflow: https://mlflow.${FAIR_DOMAIN}"
-    echo "STAC:   https://stac.${FAIR_DOMAIN}/stac"
+    echo "ZenML:  $(tofu output -raw zenml_url)"
+    echo "MLflow: $(tofu output -raw mlflow_url)"
+    echo "STAC:   $(tofu output -raw stac_url)"
 
 [doc('Submit all pipelines to cluster')]
 run-example:
     #!/usr/bin/env bash
     set -euo pipefail
-    {{ scripts }}/database.sh write-env
-    set -a && source .env && set +a
-    source {{ scripts }}/env-derived.sh
+    eval "$(tofu output -json | jq -r 'to_entries[] | "export \(.key | ascii_upcase)=\(.value.value | @sh)"')"
     echo "Checking database connectivity..."
     psql "$PGSTAC_DSN" -c "SELECT 1" >/dev/null
     echo "Database: ok"
-    TOKEN=$(curl -kfsS -X POST "https://zenml.${FAIR_DOMAIN}/api/v1/login" \
-        -d "username=${ZENML_ADMIN_USER}&password=${ZENML_ADMIN_PASSWORD}&grant_type=password" | \
-        python3 -c "import sys,json; print(json.load(sys.stdin)['access_token'])")
-    [[ -n "$TOKEN" ]] || { echo "ERROR: Failed to obtain ZenML token"; exit 1; }
+    TOKEN=$(scripts/zenml-token.sh)
     cd ../..
-    uv run python scripts/convert_segmentation_to_classification.py
-    uv run python scripts/convert_segmentation_to_detection.py
     for example in segmentation classification detection; do
-        ZENML_STORE_URL="https://zenml.${FAIR_DOMAIN}" \
+        ZENML_STORE_URL="$ZENML_URL" \
         ZENML_STORE_API_TOKEN="$TOKEN" \
-        ZENML_STORE_VERIFY_SSL=false \
+        ZENML_STORE_VERIFY_SSL="$VERIFY_SSL" \
         FAIR_FORCE_CPU=1 \
-        FAIR_LABEL_DOMAIN="$FAIR_LABEL_DOMAIN" \
+        FAIR_DSN="$PGSTAC_DSN" \
+        FAIR_STAC_API_URL="$STAC_URL" \
+        FAIR_LABEL_DOMAIN="$FAIR_DOMAIN" \
+        FAIR_UPLOAD_ARTIFACTS=true \
         AWS_ENDPOINT_URL="$SPACES_ENDPOINT" \
-        AWS_ACCESS_KEY_ID="${SPACES_ACCESS_KEY}" \
-        AWS_SECRET_ACCESS_KEY="${SPACES_SECRET_KEY}" \
-        uv run python "examples/$example/run.py" all \
-            --stac-api-url "$STAC_API_URL" \
-            --dsn "$PGSTAC_DSN" \
-            --data-prefix "s3://${SPACES_BUCKET}/data/sample"
+        AWS_ACCESS_KEY_ID="$SPACES_ACCESS_KEY" \
+        AWS_SECRET_ACCESS_KEY="$SPACES_SECRET_KEY" \
+        uv run --group example python "examples/$example/run.py"
     done
+
+# ---- Internal ----
+
+[private]
+_save-kubeconfig:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    CONTEXT="$(tofu output -raw doks_context)"
+    doctl kubernetes cluster kubeconfig save "${CONTEXT#do-*-}"
+
+[private]
+_cluster-issuer:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    sed "s/LETSENCRYPT_EMAIL/$(tofu output -raw letsencrypt_email)/" cluster-issuer.yaml | kubectl apply -f -
+
+[private]
+_db-init:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    DSN="$(tofu output -raw pgstac_dsn)"
+    psql "$DSN" -c "CREATE EXTENSION IF NOT EXISTS postgis; CREATE EXTENSION IF NOT EXISTS btree_gist;" 2>/dev/null
+    echo "Extensions installed."
+    uv run --extra k8s pypgstac migrate --dsn "$DSN"
+    echo "pgstac migration complete."
+
+[private]
+_seed:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    AWS_ENDPOINT_URL="$(tofu output -raw spaces_endpoint)" \
+    AWS_ACCESS_KEY_ID="$(tofu output -raw spaces_access_key)" \
+    AWS_SECRET_ACCESS_KEY="$(tofu output -raw spaces_secret_key)" \
+    SPACES_BUCKET="$(tofu output -raw spaces_bucket)" \
+    uv run --with boto3 python scripts/seed_data.py
+
+[private]
+_register-stack:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    eval "$(tofu output -json | jq -r 'to_entries[] | "export \(.key | ascii_upcase)=\(.value.value | @sh)"')"
+    TOKEN=$(scripts/zenml-token.sh --wait)
+    export ZENML_STORE_URL="https://zenml.${FAIR_DOMAIN}"
+    export ZENML_STORE_API_TOKEN="$TOKEN"
+    export ZENML_STORE_VERIFY_SSL="$VERIFY_SSL"
+    RESOLVED=".dok8s-stack-resolved.yaml"
+    envsubst < ../../stacks/dok8s.yaml > "$RESOLVED"
+    uv run zenml stack import dok8s -f "$RESOLVED" --ignore-version-mismatch 2>/dev/null || true
+    uv run zenml stack set dok8s
+    rm -f "$RESOLVED"

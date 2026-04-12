@@ -327,7 +327,7 @@ Must:
 - Read only the **train** portion implied by `split_info`
 - Apply `freeze_encoder`, `max_grad_norm`, `scheduler`, etc. from `hyperparameters`
 - Return an in-memory model (or raw checkpoint bytes for non-picklable
-  frameworks — see the YOLO tip in [Inference flow](#inference-flow))
+  frameworks ; see the YOLO tip in [Inference flow](#inference-flow))
 
 #### evaluate_model
 
@@ -459,7 +459,7 @@ attached, so every model **must** support both.
 ### Pre/post processing & weights
 
 Three module-level helpers are referenced from the STAC item by dotted
-path. Keep their bodies small — they should just wrap your existing ML
+path. Keep their bodies small ; they should just wrap your existing ML
 code.
 
 === "preprocess"
@@ -509,7 +509,7 @@ code.
 
     Training data lives in S3 (prod) or the local filesystem (dev). Use
     `fair.utils.data.resolve_directory` and `fair.utils.data.resolve_path`
-    — both return local `Path` objects transparently. **Never hardcode
+    ; both return local `Path` objects transparently. **Never hardcode
     paths. Never bake data into Docker images.**
 
 ## Dockerfile
@@ -784,7 +784,7 @@ present in the STAC item.
 Keep it concise. The STAC item already captures hyperparameters, input/output
 specs, and keywords ; the README is for everything else.
 
-!!! warning "Prose only — no code snippets"
+!!! warning "Prose only ; no code snippets"
 
     Do **not** paste `pipeline.py` snippets, training loops, or config
     examples into the README. Code in two places drifts out of sync. The

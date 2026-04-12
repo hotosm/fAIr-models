@@ -6,26 +6,13 @@ OAM imagery with COCO-format building detection labels derived from OSM segmenta
 ## Prerequisites
 
 - zenml
-- Sample data in `data/sample/` (OAM tiles + OSM labels)
-- Detection labels generated from segmentation labels (see below)
-
-## Label Conversion
-
-Detection labels are derived from the segmentation GeoJSON labels. Run the
-conversion script before training:
-
-```bash
-python scripts/convert_segmentation_to_detection.py
-```
-
-This produces `data/sample/train/detection_labels.json` in COCO format.
+- Sample data in `data/sample/` (OAM tiles + OSM labels, including pre-generated `detection_labels.json`)
 
 ## Quick Start
 
 ```bash
 uv sync --group example --group local
 just setup
-python scripts/convert_segmentation_to_detection.py
 python examples/detection/run.py all
 ```
 
@@ -50,7 +37,6 @@ python examples/detection/run.py <command>
 ### CI Usage
 
 ```bash
-python scripts/convert_segmentation_to_detection.py
 uv run python examples/detection/run.py clean
 uv run python examples/detection/run.py all
 ```

@@ -139,6 +139,9 @@ models/your-model/
   Dockerfile           # Self-contained runtime environment
   stac-item.json       # STAC MLM item (model metadata)
   README.md            # Model overview, limitations, citation
+  tests/
+    conftest.py        # generate_toy_dataset fixture
+    test_steps.py      # Step-level tests
 ```
 
 ## pipeline.py
@@ -179,10 +182,58 @@ Your `pipeline.py` must also define:
 | --- | --- | --- |
 | `preprocess` | Normalize/transform input data before the model | `stac-item.json` `mlm:input[].pre_processing_function` |
 | `postprocess` | Convert raw model output to usable predictions | `stac-item.json` `mlm:output[].post_processing_function` |
+| `resolve_weights` | Download pretrained weights to a local checkpoint file | Required when model asset href is not a URL |
 
 These are referenced as Python entrypoints in the STAC item (e.g.
 `models.your_model.pipeline:preprocess`). The platform calls them dynamically
 ; your model owns its own pre/post processing logic entirely.
+
+### resolve_weights
+
+If your model's `stac-item.json` `model` asset `href` is **not** a direct URL
+(e.g. a framework weight enum like `torchvision.models.ResNet18_Weights.IMAGENET1K_V1`
+or a short name like `yolo11n.pt`), your `pipeline.py` **must** define a
+`resolve_weights` function. CI enforces this via AST parsing.
+
+```python title="resolve_weights contract"
+def resolve_weights(weight_id: str) -> Path:
+    """Download pretrained weights and return the local checkpoint path."""
+    ...
+```
+
+The function receives the raw `href` string from the STAC item and must
+return a `pathlib.Path` to a locally saved checkpoint file. The platform
+calls this when `upload_artifacts=True` to download the weights, upload them
+to S3, and update the STAC item href to the S3 URL.
+
+If the `model` asset `href` is already a URL (`https://...`, `s3://...`),
+`resolve_weights` is not required. When a URL is provided, CI validates
+that it is accessible via HTTP HEAD request.
+
+Examples from reference implementations:
+
+```python title="torchvision (ResNet18)"
+def resolve_weights(weight_id: str) -> Path:
+    import torch
+    from torchvision.models import ResNet18_Weights
+
+    enum_name = weight_id.rsplit(".", 1)[-1]
+    weights = ResNet18_Weights[enum_name]
+    checkpoint_path = Path(tempfile.mkdtemp()) / "resnet18_pretrained.pth"
+    torch.hub.download_url_to_file(weights.url, str(checkpoint_path))
+    return checkpoint_path
+```
+
+```python title="ultralytics (YOLO)"
+def resolve_weights(weight_id: str) -> Path:
+    from ultralytics import YOLO
+
+    checkpoint_dir = Path(tempfile.mkdtemp())
+    model = YOLO(weight_id)
+    checkpoint_path = checkpoint_dir / weight_id
+    model.save(str(checkpoint_path))
+    return checkpoint_path
+```
 
 ### Training Pipeline
 
@@ -364,46 +415,44 @@ local_labels = resolve_path(labels_path)
 
 ## Dockerfile
 
-Your Dockerfile must be **self-contained**: building and running the image
-alone should be sufficient to execute both training and inference pipelines.
-No external dependencies beyond what is installed in the image.
+Your Dockerfile must be **self-contained** and use **three named stages**:
+
+| Stage | Purpose |
+|---|---|
+| `builder` | Install and compile all dependencies |
+| `runtime` | Production image (ML framework + fair-py-ops, no test deps) |
+| `test` | Extends `runtime` with `fair-py-ops[test]` (pytest + zenml[server]) for CI |
 
 Requirements:
 
-1. Multi-stage build recommended (builder + slim runtime)
-2. Install all Python dependencies including `fair-py-ops` and your ML framework
-3. Copy your model code into the image at `models/your_model/`
+1. Use `uv pip install` in the builder (not bare `pip`)
+2. Install `/tmp/fair-src[k8s]` from the copied project source
+3. The `test` stage must install `/tmp/fair-src[test]` via `uv pip install --system`
 4. Set `ENTRYPOINT ["/usr/local/bin/python"]`
+5. Never install test dependencies in the `runtime` stage
 
-Reference Dockerfile structure:
+CI builds `--target test` to run tests, then pushes only `--target runtime`.
 
-```dockerfile title="Dockerfile"
-FROM ghcr.io/astral-sh/uv:python3.13-trixie-slim AS builder
-ENV UV_SYSTEM_PYTHON=1 UV_LINK_MODE=copy
+See any existing model Dockerfile (e.g. `models/unet_segmentation/Dockerfile`)
+for the full pattern.
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential libgdal-dev && rm -rf /var/lib/apt/lists/*
+## Testing
 
-RUN --mount=type=cache,target=/root/.cache/uv \
-    uv pip install \
-    your-ml-framework \
-    fair-py-ops 
+Each model needs a `tests/` directory with two files:
 
-FROM python:3.13-slim-trixie
-WORKDIR /app
+- `conftest.py` : a `generate_toy_dataset` fixture that creates toy chips + labels at test time
+- `test_steps.py` : four test functions : `test_split_dataset`, `test_train_model`, `test_evaluate_model`, `test_export_onnx`
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    libexpat1 libgdal36 && rm -rf /var/lib/apt/lists/*
+The shared `models/conftest.py` provides common fixtures (`toy_chips`,
+`toy_labels`, `base_hyperparameters`, etc.) automatically. You only write
+`generate_toy_dataset`.
 
-COPY --from=builder /usr/local/lib/python3.13/site-packages /usr/local/lib/python3.13/site-packages
-COPY --from=builder /usr/local/bin /usr/local/bin
+See `models/resnet18_classification/tests/`, `models/yolo11n_detection/tests/`,
+or `models/unet_segmentation/tests/` for complete working examples.
 
-COPY models/your_model models/your_model
-ENTRYPOINT ["/usr/local/bin/python"]
+```bash
+just test-models your-model   # Build Docker image + run tests
 ```
-
-The image is built from the repository root (not from `models/your_model/`),
-so paths in `COPY` are relative to the repo root.
 
 ## stac-item.json
 
@@ -665,6 +714,14 @@ a direct URL, S3 path, or a framework-specific weight enum (e.g.
 `torchgeo.models.Unet_Weights.OAM_RGB_RESNET50_TCD`). Your `pipeline.py` is
 responsible for resolving and loading the weights at runtime.
 
+!!! info "Weight upload to S3"
+
+    When `upload_artifacts=True`, the platform downloads the pretrained weights
+    via your `resolve_weights` function, uploads them to S3, and updates the
+    STAC item href to the S3 URL. If your model asset href is already a URL,
+    CI validates it is accessible. If it is a framework weight reference,
+    CI validates that `resolve_weights` exists in `pipeline.py`.
+
 The `readme` asset `href` must be an **absolute URL** to the raw file, not a
 relative path. Use the GitHub raw URL pattern:
 
@@ -732,9 +789,12 @@ specs, and keywords ; the README is for everything else.
 Before opening a PR, make sure:
 
 - [ ] `models/your-model/` includes `pipeline.py`, `Dockerfile`, `stac-item.json`, and `README.md`
+- [ ] `Dockerfile` has three stages: `builder`, `runtime` (production), and `test` (CI)
+- [ ] `tests/test_steps.py` defines `test_split_dataset`, `test_train_model`, `test_evaluate_model`, `test_export_onnx`
+- [ ] `tests/conftest.py` defines `generate_toy_dataset` fixture returning `{"chips", "labels", "dataset_stac_item"}`
 - [ ] `README.md` explains the model clearly enough for another developer to use it
 - [ ] `just validate` passes for the model and STAC item
-- [ ] training and inference both run on the sample data ( if sample data doesn't match , consider adding one )
+- [ ] `just test-models your-model` passes inside Docker
 
 The full requirements are described in the sections above, especially the STAC metadata, pipeline structure, assets, and README guidance. CI checks the detailed metadata, pipeline exports, Docker build, and consistency rules for you.
 
@@ -742,10 +802,11 @@ The full requirements are described in the sections above, especially the STAC m
 
 On PR submission, CI will:
 
-1. **Validate pipeline exports** : `scripts/validate_model.py` checks for `training_pipeline` and `inference_pipeline` (`@pipeline`) and `split_dataset` (`@step`) via AST parsing
+1. **Validate pipeline exports** : `scripts/validate_model.py` checks for `training_pipeline` and `inference_pipeline` (`@pipeline`), `split_dataset` (`@step`), and required test functions via AST parsing
 2. **Validate STAC item** : `scripts/validate_stac_items.py` checks all required properties (including `fair:split_spec`), extensions, assets, keywords (including geometry type), and license
-3. **Build Docker image** -- verifies the Dockerfile builds successfully
-4. **Run tests with sample data** -- executes against `data/sample/`
+3. **Build test Docker image** : builds `--target test` which includes pytest and zenml[server]
+4. **Run step tests** : `python -m pytest models/<name>/tests/` inside the test image validates all 4 pipeline steps with toy data
+5. **Push production image** : builds `--target runtime` (no test deps) and pushes to the container registry
 
 All checks must pass before the PR is reviewed.
 

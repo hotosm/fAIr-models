@@ -3,10 +3,13 @@ from __future__ import annotations
 import functools
 import importlib.resources
 import json
+import logging
 
 import pystac
 
 from fair.schemas import register_fair_schemas
+
+logger = logging.getLogger(__name__)
 
 
 def validate_item(item: pystac.Item) -> list[str]:
@@ -18,6 +21,31 @@ def validate_item(item: pystac.Item) -> list[str]:
         errors.append(str(e))
     errors.extend(_validate_keyword_vocabulary(item))
     return errors
+
+
+def validate_model_weight_href(item: pystac.Item, *, timeout: float = 10.0) -> list[str]:
+    import urllib.request
+
+    model_asset = item.assets.get("model")
+    if model_asset is None:
+        return ["Missing 'model' asset"]
+
+    href = model_asset.href
+    if "://" not in href:
+        return []
+
+    if not href.startswith(("http://", "https://")):
+        return []
+
+    try:
+        req = urllib.request.Request(href, method="HEAD")
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            if resp.status >= 400:
+                return [f"Model weight URL returned HTTP {resp.status}: {href}"]
+    except Exception as exc:
+        return [f"Model weight URL not accessible: {href} ({exc})"]
+
+    return []
 
 
 def _validate_keyword_vocabulary(item: pystac.Item) -> list[str]:

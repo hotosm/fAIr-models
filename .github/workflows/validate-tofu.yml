@@ -1,0 +1,32 @@
+name: validate opentofu dok8s
+on:
+  push:
+    branches: [master]
+    paths: [infra/dok8s/**]
+  pull_request:
+    branches: [master]
+    paths: [infra/dok8s/**]
+defaults:
+  run:
+    shell: bash
+    working-directory: infra/dok8s
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  validate:
+    name: fmt & validate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Clone repo
+        uses: actions/checkout@v4
+      - name: Setup OpenTofu
+        uses: opentofu/setup-opentofu@v2
+        with:
+          tofu_wrapper: false
+      - name: Check formatting
+        run: tofu fmt -check -recursive -diff
+      - name: Initialize
+        run: tofu init -backend=false
+      - name: Validate
+        run: tofu validate

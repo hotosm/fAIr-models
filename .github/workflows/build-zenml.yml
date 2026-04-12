@@ -1,11 +1,24 @@
 name: build & integration of zenml workflow
 on:
   push:
-    branches:
-      - master
+    branches: [master]
+    paths:
+      - "fair/**"
+      - "examples/**"
+      - "pyproject.toml"
+      - "uv.lock"
+      - ".github/workflows/build-zenml.yml"
   pull_request:
-    branches:
-      - master
+    branches: [master]
+    paths:
+      - "fair/**"
+      - "examples/**"
+      - "pyproject.toml"
+      - "uv.lock"
+      - ".github/workflows/build-zenml.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
 defaults:
   run:
     shell: bash
@@ -16,13 +29,14 @@ jobs:
   example:
     name: example workflow
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - name: Clone repo
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
       - name: Set up uv
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@v8.0.0
         with:
           python-version: "3.13"
           enable-cache: true
@@ -34,10 +48,6 @@ jobs:
           uv run zenml up --blocking &
           sleep 10
           uv run zenml status
-      - name: Generate derived labels
-        run: |
-          uv run python scripts/convert_segmentation_to_classification.py
-          uv run python scripts/convert_segmentation_to_detection.py
       - name: Run segmentation example
         run: uv run python examples/segmentation/run.py all
       - name: Run classification example

@@ -201,8 +201,14 @@ def resolve_weights(weight_id: str) -> Path: ...
 
 ### Training flow
 
-```text
-split_dataset → train_model → evaluate_model → export_onnx
+```mermaid
+flowchart LR
+    A[split_dataset] -->|split_info| B[train_model]
+    A -->|split_info| C[evaluate_model]
+    B -->|trained_model| C
+    B -->|trained_model| D[export_onnx]
+    C -.->|metrics| E([ZenML + MLflow])
+    D -.->|onnx path| E
 ```
 
 | Step | Purpose |
@@ -516,6 +522,14 @@ code.
 
 Your Dockerfile must be **self-contained** and use **three named stages**:
 
+```mermaid
+flowchart LR
+    A[builder<br/>uv pip install deps] --> B[runtime<br/>framework + fair-py-ops]
+    B --> C[test<br/>+ fair-py-ops test extras]
+    B -.->|pushed to registry| D([ghcr.io])
+    C -.->|used by CI| E([pytest])
+```
+
 | Stage | Purpose |
 |---|---|
 | `builder` | Install and compile all dependencies |
@@ -545,6 +559,47 @@ Each model needs a `tests/` directory with two files:
 The shared `models/conftest.py` provides common fixtures (`toy_chips`,
 `toy_labels`, `base_hyperparameters`, etc.) automatically. You only write
 `generate_toy_dataset`.
+
+=== "conftest.py"
+
+    ```python title="tests/conftest.py (skeletal)"
+    import pytest
+
+    @pytest.fixture
+    def generate_toy_dataset(tmp_path):
+        chips_dir = tmp_path / "chips"
+        labels_dir = tmp_path / "labels"
+        # write a handful of tiny RGB GeoTIFFs + matching GeoJSON labels
+        make_toy_chips(chips_dir, count=4)
+        make_toy_labels(labels_dir, count=4)
+        return {
+            "chips": str(chips_dir),
+            "labels": str(labels_dir),
+            "dataset_stac_item": build_toy_dataset_item(chips_dir, labels_dir),
+        }
+    ```
+
+=== "test_steps.py"
+
+    ```python title="tests/test_steps.py (skeletal)"
+    from models.your_model.pipeline import (
+        split_dataset, train_model, evaluate_model, export_onnx,
+    )
+
+    def test_split_dataset(generate_toy_dataset, base_hyperparameters):
+        info = split_dataset.entrypoint(
+            generate_toy_dataset["chips"],
+            generate_toy_dataset["labels"],
+            base_hyperparameters,
+        )
+        assert info["train_count"] > 0 and info["val_count"] > 0
+
+    def test_train_model(generate_toy_dataset, base_hyperparameters):
+        ...  # run train_model.entrypoint on the toy split, assert non-null output
+
+    def test_evaluate_model(...): ...
+    def test_export_onnx(...): ...
+    ```
 
 See `models/resnet18_classification/tests/`, `models/yolo11n_detection/tests/`,
 or `models/unet_segmentation/tests/` for complete working examples.
@@ -608,8 +663,34 @@ Each entry must declare:
 | `name` | string | Human-readable metric name |
 | `description` | string | Precise definition including averaging strategy |
 
-See `models/unet_segmentation/stac-item.json` and
-`models/yolo11n_detection/stac-item.json` for complete examples.
+=== "Segmentation"
+
+    ```json title="fair:metrics_spec (unet_segmentation)"
+    "fair:metrics_spec": [
+        {"key": "fair:mean_iou", "name": "Mean IoU", "description": "Mean intersection-over-union across all classes, including background."},
+        {"key": "iou_building", "name": "Building IoU", "description": "Per-class IoU for the 'building' class (matches classification:classes entry)."},
+        {"key": "fair:pixel_accuracy", "name": "Pixel Accuracy", "description": "Fraction of pixels correctly classified across the val split."}
+    ]
+    ```
+
+=== "Detection"
+
+    ```json title="fair:metrics_spec (yolo11n_detection)"
+    "fair:metrics_spec": [
+        {"key": "fair:map50", "name": "mAP@0.5", "description": "Mean average precision at IoU threshold 0.5 across all classes."},
+        {"key": "fair:map50_95", "name": "mAP@0.5:0.95", "description": "Mean average precision averaged over IoU thresholds 0.5 to 0.95."},
+        {"key": "fair:precision", "name": "Precision", "description": "Box-level precision at the default confidence threshold."}
+    ]
+    ```
+
+=== "Classification"
+
+    ```json title="fair:metrics_spec (resnet18_classification)"
+    "fair:metrics_spec": [
+        {"key": "fair:accuracy", "name": "Accuracy", "description": "Top-1 accuracy on the val split."},
+        {"key": "fair:f1", "name": "F1 Score", "description": "Macro-averaged F1 across all classes."}
+    ]
+    ```
 
 When `evaluate_model` logs metrics via `log_metadata(infer_model=True)`, the platform
 copies those values to the promoted local model STAC item. Class IoU keys use the
@@ -636,6 +717,28 @@ The split strategy depends on the task type:
 | Classification | `random` | Seeded shuffle of sorted filenames, split at ratio boundary |
 | Segmentation | `spatial` | `RandomGeoSampler` for train, `GridGeoSampler` for val (non-overlapping tiles) |
 | Detection | `random` | Last N% of sorted image IDs held out for validation |
+
+=== "Random"
+
+    ```json title="fair:split_spec (resnet18_classification)"
+    "fair:split_spec": {
+        "strategy": "random",
+        "default_ratio": 0.2,
+        "seed": 42,
+        "description": "Seeded shuffle of sorted image filenames, first (1 - ratio) for train, remainder for val."
+    }
+    ```
+
+=== "Spatial"
+
+    ```json title="fair:split_spec (unet_segmentation)"
+    "fair:split_spec": {
+        "strategy": "spatial",
+        "default_ratio": 0.2,
+        "seed": 42,
+        "description": "RandomGeoSampler over training AOI, GridGeoSampler for non-overlapping val tiles; avoids spatial leakage between splits."
+    }
+    ```
 
 Contributors can define custom split strategies as long as they document the
 approach in `description` and implement the corresponding `split_dataset`
@@ -717,8 +820,91 @@ data_type), `classification:classes` (one entry per output class with
 `name` and `value`), and a `post_processing_function` pointing to your
 `postprocess` entrypoint.
 
-See the three reference models for complete `mlm:input` / `mlm:output`
-blocks per task type.
+=== "Segmentation"
+
+    ```json title="mlm:input / mlm:output (unet_segmentation)"
+    "mlm:input": [{
+        "name": "rgb",
+        "bands": ["red", "green", "blue"],
+        "input": {
+            "shape": [-1, 3, 256, 256],
+            "dim_order": ["batch", "bands", "height", "width"],
+            "data_type": "float32"
+        },
+        "pre_processing_function": "models.unet_segmentation.pipeline:preprocess"
+    }],
+    "mlm:output": [{
+        "name": "mask",
+        "tasks": ["semantic-segmentation"],
+        "result": {
+            "shape": [-1, 2, 256, 256],
+            "dim_order": ["batch", "classes", "height", "width"],
+            "data_type": "float32"
+        },
+        "classification:classes": [
+            {"name": "background", "value": 0},
+            {"name": "building", "value": 1}
+        ],
+        "post_processing_function": "models.unet_segmentation.pipeline:postprocess"
+    }]
+    ```
+
+=== "Detection"
+
+    ```json title="mlm:input / mlm:output (yolo11n_detection)"
+    "mlm:input": [{
+        "name": "rgb",
+        "bands": ["red", "green", "blue"],
+        "input": {
+            "shape": [-1, 3, 640, 640],
+            "dim_order": ["batch", "bands", "height", "width"],
+            "data_type": "float32"
+        },
+        "pre_processing_function": "models.yolo11n_detection.pipeline:preprocess"
+    }],
+    "mlm:output": [{
+        "name": "boxes",
+        "tasks": ["object-detection"],
+        "result": {
+            "shape": [-1, 6],
+            "dim_order": ["detections", "xyxy_conf_class"],
+            "data_type": "float32"
+        },
+        "classification:classes": [
+            {"name": "building", "value": 0}
+        ],
+        "post_processing_function": "models.yolo11n_detection.pipeline:postprocess"
+    }]
+    ```
+
+=== "Classification"
+
+    ```json title="mlm:input / mlm:output (resnet18_classification)"
+    "mlm:input": [{
+        "name": "rgb",
+        "bands": ["red", "green", "blue"],
+        "input": {
+            "shape": [-1, 3, 224, 224],
+            "dim_order": ["batch", "bands", "height", "width"],
+            "data_type": "float32"
+        },
+        "pre_processing_function": "models.resnet18_classification.pipeline:preprocess"
+    }],
+    "mlm:output": [{
+        "name": "label",
+        "tasks": ["classification"],
+        "result": {
+            "shape": [-1, 2],
+            "dim_order": ["batch", "classes"],
+            "data_type": "float32"
+        },
+        "classification:classes": [
+            {"name": "no_building", "value": 0},
+            {"name": "building", "value": 1}
+        ],
+        "post_processing_function": "models.resnet18_classification.pipeline:postprocess"
+    }]
+    ```
 
 ### Required Assets
 
@@ -729,6 +915,45 @@ blocks per task type.
 | `mlm:training` | Training Docker image | `href` = Docker image reference |
 | `mlm:inference` | Inference Docker image | `href` = Docker image reference |
 | `readme` | Model documentation (README.md) | _(none)_ |
+
+??? example "Concrete assets block"
+
+    ```json title="stac-item.json (assets excerpt)"
+    "assets": {
+        "model": {
+            "href": "torchgeo.models.Unet_Weights.OAM_RGB_RESNET34_TCD",
+            "type": "application/octet-stream",
+            "title": "UNet pretrained weights",
+            "roles": ["mlm:model"],
+            "mlm:artifact_type": "torch.save"
+        },
+        "source-code": {
+            "href": "https://github.com/hotosm/fAIr-models/tree/master/models/unet_segmentation/pipeline.py",
+            "type": "text/x-python",
+            "title": "UNet pipeline source",
+            "roles": ["mlm:source_code"],
+            "mlm:entrypoint": "models.unet_segmentation.pipeline:training_pipeline"
+        },
+        "mlm:training": {
+            "href": "ghcr.io/hotosm/fair-models/unet_segmentation:latest",
+            "type": "application/vnd.oci.image.manifest.v1+json",
+            "title": "Training runtime image",
+            "roles": ["mlm:training-runtime"]
+        },
+        "mlm:inference": {
+            "href": "ghcr.io/hotosm/fair-models/unet_segmentation:latest",
+            "type": "application/vnd.oci.image.manifest.v1+json",
+            "title": "Inference runtime image",
+            "roles": ["mlm:inference-runtime"]
+        },
+        "readme": {
+            "href": "https://raw.githubusercontent.com/hotosm/fAIr-models/refs/heads/main/models/unet_segmentation/README.md",
+            "type": "text/markdown",
+            "title": "Model README",
+            "roles": ["metadata"]
+        }
+    }
+    ```
 
 Model weights must be downloadable from the `model` asset `href`. This can be
 a direct URL, S3 path, or a framework-specific weight enum (e.g.
@@ -757,6 +982,16 @@ the model's catalog page.
 If your model or its pretrained weights come from a published paper, add a
 `cite-as` link under `links[]` pointing to the canonical DOI (preferred)
 or arXiv URL. This link is displayed in the catalog UI.
+
+```json title="stac-item.json (links excerpt)"
+"links": [
+    {
+        "rel": "cite-as",
+        "href": "https://doi.org/10.48550/arXiv.1505.04597",
+        "title": "U-Net: Convolutional Networks for Biomedical Image Segmentation"
+    }
+]
+```
 
 ## README.md
 
@@ -795,19 +1030,51 @@ specs, and keywords ; the README is for everything else.
 
 Before opening a PR, make sure:
 
-- [ ] `models/your_model/` includes `pipeline.py`, `Dockerfile`, `stac-item.json`, and `README.md`
-- [ ] `Dockerfile` has three stages: `builder`, `runtime` (production), and `test` (CI)
-- [ ] `tests/test_steps.py` defines `test_split_dataset`, `test_train_model`, `test_evaluate_model`, `test_export_onnx`
-- [ ] `tests/conftest.py` defines `generate_toy_dataset` fixture returning `{"chips", "labels", "dataset_stac_item"}`
-- [ ] `pipeline.py` exports `preprocess`, `postprocess`, and (if weights are not a direct URL) `resolve_weights`
-- [ ] `stac-item.json` declares `fair:metrics_spec`, `fair:split_spec`, and `fair:hyperparameters_spec`
-- [ ] `README.md` explains the model clearly enough for another developer to use it
-- [ ] `just validate` passes for the model and STAC item
-- [ ] `just test-models your_model` passes inside Docker
+=== "Files"
+
+    - [ ] `models/your_model/` includes `pipeline.py`, `Dockerfile`, `stac-item.json`, and `README.md`
+    - [ ] `README.md` explains the model clearly enough for another developer to use it
+    - [ ] `README.md` contains prose only (no code snippets)
+
+=== "Pipeline"
+
+    - [ ] `pipeline.py` exports `training_pipeline` and `inference_pipeline` as `@pipeline`
+    - [ ] `pipeline.py` exports `split_dataset` as `@step`
+    - [ ] `pipeline.py` exports `preprocess`, `postprocess`, and (if weights are not a direct URL) `resolve_weights`
+    - [ ] `train_model` reads the **train** split only; `evaluate_model` reads the **val** split only
+
+=== "Docker"
+
+    - [ ] `Dockerfile` has three stages: `builder`, `runtime` (production), and `test` (CI)
+    - [ ] `runtime` stage contains no test dependencies
+    - [ ] `ENTRYPOINT` is `["/usr/local/bin/python"]`
+
+=== "Tests"
+
+    - [ ] `tests/conftest.py` defines `generate_toy_dataset` fixture returning `{"chips", "labels", "dataset_stac_item"}`
+    - [ ] `tests/test_steps.py` defines `test_split_dataset`, `test_train_model`, `test_evaluate_model`, `test_export_onnx`
+    - [ ] `just test-models your_model` passes inside Docker
+
+=== "STAC"
+
+    - [ ] `stac-item.json` declares `fair:metrics_spec`, `fair:split_spec`, and `fair:hyperparameters_spec`
+    - [ ] `keywords` includes a feature tag, a task value, and exactly one geometry type
+    - [ ] `license` is a supported SPDX identifier
+    - [ ] `just validate` passes for the model and STAC item
 
 The full requirements are described in the sections above, especially the STAC metadata, pipeline structure, assets, and README guidance. CI checks the detailed metadata, pipeline exports, Docker build, and consistency rules for you.
 
 ## CI Checks
+
+```mermaid
+flowchart LR
+    A[PR opened] --> B[validate_model.py<br/>AST checks]
+    B --> C[validate_stac_items.py<br/>pystac + fAIr schema]
+    C --> D[docker build<br/>--target test]
+    D --> E[pytest models/name/tests/]
+    E --> F[docker build<br/>--target runtime]
+    F --> G[push to registry]
+```
 
 On PR submission, CI will:
 

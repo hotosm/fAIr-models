@@ -120,6 +120,18 @@
                       "minLength": 1
                     }
                   }
+                },
+                "training-metrics": {
+                  "type": "object",
+                  "required": [
+                    "href"
+                  ],
+                  "properties": {
+                    "href": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  }
                 }
               }
             }

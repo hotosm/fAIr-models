@@ -14,7 +14,7 @@ from fair.stac.constants import BASE_MODELS_COLLECTION, DATASETS_COLLECTION, LOC
 from fair.stac.validators import validate_model_asset_urls
 from fair.stac.versioning import deprecate_and_link_successor, find_previous_active_item
 from fair.utils.data import s3_uri_to_http_url
-from fair.zenml.metrics import read_fair_metrics, read_training_wall_time
+from fair.zenml.metrics import read_fair_metrics, read_loss_history, read_training_wall_time
 
 log = logging.getLogger(__name__)
 
@@ -51,6 +51,33 @@ def _upload_model_artifacts(
     UPath(onnx_dest).write_bytes(UPath(onnx_uri).read_bytes())
 
     return s3_uri_to_http_url(checkpoint_dest), s3_uri_to_http_url(onnx_dest)
+
+
+def _upload_training_metrics(
+    loss_history: dict[str, list[float]],
+    item_id: str,
+    prefix: str | None,
+) -> str | None:
+    import json
+    import tempfile
+    from pathlib import Path
+
+    from upath import UPath
+
+    payload = json.dumps(
+        {"epochs": list(range(1, len(loss_history["train_loss"]) + 1)), **loss_history},
+        separators=(",", ":"),
+    )
+
+    if prefix is None:
+        local = Path(tempfile.mkdtemp()) / f"{item_id}-training-metrics.json"
+        local.write_text(payload)
+        return str(local)
+
+    dest = f"{prefix}/local-models/{item_id}/training-metrics/{item_id}.json"
+    log.info("Uploading training metrics -> %s", dest)
+    UPath(dest).write_text(payload)
+    return s3_uri_to_http_url(dest)
 
 
 def publish_promoted_model(
@@ -116,6 +143,7 @@ def publish_promoted_model(
     if wall_time is not None:
         training_duration_seconds = wall_time
     metrics = read_fair_metrics(raw_meta)
+    loss_history = read_loss_history(raw_meta)
     split_info: dict[str, Any] | None = raw_meta.get("fair/split")
 
     weights_art = mv.get_artifact("trained_model")
@@ -134,6 +162,10 @@ def publish_promoted_model(
         item_id=new_item_id,
         prefix=artifact_store_prefix,
     )
+
+    training_metrics_href: str | None = None
+    if loss_history:
+        training_metrics_href = _upload_training_metrics(loss_history, new_item_id, artifact_store_prefix)
 
     base_model_item = catalog_manager.get_item(BASE_MODELS_COLLECTION, base_model_item_id)
 
@@ -193,6 +225,7 @@ def publish_promoted_model(
         dataset_id=dataset_item_id,
         dataset_title=dataset_title,
         split_info=split_info,
+        training_metrics_href=training_metrics_href,
     )
 
     from upath import UPath

@@ -212,13 +212,22 @@ def train_model(
             if encoder is not None:
                 for param in encoder.parameters():
                     param.requires_grad = False
-        loader = _build_dataset(
+        train_loader = _build_dataset(
             dataset_chips,
             dataset_labels,
             chip_size,
             length=samples_per_epoch,
             batch_size=batch_size,
             split="train",
+            seed=seed,
+        )
+        val_loader = _build_dataset(
+            dataset_chips,
+            dataset_labels,
+            chip_size,
+            length=samples_per_epoch,
+            batch_size=batch_size,
+            split="val",
             seed=seed,
         )
 
@@ -234,18 +243,40 @@ def train_model(
         if scheduler_name == "cosine":
             scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=epochs)
 
+        train_losses: list[float] = []
+        val_losses: list[float] = []
+
         model.train()
         for epoch in range(epochs):
             total_loss = 0.0
-            for batch in loader:
+            for batch in train_loader:
                 total_loss += _train_step(model, batch, criterion, opt, device, max_grad_norm)
             if scheduler:
                 scheduler.step()
-            avg_loss = total_loss / len(loader)
+            avg_train_loss = total_loss / len(train_loader)
+
+            model.eval()
+            val_total = 0.0
+            with torch.no_grad():
+                for batch in val_loader:
+                    images, masks = preprocess(batch)
+                    images, masks = images.to(device), masks.to(device)
+                    val_total += criterion(model(images), masks).item()
+            avg_val_loss = val_total / max(len(val_loader), 1)
+            model.train()
+
+            train_losses.append(avg_train_loss)
+            val_losses.append(avg_val_loss)
+
             import mlflow
 
-            mlflow.log_metric("train_loss", avg_loss, step=epoch)  # ty: ignore[possibly-missing-attribute]
-            log_metadata(metadata={"loss": avg_loss, "epoch": epoch + 1})
+            mlflow.log_metric("train_loss", avg_train_loss, step=epoch)  # ty: ignore[possibly-missing-attribute]
+            mlflow.log_metric("val_loss", avg_val_loss, step=epoch)  # ty: ignore[possibly-missing-attribute]
+            log_metadata(metadata={"loss": avg_train_loss, "epoch": epoch + 1})
+
+        from fair.zenml.metrics import log_loss_history
+
+        log_loss_history(train_losses, val_losses)
 
     return model.cpu()
 

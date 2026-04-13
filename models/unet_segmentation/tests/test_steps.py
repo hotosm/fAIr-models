@@ -74,6 +74,7 @@ def test_train_model(toy_chips: Path, toy_labels: Path, base_hyperparameters: di
         patch("models.unet_segmentation.pipeline._download_checkpoint", mock_download_checkpoint),
         patch("models.unet_segmentation.pipeline.mlflow_training_context") as mock_ctx,
         patch("models.unet_segmentation.pipeline.log_metadata"),
+        patch("fair.zenml.metrics.log_metadata"),
         patch("mlflow.log_metric"),
     ):
         mock_ctx.return_value.__enter__ = lambda s: None

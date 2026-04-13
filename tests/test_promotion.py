@@ -208,6 +208,30 @@ def test_publish_stores_artifact_metadata(mock_cls, cm):
 
 
 @patch("fair.zenml.promotion.Client")
+def test_publish_stores_training_metrics_asset(mock_cls, cm):
+    mv, client = _mock_mv({"epochs": 2})
+    mv.run_metadata = {
+        "fair/loss_history": {"train_loss": [0.5, 0.3], "val_loss": [0.6, 0.4]},
+    }
+    mock_cls.return_value = client
+    client.get_model_version.return_value = mv
+    item = _publish(cm, version=1)
+    assert "training-metrics" in item.assets
+    asset = item.assets["training-metrics"]
+    assert asset.media_type == "application/json"
+    assert asset.href.endswith(".json")
+
+
+@patch("fair.zenml.promotion.Client")
+def test_publish_omits_training_metrics_when_absent(mock_cls, cm):
+    mv, client = _mock_mv({"epochs": 1})
+    mock_cls.return_value = client
+    client.get_model_version.return_value = mv
+    item = _publish(cm, version=1)
+    assert "training-metrics" not in item.assets
+
+
+@patch("fair.zenml.promotion.Client")
 def test_missing_weights_raises(mock_cls, cm):
     mv, client = _mock_mv(weights_found=False)
     mock_cls.return_value = client

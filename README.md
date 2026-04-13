@@ -23,6 +23,10 @@ See [Getting Started](docs/getting-started.md) for detailed setup, environment o
 - **[API Reference](docs/reference/index.md)** : Python package documentation
 - **[Changelog](docs/changelog.md)** : Release history
 
+<img width="4488" height="2904" alt="image" src="https://github.com/user-attachments/assets/c0156fb3-06d6-478d-8364-e79884209949" />
+
+
+
 ## Examples
 
 Three reference implementations demonstrate the full workflow for each supported task:

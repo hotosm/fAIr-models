@@ -195,9 +195,14 @@ def publish_promoted_model(
         split_info=split_info,
     )
 
-    if errs := validate_model_asset_urls(item, required_keys=("checkpoint", "model")):
-        msg = f"Asset URL validation failed after upload: {errs}"
-        raise RuntimeError(msg)
+    from upath import UPath
+
+    if UPath(checkpoint_href).protocol:
+        if errs := validate_model_asset_urls(item, required_keys=("checkpoint", "model")):
+            msg = f"Asset URL validation failed after upload: {errs}"
+            raise RuntimeError(msg)
+    else:
+        log.warning("Local artifact store detected; skipping asset URL reachability check")
 
     if prev_item:
         deprecate_and_link_successor(catalog_manager, LOCAL_MODELS_COLLECTION, prev_item, self_href)

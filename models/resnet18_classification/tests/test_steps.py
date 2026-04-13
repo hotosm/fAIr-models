@@ -6,12 +6,22 @@ Each test calls the step's .entrypoint() directly (no ZenML server needed).
 
 from __future__ import annotations
 
+import tempfile
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 from unittest.mock import patch
 
 import pytest
+
+
+def _mock_download_checkpoint(_url: str) -> Path:
+    import torch
+    from torchvision.models import resnet18
+
+    path = Path(tempfile.mkdtemp()) / "weights.pt"
+    torch.save(resnet18(weights=None).state_dict(), path)
+    return path
 
 
 @pytest.fixture()
@@ -33,6 +43,7 @@ def trained_model(
     from models.resnet18_classification.pipeline import train_model
 
     with (
+        patch("models.resnet18_classification.pipeline._download_checkpoint", _mock_download_checkpoint),
         patch("models.resnet18_classification.pipeline.mlflow_training_context", _noop_ctx()),
         patch("models.resnet18_classification.pipeline.log_metadata"),
         patch("mlflow.log_metric"),
@@ -40,7 +51,7 @@ def trained_model(
         return train_model.entrypoint(
             dataset_chips=str(toy_chips),
             dataset_labels=str(toy_labels),
-            base_model_weights="IMAGENET1K_V1",
+            base_model_weights="https://example.com/resnet18.pt",
             hyperparameters=base_hyperparameters,
             split_info=split_info,
         )
@@ -87,6 +98,7 @@ def test_train_model(toy_chips: Path, toy_labels: Path, base_hyperparameters: di
         )
 
     with (
+        patch("models.resnet18_classification.pipeline._download_checkpoint", _mock_download_checkpoint),
         patch("models.resnet18_classification.pipeline.mlflow_training_context", _noop_mlflow_ctx),
         patch("models.resnet18_classification.pipeline.log_metadata"),
         patch("mlflow.log_metric"),
@@ -94,7 +106,7 @@ def test_train_model(toy_chips: Path, toy_labels: Path, base_hyperparameters: di
         model = train_model.entrypoint(
             dataset_chips=str(toy_chips),
             dataset_labels=str(toy_labels),
-            base_model_weights="IMAGENET1K_V1",
+            base_model_weights="https://example.com/resnet18.pt",
             hyperparameters=base_hyperparameters,
             split_info=si,
         )
@@ -113,6 +125,7 @@ def test_evaluate_model(toy_chips: Path, toy_labels: Path, base_hyperparameters:
         )
 
     with (
+        patch("models.resnet18_classification.pipeline._download_checkpoint", _mock_download_checkpoint),
         patch("models.resnet18_classification.pipeline.mlflow_training_context", _noop_mlflow_ctx),
         patch("models.resnet18_classification.pipeline.log_metadata"),
         patch("mlflow.log_metric"),
@@ -120,7 +133,7 @@ def test_evaluate_model(toy_chips: Path, toy_labels: Path, base_hyperparameters:
         model = train_model.entrypoint(
             dataset_chips=str(toy_chips),
             dataset_labels=str(toy_labels),
-            base_model_weights="IMAGENET1K_V1",
+            base_model_weights="https://example.com/resnet18.pt",
             hyperparameters=base_hyperparameters,
             split_info=si,
         )
@@ -152,6 +165,7 @@ def test_export_onnx(toy_chips: Path, toy_labels: Path, base_hyperparameters: di
         )
 
     with (
+        patch("models.resnet18_classification.pipeline._download_checkpoint", _mock_download_checkpoint),
         patch("models.resnet18_classification.pipeline.mlflow_training_context", _noop_mlflow_ctx),
         patch("models.resnet18_classification.pipeline.log_metadata"),
         patch("mlflow.log_metric"),
@@ -159,13 +173,13 @@ def test_export_onnx(toy_chips: Path, toy_labels: Path, base_hyperparameters: di
         model = train_model.entrypoint(
             dataset_chips=str(toy_chips),
             dataset_labels=str(toy_labels),
-            base_model_weights="IMAGENET1K_V1",
+            base_model_weights="https://example.com/resnet18.pt",
             hyperparameters=base_hyperparameters,
             split_info=si,
         )
 
-    onnx_path = export_onnx.entrypoint(trained_model=model, hyperparameters=base_hyperparameters)
-    assert Path(onnx_path).exists()
-    loaded = onnx.load(onnx_path)
+    onnx_bytes = export_onnx.entrypoint(trained_model=model, hyperparameters=base_hyperparameters)
+    assert isinstance(onnx_bytes, bytes)
+    loaded = onnx.load_from_string(onnx_bytes)
     assert len(loaded.graph.input) == 1
     assert len(loaded.graph.output) == 1

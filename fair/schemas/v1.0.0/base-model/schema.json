@@ -39,7 +39,8 @@
                     "version",
                     "license",
                     "fair:metrics_spec",
-                    "fair:split_spec"
+                    "fair:split_spec",
+                    "providers"
                   ]
                 },
                 {
@@ -335,6 +336,37 @@
             "Apache-2.0",
             "BSD-3-Clause"
           ]
+        },
+        "providers": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": [
+              "name",
+              "roles"
+            ],
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 1
+              },
+              "roles": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "string"
+                }
+              },
+              "url": {
+                "type": "string",
+                "format": "uri"
+              },
+              "description": {
+                "type": "string"
+              }
+            }
+          }
         }
       },
       "patternProperties": {

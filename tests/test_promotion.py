@@ -58,6 +58,7 @@ def _base_model_item() -> pystac.Item:
         title="Example UNet",
         description="UNet for building segmentation.",
         fair_metrics_spec=[{"name": "accuracy", "description": "Pixel accuracy", "higher_is_better": True}],
+        providers=[{"name": "HOTOSM", "roles": ["producer"], "url": "https://www.hotosm.org"}],
     )
 
 
@@ -73,6 +74,7 @@ def _dataset_item() -> pystac.Item:
         title="buildings-banepa",
         description="Test dataset.",
         user_id="osm-test",
+        providers=[{"name": "osm-test", "roles": ["producer"]}],
         geometry={
             "type": "Polygon",
             "coordinates": [[[85.51, 27.63], [85.53, 27.63], [85.53, 27.64], [85.51, 27.64], [85.51, 27.63]]],

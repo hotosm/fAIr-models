@@ -10,7 +10,7 @@
 #   - $env:BUILD_IMAGE = "1"; $env:CPU_ONLY = "1"; .\models\yolo_v8_v2\tests\run_docker_tests.ps1
 # Optional smoke args:
 #   - $env:SMOKE_DATASET_ROOT (default: /workspace/data/sample)
-#   - $env:SMOKE_EPOCHS (default: 2)
+#   - $env:SMOKE_EPOCHS (default: 10)
 #   - $env:SMOKE_BATCH_SIZE (default: 16)
 #   - $env:SMOKE_CONFIDENCE (default: 0.5)
 #   - $env:SMOKE_PC (default: 2.0)
@@ -39,7 +39,7 @@ function Invoke-NativeOrThrow {
 $buildImage = if ($null -ne $env:BUILD_IMAGE) { $env:BUILD_IMAGE } else { "0" }
 $cpuOnly = if ($null -ne $env:CPU_ONLY) { $env:CPU_ONLY } else { "0" }
 $smokeDatasetRoot = if ($null -ne $env:SMOKE_DATASET_ROOT) { $env:SMOKE_DATASET_ROOT } else { "/workspace/data/sample" }
-$smokeEpochs = if ($null -ne $env:SMOKE_EPOCHS) { $env:SMOKE_EPOCHS } else { "2" }
+$smokeEpochs = if ($null -ne $env:SMOKE_EPOCHS) { $env:SMOKE_EPOCHS } else { "10" }
 $smokeBatchSize = if ($null -ne $env:SMOKE_BATCH_SIZE) { $env:SMOKE_BATCH_SIZE } else { "16" }
 $smokeConfidence = if ($null -ne $env:SMOKE_CONFIDENCE) { $env:SMOKE_CONFIDENCE } else { "0.5" }
 $smokePc = if ($null -ne $env:SMOKE_PC) { $env:SMOKE_PC } else { "2.0" }

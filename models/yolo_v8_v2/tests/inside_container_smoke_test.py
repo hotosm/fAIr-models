@@ -67,7 +67,9 @@ def parse_args() -> argparse.Namespace:
         default="yolov8s_v2-seg.pt",
         help="Initial YOLO weights path. Downloads automatically if missing.",
     )
-    parser.add_argument("--epochs", type=int, default=2)
+    # Default is intentionally >2 so mAP isn't always ~0.00 on tiny sample datasets.
+    # Override to 2 for faster CI-style smoke checks.
+    parser.add_argument("--epochs", type=int, default=10)
     parser.add_argument("--batch-size", type=int, default=16)
     parser.add_argument("--pc", type=float, default=2.0)
     parser.add_argument("--confidence", type=float, default=0.5)

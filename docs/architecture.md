@@ -4,6 +4,9 @@ icon: lucide/blocks
 
 # Architecture
 
+![arch](https://github.com/user-attachments/assets/65f8c69f-e821-41ef-8944-6bc5f760c27b)
+
+
 ## STAC Catalog Structure
 
 !!! info "Three collections, all items use [MLM Extension](https://github.com/stac-extensions/mlm) and [Version Extension](https://github.com/stac-extensions/version)"

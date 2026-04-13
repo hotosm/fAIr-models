@@ -197,6 +197,8 @@ def publish_promoted_model(
 
     title = f"{model_name} v{version}"
 
+    providers = [{"name": user_id, "roles": ["producer"]}]
+
     item = build_local_model_item(
         base_model_item=base_model_item,
         item_id=new_item_id,
@@ -210,6 +212,7 @@ def publish_promoted_model(
         title=title,
         description=description,
         user_id=user_id,
+        providers=providers,
         mlm_name=model_name,
         geometry=resolved_geometry,
         metrics=metrics,

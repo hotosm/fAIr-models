@@ -63,6 +63,7 @@ def _base_model(**overrides: Any):
         "title": "UNet test model",
         "description": "Config test base model.",
         "fair_metrics_spec": [{"name": "accuracy", "description": "Pixel accuracy", "higher_is_better": True}],
+        "providers": [{"name": "HOTOSM", "roles": ["producer"]}],
     }
     defaults.update(overrides)
     return build_base_model_item(**defaults)
@@ -95,6 +96,7 @@ def _dataset(tmp_path):
         title="Test Dataset",
         description="Config test dataset.",
         user_id="osm-test",
+        providers=[{"name": "osm-test", "roles": ["producer"]}],
     )
 
 
@@ -153,6 +155,7 @@ def test_inference_config_with_artifact_id():
         title="Local UNet",
         description="Finetuned.",
         user_id="osm-test",
+        providers=[{"name": "osm-test", "roles": ["producer"]}],
         zenml_artifact_version_id="uuid-123",
     )
     cfg = generate_inference_config(local, "/data/input/")

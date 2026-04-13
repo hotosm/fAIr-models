@@ -68,6 +68,17 @@
         "license": "AGPL-3.0-only",
         "version": "1",
         "deprecated": false,
+        "providers": [
+            {
+                "name": "HOTOSM",
+                "roles": [
+                    "producer",
+                    "host"
+                ],
+                "url": "https://www.hotosm.org",
+                "description": "Humanitarian OpenStreetMap Team"
+            }
+        ],
         "fair:metrics_spec": [
             {
                 "key": "fair:accuracy",
@@ -261,7 +272,7 @@
             "mlm:entrypoint": "models.yolo11n_detection.pipeline:training_pipeline"
         },
         "mlm:training": {
-            "href": "ghcr.io/hotosm/fair-models/yolo11n_detection:pr-20",
+            "href": "ghcr.io/hotosm/fair-models/yolo11n_detection:master",
             "type": "application/vnd.oci.image.index.v1+json",
             "title": "Training Docker Image",
             "roles": [
@@ -269,7 +280,7 @@
             ]
         },
         "mlm:inference": {
-            "href": "ghcr.io/hotosm/fair-models/yolo11n_detection:pr-20",
+            "href": "ghcr.io/hotosm/fair-models/yolo11n_detection:master",
             "type": "application/vnd.oci.image.index.v1+json",
             "title": "Inference Docker Image",
             "roles": [

@@ -66,6 +66,8 @@ _METRICS_SPEC = [
     {"name": "accuracy", "description": "Pixel accuracy", "higher_is_better": True},
 ]
 
+_PROVIDERS = [{"name": "HOTOSM", "roles": ["producer"], "url": "https://www.hotosm.org"}]
+
 _BASE_DEFAULTS: dict[str, Any] = {
     "item_id": "example-unet",
     "geometry": _GEOM,
@@ -89,6 +91,7 @@ _BASE_DEFAULTS: dict[str, Any] = {
     "title": "Example UNet",
     "description": "A UNet model for building segmentation.",
     "fair_metrics_spec": _METRICS_SPEC,
+    "providers": _PROVIDERS,
 }
 
 
@@ -108,6 +111,7 @@ class TestBuildDatasetItem:
             title="Test Dataset",
             description="Chips for testing.",
             user_id="osm-user-42",
+            providers=_PROVIDERS,
             download_href="s3://bucket/data.zip",
         )
         assert item.properties["label:type"] == "vector"
@@ -130,6 +134,7 @@ class TestBuildDatasetItem:
             title="Buildings Banepa",
             description="D",
             user_id="u",
+            providers=_PROVIDERS,
         )
         assert item.id == "buildings-banepa"
 
@@ -147,6 +152,7 @@ class TestBuildDatasetItem:
                 title="T",
                 description="D",
                 user_id="u",
+                providers=_PROVIDERS,
             )
 
     def test_versioning_and_enriched_metadata(self, geojson_path):
@@ -228,6 +234,7 @@ class TestBuildLocalModelItem:
             title="Local UNet v2",
             description="Finetuned model.",
             user_id="osm-42",
+            providers=_PROVIDERS,
             predecessor_version_href="../local-models/local-v0/local-v0.json",
             base_model_id="example-unet",
             dataset_id="ds-1",
@@ -265,6 +272,7 @@ class TestBuildLocalModelItem:
             title="T",
             description="D",
             user_id="u",
+            providers=_PROVIDERS,
             zenml_artifact_version_id="aaaa-bbbb-cccc",
         )
         assert local.assets["checkpoint"].extra_fields["zenml:artifact_version_id"] == "aaaa-bbbb-cccc"
@@ -284,6 +292,7 @@ class TestBuildLocalModelItem:
             title="T",
             description="D",
             user_id="u",
+            providers=_PROVIDERS,
         )
         assert "zenml:artifact_version_id" not in local.assets["checkpoint"].extra_fields
 
@@ -304,6 +313,7 @@ class TestBuildLocalModelItem:
                 title="T",
                 description="D",
                 user_id="u",
+                providers=_PROVIDERS,
             )
 
 
@@ -350,6 +360,7 @@ class TestLocalModelMetricsAndTiming:
             title="T",
             description="D",
             user_id="u",
+            providers=_PROVIDERS,
             metrics=metrics,
         )
         assert local.properties["fair:accuracy"] == 0.95
@@ -370,6 +381,7 @@ class TestLocalModelMetricsAndTiming:
             title="T",
             description="D",
             user_id="u",
+            providers=_PROVIDERS,
             training_started_at="2024-01-01T00:00:00+00:00",
             training_ended_at="2024-01-01T01:30:00+00:00",
             training_duration_seconds=5400.0,
@@ -393,6 +405,7 @@ class TestLocalModelMetricsAndTiming:
             title="T",
             description="D",
             user_id="u",
+            providers=_PROVIDERS,
             self_href="https://api.example.com/collections/local-models/items/local-s",
         )
         self_links = [lnk for lnk in local.links if lnk.rel == "self"]
@@ -414,6 +427,7 @@ class TestLocalModelMetricsAndTiming:
             title="T",
             description="D",
             user_id="u",
+            providers=_PROVIDERS,
             training_metrics_href="https://example.com/training-metrics.json",
         )
         assert "training-metrics" in local.assets
@@ -436,6 +450,7 @@ class TestLocalModelMetricsAndTiming:
             title="T",
             description="D",
             user_id="u",
+            providers=_PROVIDERS,
         )
         assert "training-metrics" not in local.assets
 

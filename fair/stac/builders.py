@@ -30,6 +30,7 @@ class DatasetItemParams:
     title: str
     description: str
     user_id: str
+    providers: list[dict[str, Any]]
     item_id: str | None = None
     download_href: str | None = None
     thumbnail_href: str | None = None
@@ -40,7 +41,6 @@ class DatasetItemParams:
     version: str = "1"
     deprecated: bool = False
     license_id: str | None = None
-    providers: list[dict[str, Any]] | None = None
     label_properties: list[str] | None = None
     label_description: str | None = None
     label_methods: list[str] | None = None
@@ -84,6 +84,7 @@ class BaseModelItemParams:
     title: str
     description: str
     fair_metrics_spec: list[dict[str, Any]]
+    providers: list[dict[str, Any]]
     onnx_href: str | None = None
     readme_href: str = ""
 
@@ -101,6 +102,7 @@ class LocalModelItemParams:
     title: str
     description: str
     user_id: str
+    providers: list[dict[str, Any]]
     item_id: str | None = None
     mlm_name: str | None = None
     geometry: dict[str, Any] | None = None
@@ -206,6 +208,16 @@ def _slugify(text: str) -> str:
     return re.sub(r"[^a-z0-9_]+", "-", text.lower().strip()).strip("-")
 
 
+def _validate_providers(providers: list[dict[str, Any]]) -> None:
+    if not providers:
+        msg = "providers is required and must be a non-empty list of STAC Provider objects"
+        raise ValueError(msg)
+    for entry in providers:
+        if not isinstance(entry, dict) or not entry.get("name") or not entry.get("roles"):
+            msg = "each provider must be a dict with non-empty 'name' and 'roles'"
+            raise ValueError(msg)
+
+
 def build_dataset_item(
     label_type: Literal["vector", "raster"],
     label_tasks: list[str],
@@ -216,6 +228,7 @@ def build_dataset_item(
     title: str,
     description: str,
     user_id: str,
+    providers: list[dict[str, Any]],
     item_id: str | None = None,
     download_href: str | None = None,
     thumbnail_href: str | None = None,
@@ -226,7 +239,6 @@ def build_dataset_item(
     version: str = "1",
     deprecated: bool = False,
     license_id: str | None = None,
-    providers: list[dict[str, Any]] | None = None,
     label_properties: list[str] | None = None,
     label_description: str | None = None,
     label_methods: list[str] | None = None,
@@ -234,6 +246,8 @@ def build_dataset_item(
     self_href: str | None = None,
     predecessor_version_href: str | None = None,
 ) -> pystac.Item:
+    _validate_providers(providers)
+
     if geometry is None or bbox is None:
         labels_path = Path(labels_href)
         if labels_path.is_dir() or labels_path.suffix.lower() == ".geojson":
@@ -259,6 +273,7 @@ def build_dataset_item(
         "fair:user_id": user_id,
         "version": version,
         "deprecated": deprecated,
+        "providers": providers,
     }
     if chip_count is not None:
         properties["fair:chip_count"] = chip_count
@@ -266,8 +281,6 @@ def build_dataset_item(
         properties["fair:source_imagery"] = source_imagery
     if license_id is not None:
         properties["license"] = license_id
-    if providers is not None:
-        properties["providers"] = providers
     properties["label:description"] = label_description if label_description is not None else description
     if label_methods is not None:
         properties["label:methods"] = label_methods
@@ -365,9 +378,11 @@ def build_base_model_item(
     title: str,
     description: str,
     fair_metrics_spec: list[dict[str, Any]],
+    providers: list[dict[str, Any]],
     onnx_href: str | None = None,
     readme_href: str = "",
 ) -> pystac.Item:
+    _validate_providers(providers)
     bbox = _bbox_from_geometry(geometry)
 
     now = datetime.now(UTC)
@@ -397,6 +412,7 @@ def build_base_model_item(
             "version": "1",
             "deprecated": False,
             "fair:metrics_spec": fair_metrics_spec,
+            "providers": providers,
         },
         stac_extensions=BASE_MODEL_EXTENSIONS,
     )
@@ -472,6 +488,7 @@ def build_local_model_item(
     title: str,
     description: str,
     user_id: str,
+    providers: list[dict[str, Any]],
     item_id: str | None = None,
     mlm_name: str | None = None,
     geometry: dict[str, Any] | None = None,
@@ -490,6 +507,7 @@ def build_local_model_item(
     split_info: dict[str, Any] | None = None,
     training_metrics_href: str | None = None,
 ) -> pystac.Item:
+    _validate_providers(providers)
     geom = geometry if geometry is not None else base_model_item.geometry
     if geom is None:
         msg = "geometry must be provided when base_model_item.geometry is None"
@@ -516,6 +534,7 @@ def build_local_model_item(
         "version": version,
         "deprecated": False,
         "fair:user_id": user_id,
+        "providers": providers,
     }
 
     if base_model_id is not None:

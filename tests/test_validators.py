@@ -72,6 +72,7 @@ def _model(keywords=None, tasks=None):
         title="Validator test model",
         description="Model used in validator tests.",
         fair_metrics_spec=[{"name": "accuracy", "description": "Pixel accuracy", "higher_is_better": True}],
+        providers=[{"name": "HOTOSM", "roles": ["producer"]}],
     )
 
 
@@ -99,6 +100,7 @@ def _dataset(tmp_path, keywords=None, label_tasks=None):
         title="Validator test dataset",
         description="Dataset used in validator tests.",
         user_id="osm-test",
+        providers=[{"name": "osm-test", "roles": ["producer"]}],
     )
     item.properties["label:properties"] = ["class"]
     item.properties["label:description"] = "Test labels"
@@ -184,6 +186,7 @@ def _valid_base_model():
         title="Valid test model",
         description="A valid base model for validator tests.",
         fair_metrics_spec=[{"name": "accuracy", "description": "Pixel accuracy", "higher_is_better": True}],
+        providers=[{"name": "HOTOSM", "roles": ["producer"], "url": "https://www.hotosm.org"}],
         readme_href="https://example.com/README.md",
     )
     item.properties["license"] = "AGPL-3.0-only"

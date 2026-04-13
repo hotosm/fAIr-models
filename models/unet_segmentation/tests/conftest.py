@@ -95,6 +95,7 @@ def _build_dataset_stac_item(chips_dir: Path, labels_dir: Path) -> dict[str, Any
             "version": "1",
             "deprecated": False,
             "license": "CC-BY-4.0",
+            "providers": [{"name": "HOTOSM", "roles": ["producer"], "url": "https://www.hotosm.org"}],
         },
         "assets": {
             "chips": {"href": str(chips_dir), "type": "image/tiff", "roles": ["data"]},

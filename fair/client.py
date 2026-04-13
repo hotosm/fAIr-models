@@ -83,6 +83,19 @@ class FairClient:
         if prefix:
             upload_item_assets(item, prefix, collection_id)
 
+    def _dataset_providers_from_properties(self, props: dict[str, Any], item_id: str) -> list[dict[str, Any]]:
+        raw_providers = props.get("providers")
+        if not isinstance(raw_providers, list) or not raw_providers:
+            raise FairClientError(f"Dataset item '{item_id}' must define a non-empty 'providers' list")
+
+        providers: list[dict[str, Any]] = []
+        for raw_provider in raw_providers:
+            if not isinstance(raw_provider, dict):
+                raise FairClientError(f"Dataset item '{item_id}' has an invalid provider entry")
+            providers.append(raw_provider)
+
+        return providers
+
     def _get_backend(self) -> StacCatalogManager | PgStacBackend:
         if self._stac_api_url:
             from fair.stac.pgstac_backend import PgStacBackend
@@ -192,6 +205,7 @@ class FairClient:
         label_tasks = props.get("label:tasks", [])
         label_classes = props.get("label:classes", [])
         keywords = props.get("keywords", [])
+        providers = self._dataset_providers_from_properties(props, item.id)
 
         label_properties = props.get("label:properties")
         source_imagery_href = next((lnk.get_href() for lnk in item.links if lnk.rel == "source"), None)
@@ -223,7 +237,7 @@ class FairClient:
             bbox=item.bbox,
             version=version,
             license_id=props.get("license"),
-            providers=props.get("providers"),
+            providers=providers,
             label_properties=label_properties,
             label_description=props.get("label:description"),
             label_methods=props.get("label:methods"),

@@ -33,6 +33,7 @@ def _make_dataset(title: str, version: str = "1") -> pystac.Item:
         title=title,
         description="Test dataset",
         user_id="test",
+        providers=[{"name": "test", "roles": ["producer"]}],
         geometry=_GEOM,
         bbox=_BBOX,
         version=version,

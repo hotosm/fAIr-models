@@ -195,8 +195,9 @@ def train_model(
         model.to(device)
 
         all_samples = _load_samples(dataset_chips, dataset_labels)
-        train_samples, _ = _split_samples(all_samples, val_ratio, seed)
-        loader = _build_classification_dataset(train_samples, chip_size, batch_size)
+        train_samples, val_samples = _split_samples(all_samples, val_ratio, seed)
+        train_loader = _build_classification_dataset(train_samples, chip_size, batch_size)
+        val_loader = _build_classification_dataset(val_samples, chip_size, batch_size, shuffle=False)
         criterion = nn.BCEWithLogitsLoss()
         trainable = filter(lambda p: p.requires_grad, model.parameters())
         opt = torch.optim.AdamW(trainable, lr=learning_rate, weight_decay=weight_decay)
@@ -205,11 +206,14 @@ def train_model(
         if scheduler_name == "cosine":
             scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=epochs)
 
+        train_losses: list[float] = []
+        val_losses: list[float] = []
+
         model.train()
         for epoch in range(epochs):
             total_loss = 0.0
             count = 0
-            for batch in loader:
+            for batch in train_loader:
                 images, labels = preprocess(batch)
                 images, labels = images.to(device), labels.to(device)
                 logits = model(images).squeeze(-1)
@@ -222,11 +226,33 @@ def train_model(
                 count += 1
             if scheduler:
                 scheduler.step()
-            avg_loss = total_loss / max(count, 1)
+            avg_train_loss = total_loss / max(count, 1)
+
+            model.eval()
+            val_total = 0.0
+            val_count = 0
+            with torch.no_grad():
+                for batch in val_loader:
+                    images, labels = preprocess(batch)
+                    images, labels = images.to(device), labels.to(device)
+                    logits = model(images).squeeze(-1)
+                    val_total += criterion(logits, labels).item()
+                    val_count += 1
+            avg_val_loss = val_total / max(val_count, 1)
+            model.train()
+
+            train_losses.append(avg_train_loss)
+            val_losses.append(avg_val_loss)
+
             import mlflow
 
-            mlflow.log_metric("train_loss", avg_loss, step=epoch)  # ty: ignore[possibly-missing-attribute]
-            log_metadata(metadata={"loss": avg_loss, "epoch": epoch + 1})
+            mlflow.log_metric("train_loss", avg_train_loss, step=epoch)  # ty: ignore[possibly-missing-attribute]
+            mlflow.log_metric("val_loss", avg_val_loss, step=epoch)  # ty: ignore[possibly-missing-attribute]
+            log_metadata(metadata={"loss": avg_train_loss, "epoch": epoch + 1})
+
+        from fair.zenml.metrics import log_loss_history
+
+        log_loss_history(train_losses, val_losses)
 
     return model.cpu()
 

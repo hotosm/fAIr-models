@@ -6,8 +6,10 @@ import pytest
 
 from fair.zenml.metrics import (
     log_fair_metrics,
+    log_loss_history,
     log_training_wall_time,
     read_fair_metrics,
+    read_loss_history,
     read_training_wall_time,
 )
 
@@ -73,3 +75,35 @@ def test_read_training_wall_time_returns_none():
 @pytest.mark.parametrize("value", [42, "42.5", 42.5])
 def test_read_training_wall_time_coerces_to_float(value):
     assert read_training_wall_time({"fair/training_wall_seconds": value}) == float(value)
+
+
+@patch("fair.zenml.metrics.log_metadata")
+def test_log_loss_history(mock_log):
+    log_loss_history([0.5, 0.3], [0.6, 0.4])
+    mock_log.assert_called_once_with(
+        metadata={"fair/loss_history": {"train_loss": [0.5, 0.3], "val_loss": [0.6, 0.4]}},
+        infer_model=True,
+    )
+
+
+def test_read_loss_history():
+    raw = {"fair/loss_history": {"train_loss": [0.5, 0.3], "val_loss": [0.6, 0.4]}}
+    result = read_loss_history(raw)
+    assert result == {"train_loss": [0.5, 0.3], "val_loss": [0.6, 0.4]}
+
+
+def test_read_loss_history_returns_none_when_absent():
+    assert read_loss_history(None) is None
+    assert read_loss_history({}) is None
+    assert read_loss_history({"fair/accuracy": 0.9}) is None
+
+
+def test_read_loss_history_returns_none_for_malformed():
+    assert read_loss_history({"fair/loss_history": {"train_loss": [0.5]}}) is None
+    assert read_loss_history({"fair/loss_history": "not a dict"}) is None
+
+
+def test_read_fair_metrics_excludes_loss_history():
+    raw = {"fair/accuracy": 0.95, "fair/loss_history": {"train_loss": [0.5], "val_loss": [0.6]}}
+    result = read_fair_metrics(raw)
+    assert result == {"fair:accuracy": 0.95}

@@ -488,6 +488,7 @@ def build_local_model_item(
     dataset_id: str | None = None,
     dataset_title: str | None = None,
     split_info: dict[str, Any] | None = None,
+    training_metrics_href: str | None = None,
 ) -> pystac.Item:
     geom = geometry if geometry is not None else base_model_item.geometry
     if geom is None:
@@ -622,6 +623,17 @@ def build_local_model_item(
                 media_type="image/png",
                 roles=["thumbnail"],
                 title="Model thumbnail",
+            ),
+        )
+
+    if training_metrics_href:
+        item.add_asset(
+            "training-metrics",
+            pystac.Asset(
+                href=training_metrics_href,
+                media_type="application/json",
+                roles=["metadata"],
+                title="Per-epoch training metrics",
             ),
         )
 

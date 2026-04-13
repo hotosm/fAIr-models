@@ -36,6 +36,39 @@ def _download_checkpoint(url: str) -> Path:
     return local_path
 
 
+def _log_yolo_loss_history(model: Any) -> None:
+    import csv
+
+    from fair.zenml.metrics import log_loss_history
+
+    save_dir = getattr(model.trainer, "save_dir", None) if hasattr(model, "trainer") else None
+    if save_dir is None:
+        return
+    results_csv = Path(save_dir) / "results.csv"
+    if not results_csv.exists():
+        return
+
+    train_losses: list[float] = []
+    val_losses: list[float] = []
+    with results_csv.open() as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            stripped = {k.strip(): v.strip() for k, v in row.items()}
+            train_loss = stripped.get("train/box_loss")
+            val_loss = stripped.get("val/box_loss")
+            if train_loss is not None and val_loss is not None:
+                train_losses.append(float(train_loss))
+                val_losses.append(float(val_loss))
+
+    if train_losses:
+        import mlflow
+
+        for epoch, (tl, vl) in enumerate(zip(train_losses, val_losses, strict=True)):
+            mlflow.log_metric("train_loss", tl, step=epoch)  # ty: ignore[possibly-missing-attribute]
+            mlflow.log_metric("val_loss", vl, step=epoch)  # ty: ignore[possibly-missing-attribute]
+        log_loss_history(train_losses, val_losses)
+
+
 def _pixel_bbox_to_geo_feature(bbox_xyxy, transform, crs, properties):
     from pyproj import Transformer
 
@@ -246,6 +279,8 @@ def train_model(
         )
         if results and hasattr(results, "results_dict"):
             log_metadata(metadata={"loss": results.results_dict.get("train/box_loss", 0.0), "epoch": epochs})
+
+        _log_yolo_loss_history(model)
 
     saved_path = Path(tempfile.mkdtemp()) / "best.pt"
     model.save(str(saved_path))

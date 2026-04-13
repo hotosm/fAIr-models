@@ -399,6 +399,46 @@ class TestLocalModelMetricsAndTiming:
         assert len(self_links) == 1
         assert self_links[0].get_href() == "https://api.example.com/collections/local-models/items/local-s"
 
+    def test_training_metrics_asset_present(self):
+        base = _base_model()
+        local = build_local_model_item(
+            base_model_item=base,
+            item_id="local-tm",
+            checkpoint_href="https://example.com/w.pt",
+            onnx_href="https://example.com/w.onnx",
+            mlm_hyperparameters={},
+            keywords=["building"],
+            base_model_href="../base-models/b/b.json",
+            dataset_href="../datasets/d/d.json",
+            version="1",
+            title="T",
+            description="D",
+            user_id="u",
+            training_metrics_href="https://example.com/training-metrics.json",
+        )
+        assert "training-metrics" in local.assets
+        asset = local.assets["training-metrics"]
+        assert asset.href == "https://example.com/training-metrics.json"
+        assert asset.media_type == "application/json"
+
+    def test_training_metrics_asset_absent_when_none(self):
+        base = _base_model()
+        local = build_local_model_item(
+            base_model_item=base,
+            item_id="local-no-tm",
+            checkpoint_href="https://example.com/w.pt",
+            onnx_href="https://example.com/w.onnx",
+            mlm_hyperparameters={},
+            keywords=["building"],
+            base_model_href="../base-models/b/b.json",
+            dataset_href="../datasets/d/d.json",
+            version="1",
+            title="T",
+            description="D",
+            user_id="u",
+        )
+        assert "training-metrics" not in local.assets
+
 
 class TestSlugifyUnderscores:
     def test_preserves_underscores(self) -> None:

@@ -57,26 +57,29 @@ and run inference.
 ### Running All Pipelines
 
 ```bash title="Run all three pipelines"
-just example  # converts labels, then runs segmentation -> classification -> detection
+just example
 ```
 
 ??? example "Running a single example"
 
     ```bash
-    python examples/segmentation/run.py all      # segmentation only
-    python examples/classification/run.py all     # classification only
-    python examples/detection/run.py all          # detection only
+    uv run python examples/segmentation/run.py
+    uv run python examples/classification/run.py
+    uv run python examples/detection/run.py
     ```
 
-??? example "Individual steps (segmentation)"
+??? example "Kubernetes orchestrator run"
 
     ```bash
-    python examples/segmentation/run.py init       # Initialize ZenML + STAC catalog
-    python examples/segmentation/run.py register   # Register base model + dataset
-    python examples/segmentation/run.py finetune   # Train (1 epoch on sample data)
-    python examples/segmentation/run.py promote    # Promote to production + publish STAC
-    python examples/segmentation/run.py predict    # Run inference
+    just k8s
+    just setup
+    cd infra/dev
+    just up
+    just run-example-k8s
     ```
+
+Current example scripts execute the full workflow in one run: setup, register
+base model, register dataset, finetune, promote, and predict.
 
 ### Verifying Results
 

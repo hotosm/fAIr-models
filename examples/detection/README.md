@@ -13,32 +13,24 @@ OAM imagery with COCO-format building detection labels derived from OSM segmenta
 ```bash
 uv sync --group example --group local
 just setup
-python examples/detection/run.py all
+uv run python examples/detection/run.py
 ```
 
-## Commands
+## Workflow
 
-The `run.py` script provides a unified CLI for all workflow steps:
+The script runs the full workflow in one execution:
 
-```bash
-python examples/detection/run.py <command>
-```
-
-### Available Commands
-
-- `init` - Initialize ZenML and STAC catalog
-- `register` - Register base model + dataset to STAC
-- `finetune` - Train model (1 epoch for CI/testing)
-- `promote` - Promote latest model version to production + publish to STAC
-- `predict` - Run inference with promoted model
-- `all` - Execute full pipeline: init -> register -> finetune -> promote -> predict
-- `clean` - Remove generated artifacts (stac_catalog, artifacts, configs, predictions)
+1. Initialize ZenML and local STAC context
+2. Register the base model item
+3. Register the dataset item
+4. Finetune the model
+5. Promote the finetuned model
+6. Run prediction on sample imagery
 
 ### CI Usage
 
 ```bash
-uv run python examples/detection/run.py clean
-uv run python examples/detection/run.py all
+FAIR_FORCE_CPU=1 uv run python examples/detection/run.py
 ```
 
 ## Notes
@@ -51,10 +43,8 @@ uv run python examples/detection/run.py all
 
 ## Output
 
-| Command | Artifacts |
+| Artifact | Location |
 |---|---|
-| `init` | `stac_catalog/` (3 collections: base-models, datasets, local-models) |
-| `register` | STAC items: `base-models/yolo11n-detection`, `datasets/buildings-banepa-detection` |
-| `finetune` | `artifacts/` (ZenML artifact store + trained weights) |
-| `promote` | STAC item: `local-models/yolo11n-detection-finetuned-banepa-vN` |
-| `predict` | `data/sample/predict/predictions/*.geojson` (detection results) |
+| STAC items | `stac_catalog/` |
+| Trained artifacts | `artifacts/` |
+| Predictions | `data/sample/predict/predictions/*.geojson` |

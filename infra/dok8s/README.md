@@ -72,4 +72,4 @@ doctl kubernetes cluster node-pool create fair \
   --taint "{domain}/training=true:NoSchedule"
 ```
 
-Replace `{domain}` with the value of your `domain` variable.
+Replace `{domain}` with the value of  `domain` variable.

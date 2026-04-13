@@ -11,6 +11,7 @@ from zenml.enums import ModelStages
 from fair.stac.backend import StacBackend
 from fair.stac.builders import build_local_model_item
 from fair.stac.constants import BASE_MODELS_COLLECTION, DATASETS_COLLECTION, LOCAL_MODELS_COLLECTION
+from fair.stac.validators import validate_model_asset_urls
 from fair.stac.versioning import deprecate_and_link_successor, find_previous_active_item
 from fair.utils.data import s3_uri_to_http_url
 from fair.zenml.metrics import read_fair_metrics, read_training_wall_time
@@ -29,6 +30,29 @@ def promote_model_version(model_name: str, version: Annotated[int, Ge(1)]) -> No
     log.info("ZenML: %s v%d -> production", model_name, version)
 
 
+def _upload_model_artifacts(
+    weights_uri: str,
+    onnx_uri: str,
+    item_id: str,
+    prefix: str | None,
+) -> tuple[str, str]:
+    from upath import UPath
+
+    if prefix is None:
+        return s3_uri_to_http_url(weights_uri), s3_uri_to_http_url(onnx_uri)
+
+    checkpoint_dest = f"{prefix}/local-models/{item_id}/checkpoint/{item_id}.pt"
+    onnx_dest = f"{prefix}/local-models/{item_id}/model/{item_id}.onnx"
+
+    log.info("Mirroring checkpoint %s -> %s", weights_uri, checkpoint_dest)
+    UPath(checkpoint_dest).write_bytes(UPath(weights_uri).read_bytes())
+
+    log.info("Mirroring ONNX %s -> %s", onnx_uri, onnx_dest)
+    UPath(onnx_dest).write_bytes(UPath(onnx_uri).read_bytes())
+
+    return s3_uri_to_http_url(checkpoint_dest), s3_uri_to_http_url(onnx_dest)
+
+
 def publish_promoted_model(
     model_name: str,
     version: Annotated[int, Ge(1)],
@@ -38,6 +62,7 @@ def publish_promoted_model(
     user_id: str,
     description: str,
     *,
+    artifact_store_prefix: str | None = None,
     keywords: list[str] | None = None,
     geometry: dict[str, Any] | None = None,
     thumbnail_href: str | None = None,
@@ -95,10 +120,20 @@ def publish_promoted_model(
 
     weights_art = mv.get_artifact("trained_model")
     if weights_art is None:
-        msg = f"No model artifact found for {model_name} v{version}"
+        msg = f"No 'trained_model' artifact found for {model_name} v{version}"
         raise RuntimeError(msg)
-    model_href = s3_uri_to_http_url(weights_art.uri)
+    onnx_art = mv.get_artifact("onnx_model")
+    if onnx_art is None:
+        msg = f"No 'onnx_model' artifact found for {model_name} v{version}"
+        raise RuntimeError(msg)
     artifact_version_id = str(weights_art.id)
+
+    checkpoint_href, onnx_href = _upload_model_artifacts(
+        weights_uri=weights_art.uri,
+        onnx_uri=onnx_art.uri,
+        item_id=new_item_id,
+        prefix=artifact_store_prefix,
+    )
 
     base_model_item = catalog_manager.get_item(BASE_MODELS_COLLECTION, base_model_item_id)
 
@@ -133,7 +168,8 @@ def publish_promoted_model(
     item = build_local_model_item(
         base_model_item=base_model_item,
         item_id=new_item_id,
-        model_href=model_href,
+        checkpoint_href=checkpoint_href,
+        onnx_href=onnx_href,
         mlm_hyperparameters=hyperparams,
         keywords=kw,
         base_model_href=base_model_href,
@@ -158,6 +194,10 @@ def publish_promoted_model(
         dataset_title=dataset_title,
         split_info=split_info,
     )
+
+    if errs := validate_model_asset_urls(item, required_keys=("checkpoint", "model")):
+        msg = f"Asset URL validation failed after upload: {errs}"
+        raise RuntimeError(msg)
 
     if prev_item:
         deprecate_and_link_successor(catalog_manager, LOCAL_MODELS_COLLECTION, prev_item, self_href)

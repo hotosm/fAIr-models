@@ -28,16 +28,12 @@ def _get_device() -> str:
     return "cpu"
 
 
-def resolve_weights(weight_id: str) -> Path:
-    from ultralytics import YOLO
+def _download_checkpoint(url: str) -> Path:
+    from upath import UPath
 
-    checkpoint_dir = Path(tempfile.mkdtemp())
-    # YOLO() auto-downloads pretrained weights if not found locally
-    model = YOLO(weight_id)
-    filename = Path(weight_id).name if "://" not in weight_id else weight_id.rsplit("/", 1)[-1]
-    checkpoint_path = checkpoint_dir / filename
-    model.save(str(checkpoint_path))
-    return checkpoint_path
+    local_path = Path(tempfile.mkdtemp()) / UPath(url).name
+    local_path.write_bytes(UPath(url).read_bytes())
+    return local_path
 
 
 def _pixel_bbox_to_geo_feature(bbox_xyxy, transform, crs, properties):
@@ -228,13 +224,15 @@ def train_model(
 
     yolo_settings.update({"mlflow": False})
 
+    local_weights = _download_checkpoint(base_model_weights)
+
     with mlflow_training_context(
         hyperparameters,
         model_name,
         base_model_id,
         dataset_id,
     ):
-        model = YOLO(base_model_weights)
+        model = YOLO(str(local_weights))
         results = model.train(
             data=str(yolo_dir / "data.yaml"),
             epochs=epochs,
@@ -288,13 +286,16 @@ def evaluate_model(
 
 
 @step
-def export_onnx(trained_model: Any) -> Annotated[str, "onnx_model"]:
+def export_onnx(trained_model: Any) -> Annotated[bytes, "onnx_model"]:
     import onnx
 
     model = _restore_checkpoint(trained_model)
     onnx_path = model.export(format="onnx")
     onnx.checker.check_model(onnx_path)
-    return onnx_path
+    try:
+        return Path(onnx_path).read_bytes()
+    finally:
+        Path(onnx_path).unlink(missing_ok=True)
 
 
 @step
@@ -376,8 +377,8 @@ def load_base_model(
     model_uri: str,
     num_classes: int,
 ) -> Any:
-    checkpoint = resolve_weights(model_uri)
-    return Path(checkpoint).read_bytes()
+    checkpoint = _download_checkpoint(model_uri)
+    return checkpoint.read_bytes()
 
 
 @pipeline

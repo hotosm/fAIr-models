@@ -231,12 +231,13 @@
         ]
     },
     "assets": {
-        "model": {
-            "href": "yolo11n.pt",
+        "checkpoint": {
+            "href": "https://github.com/ultralytics/assets/releases/download/v8.3.0/yolo11n.pt",
             "title": "Pretrained weights (Ultralytics YOLO11n COCO)",
             "type": "application/octet-stream; framework=pytorch",
             "roles": [
-                "mlm:model"
+                "mlm:model",
+                "mlm:weights"
             ],
             "mlm:artifact_type": "torch.save",
             "raster:bands": [

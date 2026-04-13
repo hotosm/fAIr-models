@@ -49,6 +49,17 @@ class DatasetItemParams:
     predecessor_version_href: str | None = None
 
 
+CheckpointArtifactType = Literal[
+    "torch.save",
+    "torch.jit.save",
+    "torch.export.save",
+    "pickle",
+    "tf.keras.Model.save",
+    "tf.keras.Model.save_weights",
+    "tf.keras.Model.export",
+]
+
+
 @dataclass
 class BaseModelItemParams:
     item_id: str
@@ -62,17 +73,8 @@ class BaseModelItemParams:
     mlm_output: list[dict[str, Any]]
     mlm_hyperparameters: dict[str, Any]
     keywords: list[str]
-    model_href: str
-    model_artifact_type: Literal[
-        "torch.save",
-        "torch.jit.save",
-        "torch.export.save",
-        "onnx",
-        "pickle",
-        "tf.keras.Model.save",
-        "tf.keras.Model.save_weights",
-        "tf.keras.Model.export",
-    ]
+    checkpoint_href: str
+    checkpoint_artifact_type: CheckpointArtifactType
     mlm_pretrained: bool
     mlm_pretrained_source: str | None
     source_code_href: str
@@ -82,13 +84,15 @@ class BaseModelItemParams:
     title: str
     description: str
     fair_metrics_spec: list[dict[str, Any]]
+    onnx_href: str | None = None
     readme_href: str = ""
 
 
 @dataclass
 class LocalModelItemParams:
     base_model_item: pystac.Item
-    model_href: str
+    checkpoint_href: str
+    onnx_href: str
     mlm_hyperparameters: dict[str, Any]
     keywords: list[str]
     base_model_href: str
@@ -350,17 +354,8 @@ def build_base_model_item(
     mlm_output: list[dict[str, Any]],
     mlm_hyperparameters: dict[str, Any],
     keywords: list[str],
-    model_href: str,
-    model_artifact_type: Literal[
-        "torch.save",
-        "torch.jit.save",
-        "torch.export.save",
-        "onnx",
-        "pickle",
-        "tf.keras.Model.save",
-        "tf.keras.Model.save_weights",
-        "tf.keras.Model.export",
-    ],
+    checkpoint_href: str,
+    checkpoint_artifact_type: CheckpointArtifactType,
     mlm_pretrained: bool,
     mlm_pretrained_source: str | None,
     source_code_href: str,
@@ -370,6 +365,7 @@ def build_base_model_item(
     title: str,
     description: str,
     fair_metrics_spec: list[dict[str, Any]],
+    onnx_href: str | None = None,
     readme_href: str = "",
 ) -> pystac.Item:
     bbox = _bbox_from_geometry(geometry)
@@ -406,14 +402,25 @@ def build_base_model_item(
     )
 
     item.add_asset(
-        "model",
+        "checkpoint",
         pystac.Asset(
-            href=model_href,
+            href=checkpoint_href,
             media_type=f"application/octet-stream; framework={mlm_framework}",
-            roles=["mlm:model"],
-            extra_fields={"mlm:artifact_type": model_artifact_type},
+            roles=["mlm:model", "mlm:weights"],
+            extra_fields={"mlm:artifact_type": checkpoint_artifact_type},
         ),
     )
+    # TODO: enforce ONNX 'model' asset for base-models once all upstreams ship one
+    if onnx_href:
+        item.add_asset(
+            "model",
+            pystac.Asset(
+                href=onnx_href,
+                media_type="application/onnx",
+                roles=["mlm:model"],
+                extra_fields={"mlm:artifact_type": "onnx"},
+            ),
+        )
     item.add_asset(
         "source-code",
         pystac.Asset(
@@ -455,7 +462,8 @@ def build_base_model_item(
 
 def build_local_model_item(
     base_model_item: pystac.Item,
-    model_href: str,
+    checkpoint_href: str,
+    onnx_href: str,
     mlm_hyperparameters: dict[str, Any],
     keywords: list[str],
     base_model_href: str,
@@ -570,22 +578,41 @@ def build_local_model_item(
     )
     add_version_links(item, self_href, predecessor_version_href)
 
-    for key, asset in base_model_item.assets.items():
-        if key == "model":
-            model_extra = {k: v for k, v in asset.extra_fields.items() if k != "href"}
-            if zenml_artifact_version_id:
-                model_extra["zenml:artifact_version_id"] = zenml_artifact_version_id
-            item.add_asset(
-                "model",
-                pystac.Asset(
-                    href=model_href,
-                    media_type=asset.media_type,
-                    roles=asset.roles,
-                    extra_fields=model_extra,
-                ),
-            )
-        else:
-            item.add_asset(key, asset.clone())
+    base_framework = base_model_item.properties.get("mlm:framework", "PyTorch")
+    base_checkpoint = base_model_item.assets.get("checkpoint")
+    checkpoint_artifact_type = (
+        base_checkpoint.extra_fields.get("mlm:artifact_type", "torch.save") if base_checkpoint else "torch.save"
+    )
+
+    checkpoint_extra: dict[str, Any] = {"mlm:artifact_type": checkpoint_artifact_type}
+    if zenml_artifact_version_id:
+        checkpoint_extra["zenml:artifact_version_id"] = zenml_artifact_version_id
+    item.add_asset(
+        "checkpoint",
+        pystac.Asset(
+            href=checkpoint_href,
+            media_type=f"application/octet-stream; framework={base_framework}",
+            roles=["mlm:model", "mlm:weights"],
+            extra_fields=checkpoint_extra,
+        ),
+    )
+
+    onnx_extra: dict[str, Any] = {"mlm:artifact_type": "onnx"}
+    if zenml_artifact_version_id:
+        onnx_extra["zenml:artifact_version_id"] = zenml_artifact_version_id
+    item.add_asset(
+        "model",
+        pystac.Asset(
+            href=onnx_href,
+            media_type="application/onnx",
+            roles=["mlm:model"],
+            extra_fields=onnx_extra,
+        ),
+    )
+
+    for key in ("source-code", "mlm:training", "mlm:inference"):
+        if key in base_model_item.assets:
+            item.add_asset(key, base_model_item.assets[key].clone())
 
     if thumbnail_href:
         item.add_asset(

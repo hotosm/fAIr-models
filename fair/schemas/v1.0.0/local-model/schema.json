@@ -51,21 +51,54 @@
               "type": "object",
               "required": [
                 "model",
+                "checkpoint",
                 "source-code"
               ],
               "properties": {
                 "model": {
                   "type": "object",
                   "required": [
-                    "href"
+                    "href",
+                    "mlm:artifact_type"
                   ],
                   "properties": {
                     "href": {
                       "type": "string",
-                      "minLength": 1
+                      "pattern": "^https?://"
                     },
                     "mlm:artifact_type": {
+                      "type": "string",
+                      "enum": [
+                        "onnx"
+                      ]
+                    },
+                    "zenml:artifact_version_id": {
                       "type": "string"
+                    }
+                  }
+                },
+                "checkpoint": {
+                  "type": "object",
+                  "required": [
+                    "href",
+                    "mlm:artifact_type"
+                  ],
+                  "properties": {
+                    "href": {
+                      "type": "string",
+                      "pattern": "^https?://"
+                    },
+                    "mlm:artifact_type": {
+                      "type": "string",
+                      "enum": [
+                        "torch.save",
+                        "torch.jit.save",
+                        "torch.export.save",
+                        "pickle",
+                        "tf.keras.Model.save",
+                        "tf.keras.Model.save_weights",
+                        "tf.keras.Model.export"
+                      ]
                     },
                     "zenml:artifact_version_id": {
                       "type": "string"

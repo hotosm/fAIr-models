@@ -161,11 +161,9 @@ are the contract ; use these exact argument names.
 | `split_dataset` | `@step` | CI AST check |
 | `preprocess` | function | `mlm:input[].pre_processing_function` |
 | `postprocess` | function | `mlm:output[].post_processing_function` |
-| `resolve_weights` | function | `model` asset `href` (when not a URL) |
 
 ```python title="pipeline.py contract"
 from typing import Annotated, Any
-from pathlib import Path
 from zenml import pipeline, step
 
 @pipeline
@@ -196,7 +194,6 @@ def split_dataset(
 
 def preprocess(image_path: Any, chip_size: int) -> Any: ...
 def postprocess(raw_output: Any) -> Any: ...
-def resolve_weights(weight_id: str) -> Path: ...
 ```
 
 ### Training flow
@@ -377,22 +374,32 @@ valid ONNX file being produced by this step.
 def export_onnx(
     trained_model: Any,
     hyperparameters: dict[str, Any],
-) -> Annotated[str, "onnx_model"]:
+) -> Annotated[bytes, "onnx_model"]:
     chip_size = hyperparameters.get("chip_size", 256)
     dummy = torch.randn(1, 3, chip_size, chip_size)
     _, path = tempfile.mkstemp(suffix=".onnx")
-    torch.onnx.export(
-        trained_model.cpu().eval(),
-        (dummy,),
-        path,
-        input_names=["input"],
-        output_names=["output"],
-        dynamic_axes={"input": {0: "batch"}, "output": {0: "batch"}},
-        opset_version=18,
-    )
-    onnx.checker.check_model(path)
-    return path
+    try:
+        torch.onnx.export(
+            trained_model.cpu().eval(),
+            (dummy,),
+            path,
+            input_names=["input"],
+            output_names=["output"],
+            dynamic_axes={"input": {0: "batch"}, "output": {0: "batch"}},
+            opset_version=18,
+        )
+        onnx.checker.check_model(path)
+        return Path(path).read_bytes()
+    finally:
+        Path(path).unlink(missing_ok=True)
 ```
+
+!!! danger "Return bytes, not a path string"
+
+    `export_onnx` must return `Annotated[bytes, "onnx_model"]`. ZenML's
+    default `str` materializer persists the path string itself, not the
+    file it points to. Returning bytes ensures the ONNX file content is
+    stored in the artifact store.
 
 ??? info "Auto-injected training parameters"
 
@@ -420,7 +427,7 @@ attached, so every model **must** support both.
 | Branch | Condition | How to load weights |
 | --- | --- | --- |
 | Finetuned | `use_base_model=False` | `fair.zenml.steps.load_model` (materializer handles deserialization) |
-| Base model | `use_base_model=True` | Your own `load_base_model` step, which calls `resolve_weights` |
+| Base model | `use_base_model=True` | Your own `load_base_model` step, which downloads the checkpoint from its URL |
 
 === "inference_pipeline"
 
@@ -446,9 +453,9 @@ attached, so every model **must** support both.
     ```python
     @step
     def load_base_model(model_uri: str, num_classes: int) -> Any:
-        checkpoint = resolve_weights(model_uri)
+        local_path = _download_checkpoint(model_uri)
         model = build_fresh_architecture(num_classes)
-        model.load_state_dict(load_state(checkpoint))
+        model.load_state_dict(torch.load(local_path, weights_only=True))
         return model
     ```
 
@@ -493,23 +500,20 @@ code.
         return predictions
     ```
 
-=== "resolve_weights"
+=== "_download_checkpoint"
 
-    Resolve a weight identifier (framework enum, short name, URL) to a
-    local checkpoint `Path`.
+    Download the checkpoint from its HTTPS URL to a local temp file.
+    All checkpoint hrefs must be direct HTTPS URLs; framework enums
+    and short names are not supported.
 
     ```python
-    def resolve_weights(weight_id: str) -> Path:
-        # look up framework weight enum, or download from URL/S3
-        return checkpoint_path
+    def _download_checkpoint(url: str) -> Path:
+        from upath import UPath
+
+        local = Path(tempfile.mkdtemp()) / UPath(url).name
+        local.write_bytes(UPath(url).read_bytes())
+        return local
     ```
-
-    **Required** when the `model` asset `href` is not a direct URL (e.g.
-    `torchvision.models.ResNet18_Weights.IMAGENET1K_V1` or `yolo11n.pt`).
-    CI enforces its presence via AST parsing.
-
-    When `upload_artifacts=True`, the platform calls `resolve_weights`,
-    uploads the result to S3, and rewrites the STAC `href` to the S3 URL.
 
 !!! info "Data resolution"
 
@@ -910,7 +914,8 @@ data_type), `classification:classes` (one entry per output class with
 
 | Asset key | Purpose | Required fields |
 | --- | --- | --- |
-| `model` | Pretrained weights | `mlm:artifact_type` (e.g. `torch.save`, `onnx`) |
+| `checkpoint` | Pretrained torch weights (HTTPS URL) | `mlm:artifact_type` (e.g. `torch.save`) |
+| `model` | ONNX model _(optional for base models, required for local)_ | `mlm:artifact_type`: `onnx` |
 | `source-code` | Link to model source code (git URL) | `mlm:entrypoint` (e.g. `models.your_model.pipeline:training_pipeline`) |
 | `mlm:training` | Training Docker image | `href` = Docker image reference |
 | `mlm:inference` | Inference Docker image | `href` = Docker image reference |
@@ -920,11 +925,11 @@ data_type), `classification:classes` (one entry per output class with
 
     ```json title="stac-item.json (assets excerpt)"
     "assets": {
-        "model": {
-            "href": "torchgeo.models.Unet_Weights.OAM_RGB_RESNET34_TCD",
-            "type": "application/octet-stream",
+        "checkpoint": {
+            "href": "https://huggingface.co/torchgeo/unet/resolve/<commit>/unet.pt",
+            "type": "application/octet-stream; framework=PyTorch",
             "title": "UNet pretrained weights",
-            "roles": ["mlm:model"],
+            "roles": ["mlm:model", "mlm:weights"],
             "mlm:artifact_type": "torch.save"
         },
         "source-code": {
@@ -936,13 +941,13 @@ data_type), `classification:classes` (one entry per output class with
         },
         "mlm:training": {
             "href": "ghcr.io/hotosm/fair-models/unet_segmentation:latest",
-            "type": "application/vnd.oci.image.manifest.v1+json",
+            "type": "application/vnd.oci.image.index.v1+json",
             "title": "Training runtime image",
             "roles": ["mlm:training-runtime"]
         },
         "mlm:inference": {
             "href": "ghcr.io/hotosm/fair-models/unet_segmentation:latest",
-            "type": "application/vnd.oci.image.manifest.v1+json",
+            "type": "application/vnd.oci.image.index.v1+json",
             "title": "Inference runtime image",
             "roles": ["mlm:inference-runtime"]
         },
@@ -955,18 +960,17 @@ data_type), `classification:classes` (one entry per output class with
     }
     ```
 
-Model weights must be downloadable from the `model` asset `href`. This can be
-a direct URL, S3 path, or a framework-specific weight enum (e.g.
-`torchgeo.models.Unet_Weights.OAM_RGB_RESNET34_TCD`). Your `pipeline.py` is
-responsible for resolving and loading the weights at runtime.
+The `checkpoint` asset `href` **must** be a direct HTTPS URL pointing to
+the pretrained weights file (e.g. a HuggingFace commit-pinned URL, a GitHub
+release URL, or a PyTorch download URL). Framework weight enums, short names,
+and local paths are not accepted. CI validates that the URL is accessible
+via an HTTP HEAD check.
 
-!!! info "Weight upload to S3"
+!!! info "Asset mirroring to S3"
 
-    When `upload_artifacts=True`, the platform downloads the pretrained weights
-    via your `resolve_weights` function, uploads them to S3, and updates the
-    STAC item href to the S3 URL. If your model asset href is already a URL,
-    CI validates it is accessible. If it is a framework weight reference,
-    CI validates that `resolve_weights` exists in `pipeline.py`.
+    When `upload_artifacts=True`, the platform mirrors the checkpoint (and
+    optional ONNX model) from the upstream URL to the artifact store at a
+    deterministic path, then updates the STAC item href to the mirrored URL.
 
 The `readme` asset `href` must be an **absolute URL** to the raw file
 (e.g. `https://raw.githubusercontent.com/hotosm/fAIr-models/refs/heads/main/models/your_model/README.md`).
@@ -1040,7 +1044,7 @@ Before opening a PR, make sure:
 
     - [ ] `pipeline.py` exports `training_pipeline` and `inference_pipeline` as `@pipeline`
     - [ ] `pipeline.py` exports `split_dataset` as `@step`
-    - [ ] `pipeline.py` exports `preprocess`, `postprocess`, and (if weights are not a direct URL) `resolve_weights`
+    - [ ] `pipeline.py` exports `preprocess` and `postprocess`
     - [ ] `train_model` reads the **train** split only; `evaluate_model` reads the **val** split only
 
 === "Docker"

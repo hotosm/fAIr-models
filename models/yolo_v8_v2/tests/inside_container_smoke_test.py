@@ -200,13 +200,13 @@ def main() -> None:
     preprocessed_dir = yolo_pipeline.preprocess(
         input_path=str(input_dir),
         output_path=str(output_dir),
-        p_val=0.05,
+        p_val=0.2,
     )
 
     split_info = yolo_pipeline.split_dataset(
         preprocessed_path=str(preprocessed_dir),
         output_path=str(output_dir),
-        hyperparameters={"p_val": 0.05, "split_seed": 42},
+        hyperparameters={"p_val": 0.2, "split_seed": 42},
     )
     yolo_dir = Path(split_info["yolo_data_dir"])
     dataset_yaml = Path(split_info["dataset_yaml"])

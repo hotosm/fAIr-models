@@ -136,6 +136,125 @@ def _get_model_href_from_stac(stac_item_path: str) -> str:
     return href
 
 
+def _patch_yolo_write_yolo_file_with_affine() -> None:
+    """Patch hot_fair_utilities label conversion with affine world->pixel mapping.
+
+    Why this patch exists:
+    The upstream implementation can mix CRS-dependent bounds math and then clamp values,
+    which may collapse polygon labels to corners (0/1) and produce zero usable instances.
+    This replacement uses rasterio's inverse affine transform directly, which is CRS-safe.
+    """
+    import importlib
+
+    import hot_fair_utilities.preprocessing.yolo_v8.utils as yolo_utils
+    import rasterio
+    from pyproj import Transformer
+
+    if getattr(yolo_utils, "_fair_models_affine_patch_applied", False):
+        return
+
+    def _infer_label_crs_from_coords(x: float, y: float) -> str:
+        """Best-effort CRS inference for label GeoJSON coordinates.
+
+        hot_fair_utilities.preprocess defaults to EPSG:3857 and clips labels in meters.
+        The smoke tests start from EPSG:4326 OSM labels, but the per-chip GeoJSONs are
+        typically EPSG:3857 after preprocessing. GeoJSON itself usually omits CRS.
+        """
+        if -180.0 <= x <= 180.0 and -90.0 <= y <= 90.0:
+            return "EPSG:4326"
+        return "EPSG:3857"
+
+    def _patched_write_yolo_file(iwp, folder, output_path, class_index=0):
+        """Write YOLO polygon labels using affine pixel normalization."""
+        lwp = iwp.replace(".tif", ".geojson").replace("chips", "labels")
+        ywp = str(Path(output_path) / "labels" / folder / Path(iwp).name.replace(".tif", ".txt"))
+        Path(ywp).parent.mkdir(parents=True, exist_ok=True)
+        if Path(ywp).exists():
+            Path(ywp).unlink()
+
+        with open(lwp, encoding="utf-8") as file:
+            data = json.load(file)
+
+        with rasterio.open(iwp) as src:
+            if src.crs is None:
+                raise ValueError(f"No CRS found in chip: {iwp}")
+
+            inv_transform = ~src.transform
+            width = float(src.width)
+            height = float(src.height)
+
+            # Determine label CRS from coordinate magnitudes (GeoJSON usually omits CRS).
+            label_crs = None
+            for feature in data.get("features", []):
+                geometry = feature.get("geometry") or {}
+                coords = geometry.get("coordinates") or []
+                if geometry.get("type") == "Polygon" and coords and coords[0] and coords[0][0] and len(coords[0][0]) >= 2:
+                    x0, y0 = float(coords[0][0][0]), float(coords[0][0][1])
+                    label_crs = _infer_label_crs_from_coords(x0, y0)
+                    break
+            label_crs = label_crs or "EPSG:3857"
+
+            transformer = None
+            if str(src.crs).upper() != label_crs.upper():
+                transformer = Transformer.from_crs(label_crs, src.crs, always_xy=True)
+
+            lines = []
+            for feature in data.get("features", []):
+                geometry = feature.get("geometry") or {}
+                geometry_type = geometry.get("type")
+                if geometry_type == "MultiPolygon":
+                    polygons = geometry.get("coordinates", [])  # list[list[list[xy]]]
+                elif geometry_type == "Polygon":
+                    polygons = [geometry.get("coordinates", [])]  # list[list[xy]]
+                else:
+                    continue
+
+                for poly in polygons:
+                    if not poly:
+                        continue
+
+                    # Use outer ring only (holes are not represented in YOLO polygon labels).
+                    ring = poly[0] if poly and isinstance(poly[0], list) else []
+                    if len(ring) < 4:
+                        continue
+
+                    # Drop closing coordinate if it repeats the first point.
+                    if ring and ring[0] and ring[-1] and len(ring[0]) >= 2 and len(ring[-1]) >= 2:
+                        if ring[0][0] == ring[-1][0] and ring[0][1] == ring[-1][1]:
+                            ring = ring[:-1]
+
+                    points = []
+                    for coord in ring:
+                        if not coord or len(coord) < 2:
+                            continue
+                        x_world, y_world = float(coord[0]), float(coord[1])
+                        if transformer is not None:
+                            x_world, y_world = transformer.transform(x_world, y_world)
+
+                        col, row = inv_transform * (x_world, y_world)
+                        x_norm = max(0.0, min(1.0, col / width))
+                        y_norm = max(0.0, min(1.0, row / height))
+                        points.append((round(x_norm, 6), round(y_norm, 6)))
+
+                    # Require at least 3 distinct vertices.
+                    if len({p for p in points}) < 3:
+                        continue
+
+                    flattened = [str(v) for p in points for v in p]
+                    if len(flattened) >= 6:
+                        lines.append(f"{class_index} " + " ".join(flattened))
+
+        Path(ywp).write_text("\n".join(lines), encoding="utf-8")
+
+    # yolo_format binds write_yolo_file at module import time, so patch:
+    # - the source symbol in utils
+    # - the already-imported global in the yolo_format module
+    yolo_utils.write_yolo_file = _patched_write_yolo_file
+    yolo_format_module = importlib.import_module("hot_fair_utilities.preprocessing.yolo_v8.yolo_format")
+    yolo_format_module.write_yolo_file = _patched_write_yolo_file
+    yolo_utils._fair_models_affine_patch_applied = True
+
+
 # ---------------------------------------------------------------------------
 # Processing-expression callables (referenced by STAC MLM items)
 # ---------------------------------------------------------------------------
@@ -313,10 +432,11 @@ def split_dataset(
     - `yolo_dataset.yaml`
     - `images/{train,val,test}` and `labels/{train,val,test}`
     """
+    _patch_yolo_write_yolo_file_with_affine()
     from hot_fair_utilities.preprocessing.yolo_v8 import yolo_format
 
     hyperparameters = hyperparameters or {}
-    p_val = float(hyperparameters.get("p_val", 0.05))
+    p_val = float(hyperparameters.get("p_val", 0.2))
     seed = int(hyperparameters.get("split_seed", 42))
 
     if not 0.0 < p_val < 1.0:
@@ -445,7 +565,7 @@ def training_pipeline(
     epochs = hyperparams.get("epochs", 20)
     batch_size = hyperparams.get("batch_size", 16)
     pc = hyperparams.get("pc", 2.0)
-    p_val = hyperparams.get("p_val", 0.05)
+    p_val = hyperparams.get("p_val", 0.2)
     split_seed = hyperparams.get("split_seed", 42)
 
     preprocessed_dir = run_preprocessing(

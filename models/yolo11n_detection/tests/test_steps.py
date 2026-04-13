@@ -55,6 +55,8 @@ def test_train_model(toy_chips: Path, toy_labels: Path, base_hyperparameters: di
         patch("models.yolo11n_detection.pipeline._download_checkpoint", _mock_download_checkpoint),
         patch("models.yolo11n_detection.pipeline.mlflow_training_context", _noop_mlflow_ctx),
         patch("models.yolo11n_detection.pipeline.log_metadata"),
+        patch("fair.zenml.metrics.log_metadata"),
+        patch("mlflow.log_metric"),
     ):
         model_bytes = train_model.entrypoint(
             dataset_chips=str(toy_chips),
@@ -89,6 +91,8 @@ def test_evaluate_model(toy_chips: Path, toy_labels: Path, base_hyperparameters:
         patch("models.yolo11n_detection.pipeline._download_checkpoint", _mock_download_checkpoint),
         patch("models.yolo11n_detection.pipeline.mlflow_training_context", _noop_mlflow_ctx),
         patch("models.yolo11n_detection.pipeline.log_metadata"),
+        patch("fair.zenml.metrics.log_metadata"),
+        patch("mlflow.log_metric"),
     ):
         model_bytes = train_model.entrypoint(
             dataset_chips=str(toy_chips),
@@ -134,6 +138,8 @@ def test_export_onnx(toy_chips: Path, toy_labels: Path, base_hyperparameters: di
         patch("models.yolo11n_detection.pipeline._download_checkpoint", _mock_download_checkpoint),
         patch("models.yolo11n_detection.pipeline.mlflow_training_context", _noop_mlflow_ctx),
         patch("models.yolo11n_detection.pipeline.log_metadata"),
+        patch("fair.zenml.metrics.log_metadata"),
+        patch("mlflow.log_metric"),
     ):
         model_bytes = train_model.entrypoint(
             dataset_chips=str(toy_chips),

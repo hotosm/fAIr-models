@@ -46,6 +46,7 @@ def trained_model(
         patch("models.resnet18_classification.pipeline._download_checkpoint", _mock_download_checkpoint),
         patch("models.resnet18_classification.pipeline.mlflow_training_context", _noop_ctx()),
         patch("models.resnet18_classification.pipeline.log_metadata"),
+        patch("fair.zenml.metrics.log_metadata"),
         patch("mlflow.log_metric"),
     ):
         return train_model.entrypoint(
@@ -101,6 +102,7 @@ def test_train_model(toy_chips: Path, toy_labels: Path, base_hyperparameters: di
         patch("models.resnet18_classification.pipeline._download_checkpoint", _mock_download_checkpoint),
         patch("models.resnet18_classification.pipeline.mlflow_training_context", _noop_mlflow_ctx),
         patch("models.resnet18_classification.pipeline.log_metadata"),
+        patch("fair.zenml.metrics.log_metadata"),
         patch("mlflow.log_metric"),
     ):
         model = train_model.entrypoint(
@@ -128,6 +130,7 @@ def test_evaluate_model(toy_chips: Path, toy_labels: Path, base_hyperparameters:
         patch("models.resnet18_classification.pipeline._download_checkpoint", _mock_download_checkpoint),
         patch("models.resnet18_classification.pipeline.mlflow_training_context", _noop_mlflow_ctx),
         patch("models.resnet18_classification.pipeline.log_metadata"),
+        patch("fair.zenml.metrics.log_metadata"),
         patch("mlflow.log_metric"),
     ):
         model = train_model.entrypoint(
@@ -168,6 +171,7 @@ def test_export_onnx(toy_chips: Path, toy_labels: Path, base_hyperparameters: di
         patch("models.resnet18_classification.pipeline._download_checkpoint", _mock_download_checkpoint),
         patch("models.resnet18_classification.pipeline.mlflow_training_context", _noop_mlflow_ctx),
         patch("models.resnet18_classification.pipeline.log_metadata"),
+        patch("fair.zenml.metrics.log_metadata"),
         patch("mlflow.log_metric"),
     ):
         model = train_model.entrypoint(

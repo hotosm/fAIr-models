@@ -53,8 +53,8 @@ Catalog: fair-models
     and `classification:classes`), `mlm:hyperparameters`, `keywords`,
     `fair:metrics_spec`, `fair:split_spec`, `fair:hyperparameters_spec`.
 
-    Key assets: `model` (weights), `source-code` (with `mlm:entrypoint`),
-    `mlm:training` / `mlm:inference` (Docker image OCI references).
+    Key assets: `checkpoint` (torch weights, HTTPS URL), `model` (ONNX, optional for base models),
+    `source-code` (with `mlm:entrypoint`), `mlm:training` / `mlm:inference` (Docker image OCI references).
 
     The `mlm:entrypoint` tells the backend which Python function to call.
     `pre_processing_function` / `post_processing_function` are standard MLM
@@ -66,7 +66,7 @@ Catalog: fair-models
 
     - `derived_from` link pointing to the base model item
     - `derived_from` link pointing to the dataset item used for training
-    - `model` asset (`roles: ["mlm:model"]`) pointing to S3 finetuned weights
+    - `checkpoint` asset (torch weights) + `model` asset (ONNX) pointing to S3 finetuned artifacts
     - Runtime assets reference the same Docker image as parent base model
     - Version Extension: `version`, `deprecated`, `predecessor-version` / `successor-version` / `latest-version` links
     - `mlm:hyperparameters` reflects the actual training params used

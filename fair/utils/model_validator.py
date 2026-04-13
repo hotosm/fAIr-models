@@ -1,11 +1,3 @@
-"""Validate model contributions have required pipeline entrypoints.
-
-Uses AST parsing (no imports, no runtime dependencies) to check that
-every model's pipeline.py defines the required @pipeline and @step
-decorated functions. Also validates that models with non-URL weight
-references provide a resolve_weights function.
-"""
-
 from __future__ import annotations
 
 import ast
@@ -44,7 +36,7 @@ def _find_top_level_functions(source: str) -> set[str]:
     return {node.name for node in ast.iter_child_nodes(tree) if isinstance(node, ast.FunctionDef)}
 
 
-def _model_href_is_url(model_dir: Path) -> bool | None:
+def _checkpoint_href_is_url(model_dir: Path) -> bool | None:
     stac_path = model_dir / "stac-item.json"
     if not stac_path.exists():
         return None
@@ -52,28 +44,50 @@ def _model_href_is_url(model_dir: Path) -> bool | None:
         item = json.loads(stac_path.read_text())
     except (OSError, json.JSONDecodeError):
         return None
-    href = item.get("assets", {}).get("model", {}).get("href", "")
+    href = item.get("assets", {}).get("checkpoint", {}).get("href", "")
     if not href:
         return None
-    return "://" in href
+    return href.startswith(("http://", "https://"))
 
 
-def _has_decorator(func: ast.FunctionDef, name: str) -> bool:
-    for dec in func.decorator_list:
-        if isinstance(dec, ast.Name) and dec.id == name:
-            return True
-        if isinstance(dec, ast.Attribute) and dec.attr == name:
-            return True
-    return False
+def _return_annotation_name(func: ast.FunctionDef) -> str | None:
+    ann = func.returns
+    if ann is None:
+        return None
+    if isinstance(ann, ast.Name):
+        return ann.id
+    if isinstance(ann, ast.Constant):
+        return str(ann.value)
+    if isinstance(ann, ast.Subscript):
+        if isinstance(ann.value, ast.Name):
+            return ann.value.id
+        if isinstance(ann.slice, ast.Name):
+            return ann.slice.id
+        if isinstance(ann.slice, ast.Tuple) and ann.slice.elts:
+            first = ann.slice.elts[0]
+            if isinstance(first, ast.Name):
+                return first.id
+    return None
 
 
-def _find_decorated_names(source: str, decorator: str) -> set[str]:
+def _validate_step_return_types(source: str, model_name: str) -> list[str]:
+    errors: list[str] = []
     tree = ast.parse(source)
-    return {
-        node.name
-        for node in ast.iter_child_nodes(tree)
-        if isinstance(node, ast.FunctionDef) and _has_decorator(node, decorator)
-    }
+    for node in ast.iter_child_nodes(tree):
+        if not isinstance(node, ast.FunctionDef):
+            continue
+        if not _has_decorator(node, "step"):
+            continue
+
+        ret = _return_annotation_name(node)
+        if node.name == "export_onnx" and ret == "str":
+            errors.append(
+                f"{model_name}: export_onnx must return bytes (not str); "
+                f"ZenML persists the path string, not the ONNX file"
+            )
+        if node.name == "train_model" and ret == "str":
+            errors.append(f"{model_name}: train_model must not return str; return the model object or serialized bytes")
+    return errors
 
 
 def validate_model(model_dir: Path) -> list[str]:
@@ -106,15 +120,11 @@ def validate_model(model_dir: Path) -> list[str]:
     for name in sorted(REQUIRED_STEPS - steps):
         errors.append(f"{model_dir.name}: missing @step function '{name}'")
 
-    is_url = _model_href_is_url(model_dir)
+    is_url = _checkpoint_href_is_url(model_dir)
     if is_url is False:
-        all_functions = _find_top_level_functions(source)
-        if "resolve_weights" not in all_functions:
-            errors.append(
-                f"{model_dir.name}: model asset href is not a URL; "
-                f"pipeline.py must define a resolve_weights(weight_id: str) -> Path function"
-            )
+        errors.append(f"{model_dir.name}: checkpoint asset href must be an https URL")
 
+    errors.extend(_validate_step_return_types(source, model_dir.name))
     errors.extend(_validate_test_steps(model_dir))
 
     return errors

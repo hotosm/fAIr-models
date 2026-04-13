@@ -61,8 +61,8 @@ def _model(keywords=None, tasks=None):
         mlm_output=[],
         mlm_hyperparameters={},
         keywords=keywords or ["building", "semantic-segmentation"],
-        model_href="w.pt",
-        model_artifact_type="torch.save",
+        checkpoint_href="w.pt",
+        checkpoint_artifact_type="torch.save",
         mlm_pretrained=False,
         mlm_pretrained_source=None,
         source_code_href="https://example.com",
@@ -173,8 +173,8 @@ def _valid_base_model():
         mlm_output=copy.deepcopy(_MLM_OUTPUT),
         mlm_hyperparameters={"epochs": 10, "batch_size": 4},
         keywords=["building", "semantic-segmentation", "polygon"],
-        model_href="weights.pt",
-        model_artifact_type="torch.save",
+        checkpoint_href="https://example.com/weights.pt",
+        checkpoint_artifact_type="torch.save",
         mlm_pretrained=True,
         mlm_pretrained_source="imagenet",
         source_code_href="https://github.com/example",
@@ -193,7 +193,7 @@ def _valid_base_model():
         "seed": 42,
         "description": "Random split for testing",
     }
-    item.assets["model"].extra_fields["raster:bands"] = [
+    item.assets["checkpoint"].extra_fields["raster:bands"] = [
         {"name": "red"},
         {"name": "green"},
         {"name": "blue"},
@@ -225,7 +225,7 @@ class TestValidateBaseModelItem:
 
     def test_missing_asset_field(self):
         item = _valid_base_model()
-        del item.assets["model"].extra_fields["mlm:artifact_type"]
+        del item.assets["checkpoint"].extra_fields["mlm:artifact_type"]
         errors = validate_item(item)
         assert any("mlm:artifact_type" in e for e in errors)
 

@@ -52,8 +52,8 @@ def _base_model(**overrides: Any):
         ],
         "mlm_hyperparameters": {"epochs": 15, "batch_size": 4, "learning_rate": 0.0001},
         "keywords": ["building"],
-        "model_href": "weights.pt",
-        "model_artifact_type": "torch.save",
+        "checkpoint_href": "https://example.com/weights.pt",
+        "checkpoint_artifact_type": "torch.save",
         "mlm_pretrained": True,
         "mlm_pretrained_source": "OAM-TCD",
         "source_code_href": "https://github.com/example",
@@ -106,7 +106,7 @@ def test_training_config(tmp_path):
     assert hp["epochs"] == 15 and hp["batch_size"] == 4
     assert p["dataset_chips"] == "data/oam/"
     assert hp["chip_size"] == 512 and p["num_classes"] == 2
-    assert p["base_model_weights"] == "weights.pt"
+    assert p["base_model_weights"] == "https://example.com/weights.pt"
     assert cfg["settings"]["docker"]["parent_image"] == "ghcr.io/hotosm/fair-unet:v1"
     assert cfg["steps"]["train_model"]["parameters"]["model_name"] == "finetuned"
     assert cfg["steps"]["train_model"]["parameters"]["base_model_id"] == "unet"
@@ -128,7 +128,7 @@ def test_training_overrides(tmp_path):
 def test_inference_config():
     cfg = generate_inference_config(_base_model(), "/data/input/")
     p = cfg["parameters"]
-    assert p["model_uri"] == "weights.pt"
+    assert p["model_uri"] == "https://example.com/weights.pt"
     assert p["input_images"] == "/data/input/"
     assert p["chip_size"] == 512 and p["num_classes"] == 2
     assert cfg["settings"]["docker"]["parent_image"] == "ghcr.io/hotosm/fair-unet:v1"
@@ -143,7 +143,8 @@ def test_inference_config_with_artifact_id():
     local = build_local_model_item(
         base_model_item=base,
         item_id="local-v1",
-        model_href="s3://store/model/abc",
+        checkpoint_href="s3://store/model/abc",
+        onnx_href="s3://store/model/abc.onnx",
         mlm_hyperparameters={},
         keywords=["building"],
         base_model_href="../base-models/unet/unet.json",

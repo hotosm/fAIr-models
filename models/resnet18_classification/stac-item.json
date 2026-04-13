@@ -286,12 +286,13 @@
         ]
     },
     "assets": {
-        "model": {
-            "href": "torchvision.models.ResNet18_Weights.IMAGENET1K_V1",
-            "title": "Pretrained weights (torchvision enum reference, not a URL)",
+        "checkpoint": {
+            "href": "https://download.pytorch.org/models/resnet18-f37072fd.pth",
+            "title": "Pretrained weights (torchvision ResNet18 ImageNet-1K V1)",
             "type": "application/octet-stream; framework=pytorch",
             "roles": [
-                "mlm:model"
+                "mlm:model",
+                "mlm:weights"
             ],
             "mlm:artifact_type": "torch.save",
             "raster:bands": [

@@ -78,8 +78,8 @@ _BASE_DEFAULTS: dict[str, Any] = {
     "mlm_output": _MLM_OUTPUT,
     "mlm_hyperparameters": {"epochs": 15, "batch_size": 4, "learning_rate": 0.0001},
     "keywords": ["building", "semantic-segmentation", "polygon"],
-    "model_href": "weights.pt",
-    "model_artifact_type": "torch.save",
+    "checkpoint_href": "https://example.com/weights.pt",
+    "checkpoint_artifact_type": "torch.save",
     "mlm_pretrained": True,
     "mlm_pretrained_source": "OAM-TCD",
     "source_code_href": "https://github.com/example",
@@ -194,7 +194,7 @@ class TestBuildBaseModelItem:
         assert item.properties["version"] == "1"
         assert item.properties["title"] == "Example UNet"
         assert item.properties["fair:metrics_spec"] == _METRICS_SPEC
-        assert item.assets["model"].extra_fields["mlm:artifact_type"] == "torch.save"
+        assert item.assets["checkpoint"].extra_fields["mlm:artifact_type"] == "torch.save"
         assert "readme" not in item.assets  # readme_href defaults to empty string
         bbox = item.bbox
         assert bbox is not None
@@ -207,7 +207,7 @@ class TestBuildBaseModelItem:
 
     def test_framework_in_media_type(self):
         item = _base_model(mlm_framework="tensorflow")
-        media_type = item.assets["model"].media_type
+        media_type = item.assets["checkpoint"].media_type
         assert media_type is not None
         assert "framework=tensorflow" in media_type
 
@@ -218,7 +218,8 @@ class TestBuildLocalModelItem:
         local = build_local_model_item(
             base_model_item=base,
             item_id="local-v1",
-            model_href="finetuned.pth",
+            checkpoint_href="https://example.com/finetuned.pt",
+            onnx_href="https://example.com/finetuned.onnx",
             mlm_hyperparameters={"epochs": 1},
             keywords=["building"],
             base_model_href="../base-models/example-unet/example-unet.json",
@@ -237,7 +238,8 @@ class TestBuildLocalModelItem:
         assert local.properties["fair:user_id"] == "osm-42"
         assert local.properties["fair:base_model_id"] == "example-unet"
         assert local.properties["fair:dataset_id"] == "ds-1"
-        assert local.assets["model"].href == "finetuned.pth"
+        assert local.assets["checkpoint"].href == "https://example.com/finetuned.pt"
+        assert local.assets["model"].href == "https://example.com/finetuned.onnx"
         assert local.assets["source-code"].href == base.assets["source-code"].href
         derived_hrefs = {lnk.get_href() for lnk in local.links if lnk.rel == "derived_from"}
         assert "../base-models/example-unet/example-unet.json" in derived_hrefs
@@ -253,7 +255,8 @@ class TestBuildLocalModelItem:
         local = build_local_model_item(
             base_model_item=base,
             item_id="local-v1",
-            model_href="s3://store/model/abc",
+            checkpoint_href="https://example.com/model.pt",
+            onnx_href="https://example.com/model.onnx",
             mlm_hyperparameters={},
             keywords=["building"],
             base_model_href="../base-models/example-unet/example-unet.json",
@@ -264,14 +267,15 @@ class TestBuildLocalModelItem:
             user_id="u",
             zenml_artifact_version_id="aaaa-bbbb-cccc",
         )
-        assert local.assets["model"].extra_fields["zenml:artifact_version_id"] == "aaaa-bbbb-cccc"
+        assert local.assets["checkpoint"].extra_fields["zenml:artifact_version_id"] == "aaaa-bbbb-cccc"
 
     def test_zenml_artifact_version_id_absent_when_none(self):
         base = _base_model()
         local = build_local_model_item(
             base_model_item=base,
             item_id="local-v1",
-            model_href="weights.pth",
+            checkpoint_href="https://example.com/weights.pt",
+            onnx_href="https://example.com/weights.onnx",
             mlm_hyperparameters={},
             keywords=["building"],
             base_model_href="../base-models/example-unet/example-unet.json",
@@ -281,7 +285,7 @@ class TestBuildLocalModelItem:
             description="D",
             user_id="u",
         )
-        assert "zenml:artifact_version_id" not in local.assets["model"].extra_fields
+        assert "zenml:artifact_version_id" not in local.assets["checkpoint"].extra_fields
 
     def test_none_geometry_raises(self):
         base = _base_model()
@@ -290,7 +294,8 @@ class TestBuildLocalModelItem:
             build_local_model_item(
                 base_model_item=base,
                 item_id="bad",
-                model_href="w.pth",
+                checkpoint_href="w.pth",
+                onnx_href="w.onnx",
                 mlm_hyperparameters={},
                 keywords=["building"],
                 base_model_href="../base-models/b/b.json",
@@ -335,7 +340,8 @@ class TestLocalModelMetricsAndTiming:
         local = build_local_model_item(
             base_model_item=base,
             item_id="local-m",
-            model_href="w.pth",
+            checkpoint_href="https://example.com/w.pt",
+            onnx_href="https://example.com/w.onnx",
             mlm_hyperparameters={},
             keywords=["building"],
             base_model_href="../base-models/b/b.json",
@@ -354,7 +360,8 @@ class TestLocalModelMetricsAndTiming:
         local = build_local_model_item(
             base_model_item=base,
             item_id="local-t",
-            model_href="w.pth",
+            checkpoint_href="https://example.com/w.pt",
+            onnx_href="https://example.com/w.onnx",
             mlm_hyperparameters={},
             keywords=["building"],
             base_model_href="../base-models/b/b.json",
@@ -376,7 +383,8 @@ class TestLocalModelMetricsAndTiming:
         local = build_local_model_item(
             base_model_item=base,
             item_id="local-s",
-            model_href="w.pth",
+            checkpoint_href="https://example.com/w.pt",
+            onnx_href="https://example.com/w.onnx",
             mlm_hyperparameters={},
             keywords=["building"],
             base_model_href="../base-models/b/b.json",

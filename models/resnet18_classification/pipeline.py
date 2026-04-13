@@ -26,33 +26,12 @@ def _get_device() -> str:
     return "cpu"
 
 
-def _resolve_weights(weight_id: str):
-    from torchvision.models import ResNet18_Weights
-
-    candidate = weight_id.rsplit(".", 1)[-1]
-    try:
-        return ResNet18_Weights[candidate]
-    except KeyError:
-        return None
-
-
-def _download_checkpoint(uri: str) -> Path:
+def _download_checkpoint(url: str) -> Path:
     from upath import UPath
 
-    local_path = Path(tempfile.mkdtemp()) / UPath(uri).name
-    local_path.write_bytes(UPath(uri).read_bytes())
+    local_path = Path(tempfile.mkdtemp()) / UPath(url).name
+    local_path.write_bytes(UPath(url).read_bytes())
     return local_path
-
-
-def resolve_weights(weight_id: str) -> Path:
-    import torch
-
-    resolved = _resolve_weights(weight_id)
-    if resolved is not None:
-        checkpoint_path = Path(tempfile.mkdtemp()) / "resnet18_pretrained.pth"
-        torch.hub.download_url_to_file(resolved.url, str(checkpoint_path))
-        return checkpoint_path
-    return _download_checkpoint(weight_id)
 
 
 def _bounds_to_geo_feature(left, bottom, right, top, crs, properties):
@@ -205,14 +184,10 @@ def train_model(
 
     with mlflow_training_context(hyperparameters, model_name, base_model_id, dataset_id):
         device = _get_device()
-        resolved = _resolve_weights(base_model_weights)
-        if resolved is not None:
-            model = resnet18(weights=resolved)
-        else:
-            model = resnet18(weights=None)
-            local_path = _download_checkpoint(base_model_weights)
-            state = torch.load(local_path, map_location=device, weights_only=True)
-            model.load_state_dict(state, strict=False)
+        model = resnet18(weights=None)
+        local_path = _download_checkpoint(base_model_weights)
+        state = torch.load(local_path, map_location=device, weights_only=True)
+        model.load_state_dict(state, strict=False)
         if freeze_encoder:
             for param in model.parameters():
                 param.requires_grad = False
@@ -304,7 +279,7 @@ def evaluate_model(
 def export_onnx(
     trained_model: Any,
     hyperparameters: dict[str, Any],
-) -> Annotated[str, "onnx_model"]:
+) -> Annotated[bytes, "onnx_model"]:
     import os
     import tempfile
 
@@ -318,17 +293,20 @@ def export_onnx(
     dummy = torch.randn(1, 3, chip_size, chip_size)
     fd, path = tempfile.mkstemp(suffix=".onnx")
     os.close(fd)
-    torch.onnx.export(
-        model,
-        (dummy,),
-        path,
-        input_names=["input"],
-        output_names=["output"],
-        dynamic_axes={"input": {0: "batch"}, "output": {0: "batch"}},
-        opset_version=18,
-    )
-    onnx.checker.check_model(path)
-    return path
+    try:
+        torch.onnx.export(
+            model,
+            (dummy,),
+            path,
+            input_names=["input"],
+            output_names=["output"],
+            dynamic_axes={"input": {0: "batch"}, "output": {0: "batch"}},
+            opset_version=18,
+        )
+        onnx.checker.check_model(path)
+        return Path(path).read_bytes()
+    finally:
+        Path(path).unlink(missing_ok=True)
 
 
 @pipeline
@@ -371,14 +349,10 @@ def load_base_model(
     import torch.nn as nn
     from torchvision.models import resnet18
 
-    resolved = _resolve_weights(model_uri)
-    if resolved is not None:
-        model = resnet18(weights=resolved)
-    else:
-        model = resnet18(weights=None)
-        local_path = _download_checkpoint(model_uri)
-        state = torch.load(local_path, map_location="cpu", weights_only=True)
-        model.load_state_dict(state, strict=False)
+    model = resnet18(weights=None)
+    local_path = _download_checkpoint(model_uri)
+    state = torch.load(local_path, map_location="cpu", weights_only=True)
+    model.load_state_dict(state, strict=False)
     model.fc = nn.Linear(model.fc.in_features, 1)
     return model.cpu()
 

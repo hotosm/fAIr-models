@@ -61,6 +61,31 @@ def _to_local_path(path_value: str, purpose: str) -> Path:
     return Path(str(upath_obj))
 
 
+def _resolve_input_directory(path_value: str, purpose: str) -> Path:
+    """Resolve local or remote (S3/HTTP/etc.) directories to a local path."""
+    if "://" in str(path_value):
+        # Available in the runtime (same helper used by YOLO model packs).
+        from fair.utils.data import resolve_directory
+
+        return Path(str(resolve_directory(path_value, pattern="*")))
+    return _to_local_path(path_value, purpose)
+
+
+def _resolve_input_file(path_value: str, purpose: str) -> Path:
+    """Resolve local or remote (S3/HTTP/etc.) files to a local path."""
+    if "://" in str(path_value):
+        from fair.utils.data import resolve_path
+
+        return Path(str(resolve_path(path_value)))
+    return _to_local_path(path_value, purpose)
+
+
+def _extract_zip(zip_path: Path, dest_dir: Path) -> None:
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(zip_path, "r") as zf:
+        zf.extractall(dest_dir)
+
+
 def _ensure_ramp_baseline(data_base_path: str, baseline_rel_path: str) -> Path:
     """Return the directory that contains baseline weights; download under data_base_path if missing.
 
@@ -115,6 +140,46 @@ def _patch_keras_get_file_for_efficientnet_weights() -> None:
     ku.get_file = _get_file
 
 
+def _patch_predictor_savedmodel_loader_for_tf215() -> None:
+    """Patch fairpredictor's SavedModel directory loader for TF 2.15 compatibility.
+
+    Why this patch exists:
+    Some fairpredictor versions load SavedModel directories using `keras.layers.TFSMLayer(...)`.
+    `TFSMLayer` is not available in TensorFlow 2.15's `tf.keras.layers`, so inference fails with:
+      AttributeError: module 'keras.api._v2.keras.layers' has no attribute 'TFSMLayer'
+
+    We monkey-patch `predictor.prediction._load_keras_model` so directory-based SavedModels use
+    `tf.saved_model.load(...)` and a small `.predict(...)` wrapper.
+
+    We patch the module object (via importlib) to ensure downstream `from predictor.prediction import ...`
+    uses the patched function.
+    """
+    import importlib
+    import os
+    from pathlib import Path
+
+    import tensorflow as tf
+
+    pred = importlib.import_module("predictor.prediction")
+    if getattr(pred, "_fair_models_tf215_savedmodel_patch_applied", False):
+        return
+
+    original_loader = getattr(pred, "_load_keras_model", None)
+    if original_loader is None:
+        raise RuntimeError("predictor.prediction._load_keras_model not found; fairpredictor API changed.")
+
+    def _safe_load_keras_model(keras_backend, path: str):
+        if os.path.isdir(path) and (Path(path) / "saved_model.pb").exists():
+            # TF 2.15 (Keras 2.x) can load SavedModel directories directly; avoid TFSMLayer entirely.
+            return tf.keras.models.load_model(path, compile=False)
+
+        return original_loader(keras_backend, path)
+
+    _safe_load_keras_model._fair_models_tf215_savedmodel_loader = True  # type: ignore[attr-defined]
+    pred._load_keras_model = _safe_load_keras_model
+    pred._fair_models_tf215_savedmodel_patch_applied = True
+
+
 def resolve_model_href(
     model_uri: str,
     cache_dir: Optional[Path] = None,
@@ -134,21 +199,42 @@ def resolve_model_href(
 
     cache_dir = cache_dir or _DEFAULT_MODEL_CACHE
 
-    if not (model_uri.startswith("http://") or model_uri.startswith("https://")):
-        resolved = _to_local_path(model_uri, "model_uri").resolve()
-        if resolved.exists():
-            return str(resolved)
-        raise FileNotFoundError(f"Model path not found: {resolved}")
+    is_http = model_uri.startswith("http://") or model_uri.startswith("https://")
 
+    # SavedModel directory (local or remote)
+    if not Path(model_uri.split("?", 1)[0]).suffix and not model_uri.lower().endswith(".zip"):
+        resolved_dir = (_resolve_input_directory(model_uri, "model_uri") if "://" in model_uri else _to_local_path(model_uri, "model_uri")).resolve()
+        if (resolved_dir / "saved_model.pb").exists():
+            return str(resolved_dir)
+        if resolved_dir.exists():
+            # Let downstream error messages be explicit.
+            raise FileNotFoundError(f"SavedModel directory missing saved_model.pb: {resolved_dir}")
+        raise FileNotFoundError(f"Model path not found: {resolved_dir}")
+
+    # Remote/local ZIP containing SavedModel
     if model_uri.lower().endswith(".zip"):
-        base_name = Path(model_uri.split("/")[-1]).stem
-        dest_dir = cache_dir / base_name
-        dest_dir.mkdir(parents=True, exist_ok=True)
-        if not any(dest_dir.rglob("saved_model.pb")):
+        base_name = Path(model_uri.split("?", 1)[0]).name
+        stem = Path(base_name).stem or "ramp_model"
+        dest_dir = cache_dir / stem
+        if any(dest_dir.rglob("saved_model.pb")):
+            for sub in dest_dir.rglob("saved_model.pb"):
+                return str(sub.parent)
+
+        if is_http:
             _download_and_extract_zip(model_uri, dest_dir)
+        else:
+            local_zip = _resolve_input_file(model_uri, "model_uri")
+            _extract_zip(local_zip, dest_dir)
+
         for sub in dest_dir.rglob("saved_model.pb"):
             return str(sub.parent)
         raise RuntimeError(f"Zip from {model_uri} did not contain a valid SavedModel")
+
+    # Plain local path to file/dir (fallback)
+    resolved = _to_local_path(model_uri, "model_uri").resolve()
+    if resolved.exists():
+        return str(resolved)
+    raise FileNotFoundError(f"Model path not found: {resolved}")
 
     raise ValueError(
         f"Unsupported model_uri: {model_uri}. "
@@ -173,8 +259,9 @@ def preprocess(
     """
     from hot_fair_utilities import preprocess as _preprocess
 
+    local_input = _resolve_input_directory(input_path, "input_path")
     _preprocess(
-        input_path=input_path,
+        input_path=str(local_input),
         output_path=output_path,
         rasterize=True,
         rasterize_options=["binary"],
@@ -190,9 +277,11 @@ def postprocess(prediction_masks_dir: str, output_dir: str) -> dict:
     """Run fairpredictor-style postprocessing and return merged prediction GeoJSON content."""
     import json
 
-    from geomltoolkits.regularizer import VectorizeMasks
-    from geomltoolkits.utils import merge_rasters, validate_polygon_geometries
-    from predictor.utils import morphological_cleaning
+    # geomltoolkits>=2 moved modules (no geomltoolkits.regularizer/utils)
+    from geomltoolkits.geometry.validate import validate_polygon_geometries
+    from geomltoolkits.raster.merge import merge_rasters
+    from geomltoolkits.raster.morphology import morphological_cleaning
+    from geomltoolkits.raster.vectorize import vectorize_mask
 
     pred_dir = _to_local_path(prediction_masks_dir, "prediction_masks_dir")
     out_dir = _to_local_path(output_dir, "output_dir")
@@ -204,19 +293,27 @@ def postprocess(prediction_masks_dir: str, output_dir: str) -> dict:
 
     merged_mask_path = out_dir / "merged_prediction_mask.tif"
     merged_geojson_path = out_dir / "predictions.geojson"
-    tmp_dir = out_dir / "tmp"
-    tmp_dir.mkdir(parents=True, exist_ok=True)
 
     merge_rasters(str(pred_dir), str(merged_mask_path))
     morphological_cleaning(str(merged_mask_path))
-    gdf = VectorizeMasks(
+    gdf = vectorize_mask(
+        input_tiff=str(merged_mask_path),
+        output_geojson=str(merged_geojson_path),
         simplify_tolerance=0.5,
         min_area=3,
         orthogonalize=True,
-        tmp_dir=str(tmp_dir),
         ortho_skew_tolerance_deg=15,
         ortho_max_angle_change_deg=15,
-    ).convert(str(merged_mask_path), str(merged_geojson_path))
+    )
+
+    geojson_dict = json.loads(gdf.to_json())
+    if not geojson_dict.get("features"):
+        # geomltoolkits validator raises on empty FeatureCollections; treat this as a valid
+        # "no buildings found" prediction and keep the already-written GeoJSON file.
+        if not merged_geojson_path.is_file():
+            with merged_geojson_path.open("w", encoding="utf-8") as fh:
+                json.dump(geojson_dict, fh)
+        return geojson_dict
 
     if gdf.crs and gdf.crs != "EPSG:4326":
         gdf = gdf.to_crs("EPSG:4326")
@@ -234,7 +331,7 @@ def postprocess(prediction_masks_dir: str, output_dir: str) -> dict:
     gdf.to_file(merged_geojson_path, driver="GeoJSON")
 
     validated_geojson = validate_polygon_geometries(
-        json.loads(gdf.to_json()),
+        geojson_dict,
         output_path=str(merged_geojson_path),
     )
     if isinstance(validated_geojson, str) and Path(validated_geojson).is_file():
@@ -297,21 +394,68 @@ def run_preprocessing(
 @step
 def train_model(
     data_base_path: str,
-    data_loader: List[Tuple[Any, Any]],
     preprocessed_path: str,
+    data_loader: Optional[List[Tuple[Any, Any]]] = None,
     stac_item_path: str = "models/ramp/stac-item.json",
     val_fraction: Optional[float] = None,
+    split_info: Optional[Dict[str, Any]] = None,
 ) -> Any:
     """ZenML step wrapper for RAMP training; returns the best Keras SavedModel checkpoint."""
-    if not data_loader:
+    if data_loader is not None and not data_loader:
         raise RuntimeError("Preprocessing returned an empty dataloader; no chip/mask pairs found.")
     return train_ramp_model(
         data_base_path=data_base_path,
         preprocessed_path=preprocessed_path,
         stac_item_path=stac_item_path,
         val_fraction=val_fraction,
+        split_info=split_info,
         log_zenml_step_metadata=True,
     )
+
+
+@step
+def split_dataset(
+    preprocessed_path: str,
+    output_path: str,
+    hyperparameters: Optional[Dict[str, Any]] = None,
+) -> Annotated[Dict[str, Any], "split_info"]:
+    """Create train/validation directories for RAMP and return split metadata.
+
+    Uses the existing utilities implementation:
+    `hot_fair_utilities.training.ramp.prepare_data.split_training_2_validation`.
+    """
+    from hot_fair_utilities.training.ramp.prepare_data import split_training_2_validation
+
+    hyperparameters = hyperparameters or {}
+    preprocessed_dir = _to_local_path(preprocessed_path, "preprocessed_path")
+    if not preprocessed_dir.is_dir():
+        raise FileNotFoundError(f"Preprocessed directory not found: {preprocessed_dir}")
+
+    out_dir = _to_local_path(output_path, "output_path")
+    ramp_train_dir = out_dir / "ramp_training_work"
+
+    split_training_2_validation(
+        str(preprocessed_dir),
+        str(ramp_train_dir),
+        multimasks=True,
+    )
+
+    train_count = len(list((ramp_train_dir / "chips").glob("*.tif")))
+    val_count = len(list((ramp_train_dir / "val-chips").glob("*.tif")))
+    total = train_count + val_count
+    val_ratio = (float(val_count) / float(total)) if total else 0.0
+
+    split_info: Dict[str, Any] = {
+        "strategy": "random",
+        "val_ratio": val_ratio,
+        "train_count": train_count,
+        "val_count": val_count,
+        "seed": int(hyperparameters.get("split_seed", 42)),
+        "ramp_train_dir": str(ramp_train_dir),
+        "source": "hot_fair_utilities.training.ramp.prepare_data.split_training_2_validation",
+    }
+    log_metadata(metadata={"fair/split": split_info})
+    return split_info
 
 
 def train_ramp_model(
@@ -323,6 +467,7 @@ def train_ramp_model(
     batch_size: Annotated[Optional[int], "1 <= batch_size <= 8"] = None,
     backbone: Optional[str] = None,
     early_stopping_patience: Annotated[Optional[int], "1 <= early_stopping_patience <= 20"] = None,
+    split_info: Optional[Dict[str, Any]] = None,
     log_zenml_step_metadata: bool = False,
 ) -> Any:
     """Fine-tune EfficientNetB0 + U-Net on 4-class multimask chips.
@@ -363,7 +508,6 @@ def train_ramp_model(
     import segmentation_models as sm
     from hot_fair_utilities.training.ramp.cleanup import extract_highest_accuracy_model
     from hot_fair_utilities.training.ramp.config import RAMP_CONFIG
-    from hot_fair_utilities.training.ramp.prepare_data import split_training_2_validation
     from hot_fair_utilities.training.ramp.run_training import (
         manage_fine_tuning_config,
         run_main_train_code,
@@ -408,20 +552,24 @@ def train_ramp_model(
     if not 1 <= int(eff_patience) <= 20:
         raise ValueError(f"Resolved early_stopping_patience={eff_patience} is outside [1, 20]")
 
-    # Split preprocessed_path into train + val dirs under a dedicated work dir
-    # (split_training_2_validation requires src != dst)
-    ramp_train_dir_path = _to_local_path(
-        str(Path(data_base_path) / "ramp_training_work"),
-        "ramp_training_work",
-    )
-    if ramp_train_dir_path.exists():
-        rmtree(ramp_train_dir_path)
-    ramp_train_dir = str(ramp_train_dir_path)
-    split_training_2_validation(
-        str(_to_local_path(preprocessed_path, "preprocessed_path")),
-        ramp_train_dir,
-        multimasks=True,
-    )
+    # Prefer a precomputed split (CI-visible split_dataset step), fallback to internal split for compatibility.
+    if split_info and split_info.get("ramp_train_dir"):
+        ramp_train_dir = str(_to_local_path(str(split_info["ramp_train_dir"]), "ramp_train_dir"))
+    else:
+        from hot_fair_utilities.training.ramp.prepare_data import split_training_2_validation
+
+        ramp_train_dir_path = _to_local_path(
+            str(Path(data_base_path) / "ramp_training_work"),
+            "ramp_training_work",
+        )
+        if ramp_train_dir_path.exists():
+            rmtree(ramp_train_dir_path)
+        ramp_train_dir = str(ramp_train_dir_path)
+        split_training_2_validation(
+            str(_to_local_path(preprocessed_path, "preprocessed_path")),
+            ramp_train_dir,
+            multimasks=True,
+        )
 
     # Build config from RAMP_CONFIG via the utilities helper, then apply overrides
     cfg = manage_fine_tuning_config(ramp_train_dir, eff_epochs, eff_batch, freeze_layers=False, multimasks=True)
@@ -490,7 +638,10 @@ def infer_ramp_model(
     import tempfile
 
     import tensorflow as tf
-    from predictor.prediction import run_prediction
+
+    # Ensure fairpredictor does not use TFSMLayer on TF 2.15.
+    _patch_predictor_savedmodel_loader_for_tf215()
+    from predictor.prediction import run_prediction  # noqa: E402
 
     cache = Path(model_cache_dir) if model_cache_dir else None
     if isinstance(model_uri, (str, Path)):
@@ -504,7 +655,17 @@ def infer_ramp_model(
             "model_uri must be a str, pathlib.Path, or a tf.keras.Model from training (compile=False load)."
         )
 
-    input_dir = _to_local_path(input_path, "input_path")
+    # Fail fast if our patch didn't apply (helps diagnose environment mismatches early).
+    import importlib
+
+    pred = importlib.import_module("predictor.prediction")
+    if not getattr(getattr(pred, "_load_keras_model", None), "_fair_models_tf215_savedmodel_loader", False):
+        raise RuntimeError(
+            "fairpredictor SavedModel loader patch not applied; "
+            "expected predictor.prediction._load_keras_model to be patched for TF 2.15."
+        )
+
+    input_dir = _resolve_input_directory(input_path, "input_path")
     out_dir = _to_local_path(prediction_path, "prediction_path")
     out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -565,11 +726,17 @@ def training_pipeline(
         boundary_width=boundary_width,
         contact_spacing=contact_spacing,
     )
+    split_info = split_dataset(
+        preprocessed_path=f"{output_path}/preprocessed",
+        output_path=output_path,
+        hyperparameters=hyperparams,
+    )
     train_model(
         data_base_path=output_path,
         data_loader=data_loader,
         preprocessed_path=f"{output_path}/preprocessed",
         stac_item_path=stac_item_path,
+        split_info=split_info,
     )
 
 

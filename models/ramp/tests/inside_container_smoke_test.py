@@ -4,7 +4,8 @@ Run this script INSIDE the container. It validates:
 1) Critical imports (tensorflow, ramp, segmentation_models, osgeo.gdal, solaris)
 2) ``pipeline.preprocess`` path (georeference + multimask generation)
 3) ``pipeline.run_preprocessing`` contract: chip/mask arrays + on-disk counts
-4) Training wrappers: ``pipeline.train_model`` and ``pipeline.train_ramp_model``
+4) ``pipeline.split_dataset`` + training wrappers:
+   ``pipeline.train_model`` and ``pipeline.train_ramp_model``
    both return loaded ``tf.keras.Model``
 5) ``pipeline.resolve_model_href`` for local SavedModel directories
 6) ``pipeline.run_inference`` returns merged GeoJSON dict content
@@ -232,18 +233,31 @@ def main() -> None:
     )
 
     # -------------------------------------------------------------------------
-    _stage("Test 4: Training smoke run via train_model/train_ramp_model wrappers")
+    _stage("Test 4: split_dataset + training smoke run")
     # train_model wraps train_ramp_model and validates preprocessing output.
     # train_ramp_model handles val split internally and returns loaded tf.keras.Model.
 
     import tensorflow as tf
 
+    split_info = ramp_pipeline.split_dataset(
+        preprocessed_path=str(preprocessed_dir),
+        output_path=str(dataset_root),
+        hyperparameters={"split_seed": 42},
+    )
+    _assert(split_info["train_count"] > 0, "split_dataset produced zero train chips.")
+    _assert(split_info["val_count"] > 0, "split_dataset produced zero validation chips.")
+    print(
+        "PASS: split_dataset produced "
+        f"{split_info['train_count']} train and {split_info['val_count']} validation chips"
+    )
+
     trained_model_step = ramp_pipeline.train_model(
         data_base_path=str(dataset_root),
-        data_loader=data_loader_contract,
         preprocessed_path=str(preprocessed_dir),
+        data_loader=data_loader_contract,
         stac_item_path="/workspace/models/ramp/stac-item.json",
         val_fraction=0.15,
+        split_info=split_info,
     )
     _assert(isinstance(trained_model_step, tf.keras.Model), "train_model did not return a Keras model checkpoint.")
 

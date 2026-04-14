@@ -327,7 +327,7 @@
             "mlm:entrypoint": "models.resnet18_classification.pipeline:training_pipeline"
         },
         "mlm:training": {
-            "href": "ghcr.io/hotosm/fair-models/resnet18_classification:master",
+            "href": "ghcr.io/hotosm/fair-models/resnet18_classification:latest",
             "type": "application/vnd.oci.image.index.v1+json",
             "title": "Training Docker Image",
             "roles": [
@@ -335,7 +335,7 @@
             ]
         },
         "mlm:inference": {
-            "href": "ghcr.io/hotosm/fair-models/resnet18_classification:master",
+            "href": "ghcr.io/hotosm/fair-models/resnet18_classification:latest",
             "type": "application/vnd.oci.image.index.v1+json",
             "title": "Inference Docker Image",
             "roles": [

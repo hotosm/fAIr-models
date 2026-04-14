@@ -1,0 +1,54 @@
+repositories:
+  - name: eoapi
+    url: https://devseed.com/eoapi-k8s/
+  - name: community-charts
+    url: https://community-charts.github.io/helm-charts
+  - name: minio
+    url: https://charts.min.io/
+  - name: zenml-ecr
+    url: public.ecr.aws/zenml
+    oci: true
+
+helmDefaults:
+  wait: true
+  createNamespace: true
+
+releases:
+  - name: minio
+    namespace: fair
+    chart: minio/minio
+    version: "5.4.0"
+    timeout: 300
+    values:
+      - ../dev/minio/values.yaml
+
+  - name: stac
+    namespace: fair
+    chart: eoapi/eoapi
+    version: "0.12.2"
+    wait: false
+    timeout: 600
+    needs:
+      - fair/minio
+    values:
+      - ../dev/stac/values.yaml
+
+  - name: mlflow
+    namespace: fair
+    chart: community-charts/mlflow
+    version: "1.8.1"
+    timeout: 300
+    needs:
+      - fair/minio
+    values:
+      - ../dev/mlflow/values.yaml
+
+  - name: zenml
+    namespace: fair
+    chart: zenml-ecr/zenml
+    version: 0.93.3
+    timeout: 480
+    needs:
+      - fair/minio
+    values:
+      - ../dev/zenml/values.yaml

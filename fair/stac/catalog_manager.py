@@ -1,9 +1,16 @@
 from __future__ import annotations
 
+import logging
 import os
+from datetime import UTC, datetime
 
 import pystac
 from pystac import CatalogType
+from upath import UPath
+
+from fair.stac.versioning import ensure_version_links
+
+log = logging.getLogger(__name__)
 
 
 class StacCatalogManager:
@@ -41,9 +48,16 @@ class StacCatalogManager:
         else:
             item.properties.setdefault("version", "1")
 
+        item.properties["updated"] = datetime.now(UTC).isoformat()
+        self._make_asset_hrefs_absolute(item)
+        self._ensure_version_links(collection_id, item)
         collection.add_item(item)
         self._save()
+        log.info("Published %s/%s v%s", collection_id, item.id, item.properties.get("version"))
         return item
+
+    def _ensure_version_links(self, collection_id: str, item: pystac.Item) -> None:
+        ensure_version_links(item, self.item_href(collection_id, item.id))
 
     def get_item(self, collection_id: str, item_id: str) -> pystac.Item:
         collection = self._get_collection(collection_id)
@@ -51,15 +65,24 @@ class StacCatalogManager:
         if item is None:
             msg = f"Item '{item_id}' not found in collection '{collection_id}'"
             raise KeyError(msg)
+        # SELF_CONTAINED save makes asset hrefs relative to the item JSON;
+        # restore absolute paths so consumers get usable file-system paths.
+        item.make_asset_hrefs_absolute()
         return item
 
-    def list_items(self, collection_id: str) -> list[pystac.Item]:
-        return list(self._get_collection(collection_id).get_items())
+    def item_exists(self, collection_id: str, item_id: str) -> bool:
+        collection = self._get_collection(collection_id)
+        return collection.get_item(item_id) is not None
+
+    def list_items(self, collection_id: str, *, limit: int | None = None) -> list[pystac.Item]:
+        items = list(self._get_collection(collection_id).get_items())
+        return items[:limit] if limit is not None else items
 
     def deprecate_item(self, collection_id: str, item_id: str) -> pystac.Item:
         item = self.get_item(collection_id, item_id)
         item.properties["deprecated"] = True
         self._save()
+        log.info("Deprecated %s/%s", collection_id, item_id)
         return item
 
     def delete_item(self, collection_id: str, item_id: str) -> None:
@@ -69,3 +92,19 @@ class StacCatalogManager:
             raise KeyError(msg)
         collection.remove_item(item_id)
         self._save()
+        log.info("Deleted %s/%s", collection_id, item_id)
+
+    @staticmethod
+    def _make_asset_hrefs_absolute(item: pystac.Item) -> None:
+        # Resolve local relative hrefs to absolute before save so PySTAC's
+        # SELF_CONTAINED roundtrip restores the correct absolute paths on read.
+        # Remote hrefs (s3://, https://, etc.) are left untouched.
+        # Hrefs without path separators (e.g. dotted enum identifiers) are not
+        # file paths and must be left as-is.
+        for asset in item.assets.values():
+            path = UPath(asset.href)
+            if not path.protocol and not path.is_absolute() and "/" in asset.href:
+                asset.href = str(path.resolve())
+
+    def item_href(self, collection_id: str, item_id: str) -> str:
+        return f"../../{collection_id}/{item_id}/{item_id}.json"

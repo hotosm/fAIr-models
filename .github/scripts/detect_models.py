@@ -52,6 +52,10 @@ def find_models() -> list[ModelInfo]:
         if changed and str(model_path) not in changed:
             continue
 
+        has_readme = any(f.name.lower() == "readme.md" for f in model_path.iterdir())
+        if not has_readme:
+            raise FileNotFoundError(f"Missing README.md for {model_path.name}")
+
         stac_file = model_path / "stac-item.json"
         if not stac_file.exists():
             raise FileNotFoundError(f"Missing stac-item.json for {model_path.name}")

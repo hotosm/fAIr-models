@@ -7,8 +7,8 @@ name = "fair-py-ops"
 dynamic = ["version"]
 description = "Model registry and ML pipeline orchestration for fAIr"
 readme = "README.md"
-requires-python = ">=3.12"
-license = "GPL-3.0-only"
+requires-python = ">=3.11"
+license = "AGPL-3.0-only"
 authors = [{name = "HOTOSM", email = "sysadmin@hotosm.org"}]
 maintainers = [{ name = "Kshitij Raj Sharma", email = "krschap@duck.com" }]
 keywords = [
@@ -24,7 +24,7 @@ classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
     "Intended Audience :: Science/Research",
-    "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
+    "License :: OSI Approved :: GNU Affero General Public License v3",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.12",
@@ -34,13 +34,28 @@ classifiers = [
     "Typing :: Typed",
 ]
 dependencies = [
-    "pystac[validation]>=1.14.3",
-    "zenml>=0.93.3",
+    "httpx>=0.28.1",
+    "mlflow>=2.1.1,<4",
+    "pystac[validation]>=1.14.3,<2",
+    "universal-pathlib>=0.3.10",
+    "zenml==0.93.3",
+]
+
+[project.optional-dependencies]
+test = [
+    "pytest>=8.0",
+    "zenml[server]==0.93.3",
+]
+k8s = [
+    "opentelemetry-proto>=1.25.0",
+    "pypgstac[psycopg]>=0.9",
+    "pystac-client>=0.9,<1",
+    "zenml[connectors-aws,connectors-kubernetes,s3fs]==0.93.3",
 ]
 
 [project.urls]
 Homepage = "https://github.com/hotosm/fAIr-models"
-Documentation = "https://github.com/hotosm/fAIr-models#readme"
+Documentation = "https://hotosm.github.io/fAIr-models"
 Repository = "https://github.com/hotosm/fAIr-models"
 Issues = "https://github.com/hotosm/fAIr-models/issues"
 Changelog = "https://github.com/hotosm/fAIr-models/blob/master/CHANGELOG.md"
@@ -49,10 +64,13 @@ Changelog = "https://github.com/hotosm/fAIr-models/blob/master/CHANGELOG.md"
 source = "vcs"
 
 [tool.hatch.build.targets.sdist]
-include = ["fair/", "models/", "LICENSE", "README.md"]
+include = ["fair/", "fair_zenml_patch.pth", "LICENSE", "README.md"]
 
 [tool.hatch.build.targets.wheel]
-packages = ["fair", "models"]
+packages = ["fair"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"fair_zenml_patch.pth" = "fair_zenml_patch.pth"
 
 
 [dependency-groups]
@@ -60,18 +78,32 @@ dev = [
     "ty",
     "ruff",
     "pytest>=8.0",
+    "pytest-cov>=6.0",
     "commitizen>=4.1",
     "pre-commit>=4.0",
 ]
 ci = [
     {include-group = "dev"},
 ]
+docs = [
+    "zensical>=0.0.24",
+    "mkdocstrings[python]>=0.29",
+    "mkdocs-section-index>=0.3",
+    "mkdocs-git-revision-date-localized-plugin>=1.4",
+    "mkdocs-git-authors-plugin>=0.9",
+    "mkdocs-glightbox>=0.4",
+]
 local = [
     "zenml[server]>=0.93.3",
 ]
 example = [
+    "onnx>=1.21.0",
+    "onnxscript>=0.6.2",
+    "pyproj>=3.7",
+    "rasterio>=1.4",
     "torch",
     "torchgeo",
+    "ultralytics>=8.4.33",
 ]
 
 [tool.ruff]
@@ -89,6 +121,18 @@ select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+addopts = "--cov=fair --cov-report=term-missing"
+markers = ["slow: marks tests as slow (deselect with '-m \"not slow\"')"]
+
+[tool.coverage.run]
+source = ["fair"]
+omit = ["tests/*"]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+]
 
 [tool.commitizen]
 name = "cz_conventional_commits"
@@ -97,3 +141,6 @@ version_scheme = "semver"
 version_provider = "scm"
 update_changelog_on_bump = true
 major_version_zero = true
+
+[tool.ty.rules]
+unresolved-import = "ignore"

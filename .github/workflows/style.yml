@@ -1,11 +1,26 @@
 name: style & tests
 on:
   push:
-    branches:
-      - master
+    branches: [master]
+    paths:
+      - "fair/**"
+      - "examples/**"
+      - "models/**"
+      - "pyproject.toml"
+      - "uv.lock"
+      - ".github/workflows/style.yml"
   pull_request:
-    branches:
-      - master
+    branches: [master]
+    paths:
+      - "fair/**"
+      - "examples/**"
+      - "models/**"
+      - "pyproject.toml"
+      - "uv.lock"
+      - ".github/workflows/style.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
 defaults:
   run:
     shell: bash
@@ -16,11 +31,12 @@ jobs:
   ruff:
     name: ruff
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Clone repo
         uses: actions/checkout@v4
       - name: Set up uv
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@v8.0.0
         with:
           python-version: "3.13"
           enable-cache: true
@@ -33,11 +49,12 @@ jobs:
   ty:
     name: ty
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Clone repo
         uses: actions/checkout@v4
       - name: Set up uv
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@v8.0.0
         with:
           python-version: "3.13"
           enable-cache: true
@@ -48,30 +65,38 @@ jobs:
   tests:
     name: tests
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - name: Clone repo
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
       - name: Set up uv
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@v8.0.0
         with:
           python-version: "3.13"
           enable-cache: true
       - name: Install dependencies
         run: uv sync --group dev
-      - name: Run pytest
-        run: uv run pytest --tb=short -q
+      - name: Run pytest with coverage
+        run: uv run pytest --tb=short -q --cov=fair --cov-report=term-missing --cov-report=xml:coverage.xml
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: coverage.xml
   build:
     name: build check
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Clone repo
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
       - name: Set up uv
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@v8.0.0
         with:
           python-version: "3.13"
           enable-cache: true

@@ -1,0 +1,10 @@
+# CI-only Kind cluster: single node, no GPU, no nvkind.
+# All workloads (infra + ML pods) run on the control-plane node.
+# Kind automatically removes the control-plane taint for single-node clusters.
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+nodes:
+  - role: control-plane
+    labels:
+      fair.dev/role: infra
+      fair.dev/workload: ml

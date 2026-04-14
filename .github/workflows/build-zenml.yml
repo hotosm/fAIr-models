@@ -1,11 +1,24 @@
 name: build & integration of zenml workflow
 on:
   push:
-    branches:
-      - master
+    branches: [master]
+    paths:
+      - "fair/**"
+      - "examples/**"
+      - "pyproject.toml"
+      - "uv.lock"
+      - ".github/workflows/build-zenml.yml"
   pull_request:
-    branches:
-      - master
+    branches: [master]
+    paths:
+      - "fair/**"
+      - "examples/**"
+      - "pyproject.toml"
+      - "uv.lock"
+      - ".github/workflows/build-zenml.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
 defaults:
   run:
     shell: bash
@@ -16,13 +29,14 @@ jobs:
   example:
     name: example workflow
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - name: Clone repo
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
       - name: Set up uv
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@v8.0.0
         with:
           python-version: "3.13"
           enable-cache: true
@@ -34,15 +48,21 @@ jobs:
           uv run zenml up --blocking &
           sleep 10
           uv run zenml status
-      - name: Run example workflow
-        run: uv run python examples/unet/run.py all
+      - name: Run segmentation example
+        run: uv run python examples/segmentation/run.py all
+      - name: Run classification example
+        run: uv run python examples/classification/run.py all
+      - name: Run detection example
+        run: uv run python examples/detection/run.py all
       - name: Verify artifacts
         run: |
           test -d stac_catalog || { echo "STAC catalog not created"; exit 1; }
-          test -f stac_catalog/base-models/example-unet/example-unet.json || { echo "Base model not registered"; exit 1; }
-          test -f stac_catalog/datasets/buildings-banepa/buildings-banepa.json || { echo "Dataset not registered"; exit 1; }
-          ls -1 stac_catalog/local-models/ | grep -q "example-unet-finetuned-banepa-v" || { echo "Local model not published"; exit 1; }
+          for model in unet-segmentation resnet18-classification yolo11n-detection; do
+            test -f "stac_catalog/base-models/$model/$model.json" || { echo "Base model $model not registered"; exit 1; }
+          done
+          for dataset in buildings-banepa-segmentation buildings-banepa-classification buildings-banepa-detection; do
+            test -f "stac_catalog/datasets/$dataset/$dataset.json" || { echo "Dataset $dataset not registered"; exit 1; }
+          done
+          test -n "$(ls -A stac_catalog/local-models/ 2>/dev/null)" || { echo "No local models published"; exit 1; }
           test -d artifacts || { echo "Artifacts directory not created"; exit 1; }
-          test -d data/sample/predict/predictions || { echo "Predictions directory not created"; exit 1; }
-          test -n "$(find data/sample/predict/predictions -name '*.tif' -o -name '*.png' 2>/dev/null)" || { echo "No prediction files found"; exit 1; }
-          echo "All workflow outputs verified: STAC catalog + artifacts + predictions"
+          echo "All workflow outputs verified: STAC catalog + artifacts"

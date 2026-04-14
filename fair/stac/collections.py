@@ -7,11 +7,12 @@ import pystac
 from pystac import CatalogType
 
 from fair.stac.constants import (
+    BASE_MODEL_EXTENSIONS,
     BASE_MODELS_COLLECTION,
     DATASET_EXTENSIONS,
     DATASETS_COLLECTION,
+    LOCAL_MODEL_EXTENSIONS,
     LOCAL_MODELS_COLLECTION,
-    MODEL_EXTENSIONS,
 )
 
 
@@ -25,7 +26,7 @@ def create_base_models_collection() -> pystac.Collection:
             temporal=pystac.TemporalExtent(intervals=[[datetime(2026, 1, 1, tzinfo=UTC), None]]),
         ),
         license="various",
-        stac_extensions=MODEL_EXTENSIONS,
+        stac_extensions=BASE_MODEL_EXTENSIONS,
     )
 
 
@@ -39,7 +40,7 @@ def create_local_models_collection() -> pystac.Collection:
             temporal=pystac.TemporalExtent(intervals=[[datetime(2026, 1, 1, tzinfo=UTC), None]]),
         ),
         license="various",
-        stac_extensions=MODEL_EXTENSIONS,
+        stac_extensions=LOCAL_MODEL_EXTENSIONS,
     )
 
 

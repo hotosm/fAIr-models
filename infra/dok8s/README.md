@@ -61,9 +61,15 @@ just run-example    # submit all pipelines to cluster
 
 ## Running an example manually
 
-Yes. If you want to submit an example to the remote k8s stack outside `just run-example`, you need the pgstac database credentials exposed through `PGSTAC_DSN`. The client writes STAC records through PostgreSQL and reads through the STAC API.
+Yes. If you want to submit an example to the remote k8s stack outside `just run-example`, your local ZenML client must point to the remote ZenML server and use the remote `dok8s` stack. If you already ran `just up`, the stack was registered for you. If you switched away from it later, switch back before launching the example:
 
-If you leave `FAIR_STAC_API_URL` unset, the client falls back to the local file catalog and `FAIR_DSN` is not required. Make sure the client has access to postgresql ( or it is port forwarded ) as well as aws s3 bucket. 
+```bash
+uv run zenml stack set dok8s
+```
+
+You also need the pgstac database credentials exposed through `FAIR_DSN`. The client writes STAC records through PostgreSQL and reads through the STAC API.
+
+If you leave `FAIR_STAC_API_URL` unset, the client falls back to the local file catalog and `FAIR_DSN` is not required. There is no separate artifact store prefix environment variable: when `FAIR_UPLOAD_ARTIFACTS=true`, uploads use the artifact store configured on the active ZenML stack. Make sure the client has access to PostgreSQL, or that it is port-forwarded, as well as the S3 bucket.
 
 | Variable | Required | Purpose | Example value |
 |---|---|---|---|

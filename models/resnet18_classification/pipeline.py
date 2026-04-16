@@ -26,24 +26,12 @@ def _get_device() -> str:
     return "cpu"
 
 
-def resolve_weights(weight_id: str) -> Path:
-    from torchvision.models import ResNet18_Weights
+def _download_checkpoint(url: str) -> Path:
+    from upath import UPath
 
-    candidate = weight_id.rsplit(".", 1)[-1]
-    try:
-        weights = ResNet18_Weights[candidate]
-    except KeyError:
-        from upath import UPath
-
-        local_path = Path(tempfile.mkdtemp()) / UPath(weight_id).name
-        local_path.write_bytes(UPath(weight_id).read_bytes())
-        return local_path
-
-    import torch
-
-    checkpoint_path = Path(tempfile.mkdtemp()) / "resnet18_pretrained.pth"
-    torch.hub.download_url_to_file(weights.url, str(checkpoint_path))
-    return checkpoint_path
+    local_path = Path(tempfile.mkdtemp()) / UPath(url).name
+    local_path.write_bytes(UPath(url).read_bytes())
+    return local_path
 
 
 def _bounds_to_geo_feature(left, bottom, right, top, crs, properties):
@@ -181,7 +169,7 @@ def train_model(
 ) -> Annotated[Any, "trained_model"]:
     import torch
     import torch.nn as nn
-    from torchvision.models import ResNet18_Weights, resnet18
+    from torchvision.models import resnet18
 
     epochs = hyperparameters["epochs"]
     batch_size = hyperparameters.get("batch_size", 8)
@@ -196,7 +184,10 @@ def train_model(
 
     with mlflow_training_context(hyperparameters, model_name, base_model_id, dataset_id):
         device = _get_device()
-        model = resnet18(weights=ResNet18_Weights.IMAGENET1K_V1)
+        model = resnet18(weights=None)
+        local_path = _download_checkpoint(base_model_weights)
+        state = torch.load(local_path, map_location=device, weights_only=True)
+        model.load_state_dict(state, strict=False)
         if freeze_encoder:
             for param in model.parameters():
                 param.requires_grad = False
@@ -204,8 +195,9 @@ def train_model(
         model.to(device)
 
         all_samples = _load_samples(dataset_chips, dataset_labels)
-        train_samples, _ = _split_samples(all_samples, val_ratio, seed)
-        loader = _build_classification_dataset(train_samples, chip_size, batch_size)
+        train_samples, val_samples = _split_samples(all_samples, val_ratio, seed)
+        train_loader = _build_classification_dataset(train_samples, chip_size, batch_size)
+        val_loader = _build_classification_dataset(val_samples, chip_size, batch_size, shuffle=False)
         criterion = nn.BCEWithLogitsLoss()
         trainable = filter(lambda p: p.requires_grad, model.parameters())
         opt = torch.optim.AdamW(trainable, lr=learning_rate, weight_decay=weight_decay)
@@ -214,11 +206,14 @@ def train_model(
         if scheduler_name == "cosine":
             scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=epochs)
 
+        train_losses: list[float] = []
+        val_losses: list[float] = []
+
         model.train()
         for epoch in range(epochs):
             total_loss = 0.0
             count = 0
-            for batch in loader:
+            for batch in train_loader:
                 images, labels = preprocess(batch)
                 images, labels = images.to(device), labels.to(device)
                 logits = model(images).squeeze(-1)
@@ -231,11 +226,33 @@ def train_model(
                 count += 1
             if scheduler:
                 scheduler.step()
-            avg_loss = total_loss / max(count, 1)
+            avg_train_loss = total_loss / max(count, 1)
+
+            model.eval()
+            val_total = 0.0
+            val_count = 0
+            with torch.no_grad():
+                for batch in val_loader:
+                    images, labels = preprocess(batch)
+                    images, labels = images.to(device), labels.to(device)
+                    logits = model(images).squeeze(-1)
+                    val_total += criterion(logits, labels).item()
+                    val_count += 1
+            avg_val_loss = val_total / max(val_count, 1)
+            model.train()
+
+            train_losses.append(avg_train_loss)
+            val_losses.append(avg_val_loss)
+
             import mlflow
 
-            mlflow.log_metric("train_loss", avg_loss, step=epoch)  # ty: ignore[possibly-missing-attribute]
-            log_metadata(metadata={"loss": avg_loss, "epoch": epoch + 1})
+            mlflow.log_metric("train_loss", avg_train_loss, step=epoch)  # ty: ignore[possibly-missing-attribute]
+            mlflow.log_metric("val_loss", avg_val_loss, step=epoch)  # ty: ignore[possibly-missing-attribute]
+            log_metadata(metadata={"loss": avg_train_loss, "epoch": epoch + 1})
+
+        from fair.zenml.metrics import log_loss_history
+
+        log_loss_history(train_losses, val_losses)
 
     return model.cpu()
 
@@ -288,7 +305,7 @@ def evaluate_model(
 def export_onnx(
     trained_model: Any,
     hyperparameters: dict[str, Any],
-) -> Annotated[str, "onnx_model"]:
+) -> Annotated[bytes, "onnx_model"]:
     import os
     import tempfile
 
@@ -302,17 +319,20 @@ def export_onnx(
     dummy = torch.randn(1, 3, chip_size, chip_size)
     fd, path = tempfile.mkstemp(suffix=".onnx")
     os.close(fd)
-    torch.onnx.export(
-        model,
-        (dummy,),
-        path,
-        input_names=["input"],
-        output_names=["output"],
-        dynamic_axes={"input": {0: "batch"}, "output": {0: "batch"}},
-        opset_version=18,
-    )
-    onnx.checker.check_model(path)
-    return path
+    try:
+        torch.onnx.export(
+            model,
+            (dummy,),
+            path,
+            input_names=["input"],
+            output_names=["output"],
+            dynamic_axes={"input": {0: "batch"}, "output": {0: "batch"}},
+            opset_version=18,
+        )
+        onnx.checker.check_model(path)
+        return Path(path).read_bytes()
+    finally:
+        Path(path).unlink(missing_ok=True)
 
 
 @pipeline
@@ -346,6 +366,23 @@ def training_pipeline(
     export_onnx(trained_model=trained_model, hyperparameters=hyperparameters)
 
 
+@step
+def load_base_model(
+    model_uri: str,
+    num_classes: int,
+) -> Any:
+    import torch
+    import torch.nn as nn
+    from torchvision.models import resnet18
+
+    model = resnet18(weights=None)
+    local_path = _download_checkpoint(model_uri)
+    state = torch.load(local_path, map_location="cpu", weights_only=True)
+    model.load_state_dict(state, strict=False)
+    model.fc = nn.Linear(model.fc.in_features, 1)
+    return model.cpu()
+
+
 @pipeline
 def inference_pipeline(
     model_uri: str,
@@ -353,8 +390,12 @@ def inference_pipeline(
     chip_size: int = 256,
     num_classes: int = 2,
     zenml_artifact_version_id: str = "",
+    use_base_model: bool = False,
 ) -> None:
-    model = load_model(model_uri=model_uri, zenml_artifact_version_id=zenml_artifact_version_id)
+    if use_base_model:
+        model = load_base_model(model_uri=model_uri, num_classes=num_classes)
+    else:
+        model = load_model(model_uri=model_uri, zenml_artifact_version_id=zenml_artifact_version_id)
     classify(model=model, input_images=input_images, chip_size=chip_size)
 
 

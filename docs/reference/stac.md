@@ -30,6 +30,10 @@ STAC catalog management, item builders, validators, and backends.
 
 ::: fair.stac.validators
 
+## Versioning
+
+::: fair.stac.versioning
+
 ## Constants
 
 ::: fair.stac.constants

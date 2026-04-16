@@ -30,6 +30,7 @@ class DatasetItemParams:
     title: str
     description: str
     user_id: str
+    providers: list[dict[str, Any]]
     item_id: str | None = None
     download_href: str | None = None
     thumbnail_href: str | None = None
@@ -40,13 +41,23 @@ class DatasetItemParams:
     version: str = "1"
     deprecated: bool = False
     license_id: str | None = None
-    providers: list[dict[str, Any]] | None = None
     label_properties: list[str] | None = None
     label_description: str | None = None
     label_methods: list[str] | None = None
     source_imagery_href: str | None = None
     self_href: str | None = None
     predecessor_version_href: str | None = None
+
+
+CheckpointArtifactType = Literal[
+    "torch.save",
+    "torch.jit.save",
+    "torch.export.save",
+    "pickle",
+    "tf.keras.Model.save",
+    "tf.keras.Model.save_weights",
+    "tf.keras.Model.export",
+]
 
 
 @dataclass
@@ -62,17 +73,8 @@ class BaseModelItemParams:
     mlm_output: list[dict[str, Any]]
     mlm_hyperparameters: dict[str, Any]
     keywords: list[str]
-    model_href: str
-    model_artifact_type: Literal[
-        "torch.save",
-        "torch.jit.save",
-        "torch.export.save",
-        "onnx",
-        "pickle",
-        "tf.keras.Model.save",
-        "tf.keras.Model.save_weights",
-        "tf.keras.Model.export",
-    ]
+    checkpoint_href: str
+    checkpoint_artifact_type: CheckpointArtifactType
     mlm_pretrained: bool
     mlm_pretrained_source: str | None
     source_code_href: str
@@ -82,13 +84,16 @@ class BaseModelItemParams:
     title: str
     description: str
     fair_metrics_spec: list[dict[str, Any]]
+    providers: list[dict[str, Any]]
+    onnx_href: str | None = None
     readme_href: str = ""
 
 
 @dataclass
 class LocalModelItemParams:
     base_model_item: pystac.Item
-    model_href: str
+    checkpoint_href: str
+    onnx_href: str
     mlm_hyperparameters: dict[str, Any]
     keywords: list[str]
     base_model_href: str
@@ -97,6 +102,7 @@ class LocalModelItemParams:
     title: str
     description: str
     user_id: str
+    providers: list[dict[str, Any]]
     item_id: str | None = None
     mlm_name: str | None = None
     geometry: dict[str, Any] | None = None
@@ -202,6 +208,16 @@ def _slugify(text: str) -> str:
     return re.sub(r"[^a-z0-9_]+", "-", text.lower().strip()).strip("-")
 
 
+def _validate_providers(providers: list[dict[str, Any]]) -> None:
+    if not providers:
+        msg = "providers is required and must be a non-empty list of STAC Provider objects"
+        raise ValueError(msg)
+    for entry in providers:
+        if not isinstance(entry, dict) or not entry.get("name") or not entry.get("roles"):
+            msg = "each provider must be a dict with non-empty 'name' and 'roles'"
+            raise ValueError(msg)
+
+
 def build_dataset_item(
     label_type: Literal["vector", "raster"],
     label_tasks: list[str],
@@ -212,6 +228,7 @@ def build_dataset_item(
     title: str,
     description: str,
     user_id: str,
+    providers: list[dict[str, Any]],
     item_id: str | None = None,
     download_href: str | None = None,
     thumbnail_href: str | None = None,
@@ -222,7 +239,6 @@ def build_dataset_item(
     version: str = "1",
     deprecated: bool = False,
     license_id: str | None = None,
-    providers: list[dict[str, Any]] | None = None,
     label_properties: list[str] | None = None,
     label_description: str | None = None,
     label_methods: list[str] | None = None,
@@ -230,6 +246,8 @@ def build_dataset_item(
     self_href: str | None = None,
     predecessor_version_href: str | None = None,
 ) -> pystac.Item:
+    _validate_providers(providers)
+
     if geometry is None or bbox is None:
         labels_path = Path(labels_href)
         if labels_path.is_dir() or labels_path.suffix.lower() == ".geojson":
@@ -255,6 +273,7 @@ def build_dataset_item(
         "fair:user_id": user_id,
         "version": version,
         "deprecated": deprecated,
+        "providers": providers,
     }
     if chip_count is not None:
         properties["fair:chip_count"] = chip_count
@@ -262,8 +281,6 @@ def build_dataset_item(
         properties["fair:source_imagery"] = source_imagery
     if license_id is not None:
         properties["license"] = license_id
-    if providers is not None:
-        properties["providers"] = providers
     properties["label:description"] = label_description if label_description is not None else description
     if label_methods is not None:
         properties["label:methods"] = label_methods
@@ -350,17 +367,8 @@ def build_base_model_item(
     mlm_output: list[dict[str, Any]],
     mlm_hyperparameters: dict[str, Any],
     keywords: list[str],
-    model_href: str,
-    model_artifact_type: Literal[
-        "torch.save",
-        "torch.jit.save",
-        "torch.export.save",
-        "onnx",
-        "pickle",
-        "tf.keras.Model.save",
-        "tf.keras.Model.save_weights",
-        "tf.keras.Model.export",
-    ],
+    checkpoint_href: str,
+    checkpoint_artifact_type: CheckpointArtifactType,
     mlm_pretrained: bool,
     mlm_pretrained_source: str | None,
     source_code_href: str,
@@ -370,8 +378,11 @@ def build_base_model_item(
     title: str,
     description: str,
     fair_metrics_spec: list[dict[str, Any]],
+    providers: list[dict[str, Any]],
+    onnx_href: str | None = None,
     readme_href: str = "",
 ) -> pystac.Item:
+    _validate_providers(providers)
     bbox = _bbox_from_geometry(geometry)
 
     now = datetime.now(UTC)
@@ -401,19 +412,31 @@ def build_base_model_item(
             "version": "1",
             "deprecated": False,
             "fair:metrics_spec": fair_metrics_spec,
+            "providers": providers,
         },
         stac_extensions=BASE_MODEL_EXTENSIONS,
     )
 
     item.add_asset(
-        "model",
+        "checkpoint",
         pystac.Asset(
-            href=model_href,
+            href=checkpoint_href,
             media_type=f"application/octet-stream; framework={mlm_framework}",
-            roles=["mlm:model"],
-            extra_fields={"mlm:artifact_type": model_artifact_type},
+            roles=["mlm:model", "mlm:weights"],
+            extra_fields={"mlm:artifact_type": checkpoint_artifact_type},
         ),
     )
+    # TODO: enforce ONNX 'model' asset for base-models once all upstreams ship one
+    if onnx_href:
+        item.add_asset(
+            "model",
+            pystac.Asset(
+                href=onnx_href,
+                media_type="application/onnx",
+                roles=["mlm:model"],
+                extra_fields={"mlm:artifact_type": "onnx"},
+            ),
+        )
     item.add_asset(
         "source-code",
         pystac.Asset(
@@ -455,7 +478,8 @@ def build_base_model_item(
 
 def build_local_model_item(
     base_model_item: pystac.Item,
-    model_href: str,
+    checkpoint_href: str,
+    onnx_href: str,
     mlm_hyperparameters: dict[str, Any],
     keywords: list[str],
     base_model_href: str,
@@ -464,6 +488,7 @@ def build_local_model_item(
     title: str,
     description: str,
     user_id: str,
+    providers: list[dict[str, Any]],
     item_id: str | None = None,
     mlm_name: str | None = None,
     geometry: dict[str, Any] | None = None,
@@ -480,7 +505,9 @@ def build_local_model_item(
     dataset_id: str | None = None,
     dataset_title: str | None = None,
     split_info: dict[str, Any] | None = None,
+    training_metrics_href: str | None = None,
 ) -> pystac.Item:
+    _validate_providers(providers)
     geom = geometry if geometry is not None else base_model_item.geometry
     if geom is None:
         msg = "geometry must be provided when base_model_item.geometry is None"
@@ -507,6 +534,7 @@ def build_local_model_item(
         "version": version,
         "deprecated": False,
         "fair:user_id": user_id,
+        "providers": providers,
     }
 
     if base_model_id is not None:
@@ -570,22 +598,41 @@ def build_local_model_item(
     )
     add_version_links(item, self_href, predecessor_version_href)
 
-    for key, asset in base_model_item.assets.items():
-        if key == "model":
-            model_extra = {k: v for k, v in asset.extra_fields.items() if k != "href"}
-            if zenml_artifact_version_id:
-                model_extra["zenml:artifact_version_id"] = zenml_artifact_version_id
-            item.add_asset(
-                "model",
-                pystac.Asset(
-                    href=model_href,
-                    media_type=asset.media_type,
-                    roles=asset.roles,
-                    extra_fields=model_extra,
-                ),
-            )
-        else:
-            item.add_asset(key, asset.clone())
+    base_framework = base_model_item.properties.get("mlm:framework", "PyTorch")
+    base_checkpoint = base_model_item.assets.get("checkpoint")
+    checkpoint_artifact_type = (
+        base_checkpoint.extra_fields.get("mlm:artifact_type", "torch.save") if base_checkpoint else "torch.save"
+    )
+
+    checkpoint_extra: dict[str, Any] = {"mlm:artifact_type": checkpoint_artifact_type}
+    if zenml_artifact_version_id:
+        checkpoint_extra["zenml:artifact_version_id"] = zenml_artifact_version_id
+    item.add_asset(
+        "checkpoint",
+        pystac.Asset(
+            href=checkpoint_href,
+            media_type=f"application/octet-stream; framework={base_framework}",
+            roles=["mlm:model", "mlm:weights"],
+            extra_fields=checkpoint_extra,
+        ),
+    )
+
+    onnx_extra: dict[str, Any] = {"mlm:artifact_type": "onnx"}
+    if zenml_artifact_version_id:
+        onnx_extra["zenml:artifact_version_id"] = zenml_artifact_version_id
+    item.add_asset(
+        "model",
+        pystac.Asset(
+            href=onnx_href,
+            media_type="application/onnx",
+            roles=["mlm:model"],
+            extra_fields=onnx_extra,
+        ),
+    )
+
+    for key in ("source-code", "mlm:training", "mlm:inference"):
+        if key in base_model_item.assets:
+            item.add_asset(key, base_model_item.assets[key].clone())
 
     if thumbnail_href:
         item.add_asset(
@@ -595,6 +642,17 @@ def build_local_model_item(
                 media_type="image/png",
                 roles=["thumbnail"],
                 title="Model thumbnail",
+            ),
+        )
+
+    if training_metrics_href:
+        item.add_asset(
+            "training-metrics",
+            pystac.Asset(
+                href=training_metrics_href,
+                media_type="application/json",
+                roles=["metadata"],
+                title="Per-epoch training metrics",
             ),
         )
 

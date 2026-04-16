@@ -8,7 +8,7 @@ icon: lucide/rocket
 
 !!! info "Required tools"
 
-    - :simple-python: Python 3.12+
+    - :simple-python: Python 3.11+
     - :simple-astral: [uv](https://docs.astral.sh/uv/) (package manager)
     - :simple-docker: Docker (for model runtime containers)
 
@@ -57,26 +57,29 @@ and run inference.
 ### Running All Pipelines
 
 ```bash title="Run all three pipelines"
-just example  # converts labels, then runs segmentation -> classification -> detection
+just example
 ```
 
 ??? example "Running a single example"
 
     ```bash
-    python examples/segmentation/run.py all      # segmentation only
-    python examples/classification/run.py all     # classification only
-    python examples/detection/run.py all          # detection only
+    uv run python examples/segmentation/run.py
+    uv run python examples/classification/run.py
+    uv run python examples/detection/run.py
     ```
 
-??? example "Individual steps (segmentation)"
+??? example "Kubernetes orchestrator run"
 
     ```bash
-    python examples/segmentation/run.py init       # Initialize ZenML + STAC catalog
-    python examples/segmentation/run.py register   # Register base model + dataset
-    python examples/segmentation/run.py finetune   # Train (1 epoch on sample data)
-    python examples/segmentation/run.py promote    # Promote to production + publish STAC
-    python examples/segmentation/run.py predict    # Run inference
+    just k8s
+    just setup
+    cd infra/dev
+    just up
+    just run-example-k8s
     ```
+
+Current example scripts execute the full workflow in one run: setup, register
+base model, register dataset, finetune, promote, and predict.
 
 ### Verifying Results
 
@@ -94,11 +97,13 @@ just example  # converts labels, then runs segmentation -> classification -> det
 ```text
 fair/                  # Core library (pip-installable as fair-py-ops)
   stac/                # STAC catalog management, builders, validators
-  utils/               # Data helpers, model validation
+  utils/               # Data helpers
   zenml/               # ZenML config generation, promotion, steps
 models/                # Base model contributions (one subdir per model)
 examples/              # CLI runners for local development
-infra/dev/             # Kind cluster Helm values for K8s dev stack
+infra/ci/              # Kind cluster config for CI integration tests
+infra/dev/             # Helmfile stack for local Kubernetes dev
+infra/dok8s/           # OpenTofu config for the DigitalOcean deployment
 tests/                 # pytest suite
 ```
 

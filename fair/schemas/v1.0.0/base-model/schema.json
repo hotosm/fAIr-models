@@ -39,7 +39,8 @@
                     "version",
                     "license",
                     "fair:metrics_spec",
-                    "fair:split_spec"
+                    "fair:split_spec",
+                    "providers"
                   ]
                 },
                 {
@@ -50,21 +51,22 @@
             "assets": {
               "type": "object",
               "required": [
-                "model",
+                "checkpoint",
                 "source-code",
                 "mlm:training",
                 "mlm:inference"
               ],
               "properties": {
-                "model": {
+                "checkpoint": {
                   "type": "object",
                   "required": [
-                    "href"
+                    "href",
+                    "mlm:artifact_type"
                   ],
                   "properties": {
                     "href": {
                       "type": "string",
-                      "minLength": 1
+                      "pattern": "^https?://"
                     },
                     "mlm:artifact_type": {
                       "type": "string",
@@ -72,11 +74,29 @@
                         "torch.save",
                         "torch.jit.save",
                         "torch.export.save",
-                        "onnx",
                         "pickle",
                         "tf.keras.Model.save",
                         "tf.keras.Model.save_weights",
                         "tf.keras.Model.export"
+                      ]
+                    }
+                  }
+                },
+                "model": {
+                  "type": "object",
+                  "required": [
+                    "href",
+                    "mlm:artifact_type"
+                  ],
+                  "properties": {
+                    "href": {
+                      "type": "string",
+                      "pattern": "^https?://"
+                    },
+                    "mlm:artifact_type": {
+                      "type": "string",
+                      "enum": [
+                        "onnx"
                       ]
                     }
                   }
@@ -316,6 +336,37 @@
             "Apache-2.0",
             "BSD-3-Clause"
           ]
+        },
+        "providers": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": [
+              "name",
+              "roles"
+            ],
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 1
+              },
+              "roles": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "string"
+                }
+              },
+              "url": {
+                "type": "string",
+                "format": "uri"
+              },
+              "description": {
+                "type": "string"
+              }
+            }
+          }
         }
       },
       "patternProperties": {

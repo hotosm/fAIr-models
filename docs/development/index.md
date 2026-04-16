@@ -25,7 +25,7 @@ Guides for developing and testing fAIr Models locally and on Kubernetes.
         ```bash
         just k8s && just setup  # install k8s extras + check CLI tools
         cd infra/dev && just up
-        just example
+        just run-example-k8s
         ```
 
         See [Kubernetes Dev Stack](k8s.md) for the full guide.

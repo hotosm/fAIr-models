@@ -39,7 +39,8 @@
                     "keywords",
                     "version",
                     "deprecated",
-                    "fair:user_id"
+                    "fair:user_id",
+                    "providers"
                   ]
                 },
                 {
@@ -51,21 +52,54 @@
               "type": "object",
               "required": [
                 "model",
+                "checkpoint",
                 "source-code"
               ],
               "properties": {
                 "model": {
                   "type": "object",
                   "required": [
-                    "href"
+                    "href",
+                    "mlm:artifact_type"
                   ],
                   "properties": {
                     "href": {
                       "type": "string",
-                      "minLength": 1
+                      "pattern": "^https?://"
                     },
                     "mlm:artifact_type": {
+                      "type": "string",
+                      "enum": [
+                        "onnx"
+                      ]
+                    },
+                    "zenml:artifact_version_id": {
                       "type": "string"
+                    }
+                  }
+                },
+                "checkpoint": {
+                  "type": "object",
+                  "required": [
+                    "href",
+                    "mlm:artifact_type"
+                  ],
+                  "properties": {
+                    "href": {
+                      "type": "string",
+                      "pattern": "^https?://"
+                    },
+                    "mlm:artifact_type": {
+                      "type": "string",
+                      "enum": [
+                        "torch.save",
+                        "torch.jit.save",
+                        "torch.export.save",
+                        "pickle",
+                        "tf.keras.Model.save",
+                        "tf.keras.Model.save_weights",
+                        "tf.keras.Model.export"
+                      ]
                     },
                     "zenml:artifact_version_id": {
                       "type": "string"
@@ -83,6 +117,18 @@
                       "minLength": 1
                     },
                     "mlm:entrypoint": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  }
+                },
+                "training-metrics": {
+                  "type": "object",
+                  "required": [
+                    "href"
+                  ],
+                  "properties": {
+                    "href": {
                       "type": "string",
                       "minLength": 1
                     }
@@ -216,6 +262,37 @@
         },
         "deprecated": {
           "type": "boolean"
+        },
+        "providers": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": [
+              "name",
+              "roles"
+            ],
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 1
+              },
+              "roles": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "string"
+                }
+              },
+              "url": {
+                "type": "string",
+                "format": "uri"
+              },
+              "description": {
+                "type": "string"
+              }
+            }
+          }
         }
       },
       "patternProperties": {

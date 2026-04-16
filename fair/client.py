@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import dataclasses
 import importlib
+import logging
 import subprocess
 import sys
 from pathlib import Path
@@ -21,14 +22,22 @@ from fair.stac.builders import (
 from fair.stac.catalog_manager import StacCatalogManager
 from fair.stac.collections import initialize_catalog
 from fair.stac.constants import BASE_MODELS_COLLECTION, DATASETS_COLLECTION, LOCAL_MODELS_COLLECTION
-from fair.stac.validators import validate_compatibility, validate_item
+from fair.stac.validators import validate_compatibility, validate_item, validate_model_asset_urls
 from fair.stac.versioning import archive_previous_version, find_previous_active_item
-from fair.utils.data import count_chips, create_dataset_archive, upload_item_assets, upload_local_directory
+from fair.utils.data import (
+    count_chips,
+    create_dataset_archive,
+    s3_uri_to_http_url,
+    upload_item_assets,
+    upload_local_directory,
+)
 from fair.zenml.config import generate_inference_config, generate_training_config
 from fair.zenml.promotion import promote_model_version, publish_promoted_model
 
 if TYPE_CHECKING:
     from fair.stac.pgstac_backend import PgStacBackend
+
+logger = logging.getLogger(__name__)
 
 _DEFAULT_CATALOG_PATH = "stac_catalog/catalog.json"
 
@@ -74,6 +83,19 @@ class FairClient:
         if prefix:
             upload_item_assets(item, prefix, collection_id)
 
+    def _dataset_providers_from_properties(self, props: dict[str, Any], item_id: str) -> list[dict[str, Any]]:
+        raw_providers = props.get("providers")
+        if not isinstance(raw_providers, list) or not raw_providers:
+            raise FairClientError(f"Dataset item '{item_id}' must define a non-empty 'providers' list")
+
+        providers: list[dict[str, Any]] = []
+        for raw_provider in raw_providers:
+            if not isinstance(raw_provider, dict):
+                raise FairClientError(f"Dataset item '{item_id}' has an invalid provider entry")
+            providers.append(raw_provider)
+
+        return providers
+
     def _get_backend(self) -> StacCatalogManager | PgStacBackend:
         if self._stac_api_url:
             from fair.stac.pgstac_backend import PgStacBackend
@@ -93,25 +115,30 @@ class FairClient:
             raise FairClientError(f"Cannot determine pipeline module from entrypoint '{entrypoint}'")
         return module
 
-    def _resolve_base_model_weights(self, item: pystac.Item) -> None:
-        model_asset = item.assets.get("model")
-        if model_asset is None:
-            return
-        if "://" in model_asset.href:
-            return
-        if Path(model_asset.href).is_file():
-            return
+    def _mirror_asset_to_artifact_store(
+        self,
+        item: pystac.Item,
+        asset_key: str,
+        collection_id: str,
+    ) -> None:
+        from upath import UPath
 
-        module_path = self._pipeline_module_from_item(item)
-        mod = importlib.import_module(module_path)
-        resolver = getattr(mod, "resolve_weights", None)
-        if resolver is None:
+        asset = item.assets.get(asset_key)
+        if asset is None:
+            return
+        prefix = self._artifact_store_prefix()
+        if not prefix:
             raise FairClientError(
-                f"Pipeline module '{module_path}' has no resolve_weights function "
-                f"but model asset href '{model_asset.href}' is not a URL or local file"
+                "Artifact store prefix is not configured but upload_artifacts=True; cannot mirror upstream assets."
             )
-        checkpoint = resolver(model_asset.href)
-        model_asset.href = str(checkpoint)
+
+        source_url = asset.href
+        filename = UPath(source_url).name or f"{asset_key}.bin"
+        remote_path = f"{prefix}/{collection_id}/{item.id}/{asset_key}/{filename}"
+
+        logger.info("Mirroring %s -> %s", source_url, remote_path)
+        UPath(remote_path).write_bytes(UPath(source_url).read_bytes())
+        asset.href = s3_uri_to_http_url(remote_path)
 
     def setup(self) -> None:
         zenml_bin = Path(sys.executable).parent / "zenml"
@@ -129,6 +156,8 @@ class FairClient:
             item = build_base_model_item(**dataclasses.asdict(stac_item))
         if errs := validate_item(item):
             raise FairClientError(f"Schema validation failed: {errs}")
+        if errs := validate_model_asset_urls(item, required_keys=("checkpoint",), optional_keys=("model",)):
+            raise FairClientError(f"Asset URL validation failed: {errs}")
 
         prev = find_previous_active_item(cat, BASE_MODELS_COLLECTION, "mlm:name", item.properties.get("mlm:name"))
         if prev:
@@ -137,8 +166,13 @@ class FairClient:
         else:
             item.properties.setdefault("version", "1")
 
+        # TODO: enforce ONNX 'model' asset for base-models once all upstreams ship one
         if self._upload_artifacts:
-            self._resolve_base_model_weights(item)
+            self._mirror_asset_to_artifact_store(item, "checkpoint", BASE_MODELS_COLLECTION)
+            if "model" in item.assets:
+                self._mirror_asset_to_artifact_store(item, "model", BASE_MODELS_COLLECTION)
+            if errs := validate_model_asset_urls(item, required_keys=("checkpoint",), optional_keys=("model",)):
+                raise FairClientError(f"Mirrored asset URL validation failed: {errs}")
         self._upload_assets_if_remote(item, BASE_MODELS_COLLECTION)
 
         if prev:
@@ -171,6 +205,7 @@ class FairClient:
         label_tasks = props.get("label:tasks", [])
         label_classes = props.get("label:classes", [])
         keywords = props.get("keywords", [])
+        providers = self._dataset_providers_from_properties(props, item.id)
 
         label_properties = props.get("label:properties")
         source_imagery_href = next((lnk.get_href() for lnk in item.links if lnk.rel == "source"), None)
@@ -202,7 +237,7 @@ class FairClient:
             bbox=item.bbox,
             version=version,
             license_id=props.get("license"),
-            providers=props.get("providers"),
+            providers=providers,
             label_properties=label_properties,
             label_description=props.get("label:description"),
             label_methods=props.get("label:methods"),
@@ -350,6 +385,7 @@ class FairClient:
             dataset_item_id=resolved_dataset_id,
             user_id=self.user_id,
             description=description or f"{model_name} finetuned on {resolved_dataset_id}",
+            artifact_store_prefix=self._artifact_store_prefix() if self._upload_artifacts else None,
         )
         print(f"promote: {item.id}")
         return item.id

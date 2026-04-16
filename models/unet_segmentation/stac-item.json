@@ -68,6 +68,17 @@
         "license": "AGPL-3.0-only",
         "version": "1",
         "deprecated": false,
+        "providers": [
+            {
+                "name": "HOTOSM",
+                "roles": [
+                    "producer",
+                    "host"
+                ],
+                "url": "https://www.hotosm.org",
+                "description": "Humanitarian OpenStreetMap Team"
+            }
+        ],
         "fair:metrics_spec": [
             {
                 "key": "fair:accuracy",
@@ -247,7 +258,7 @@
                 "default": "CrossEntropyLoss",
                 "values": [
                     "CrossEntropyLoss",
-                    "FocalLoss"
+                    "BCEWithLogitsLoss"
                 ],
                 "description": "Loss function for training"
             },
@@ -294,12 +305,13 @@
         ]
     },
     "assets": {
-        "model": {
-            "href": "torchgeo.models.Unet_Weights.OAM_RGB_RESNET34_TCD",
-            "title": "Pretrained weights (torchgeo enum reference, not a URL)",
+        "checkpoint": {
+            "href": "https://hf.co/isaaccorley/unet_resnet34_oam_rgb_tcd/resolve/40c914bbcbe43a6a87c81adb0a22ff2d4a53204d/unet_resnet34_oam_rgb_tcd-9472042e.pth",
+            "title": "Pretrained weights (OAM-TCD UNet ResNet34)",
             "type": "application/octet-stream; framework=pytorch",
             "roles": [
-                "mlm:model"
+                "mlm:model",
+                "mlm:weights"
             ],
             "mlm:artifact_type": "torch.save",
             "raster:bands": [

@@ -48,34 +48,12 @@ def _build_feature_collection(features):
     return {"type": "FeatureCollection", "features": features}
 
 
-def _resolve_weights(weight_id: str) -> Any:
-    if "://" in weight_id:
-        return None
-
-    from torchgeo.models import Unet_Weights
-
-    candidate = weight_id.rsplit(".", 1)[-1]  # TODO : this is not good example , need to find better solution
-    try:
-        return Unet_Weights[candidate]
-    except KeyError:
-        return None
-
-
-def _download_s3(uri: str) -> Path:
+def _download_checkpoint(url: str) -> Path:
     from upath import UPath
 
-    local_path = Path(tempfile.mkdtemp()) / UPath(uri).name
-    local_path.write_bytes(UPath(uri).read_bytes())
+    local_path = Path(tempfile.mkdtemp()) / UPath(url).name
+    local_path.write_bytes(UPath(url).read_bytes())
     return local_path
-
-
-def resolve_weights(weight_id: str) -> Path:
-    import torch
-
-    weights = _resolve_weights(weight_id)
-    checkpoint_path = Path(tempfile.mkdtemp()) / "unet_pretrained.pth"
-    torch.hub.download_url_to_file(weights.url, str(checkpoint_path))
-    return checkpoint_path
 
 
 def preprocess(batch: dict[str, Any]) -> tuple[Any, Any]:
@@ -221,28 +199,35 @@ def train_model(
     seed = split_info["seed"]
 
     with mlflow_training_context(hyperparameters, model_name, base_model_id, dataset_id):
-        device = _get_device()
-        resolved = _resolve_weights(base_model_weights)
-        model = unet(weights=resolved, classes=num_classes)
-        if resolved is None:
-            import torch
+        import torch
 
-            local_path = _download_s3(base_model_weights)
-            state = torch.load(local_path, map_location=device, weights_only=True)
-            model.load_state_dict(state, strict=False)
+        device = _get_device()
+        model = unet(weights=None, classes=num_classes)
+        local_path = _download_checkpoint(base_model_weights)
+        state = torch.load(local_path, map_location=device, weights_only=True)
+        model.load_state_dict(state, strict=False)
         model.to(device)
         if freeze_encoder:
             encoder = getattr(model, "encoder", None)
             if encoder is not None:
                 for param in encoder.parameters():
                     param.requires_grad = False
-        loader = _build_dataset(
+        train_loader = _build_dataset(
             dataset_chips,
             dataset_labels,
             chip_size,
             length=samples_per_epoch,
             batch_size=batch_size,
             split="train",
+            seed=seed,
+        )
+        val_loader = _build_dataset(
+            dataset_chips,
+            dataset_labels,
+            chip_size,
+            length=samples_per_epoch,
+            batch_size=batch_size,
+            split="val",
             seed=seed,
         )
 
@@ -258,18 +243,40 @@ def train_model(
         if scheduler_name == "cosine":
             scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=epochs)
 
+        train_losses: list[float] = []
+        val_losses: list[float] = []
+
         model.train()
         for epoch in range(epochs):
             total_loss = 0.0
-            for batch in loader:
+            for batch in train_loader:
                 total_loss += _train_step(model, batch, criterion, opt, device, max_grad_norm)
             if scheduler:
                 scheduler.step()
-            avg_loss = total_loss / len(loader)
+            avg_train_loss = total_loss / len(train_loader)
+
+            model.eval()
+            val_total = 0.0
+            with torch.no_grad():
+                for batch in val_loader:
+                    images, masks = preprocess(batch)
+                    images, masks = images.to(device), masks.to(device)
+                    val_total += criterion(model(images), masks).item()
+            avg_val_loss = val_total / max(len(val_loader), 1)
+            model.train()
+
+            train_losses.append(avg_train_loss)
+            val_losses.append(avg_val_loss)
+
             import mlflow
 
-            mlflow.log_metric("train_loss", avg_loss, step=epoch)  # ty: ignore[possibly-missing-attribute]
-            log_metadata(metadata={"loss": avg_loss, "epoch": epoch + 1})
+            mlflow.log_metric("train_loss", avg_train_loss, step=epoch)  # ty: ignore[possibly-missing-attribute]
+            mlflow.log_metric("val_loss", avg_val_loss, step=epoch)  # ty: ignore[possibly-missing-attribute]
+            log_metadata(metadata={"loss": avg_train_loss, "epoch": epoch + 1})
+
+        from fair.zenml.metrics import log_loss_history
+
+        log_loss_history(train_losses, val_losses)
 
     return model.cpu()
 
@@ -332,9 +339,14 @@ def load_base_model(
     model_uri: str,
     num_classes: int,
 ) -> Any:
+    import torch
     from torchgeo.models import unet
 
-    return unet(weights=_resolve_weights(model_uri), classes=num_classes).cpu()
+    model = unet(weights=None, classes=num_classes)
+    local_path = _download_checkpoint(model_uri)
+    state = torch.load(local_path, map_location="cpu", weights_only=True)
+    model.load_state_dict(state, strict=False)
+    return model.cpu()
 
 
 @step
@@ -384,7 +396,7 @@ def export_onnx(
     trained_model: Any,
     hyperparameters: dict[str, Any],
     num_classes: int = 2,
-) -> Annotated[str, "onnx_model"]:
+) -> Annotated[bytes, "onnx_model"]:
     import os
     import tempfile
 
@@ -398,17 +410,20 @@ def export_onnx(
     dummy = torch.randn(1, 3, chip_size, chip_size)
     fd, path = tempfile.mkstemp(suffix=".onnx")
     os.close(fd)
-    torch.onnx.export(
-        model,
-        (dummy,),
-        path,
-        input_names=["input"],
-        output_names=["output"],
-        dynamic_axes={"input": {0: "batch"}, "output": {0: "batch"}},
-        opset_version=18,
-    )
-    onnx.checker.check_model(path)
-    return path
+    try:
+        torch.onnx.export(
+            model,
+            (dummy,),
+            path,
+            input_names=["input"],
+            output_names=["output"],
+            dynamic_axes={"input": {0: "batch"}, "output": {0: "batch"}},
+            opset_version=18,
+        )
+        onnx.checker.check_model(path)
+        return Path(path).read_bytes()
+    finally:
+        Path(path).unlink(missing_ok=True)
 
 
 @pipeline

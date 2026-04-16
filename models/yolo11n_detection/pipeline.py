@@ -6,6 +6,7 @@ Pretrained backbone: Ultralytics YOLOv11n COCO.
 
 import hashlib
 import json
+import random
 import shutil
 import tempfile
 from pathlib import Path
@@ -27,16 +28,45 @@ def _get_device() -> str:
     return "cpu"
 
 
-def resolve_weights(weight_id: str) -> Path:
-    from ultralytics import YOLO
+def _download_checkpoint(url: str) -> Path:
+    from upath import UPath
 
-    checkpoint_dir = Path(tempfile.mkdtemp())
-    # YOLO() auto-downloads pretrained weights if not found locally
-    model = YOLO(weight_id)
-    filename = Path(weight_id).name if "://" not in weight_id else weight_id.rsplit("/", 1)[-1]
-    checkpoint_path = checkpoint_dir / filename
-    model.save(str(checkpoint_path))
-    return checkpoint_path
+    local_path = Path(tempfile.mkdtemp()) / UPath(url).name
+    local_path.write_bytes(UPath(url).read_bytes())
+    return local_path
+
+
+def _log_yolo_loss_history(model: Any) -> None:
+    import csv
+
+    from fair.zenml.metrics import log_loss_history
+
+    save_dir = getattr(model.trainer, "save_dir", None) if hasattr(model, "trainer") else None
+    if save_dir is None:
+        return
+    results_csv = Path(save_dir) / "results.csv"
+    if not results_csv.exists():
+        return
+
+    train_losses: list[float] = []
+    val_losses: list[float] = []
+    with results_csv.open() as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            stripped = {k.strip(): v.strip() for k, v in row.items()}
+            train_loss = stripped.get("train/box_loss")
+            val_loss = stripped.get("val/box_loss")
+            if train_loss is not None and val_loss is not None:
+                train_losses.append(float(train_loss))
+                val_losses.append(float(val_loss))
+
+    if train_losses:
+        import mlflow
+
+        for epoch, (tl, vl) in enumerate(zip(train_losses, val_losses, strict=True)):
+            mlflow.log_metric("train_loss", tl, step=epoch)  # ty: ignore[possibly-missing-attribute]
+            mlflow.log_metric("val_loss", vl, step=epoch)  # ty: ignore[possibly-missing-attribute]
+        log_loss_history(train_losses, val_losses)
 
 
 def _pixel_bbox_to_geo_feature(bbox_xyxy, transform, crs, properties):
@@ -75,6 +105,20 @@ def _restore_checkpoint(trained_model: Any):
     return YOLO(trained_model)
 
 
+def preprocess(image_path: Any, chip_size: int = 640) -> Any:
+    import numpy as np
+    import rasterio
+    import torch
+    import torch.nn.functional as F
+
+    with rasterio.open(image_path) as src:
+        arr = src.read([1, 2, 3]).astype(np.float32) / 255.0
+    tensor = torch.from_numpy(arr).unsqueeze(0)
+    if tensor.shape[-2:] != (chip_size, chip_size):
+        tensor = F.interpolate(tensor, size=(chip_size, chip_size), mode="bilinear", align_corners=False)
+    return tensor
+
+
 def postprocess(results: Any) -> list[dict[str, Any]]:
     detections: list[dict[str, Any]] = []
     for result in results:
@@ -99,6 +143,7 @@ def _prepare_yolo_dataset(
     coco_json_path: str,
     chip_size: int,
     val_ratio: float = 0.2,
+    seed: int = 42,
 ) -> tuple[Path, int, int]:
     from fair.utils.data import resolve_directory, resolve_path
 
@@ -127,6 +172,8 @@ def _prepare_yolo_dataset(
         (yolo_dir / "labels" / split).mkdir(parents=True)
 
     available_ids = [img_id for img_id, fn in img_id_to_name.items() if (local_chips / fn).exists()]
+    rng = random.Random(seed)
+    rng.shuffle(available_ids)
     val_count = max(1, int(len(available_ids) * val_ratio))
     val_ids = set(available_ids[-val_count:])
 
@@ -162,16 +209,17 @@ def split_dataset(
 ) -> Annotated[dict[str, Any], "split_info"]:
     val_ratio = hyperparameters.get("val_ratio", 0.2)
     chip_size = hyperparameters.get("chip_size", 640)
+    seed = hyperparameters.get("split_seed", 42)
 
-    yolo_dir, train_count, val_count = _prepare_yolo_dataset(dataset_chips, dataset_labels, chip_size, val_ratio)
+    yolo_dir, train_count, val_count = _prepare_yolo_dataset(dataset_chips, dataset_labels, chip_size, val_ratio, seed)
 
     split_info = {
         "strategy": "random",
         "val_ratio": val_ratio,
-        "seed": 0,
+        "seed": seed,
         "train_count": train_count,
         "val_count": val_count,
-        "description": f"Last {val_ratio:.0%} of sorted image IDs held out for validation",
+        "description": f"Seeded random shuffle of image IDs, last {val_ratio:.0%} held out for validation",
         "_yolo_dir": str(yolo_dir),
     }
     log_metadata(metadata={"fair/split": {k: v for k, v in split_info.items() if not k.startswith("_")}})
@@ -209,13 +257,15 @@ def train_model(
 
     yolo_settings.update({"mlflow": False})
 
+    local_weights = _download_checkpoint(base_model_weights)
+
     with mlflow_training_context(
         hyperparameters,
         model_name,
         base_model_id,
         dataset_id,
     ):
-        model = YOLO(base_model_weights)
+        model = YOLO(str(local_weights))
         results = model.train(
             data=str(yolo_dir / "data.yaml"),
             epochs=epochs,
@@ -229,6 +279,8 @@ def train_model(
         )
         if results and hasattr(results, "results_dict"):
             log_metadata(metadata={"loss": results.results_dict.get("train/box_loss", 0.0), "epoch": epochs})
+
+        _log_yolo_loss_history(model)
 
     saved_path = Path(tempfile.mkdtemp()) / "best.pt"
     model.save(str(saved_path))
@@ -269,13 +321,16 @@ def evaluate_model(
 
 
 @step
-def export_onnx(trained_model: Any) -> Annotated[str, "onnx_model"]:
+def export_onnx(trained_model: Any) -> Annotated[bytes, "onnx_model"]:
     import onnx
 
     model = _restore_checkpoint(trained_model)
     onnx_path = model.export(format="onnx")
     onnx.checker.check_model(onnx_path)
-    return onnx_path
+    try:
+        return Path(onnx_path).read_bytes()
+    finally:
+        Path(onnx_path).unlink(missing_ok=True)
 
 
 @step
@@ -299,7 +354,8 @@ def detect(
 
     all_features: list[dict[str, Any]] = []
     for img_path in img_paths:
-        results = yolo_model(str(img_path), imgsz=chip_size, verbose=False)
+        tensor = preprocess(img_path, chip_size)
+        results = yolo_model(tensor, verbose=False)
         with rasterio.open(img_path) as src:
             img_transform = src.transform
             crs = src.crs
@@ -351,6 +407,15 @@ def training_pipeline(
     export_onnx(trained_model=trained_model)
 
 
+@step
+def load_base_model(
+    model_uri: str,
+    num_classes: int,
+) -> Any:
+    checkpoint = _download_checkpoint(model_uri)
+    return checkpoint.read_bytes()
+
+
 @pipeline
 def inference_pipeline(
     model_uri: str,
@@ -358,6 +423,10 @@ def inference_pipeline(
     chip_size: int = 640,
     num_classes: int = 1,
     zenml_artifact_version_id: str = "",
+    use_base_model: bool = False,
 ) -> None:
-    model = load_model(model_uri=model_uri, zenml_artifact_version_id=zenml_artifact_version_id)
+    if use_base_model:
+        model = load_base_model(model_uri=model_uri, num_classes=num_classes)
+    else:
+        model = load_model(model_uri=model_uri, zenml_artifact_version_id=zenml_artifact_version_id)
     detect(model=model, input_images=input_images, chip_size=chip_size)

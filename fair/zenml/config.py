@@ -153,9 +153,9 @@ def generate_training_config(
     chips_href = http_url_to_s3_uri(chips_asset.href)
     labels_href = http_url_to_s3_uri(labels_asset.href)
 
-    model_asset = base_model_item.assets.get("model")
-    if model_asset is None:
-        msg = f"Base model item '{base_model_item.id}' missing 'model' asset"
+    checkpoint_asset = base_model_item.assets.get("checkpoint")
+    if checkpoint_asset is None:
+        msg = f"Base model item '{base_model_item.id}' missing 'checkpoint' asset"
         raise KeyError(msg)
 
     hyperparams.update(input_spec)
@@ -163,7 +163,7 @@ def generate_training_config(
         hyperparams.update(overrides)
 
     parameters: dict[str, Any] = {
-        "base_model_weights": http_url_to_s3_uri(model_asset.href),
+        "base_model_weights": http_url_to_s3_uri(checkpoint_asset.href),
         "dataset_chips": chips_href,
         "dataset_labels": labels_href,
         "hyperparameters": hyperparams,
@@ -235,14 +235,14 @@ def generate_inference_config(
     props = model_item.properties
     input_spec = _extract_input_spec(props.get("mlm:input", []))
 
-    model_asset = model_item.assets.get("model")
-    if model_asset is None:
-        msg = f"Model item '{model_item.id}' missing 'model' asset"
+    checkpoint_asset = model_item.assets.get("checkpoint")
+    if checkpoint_asset is None:
+        msg = f"Model item '{model_item.id}' missing 'checkpoint' asset"
         raise KeyError(msg)
-    zenml_art_id = model_asset.extra_fields.get("zenml:artifact_version_id")
+    zenml_art_id = checkpoint_asset.extra_fields.get("zenml:artifact_version_id")
 
     parameters: dict[str, Any] = {
-        "model_uri": http_url_to_s3_uri(model_asset.href),
+        "model_uri": http_url_to_s3_uri(checkpoint_asset.href),
         "input_images": http_url_to_s3_uri(input_images_path),
         **input_spec,
     }

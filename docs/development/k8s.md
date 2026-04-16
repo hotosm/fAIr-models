@@ -38,14 +38,14 @@ just run-example-k8s   # E2E with k8s orchestrator (from infra/dev)
 
 ### Verifying results
 
-!!! success "After `just run-example` completes, inspect outputs at"
+!!! success "After `just example` or `just run-example-k8s` completes, inspect outputs at"
 
     | What | URL |
     |------|-----|
     | ZenML dashboard (pipelines, steps, artifacts) | <http://localhost:8080> (login: `default` / empty password) |
     | STAC collections (registered & promoted models) | <http://localhost:8082/collections> |
     | MLflow experiments (training metrics, model registry) | <http://localhost:5000> |
-    | MinIO browser (raw S3 objects) | <http://localhost:9000> (login: `minioadmin` / `minioadmin`) |
+    | MinIO browser (raw S3 objects) | <http://localhost:9001> (login: `minioadmin` / `minioadmin`) |
 
 ### ZenML Stacks
 
@@ -58,7 +58,7 @@ just run-example-k8s   # E2E with k8s orchestrator (from infra/dev)
     | **Orchestrator** | `default` (local process) |
     | **S3 Endpoint** | `localhost:9000` |
     | **MLflow** | `localhost:5000` |
-    | **Use** | Local runs via port-forward (`just run-example`) |
+    | **Use** | Local runs via port-forward (`just example`) |
 
 === ":lucide-container: k8s"
 
@@ -89,7 +89,8 @@ postgres (PG 17 + PostGIS)           zenml (ghcr.io/hotosm/zenml-postgres:0.93.3
     |----------|-----------------|-----------------------------|
     | ZenML    | localhost:8080  | zenml.fair.svc:80           |
     | STAC API | localhost:8082  | stac-stac.fair.svc:8080     |
-    | MinIO    | localhost:9000  | minio.fair.svc:9000         |
+    | MinIO API | localhost:9000  | minio.fair.svc:9000         |
+    | MinIO Console | localhost:9001  | minio-console.fair.svc:9001 |
     | MLflow   | localhost:5000  | mlflow.fair.svc:80          |
     | Postgres | localhost:5432  | postgres.fair.svc:5432      |
 
@@ -116,7 +117,7 @@ Follow the [nvkind prerequisites and setup guide](https://github.com/NVIDIA/nvki
 ### Label domain
 
 Node labels and taints use the `fair.dev` prefix (hardcoded in all dev/CI config files).
-For production (dok8s), the label domain comes from `FAIR_DOMAIN` in `.env`.
+For production (dok8s), the label domain comes from the `domain` OpenTofu variable in `infra/dok8s/terraform.tfvars` (exposed as the `fair_domain` output and consumed by the `infra/dok8s/justfile` recipes).
 
 The runtime default in `fair/zenml/config.py` can be overridden via `FAIR_LABEL_DOMAIN` env var.
 
@@ -141,9 +142,9 @@ The runtime default in `fair/zenml/config.py` can be overridden via `FAIR_LABEL_
     mature Helm chart, ZenML first-class `--flavor=mlflow` support. W&B self-hosted
     requires MySQL + Redis + commercial license.
 
-    **eoAPI for STAC** : Production deploys eoAPI at `stac.ai.hotosm.org`
-    (`k8s-infra/apps/fair/eoapi/values.yaml`). Dev uses the same chart (v0.12.0)
-    with `external-plaintext` DB.
+    **eoAPI for STAC** : Dev uses the upstream eoAPI chart from
+    `https://devseed.com/eoapi-k8s/` (`eoapi/eoapi`, pinned to `0.12.2` in
+    `infra/dev/helmfile.yaml`) with `external-plaintext` DB.
 
     **ZenML Postgres patch** : OSS ZenML only supports MySQL/SQLite. The patched server
     image at [`ghcr.io/hotosm/zenml-postgres`](https://github.com/hotosm/fAIr/tree/develop/infra/zenml)
@@ -165,19 +166,6 @@ The runtime default in `fair/zenml/config.py` can be overridden via `FAIR_LABEL_
     **GPU scheduling from STAC metadata** : `mlm:accelerator` and `mlm:accelerator_count`
     in `stac-item.json` drive `nvidia.com/gpu` resource requests. `config.py` reads these
     and emits pod settings only when the orchestrator is Kubernetes.
-
-## Dev -> Prod delta
-
-!!! info "Environment comparison"
-
-    | Dev (kind)            | Prod (EKS)                            |
-    |-----------------------|---------------------------------------|
-    | PG StatefulSet        | CloudNativePG cluster                 |
-    | MinIO                 | AWS S3                                |
-    | eoAPI dev values      | `k8s-infra/apps/fair/eoapi/values.yaml` |
-    | ZenML Helm (same OCI) | TBF               |
-    | MLflow dev values     | TBF           |
-    | kind kubeconfig       | TBF                        |
 
 ## Known issues
 

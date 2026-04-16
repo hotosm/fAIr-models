@@ -8,7 +8,8 @@ _ZENML_PREFIX = "fair/"
 _STAC_PREFIX = "fair:"
 _WALL_TIME_KEY = f"{_ZENML_PREFIX}training_wall_seconds"
 _SPLIT_KEY = f"{_ZENML_PREFIX}split"
-_NON_METRIC_KEYS = frozenset({_WALL_TIME_KEY, _SPLIT_KEY})
+_LOSS_HISTORY_KEY = f"{_ZENML_PREFIX}loss_history"
+_NON_METRIC_KEYS = frozenset({_WALL_TIME_KEY, _SPLIT_KEY, _LOSS_HISTORY_KEY})
 
 
 def log_fair_metrics(metrics: dict[str, Any], *, infer_model: bool = True) -> None:
@@ -25,6 +26,22 @@ def read_fair_metrics(run_metadata: dict[str, Any] | None) -> dict[str, Any] | N
         if k.startswith(_ZENML_PREFIX) and k not in _NON_METRIC_KEYS
     }
     return converted or None
+
+
+def log_loss_history(train_losses: list[float], val_losses: list[float]) -> None:
+    log_metadata(
+        metadata={_LOSS_HISTORY_KEY: {"train_loss": train_losses, "val_loss": val_losses}},
+        infer_model=True,
+    )
+
+
+def read_loss_history(run_metadata: dict[str, Any] | None) -> dict[str, list[float]] | None:
+    if not run_metadata:
+        return None
+    value = run_metadata.get(_LOSS_HISTORY_KEY)
+    if isinstance(value, dict) and "train_loss" in value and "val_loss" in value:
+        return value
+    return None
 
 
 def log_training_wall_time(seconds: float) -> None:

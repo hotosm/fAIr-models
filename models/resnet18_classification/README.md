@@ -19,7 +19,7 @@ Derived from the same Banepa OAM+OSM dataset used for segmentation. Building pol
 ## Training
 
 ```bash
-python examples/classification/run.py all
+uv run python examples/classification/run.py
 ```
 
 ## Metrics

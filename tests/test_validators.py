@@ -61,8 +61,8 @@ def _model(keywords=None, tasks=None):
         mlm_output=[],
         mlm_hyperparameters={},
         keywords=keywords or ["building", "semantic-segmentation"],
-        model_href="w.pt",
-        model_artifact_type="torch.save",
+        checkpoint_href="w.pt",
+        checkpoint_artifact_type="torch.save",
         mlm_pretrained=False,
         mlm_pretrained_source=None,
         source_code_href="https://example.com",
@@ -72,6 +72,7 @@ def _model(keywords=None, tasks=None):
         title="Validator test model",
         description="Model used in validator tests.",
         fair_metrics_spec=[{"name": "accuracy", "description": "Pixel accuracy", "higher_is_better": True}],
+        providers=[{"name": "HOTOSM", "roles": ["producer"]}],
     )
 
 
@@ -99,6 +100,7 @@ def _dataset(tmp_path, keywords=None, label_tasks=None):
         title="Validator test dataset",
         description="Dataset used in validator tests.",
         user_id="osm-test",
+        providers=[{"name": "osm-test", "roles": ["producer"]}],
     )
     item.properties["label:properties"] = ["class"]
     item.properties["label:description"] = "Test labels"
@@ -173,8 +175,8 @@ def _valid_base_model():
         mlm_output=copy.deepcopy(_MLM_OUTPUT),
         mlm_hyperparameters={"epochs": 10, "batch_size": 4},
         keywords=["building", "semantic-segmentation", "polygon"],
-        model_href="weights.pt",
-        model_artifact_type="torch.save",
+        checkpoint_href="https://example.com/weights.pt",
+        checkpoint_artifact_type="torch.save",
         mlm_pretrained=True,
         mlm_pretrained_source="imagenet",
         source_code_href="https://github.com/example",
@@ -184,6 +186,7 @@ def _valid_base_model():
         title="Valid test model",
         description="A valid base model for validator tests.",
         fair_metrics_spec=[{"name": "accuracy", "description": "Pixel accuracy", "higher_is_better": True}],
+        providers=[{"name": "HOTOSM", "roles": ["producer"], "url": "https://www.hotosm.org"}],
         readme_href="https://example.com/README.md",
     )
     item.properties["license"] = "AGPL-3.0-only"
@@ -193,7 +196,7 @@ def _valid_base_model():
         "seed": 42,
         "description": "Random split for testing",
     }
-    item.assets["model"].extra_fields["raster:bands"] = [
+    item.assets["checkpoint"].extra_fields["raster:bands"] = [
         {"name": "red"},
         {"name": "green"},
         {"name": "blue"},
@@ -225,7 +228,7 @@ class TestValidateBaseModelItem:
 
     def test_missing_asset_field(self):
         item = _valid_base_model()
-        del item.assets["model"].extra_fields["mlm:artifact_type"]
+        del item.assets["checkpoint"].extra_fields["mlm:artifact_type"]
         errors = validate_item(item)
         assert any("mlm:artifact_type" in e for e in errors)
 

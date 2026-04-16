@@ -17,3 +17,11 @@ Config generation, model promotion lifecycle, and reusable pipeline steps.
 ## Steps
 
 ::: fair.zenml.steps
+
+## Instrumentation
+
+::: fair.zenml.instrumentation
+
+## Metrics
+
+::: fair.zenml.metrics

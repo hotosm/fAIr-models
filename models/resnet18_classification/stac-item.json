@@ -68,6 +68,17 @@
         "license": "AGPL-3.0-only",
         "version": "1",
         "deprecated": false,
+        "providers": [
+            {
+                "name": "HOTOSM",
+                "roles": [
+                    "producer",
+                    "host"
+                ],
+                "url": "https://www.hotosm.org",
+                "description": "Humanitarian OpenStreetMap Team"
+            }
+        ],
         "fair:metrics_spec": [
             {
                 "key": "fair:accuracy",
@@ -286,12 +297,13 @@
         ]
     },
     "assets": {
-        "model": {
-            "href": "torchvision.models.ResNet18_Weights.IMAGENET1K_V1",
-            "title": "Pretrained weights (torchvision enum reference, not a URL)",
+        "checkpoint": {
+            "href": "https://download.pytorch.org/models/resnet18-f37072fd.pth",
+            "title": "Pretrained weights (torchvision ResNet18 ImageNet-1K V1)",
             "type": "application/octet-stream; framework=pytorch",
             "roles": [
-                "mlm:model"
+                "mlm:model",
+                "mlm:weights"
             ],
             "mlm:artifact_type": "torch.save",
             "raster:bands": [
@@ -315,7 +327,7 @@
             "mlm:entrypoint": "models.resnet18_classification.pipeline:training_pipeline"
         },
         "mlm:training": {
-            "href": "ghcr.io/hotosm/fair-models/resnet18_classification:pr-20",
+            "href": "ghcr.io/hotosm/fair-models/resnet18_classification:latest",
             "type": "application/vnd.oci.image.index.v1+json",
             "title": "Training Docker Image",
             "roles": [
@@ -323,7 +335,7 @@
             ]
         },
         "mlm:inference": {
-            "href": "ghcr.io/hotosm/fair-models/resnet18_classification:pr-20",
+            "href": "ghcr.io/hotosm/fair-models/resnet18_classification:latest",
             "type": "application/vnd.oci.image.index.v1+json",
             "title": "Inference Docker Image",
             "roles": [

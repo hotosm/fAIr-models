@@ -28,6 +28,7 @@ def _make_dataset(item_id: str, version: str = "1", deprecated: bool = False) ->
         title="Test",
         description="Test dataset.",
         user_id="u",
+        providers=[{"name": "u", "roles": ["producer"]}],
         geometry=_GEOM,
         bbox=_BBOX,
         version=version,

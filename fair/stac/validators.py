@@ -23,29 +23,52 @@ def validate_item(item: pystac.Item) -> list[str]:
     return errors
 
 
-def validate_model_weight_href(item: pystac.Item, *, timeout: float = 10.0) -> list[str]:
+_MODEL_ASSET_KEYS: tuple[str, ...] = ("checkpoint", "model")
+
+
+def validate_model_asset_urls(
+    item: pystac.Item,
+    *,
+    required_keys: tuple[str, ...] = ("checkpoint",),
+    optional_keys: tuple[str, ...] = ("model",),
+    timeout: float = 10.0,
+) -> list[str]:
+
+    errors: list[str] = []
+    for key in required_keys:
+        asset = item.assets.get(key)
+        if asset is None:
+            errors.append(f"Missing required asset '{key}'")
+            continue
+        errors.extend(_check_asset_url(key, asset.href, timeout))
+
+    for key in optional_keys:
+        asset = item.assets.get(key)
+        if asset is None:
+            continue
+        errors.extend(_check_asset_url(key, asset.href, timeout))
+
+    return errors
+
+
+def _check_asset_url(key: str, href: str, timeout: float) -> list[str]:
     import urllib.request
 
-    model_asset = item.assets.get("model")
-    if model_asset is None:
-        return ["Missing 'model' asset"]
-
-    href = model_asset.href
-    if "://" not in href:
-        return []
-
     if not href.startswith(("http://", "https://")):
-        return []
-
+        return [f"Asset '{key}' href must be an http(s) URL, got: {href}"]
     try:
         req = urllib.request.Request(href, method="HEAD")
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             if resp.status >= 400:
-                return [f"Model weight URL returned HTTP {resp.status}: {href}"]
+                return [f"Asset '{key}' URL returned HTTP {resp.status}: {href}"]
     except Exception as exc:
-        return [f"Model weight URL not accessible: {href} ({exc})"]
-
+        return [f"Asset '{key}' URL not accessible: {href} ({exc})"]
     return []
+
+
+# Back-compat alias; prefer validate_model_asset_urls going forward
+def validate_model_weight_href(item: pystac.Item, *, timeout: float = 10.0) -> list[str]:
+    return validate_model_asset_urls(item, timeout=timeout)
 
 
 def _validate_keyword_vocabulary(item: pystac.Item) -> list[str]:

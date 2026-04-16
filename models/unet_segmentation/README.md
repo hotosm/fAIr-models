@@ -4,23 +4,26 @@ Semantic segmentation model for building footprint extraction from aerial imager
 
 ## Architecture
 
-- **Model**: UNet
+- **Model**: UNet (ResNet34 encoder)
 - **Framework**: PyTorch (torchgeo)
 - **Task**: Semantic segmentation
-- **Input**: RGB chips (512×512, float32)
+- **Input**: RGB chips (256x256, float32)
 - **Classes**: 2 (background, building)
 
 ## Pretrained Source
 
-OAM-TCD (NeurIPS 2024, [arxiv.org/abs/2407.11743](https://arxiv.org/abs/2407.11743))
+OAM-TCD via torchgeo `Unet_Weights.OAM_RGB_RESNET34_TCD` (NeurIPS 2024, [arxiv.org/abs/2407.11743](https://arxiv.org/abs/2407.11743))
 
 ## Pipeline
 
-The training and evaluation pipeline is defined in `pipeline.py` with ZenML steps:
+Training pipeline steps (ZenML) defined in `pipeline.py`:
 
-- `train_model` — fine-tunes the UNet on labeled chip/mask pairs
-- `evaluate_model` — computes accuracy and IoU metrics
-- `predict` — runs inference on OAM tiles and produces GeoJSON polygons
+- `split_dataset` - spatial split via torchgeo samplers
+- `train_model` - fine-tunes the UNet on labeled chip/mask pairs
+- `evaluate_model` - computes accuracy, mean IoU and per-class IoU
+- `export_onnx` - exports trained weights to ONNX
+
+Inference pipeline runs `segment` over input imagery and produces GeoJSON polygons.
 
 ## Usage
 

@@ -11,6 +11,10 @@ from typing import Any
 from unittest.mock import patch
 
 
+def _mock_download_checkpoint(url: str) -> Path:
+    return Path(url)
+
+
 def test_split_dataset(toy_chips: Path, toy_labels: Path, base_hyperparameters: dict[str, Any]) -> None:
     from models.yolo11n_detection.pipeline import split_dataset
 
@@ -48,8 +52,11 @@ def test_train_model(toy_chips: Path, toy_labels: Path, base_hyperparameters: di
         yield
 
     with (
+        patch("models.yolo11n_detection.pipeline._download_checkpoint", _mock_download_checkpoint),
         patch("models.yolo11n_detection.pipeline.mlflow_training_context", _noop_mlflow_ctx),
         patch("models.yolo11n_detection.pipeline.log_metadata"),
+        patch("fair.zenml.metrics.log_metadata"),
+        patch("mlflow.log_metric"),
     ):
         model_bytes = train_model.entrypoint(
             dataset_chips=str(toy_chips),
@@ -81,8 +88,11 @@ def test_evaluate_model(toy_chips: Path, toy_labels: Path, base_hyperparameters:
         yield
 
     with (
+        patch("models.yolo11n_detection.pipeline._download_checkpoint", _mock_download_checkpoint),
         patch("models.yolo11n_detection.pipeline.mlflow_training_context", _noop_mlflow_ctx),
         patch("models.yolo11n_detection.pipeline.log_metadata"),
+        patch("fair.zenml.metrics.log_metadata"),
+        patch("mlflow.log_metric"),
     ):
         model_bytes = train_model.entrypoint(
             dataset_chips=str(toy_chips),
@@ -125,8 +135,11 @@ def test_export_onnx(toy_chips: Path, toy_labels: Path, base_hyperparameters: di
         yield
 
     with (
+        patch("models.yolo11n_detection.pipeline._download_checkpoint", _mock_download_checkpoint),
         patch("models.yolo11n_detection.pipeline.mlflow_training_context", _noop_mlflow_ctx),
         patch("models.yolo11n_detection.pipeline.log_metadata"),
+        patch("fair.zenml.metrics.log_metadata"),
+        patch("mlflow.log_metric"),
     ):
         model_bytes = train_model.entrypoint(
             dataset_chips=str(toy_chips),
@@ -137,8 +150,8 @@ def test_export_onnx(toy_chips: Path, toy_labels: Path, base_hyperparameters: di
             num_classes=1,
         )
 
-    onnx_path = export_onnx.entrypoint(trained_model=model_bytes)
-    assert Path(onnx_path).exists()
-    loaded = onnx.load(onnx_path)
+    onnx_bytes = export_onnx.entrypoint(trained_model=model_bytes)
+    assert isinstance(onnx_bytes, bytes)
+    loaded = onnx.load_from_string(onnx_bytes)
     assert len(loaded.graph.input) == 1
     assert len(loaded.graph.output) == 1

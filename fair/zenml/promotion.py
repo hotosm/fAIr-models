@@ -11,9 +11,10 @@ from zenml.enums import ModelStages
 from fair.stac.backend import StacBackend
 from fair.stac.builders import build_local_model_item
 from fair.stac.constants import BASE_MODELS_COLLECTION, DATASETS_COLLECTION, LOCAL_MODELS_COLLECTION
+from fair.stac.validators import validate_model_asset_urls
 from fair.stac.versioning import deprecate_and_link_successor, find_previous_active_item
 from fair.utils.data import s3_uri_to_http_url
-from fair.zenml.metrics import read_fair_metrics, read_training_wall_time
+from fair.zenml.metrics import read_fair_metrics, read_loss_history, read_training_wall_time
 
 log = logging.getLogger(__name__)
 
@@ -29,6 +30,56 @@ def promote_model_version(model_name: str, version: Annotated[int, Ge(1)]) -> No
     log.info("ZenML: %s v%d -> production", model_name, version)
 
 
+def _upload_model_artifacts(
+    weights_uri: str,
+    onnx_uri: str,
+    item_id: str,
+    prefix: str | None,
+) -> tuple[str, str]:
+    from upath import UPath
+
+    if prefix is None:
+        return s3_uri_to_http_url(weights_uri), s3_uri_to_http_url(onnx_uri)
+
+    checkpoint_dest = f"{prefix}/local-models/{item_id}/checkpoint/{item_id}.pt"
+    onnx_dest = f"{prefix}/local-models/{item_id}/model/{item_id}.onnx"
+
+    log.info("Mirroring checkpoint %s -> %s", weights_uri, checkpoint_dest)
+    UPath(checkpoint_dest).write_bytes(UPath(weights_uri).read_bytes())
+
+    log.info("Mirroring ONNX %s -> %s", onnx_uri, onnx_dest)
+    UPath(onnx_dest).write_bytes(UPath(onnx_uri).read_bytes())
+
+    return s3_uri_to_http_url(checkpoint_dest), s3_uri_to_http_url(onnx_dest)
+
+
+def _upload_training_metrics(
+    loss_history: dict[str, list[float]],
+    item_id: str,
+    prefix: str | None,
+) -> str | None:
+    import json
+    import tempfile
+    from pathlib import Path
+
+    from upath import UPath
+
+    payload = json.dumps(
+        {"epochs": list(range(1, len(loss_history["train_loss"]) + 1)), **loss_history},
+        separators=(",", ":"),
+    )
+
+    if prefix is None:
+        local = Path(tempfile.mkdtemp()) / f"{item_id}-training-metrics.json"
+        local.write_text(payload)
+        return str(local)
+
+    dest = f"{prefix}/local-models/{item_id}/training-metrics/{item_id}.json"
+    log.info("Uploading training metrics -> %s", dest)
+    UPath(dest).write_text(payload)
+    return s3_uri_to_http_url(dest)
+
+
 def publish_promoted_model(
     model_name: str,
     version: Annotated[int, Ge(1)],
@@ -38,6 +89,7 @@ def publish_promoted_model(
     user_id: str,
     description: str,
     *,
+    artifact_store_prefix: str | None = None,
     keywords: list[str] | None = None,
     geometry: dict[str, Any] | None = None,
     thumbnail_href: str | None = None,
@@ -91,14 +143,29 @@ def publish_promoted_model(
     if wall_time is not None:
         training_duration_seconds = wall_time
     metrics = read_fair_metrics(raw_meta)
+    loss_history = read_loss_history(raw_meta)
     split_info: dict[str, Any] | None = raw_meta.get("fair/split")
 
     weights_art = mv.get_artifact("trained_model")
     if weights_art is None:
-        msg = f"No model artifact found for {model_name} v{version}"
+        msg = f"No 'trained_model' artifact found for {model_name} v{version}"
         raise RuntimeError(msg)
-    model_href = s3_uri_to_http_url(weights_art.uri)
+    onnx_art = mv.get_artifact("onnx_model")
+    if onnx_art is None:
+        msg = f"No 'onnx_model' artifact found for {model_name} v{version}"
+        raise RuntimeError(msg)
     artifact_version_id = str(weights_art.id)
+
+    checkpoint_href, onnx_href = _upload_model_artifacts(
+        weights_uri=weights_art.uri,
+        onnx_uri=onnx_art.uri,
+        item_id=new_item_id,
+        prefix=artifact_store_prefix,
+    )
+
+    training_metrics_href: str | None = None
+    if loss_history:
+        training_metrics_href = _upload_training_metrics(loss_history, new_item_id, artifact_store_prefix)
 
     base_model_item = catalog_manager.get_item(BASE_MODELS_COLLECTION, base_model_item_id)
 
@@ -130,10 +197,13 @@ def publish_promoted_model(
 
     title = f"{model_name} v{version}"
 
+    providers = [{"name": user_id, "roles": ["producer"]}]
+
     item = build_local_model_item(
         base_model_item=base_model_item,
         item_id=new_item_id,
-        model_href=model_href,
+        checkpoint_href=checkpoint_href,
+        onnx_href=onnx_href,
         mlm_hyperparameters=hyperparams,
         keywords=kw,
         base_model_href=base_model_href,
@@ -142,6 +212,7 @@ def publish_promoted_model(
         title=title,
         description=description,
         user_id=user_id,
+        providers=providers,
         mlm_name=model_name,
         geometry=resolved_geometry,
         metrics=metrics,
@@ -157,7 +228,17 @@ def publish_promoted_model(
         dataset_id=dataset_item_id,
         dataset_title=dataset_title,
         split_info=split_info,
+        training_metrics_href=training_metrics_href,
     )
+
+    from upath import UPath
+
+    if UPath(checkpoint_href).protocol:
+        if errs := validate_model_asset_urls(item, required_keys=("checkpoint", "model")):
+            msg = f"Asset URL validation failed after upload: {errs}"
+            raise RuntimeError(msg)
+    else:
+        log.warning("Local artifact store detected; skipping asset URL reachability check")
 
     if prev_item:
         deprecate_and_link_successor(catalog_manager, LOCAL_MODELS_COLLECTION, prev_item, self_href)

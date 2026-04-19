@@ -84,8 +84,18 @@ jobs:
         run: |
           docker run --rm --entrypoint "" \
             -e FAIR_FORCE_CPU=1 \
+            -v "$PWD:/workspace" \
+            -w /workspace \
             "${{ matrix.name }}:test" \
-            python -m pytest models/${{ matrix.name }}/tests/ -v --tb=short --model-dir=models/${{ matrix.name }} --cov=models/${{ matrix.name }} --cov-report=term-missing --cov-fail-under=90
+            python -m pytest models/${{ matrix.name }}/tests/ -v --tb=short --model-dir=models/${{ matrix.name }} --cov=models/${{ matrix.name }} --cov-report=term-missing --cov-report=xml:coverage-model.xml --cov-fail-under=90
+
+      - name: Upload model coverage to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: ./coverage-model.xml
+          flags: ${{ matrix.name }}
+          name: ${{ matrix.name }}-coverage
 
       - name: Run integration test
         run: |

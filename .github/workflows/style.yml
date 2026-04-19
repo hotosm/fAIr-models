@@ -81,18 +81,9 @@ jobs:
       - name: Run pytest with coverage
         run: uv run pytest --tb=short -q --cov=fair --cov-report=term-missing
           --cov-report=xml:coverage.xml --cov-fail-under=95
-      - name: Upload coverage report
-        if: always()
-        uses: actions/upload-artifact@v4
+      - name: Upload coverage reports to Codecov
+        uses: codecov/codecov-action@v5
         with:
-          name: coverage-report
-          path: coverage.xml
-      - name: Upload coverage to Codecov
-        if: always()
-        uses: codecov/codecov-action@v4
-        with:
-          files: coverage.xml
-          fail_ci_if_error: false
           token: ${{ secrets.CODECOV_TOKEN }}
   build:
     name: build check

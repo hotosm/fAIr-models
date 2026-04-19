@@ -327,6 +327,27 @@
                 }
             ]
         },
+        "model": {
+            "href": "https://raw.githubusercontent.com/hotosm/fAIr-models/refs/heads/master/models/unet_segmentation/artifacts/unet_segmentation.onnx",
+            "title": "Portable ONNX inference model",
+            "type": "application/octet-stream; framework=onnx",
+            "roles": [
+                "mlm:model",
+                "mlm:compiled"
+            ],
+            "mlm:artifact_type": "onnx",
+            "raster:bands": [
+                {
+                    "name": "red"
+                },
+                {
+                    "name": "green"
+                },
+                {
+                    "name": "blue"
+                }
+            ]
+        },
         "source-code": {
             "href": "https://github.com/hotosm/fAIr-models/tree/main/models/unet_segmentation",
             "type": "text/html",

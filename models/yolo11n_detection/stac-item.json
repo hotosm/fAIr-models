@@ -256,6 +256,27 @@
                 }
             ]
         },
+        "model": {
+            "href": "https://raw.githubusercontent.com/hotosm/fAIr-models/refs/heads/master/models/yolo11n_detection/artifacts/yolo11n_detection.onnx",
+            "title": "Portable ONNX inference model",
+            "type": "application/octet-stream; framework=onnx",
+            "roles": [
+                "mlm:model",
+                "mlm:compiled"
+            ],
+            "mlm:artifact_type": "onnx",
+            "raster:bands": [
+                {
+                    "name": "red"
+                },
+                {
+                    "name": "green"
+                },
+                {
+                    "name": "blue"
+                }
+            ]
+        },
         "source-code": {
             "href": "https://github.com/hotosm/fAIr-models/tree/main/models/yolo11n_detection",
             "type": "text/html",

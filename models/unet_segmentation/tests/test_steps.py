@@ -138,6 +138,53 @@ def test_evaluate_model(toy_chips: Path, toy_labels: Path, base_hyperparameters:
     assert 0.0 <= metrics["mean_iou"] <= 1.0
 
 
+def test_pipeline_entrypoints_wire_steps(monkeypatch: Any) -> None:
+    from models.unet_segmentation.pipeline import inference_pipeline, training_pipeline
+
+    calls: list[str] = []
+
+    def fake_split_dataset(**kwargs: Any) -> dict[str, Any]:
+        calls.append("split")
+        return {"seed": 42}
+
+    def fake_train_model(**kwargs: Any) -> object:
+        calls.append("train")
+        return object()
+
+    def fake_evaluate_model(**kwargs: Any) -> dict[str, float]:
+        calls.append("evaluate")
+        return {"accuracy": 1.0}
+
+    def fake_export_onnx(**kwargs: Any) -> bytes:
+        calls.append("export")
+        return b"onnx"
+
+    def fake_run_inference(**kwargs: Any) -> dict[str, Any]:
+        calls.append("infer")
+        return {"type": "FeatureCollection", "features": []}
+
+    monkeypatch.setattr("models.unet_segmentation.pipeline.split_dataset", fake_split_dataset)
+    monkeypatch.setattr("models.unet_segmentation.pipeline.train_model", fake_train_model)
+    monkeypatch.setattr("models.unet_segmentation.pipeline.evaluate_model", fake_evaluate_model)
+    monkeypatch.setattr("models.unet_segmentation.pipeline.export_onnx", fake_export_onnx)
+    monkeypatch.setattr("models.unet_segmentation.pipeline.run_inference", fake_run_inference)
+
+    training_pipeline.entrypoint(
+        base_model_weights="weights.pt",
+        dataset_chips="chips",
+        dataset_labels="labels.geojson",
+        num_classes=2,
+        hyperparameters={"epochs": 1},
+    )
+    inference_pipeline.entrypoint(
+        model_uri="https://example.com/model.onnx",
+        input_images="chips",
+        inference_params={"confidence_threshold": 0.5},
+    )
+
+    assert calls == ["split", "train", "evaluate", "export", "infer"]
+
+
 def test_export_onnx(base_hyperparameters: dict[str, Any]) -> None:
     import onnx
 

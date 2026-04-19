@@ -116,6 +116,53 @@ def test_evaluate_model(toy_chips: Path, toy_labels: Path, base_hyperparameters:
     assert expected_keys == set(metrics.keys())
 
 
+def test_pipeline_entrypoints_wire_steps(monkeypatch: Any) -> None:
+    from models.yolo11n_detection.pipeline import inference_pipeline, training_pipeline
+
+    calls: list[str] = []
+
+    def fake_split_dataset(**kwargs: Any) -> dict[str, Any]:
+        calls.append("split")
+        return {"_yolo_dir": "/tmp/demo", "val_ratio": 0.2}
+
+    def fake_train_model(**kwargs: Any) -> bytes:
+        calls.append("train")
+        return b"weights"
+
+    def fake_evaluate_model(**kwargs: Any) -> dict[str, float]:
+        calls.append("evaluate")
+        return {"accuracy": 1.0}
+
+    def fake_export_onnx(**kwargs: Any) -> bytes:
+        calls.append("export")
+        return b"onnx"
+
+    def fake_run_inference(**kwargs: Any) -> dict[str, Any]:
+        calls.append("infer")
+        return {"type": "FeatureCollection", "features": []}
+
+    monkeypatch.setattr("models.yolo11n_detection.pipeline.split_dataset", fake_split_dataset)
+    monkeypatch.setattr("models.yolo11n_detection.pipeline.train_model", fake_train_model)
+    monkeypatch.setattr("models.yolo11n_detection.pipeline.evaluate_model", fake_evaluate_model)
+    monkeypatch.setattr("models.yolo11n_detection.pipeline.export_onnx", fake_export_onnx)
+    monkeypatch.setattr("models.yolo11n_detection.pipeline.run_inference", fake_run_inference)
+
+    training_pipeline.entrypoint(
+        base_model_weights="weights.pt",
+        dataset_chips="chips",
+        dataset_labels="labels.json",
+        num_classes=1,
+        hyperparameters={"epochs": 1},
+    )
+    inference_pipeline.entrypoint(
+        model_uri="https://example.com/model.onnx",
+        input_images="chips",
+        inference_params={"confidence_threshold": 0.5},
+    )
+
+    assert calls == ["split", "train", "evaluate", "export", "infer"]
+
+
 def test_export_onnx(toy_chips: Path, toy_labels: Path, base_hyperparameters: dict[str, Any]) -> None:
     import onnx
 

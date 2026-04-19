@@ -44,7 +44,7 @@ def trained_model(
 
     with (
         patch("models.resnet18_classification.pipeline._download_checkpoint", _mock_download_checkpoint),
-        patch("models.resnet18_classification.pipeline.mlflow_training_context", _noop_ctx()),
+        patch("models.resnet18_classification.pipeline.mlflow_training_context", _noop_mlflow_ctx),
         patch("models.resnet18_classification.pipeline.log_metadata"),
         patch("fair.zenml.metrics.log_metadata"),
         patch("mlflow.log_metric"),
@@ -56,15 +56,6 @@ def trained_model(
             hyperparameters=base_hyperparameters,
             split_info=split_info,
         )
-
-
-@contextmanager
-def _noop_ctx():
-    @contextmanager
-    def inner(*_args: Any, **_kwargs: Any):
-        yield
-
-    yield from [inner]
 
 
 @contextmanager
@@ -86,6 +77,10 @@ def test_split_dataset(toy_chips: Path, toy_labels: Path, base_hyperparameters: 
     assert result["train_count"] > 0
     assert result["val_count"] > 0
     assert result["train_count"] + result["val_count"] == 6
+
+
+def test_trained_model_fixture_returns_model(trained_model: Any) -> None:
+    assert trained_model is not None
 
 
 def test_train_model(toy_chips: Path, toy_labels: Path, base_hyperparameters: dict[str, Any]) -> None:
@@ -153,6 +148,53 @@ def test_evaluate_model(toy_chips: Path, toy_labels: Path, base_hyperparameters:
     assert set(metrics.keys()) == {"accuracy", "precision", "recall", "f1"}
     for value in metrics.values():
         assert 0.0 <= value <= 1.0
+
+
+def test_pipeline_entrypoints_wire_steps(monkeypatch: pytest.MonkeyPatch) -> None:
+    from models.resnet18_classification.pipeline import inference_pipeline, training_pipeline
+
+    calls: list[str] = []
+
+    def fake_split_dataset(**kwargs: Any) -> dict[str, Any]:
+        calls.append("split")
+        return {"val_ratio": 0.2, "seed": 42}
+
+    def fake_train_model(**kwargs: Any) -> object:
+        calls.append("train")
+        return object()
+
+    def fake_evaluate_model(**kwargs: Any) -> dict[str, float]:
+        calls.append("evaluate")
+        return {"accuracy": 1.0}
+
+    def fake_export_onnx(**kwargs: Any) -> bytes:
+        calls.append("export")
+        return b"onnx"
+
+    def fake_run_inference(**kwargs: Any) -> dict[str, Any]:
+        calls.append("infer")
+        return {"type": "FeatureCollection", "features": []}
+
+    monkeypatch.setattr("models.resnet18_classification.pipeline.split_dataset", fake_split_dataset)
+    monkeypatch.setattr("models.resnet18_classification.pipeline.train_model", fake_train_model)
+    monkeypatch.setattr("models.resnet18_classification.pipeline.evaluate_model", fake_evaluate_model)
+    monkeypatch.setattr("models.resnet18_classification.pipeline.export_onnx", fake_export_onnx)
+    monkeypatch.setattr("models.resnet18_classification.pipeline.run_inference", fake_run_inference)
+
+    training_pipeline.entrypoint(
+        base_model_weights="weights.pt",
+        dataset_chips="chips",
+        dataset_labels="labels.csv",
+        num_classes=2,
+        hyperparameters={"epochs": 1},
+    )
+    inference_pipeline.entrypoint(
+        model_uri="https://example.com/model.onnx",
+        input_images="chips",
+        inference_params={"confidence_threshold": 0.5},
+    )
+
+    assert calls == ["split", "train", "evaluate", "export", "infer"]
 
 
 def test_export_onnx(toy_chips: Path, toy_labels: Path, base_hyperparameters: dict[str, Any]) -> None:

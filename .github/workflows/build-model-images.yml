@@ -2,10 +2,10 @@ name: Build Model Images
 
 on:
   pull_request:
-    paths: ["models/**"]
+    paths: [ "models/**" ]
   push:
-    branches: [master]
-    paths: ["models/**"]
+    branches: [ master ]
+    paths: [ "models/**" ]
   workflow_dispatch:
 
 env:
@@ -34,7 +34,8 @@ jobs:
           enable-cache: true
       - run: uv add pystac
       - id: models
-        run: echo "matrix=$(uv run python .github/scripts/detect_models.py)" >> $GITHUB_OUTPUT
+        run: echo "matrix=$(uv run python .github/scripts/detect_models.py)" >>
+          $GITHUB_OUTPUT
         env:
           EVENT_NAME: ${{ github.event_name }}
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
@@ -62,7 +63,8 @@ jobs:
       - uses: docker/metadata-action@v5
         id: meta
         with:
-          images: ${{ env.REGISTRY }}/${{ github.repository_owner }}/fair-models/${{ matrix.name }}
+          images: ${{ env.REGISTRY }}/${{ github.repository_owner }}/fair-models/${{
+            matrix.name }}
           tags: |
             type=ref,event=pr,prefix=pr-
             type=raw,value=v${{ matrix.version }},enable={{is_default_branch}}
@@ -78,12 +80,12 @@ jobs:
           tags: ${{ matrix.name }}:test
           cache-from: type=gha,scope=${{ matrix.name }}
 
-      - name: Run step tests
+      - name: Run step tests with coverage gate
         run: |
           docker run --rm --entrypoint "" \
             -e FAIR_FORCE_CPU=1 \
             "${{ matrix.name }}:test" \
-            python -m pytest models/${{ matrix.name }}/tests/ -v --tb=short
+            python -m pytest models/${{ matrix.name }}/tests/ -v --tb=short --model-dir=models/${{ matrix.name }} --cov=models/${{ matrix.name }} --cov-report=term-missing --cov-fail-under=90
 
       - name: Run integration test
         run: |
@@ -107,7 +109,8 @@ jobs:
       - uses: docker/metadata-action@v5
         id: inference-meta
         with:
-          images: ${{ env.REGISTRY }}/${{ github.repository_owner }}/fair-models/${{ matrix.name }}
+          images: ${{ env.REGISTRY }}/${{ github.repository_owner }}/fair-models/${{
+            matrix.name }}
           tags: |
             type=ref,event=pr,prefix=pr-,suffix=-inference
             type=raw,value=v${{ matrix.version }}-inference,enable={{is_default_branch}}

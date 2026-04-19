@@ -1,7 +1,7 @@
 name: style & tests
 on:
   push:
-    branches: [master]
+    branches: [ master ]
     paths:
       - "fair/**"
       - "examples/**"
@@ -10,7 +10,7 @@ on:
       - "uv.lock"
       - ".github/workflows/style.yml"
   pull_request:
-    branches: [master]
+    branches: [ master ]
     paths:
       - "fair/**"
       - "examples/**"
@@ -79,7 +79,8 @@ jobs:
       - name: Install dependencies
         run: uv sync --group dev
       - name: Run pytest with coverage
-        run: uv run pytest --tb=short -q --cov=fair --cov-report=term-missing --cov-report=xml:coverage.xml
+        run: uv run pytest --tb=short -q --cov=fair --cov-report=term-missing
+          --cov-report=xml:coverage.xml --cov-fail-under=90
       - name: Upload coverage report
         if: always()
         uses: actions/upload-artifact@v4
@@ -92,6 +93,7 @@ jobs:
         with:
           files: coverage.xml
           fail_ci_if_error: false
+          token: ${{ secrets.CODECOV_TOKEN }}
   build:
     name: build check
     runs-on: ubuntu-latest

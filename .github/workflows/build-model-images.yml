@@ -2,10 +2,16 @@ name: Build Model Images
 
 on:
   pull_request:
-    paths: [ "models/**" ]
+    paths:
+      - "models/**"
+      - ".github/workflows/build-model-images.yml"
+      - ".github/scripts/detect_models.py"
   push:
     branches: [ master ]
-    paths: [ "models/**" ]
+    paths:
+      - "models/**"
+      - ".github/workflows/build-model-images.yml"
+      - ".github/scripts/detect_models.py"
   workflow_dispatch:
 
 env:

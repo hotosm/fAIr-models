@@ -103,3 +103,51 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha,scope=${{ matrix.name }}
           cache-to: type=gha,mode=max,scope=${{ matrix.name }}
+
+      - uses: docker/metadata-action@v5
+        id: inference-meta
+        with:
+          images: ${{ env.REGISTRY }}/${{ github.repository_owner }}/fair-models/${{ matrix.name }}
+          tags: |
+            type=ref,event=pr,prefix=pr-,suffix=-inference
+            type=raw,value=v${{ matrix.version }}-inference,enable={{is_default_branch}}
+            type=raw,value=latest-inference,enable={{is_default_branch}}
+
+      - name: Build inference image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ matrix.path }}/Dockerfile
+          target: inference
+          load: true
+          tags: ${{ matrix.name }}:inference
+          cache-from: type=gha,scope=${{ matrix.name }}-inference
+
+      - name: Smoke test inference image
+        run: |
+          docker run --rm -d --name "${{ matrix.name }}-smoke" \
+            -e MODEL_MODULE="models.${{ matrix.name }}.pipeline" \
+            -p 18080:8080 \
+            "${{ matrix.name }}:inference"
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:18080/health >/dev/null; then
+              docker rm -f "${{ matrix.name }}-smoke"
+              exit 0
+            fi
+            sleep 1
+          done
+          docker logs "${{ matrix.name }}-smoke" || true
+          docker rm -f "${{ matrix.name }}-smoke"
+          exit 1
+
+      - name: Push inference image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ matrix.path }}/Dockerfile
+          target: inference
+          push: true
+          tags: ${{ steps.inference-meta.outputs.tags }}
+          labels: ${{ steps.inference-meta.outputs.labels }}
+          cache-from: type=gha,scope=${{ matrix.name }}-inference
+          cache-to: type=gha,mode=max,scope=${{ matrix.name }}-inference

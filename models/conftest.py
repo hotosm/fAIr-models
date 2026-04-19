@@ -85,7 +85,6 @@ def base_hyperparameters(chip_size: int) -> dict[str, Any]:
         "epochs": 1,
         "batch_size": 2,
         "learning_rate": 0.001,
-        "chip_size": min(chip_size, 32),
         "val_ratio": 0.3,
         "split_seed": 42,
     }

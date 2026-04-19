@@ -1,7 +1,7 @@
 name: build & integration of zenml workflow
 on:
   push:
-    branches: [master]
+    branches: [ master ]
     paths:
       - "fair/**"
       - "examples/**"
@@ -9,7 +9,7 @@ on:
       - "uv.lock"
       - ".github/workflows/build-zenml.yml"
   pull_request:
-    branches: [master]
+    branches: [ master ]
     paths:
       - "fair/**"
       - "examples/**"
@@ -41,7 +41,7 @@ jobs:
           python-version: "3.13"
           enable-cache: true
       - name: Install dependencies
-        run: uv sync --group example --group local
+        run: uv sync --group example --group local --extra serve
       - name: Start ZenML server
         run: |
           uv run zenml init

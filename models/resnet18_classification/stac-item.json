@@ -173,18 +173,18 @@
             }
         ],
         "mlm:hyperparameters": {
-            "epochs": 5,
-            "batch_size": 8,
-            "learning_rate": 0.001,
-            "weight_decay": 0.0001,
-            "chip_size": 256,
-            "optimizer": "AdamW",
-            "loss": "BCEWithLogitsLoss",
-            "val_ratio": 0.2,
-            "split_seed": 42,
-            "scheduler": "cosine",
-            "max_grad_norm": 1.0,
-            "freeze_encoder": true
+            "training.epochs": 5,
+            "training.batch_size": 8,
+            "training.learning_rate": 0.001,
+            "training.weight_decay": 0.0001,
+            "training.optimizer": "AdamW",
+            "training.loss": "BCEWithLogitsLoss",
+            "training.val_ratio": 0.2,
+            "training.split_seed": 42,
+            "training.scheduler": "cosine",
+            "training.max_grad_norm": 1.0,
+            "training.freeze_encoder": true,
+            "inference.confidence_threshold": 0.5
         },
         "fair:split_spec": {
             "strategy": "random",
@@ -224,14 +224,6 @@
                 "min": 0.0,
                 "max": 1.0,
                 "description": "L2 regularization weight decay"
-            },
-            {
-                "key": "chip_size",
-                "type": "int",
-                "default": 256,
-                "min": 64,
-                "max": 1024,
-                "description": "Input image chip size in pixels"
             },
             {
                 "key": "optimizer",
@@ -293,6 +285,14 @@
                 "type": "bool",
                 "default": true,
                 "description": "Freeze pretrained backbone weights during finetuning"
+            },
+            {
+                "key": "confidence_threshold",
+                "type": "float",
+                "default": 0.5,
+                "min": 0.0,
+                "max": 1.0,
+                "description": "Minimum sigmoid probability to predict the positive class at inference"
             }
         ]
     },
@@ -324,7 +324,7 @@
             "roles": [
                 "code"
             ],
-            "mlm:entrypoint": "models.resnet18_classification.pipeline:training_pipeline"
+            "mlm:entrypoint": "models.resnet18_classification.pipeline:predict"
         },
         "mlm:training": {
             "href": "ghcr.io/hotosm/fair-models/resnet18_classification:latest",

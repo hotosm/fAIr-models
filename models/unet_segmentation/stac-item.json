@@ -172,19 +172,20 @@
             }
         ],
         "mlm:hyperparameters": {
-            "epochs": 5,
-            "batch_size": 4,
-            "learning_rate": 0.0001,
-            "weight_decay": 0.0001,
-            "chip_size": 256,
-            "samples_per_epoch": 50,
-            "optimizer": "AdamW",
-            "loss": "CrossEntropyLoss",
-            "val_ratio": 0.2,
-            "split_seed": 42,
-            "scheduler": "cosine",
-            "max_grad_norm": 1.0,
-            "freeze_encoder": true
+            "training.epochs": 5,
+            "training.batch_size": 4,
+            "training.learning_rate": 0.0001,
+            "training.weight_decay": 0.0001,
+            "training.samples_per_epoch": 50,
+            "training.optimizer": "AdamW",
+            "training.loss": "CrossEntropyLoss",
+            "training.val_ratio": 0.2,
+            "training.split_seed": 42,
+            "training.scheduler": "cosine",
+            "training.max_grad_norm": 1.0,
+            "training.freeze_encoder": true,
+            "inference.min_class_value": 1,
+            "inference.confidence_threshold": 0.5
         },
         "fair:split_spec": {
             "strategy": "spatial",
@@ -224,14 +225,6 @@
                 "min": 0.0,
                 "max": 1.0,
                 "description": "L2 regularization weight decay"
-            },
-            {
-                "key": "chip_size",
-                "type": "int",
-                "default": 256,
-                "min": 64,
-                "max": 1024,
-                "description": "Input image chip size in pixels"
             },
             {
                 "key": "samples_per_epoch",
@@ -301,6 +294,14 @@
                 "type": "bool",
                 "default": true,
                 "description": "Freeze pretrained encoder weights during finetuning"
+            },
+            {
+                "key": "confidence_threshold",
+                "type": "float",
+                "default": 0.5,
+                "min": 0.0,
+                "max": 1.0,
+                "description": "Minimum per-pixel softmax probability to retain a predicted class at inference"
             }
         ]
     },
@@ -332,7 +333,7 @@
             "roles": [
                 "code"
             ],
-            "mlm:entrypoint": "models.unet_segmentation.pipeline:training_pipeline"
+            "mlm:entrypoint": "models.unet_segmentation.pipeline:predict"
         },
         "mlm:training": {
             "href": "ghcr.io/hotosm/fair-models/unet_segmentation:latest",

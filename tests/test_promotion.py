@@ -59,6 +59,7 @@ def _base_model_item() -> pystac.Item:
         },
         keywords=["building", "semantic-segmentation"],
         checkpoint_href="s3://weights/unet.pt",
+        onnx_href="https://example.com/model.onnx",
         checkpoint_artifact_type="torch.save",
         mlm_pretrained=True,
         mlm_pretrained_source="OAM-TCD",

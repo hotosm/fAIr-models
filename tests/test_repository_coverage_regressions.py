@@ -87,6 +87,7 @@ def _base_model() -> pystac.Item:
         },
         keywords=["building", "polygon", "semantic-segmentation"],
         checkpoint_href="https://example.com/checkpoint.pt",
+        onnx_href="https://example.com/model.onnx",
         checkpoint_artifact_type="torch.save",
         mlm_pretrained=False,
         mlm_pretrained_source=None,
@@ -300,6 +301,7 @@ def test_model_validator_covers_return_types_and_stac_branches(tmp_path: Path) -
     (tmp_path / "stac-item.json").write_text(json.dumps({"assets": {"checkpoint": {"href": "weights.pt"}}}))
     errors = validate_model(tmp_path)
     assert any("checkpoint asset href must be an https URL" in error for error in errors)
+    assert any("model asset href is required" in error for error in errors)
 
 
 def test_config_helpers_cover_edge_cases(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -346,6 +348,29 @@ def test_config_helpers_cover_edge_cases(monkeypatch: pytest.MonkeyPatch, tmp_pa
     del local_model.assets["model"]
     with pytest.raises(KeyError, match=r"missing 'model' \(ONNX\) asset"):
         generate_inference_config(local_model, "/images")
+
+
+def test_base_model_stac_items_publish_onnx_assets() -> None:
+    model_roots = {
+        Path("models/resnet18_classification/stac-item.json"): Path(
+            "models/resnet18_classification/artifacts/resnet18_classification.onnx"
+        ),
+        Path("models/unet_segmentation/stac-item.json"): Path(
+            "models/unet_segmentation/artifacts/unet_segmentation.onnx"
+        ),
+        Path("models/yolo11n_detection/stac-item.json"): Path(
+            "models/yolo11n_detection/artifacts/yolo11n_detection.onnx"
+        ),
+    }
+
+    for stac_path, artifact_path in model_roots.items():
+        item = json.loads(stac_path.read_text())
+        model_asset = item["assets"].get("model")
+        assert model_asset is not None, f"{stac_path} is missing a model asset"
+        assert artifact_path.exists(), f"{artifact_path} is missing"
+        assert model_asset["href"].startswith("https://")
+        assert artifact_path.name in model_asset["href"]
+        assert "mlm:model" in model_asset.get("roles", [])
 
 
 def test_promotion_helpers_cover_materialization_and_storage(monkeypatch: pytest.MonkeyPatch) -> None:

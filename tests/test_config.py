@@ -59,6 +59,7 @@ def _base_model(**overrides: Any):
         },
         "keywords": ["building"],
         "checkpoint_href": "https://example.com/weights.pt",
+        "onnx_href": "https://example.com/model.onnx",
         "checkpoint_artifact_type": "torch.save",
         "mlm_pretrained": True,
         "mlm_pretrained_source": "OAM-TCD",

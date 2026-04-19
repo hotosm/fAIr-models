@@ -157,7 +157,7 @@ class FairClient:
             item = build_base_model_item(**dataclasses.asdict(stac_item))
         if errs := validate_item(item):
             raise FairClientError(f"Schema validation failed: {errs}")
-        if errs := validate_model_asset_urls(item, required_keys=("checkpoint",), optional_keys=("model",)):
+        if errs := validate_model_asset_urls(item, required_keys=("checkpoint", "model"), optional_keys=()):
             raise FairClientError(f"Asset URL validation failed: {errs}")
 
         prev = find_previous_active_item(cat, BASE_MODELS_COLLECTION, "mlm:name", item.properties.get("mlm:name"))
@@ -167,12 +167,10 @@ class FairClient:
         else:
             item.properties.setdefault("version", "1")
 
-        # TODO: enforce ONNX 'model' asset for base-models once all upstreams ship one
         if self._upload_artifacts:
             self._mirror_asset_to_artifact_store(item, "checkpoint", BASE_MODELS_COLLECTION)
-            if "model" in item.assets:
-                self._mirror_asset_to_artifact_store(item, "model", BASE_MODELS_COLLECTION)
-            if errs := validate_model_asset_urls(item, required_keys=("checkpoint",), optional_keys=("model",)):
+            self._mirror_asset_to_artifact_store(item, "model", BASE_MODELS_COLLECTION)
+            if errs := validate_model_asset_urls(item, required_keys=("checkpoint", "model"), optional_keys=()):
                 raise FairClientError(f"Mirrored asset URL validation failed: {errs}")
         self._upload_assets_if_remote(item, BASE_MODELS_COLLECTION)
 

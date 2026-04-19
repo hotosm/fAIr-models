@@ -995,6 +995,7 @@ source = { editable = "." }
 dependencies = [
     { name = "httpx" },
     { name = "mlflow" },
+    { name = "onnxruntime" },
     { name = "pystac", extra = ["validation"] },
     { name = "universal-pathlib" },
     { name = "zenml" },
@@ -1008,7 +1009,6 @@ k8s = [
     { name = "zenml", extra = ["connectors-aws", "connectors-kubernetes", "s3fs"] },
 ]
 serve = [
-    { name = "onnxruntime" },
     { name = "starlette" },
     { name = "uvicorn", extra = ["standard"] },
 ]
@@ -1061,7 +1061,7 @@ local = [
 requires-dist = [
     { name = "httpx", specifier = ">=0.28.1" },
     { name = "mlflow", specifier = ">=2.1.1,<4" },
-    { name = "onnxruntime", marker = "extra == 'serve'", specifier = ">=1.22" },
+    { name = "onnxruntime", specifier = ">=1.24.4" },
     { name = "opentelemetry-proto", marker = "extra == 'k8s'", specifier = ">=1.25.0" },
     { name = "pypgstac", extras = ["psycopg"], marker = "extra == 'k8s'", specifier = ">=0.9" },
     { name = "pystac", extras = ["validation"], specifier = ">=1.14.3,<2" },

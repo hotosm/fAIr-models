@@ -36,6 +36,7 @@ classifiers = [
 dependencies = [
     "httpx>=0.28.1",
     "mlflow>=2.1.1,<4",
+    "onnxruntime>=1.24.4",
     "pystac[validation]>=1.14.3,<2",
     "universal-pathlib>=0.3.10",
     "zenml==0.93.3",
@@ -55,7 +56,6 @@ k8s = [
 serve = [
     "starlette>=0.40,<0.46",
     "uvicorn[standard]>=0.34",
-    "onnxruntime>=1.22",
 ]
 
 [project.urls]

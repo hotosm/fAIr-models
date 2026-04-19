@@ -44,6 +44,7 @@ dependencies = [
 
 [project.optional-dependencies]
 test = [
+    "kubernetes",
     "pytest>=8.0",
     "pytest-cov>=6.0",
     "zenml[server]==0.93.3",
@@ -83,6 +84,7 @@ packages = ["fair"]
 dev = [
     "ty",
     "ruff",
+    "kubernetes",
     "pytest>=8.0",
     "pytest-cov>=6.0",
     "commitizen>=4.1",

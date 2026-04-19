@@ -42,7 +42,11 @@ def test_predict_returns_feature_collection(fake_session: Any, tmp_path: Path) -
     from models.unet_segmentation.pipeline import predict
 
     _write_dummy_geotiff(tmp_path / "chip1.tif")
-    result = predict(fake_session, str(tmp_path), {"min_class_value": 1})
+    result = predict(
+        fake_session,
+        str(tmp_path),
+        {"confidence_threshold": 0.5, "min_class_value": 1},
+    )
     assert result["type"] == "FeatureCollection"
     assert isinstance(result["features"], list)
 
@@ -51,4 +55,12 @@ def test_predict_raises_when_no_inputs(fake_session: Any, tmp_path: Path) -> Non
     from models.unet_segmentation.pipeline import predict
 
     with pytest.raises(FileNotFoundError):
+        predict(fake_session, str(tmp_path), {"confidence_threshold": 0.5})
+
+
+def test_predict_raises_when_confidence_threshold_missing(fake_session: Any, tmp_path: Path) -> None:
+    from models.unet_segmentation.pipeline import predict
+
+    _write_dummy_geotiff(tmp_path / "chip1.tif")
+    with pytest.raises(ValueError, match="confidence_threshold"):
         predict(fake_session, str(tmp_path), {})

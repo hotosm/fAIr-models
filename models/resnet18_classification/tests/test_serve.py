@@ -42,7 +42,7 @@ def test_predict_returns_feature_collection(fake_session: Any, tmp_path: Path) -
     from models.resnet18_classification.pipeline import predict
 
     _write_dummy_geotiff(tmp_path / "chip1.tif")
-    result = predict(fake_session, str(tmp_path), {"threshold": 0.5})
+    result = predict(fake_session, str(tmp_path), {"confidence_threshold": 0.5})
     assert result["type"] == "FeatureCollection"
     assert len(result["features"]) == 1
     props = result["features"][0]["properties"]
@@ -54,4 +54,12 @@ def test_predict_raises_when_no_inputs(fake_session: Any, tmp_path: Path) -> Non
     from models.resnet18_classification.pipeline import predict
 
     with pytest.raises(FileNotFoundError):
+        predict(fake_session, str(tmp_path), {"confidence_threshold": 0.5})
+
+
+def test_predict_raises_when_confidence_threshold_missing(fake_session: Any, tmp_path: Path) -> None:
+    from models.resnet18_classification.pipeline import predict
+
+    _write_dummy_geotiff(tmp_path / "chip1.tif")
+    with pytest.raises(ValueError, match="confidence_threshold"):
         predict(fake_session, str(tmp_path), {})

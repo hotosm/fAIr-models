@@ -93,8 +93,13 @@ def _resize_chw(arr: Any, size: int) -> Any:
 
 
 def predict(session: Any, input_images: str, params: dict[str, Any]) -> dict[str, Any]:
+    import numpy as np
+
     from fair.utils.data import resolve_directory
 
+    if "confidence_threshold" not in params:
+        raise ValueError("params['confidence_threshold'] is required")
+    confidence_threshold = float(params["confidence_threshold"])
     min_class_value = int(params.get("min_class_value", 1))
     input_name = session.get_inputs()[0].name
 
@@ -109,9 +114,20 @@ def predict(session: Any, input_images: str, params: dict[str, Any]) -> dict[str
     for img_path in img_paths:
         batch, transform, crs = _preprocess_onnx_image(img_path)
         logits = session.run(None, {input_name: batch})[0]
-        mask = logits[0].argmax(axis=0)
+        probs = _softmax(logits[0], axis=0)
+        mask = probs.argmax(axis=0)
+        top_prob = probs.max(axis=0)
+        mask = np.where(top_prob >= confidence_threshold, mask, 0)
         features.extend(_vectorize_segmentation_mask(mask, transform, crs, min_class_value))
     return _build_feature_collection(features)
+
+
+def _softmax(logits: Any, axis: int) -> Any:
+    import numpy as np
+
+    shifted = logits - logits.max(axis=axis, keepdims=True)
+    exp = np.exp(shifted)
+    return exp / exp.sum(axis=axis, keepdims=True)
 
 
 def _build_dataset(
@@ -469,10 +485,10 @@ def training_pipeline(
 def inference_pipeline(
     model_uri: str,
     input_images: str,
-    inference_params: dict[str, Any] | None = None,
+    inference_params: dict[str, Any],
 ) -> None:
     run_inference(
         model_uri=model_uri,
         input_images=input_images,
-        inference_params=inference_params or {},
+        inference_params=inference_params,
     )

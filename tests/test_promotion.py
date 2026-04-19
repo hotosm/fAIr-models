@@ -24,6 +24,12 @@ def _skip_url_validation(monkeypatch):
     monkeypatch.setattr("fair.zenml.promotion.validate_model_asset_urls", lambda *_a, **_kw: [])
 
 
+@pytest.fixture(autouse=True)
+def _stub_artifact_materializers(monkeypatch):
+    monkeypatch.setattr("fair.zenml.promotion._materialize_onnx_bytes", lambda _a: b"onnx-bytes")
+    monkeypatch.setattr("fair.zenml.promotion._materialize_checkpoint_bytes", lambda _a: b"pt-bytes")
+
+
 @pytest.fixture()
 def cm(tmp_path) -> StacCatalogManager:
     path = str(tmp_path / "catalog.json")
@@ -45,7 +51,12 @@ def _base_model_item() -> pystac.Item:
         mlm_framework_version="2.1.0",
         mlm_input=[],
         mlm_output=[],
-        mlm_hyperparameters={"epochs": 15, "batch_size": 4},
+        mlm_hyperparameters={
+            "training.epochs": 15,
+            "training.batch_size": 4,
+            "training.learning_rate": 0.0001,
+            "inference.confidence_threshold": 0.5,
+        },
         keywords=["building", "semantic-segmentation"],
         checkpoint_href="s3://weights/unet.pt",
         checkpoint_artifact_type="torch.save",
@@ -196,16 +207,16 @@ def test_publish_stores_fair_metrics(mock_cls, cm):
 
 @patch("fair.zenml.promotion.Client")
 def test_publish_stores_artifact_metadata(mock_cls, cm):
-    """Checkpoint and model assets must carry the artifact URI and ZenML artifact version ID."""
+    """Checkpoint and model assets must carry materialized hrefs and the ZenML artifact version ID."""
     mv, client = _mock_mv({"epochs": 1})
     mock_cls.return_value = client
     client.get_model_version.return_value = mv
     item = _publish(cm, version=1)
     checkpoint = item.assets["checkpoint"]
-    assert checkpoint.href == "https://artifact-store.s3.us-east-1.amazonaws.com/model/output/abc123"
+    assert checkpoint.href.endswith(".pt")
     assert checkpoint.extra_fields["zenml:artifact_version_id"] == "artifact-version-uuid-001"
     onnx = item.assets["model"]
-    assert onnx.href == "https://artifact-store.s3.us-east-1.amazonaws.com/model/output/abc123-onnx"
+    assert onnx.href.endswith(".onnx")
     assert onnx.extra_fields["zenml:artifact_version_id"] == "artifact-version-uuid-001"
 
 

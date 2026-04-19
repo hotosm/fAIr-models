@@ -512,10 +512,10 @@ def training_pipeline(
 def inference_pipeline(
     model_uri: str,
     input_images: str,
-    inference_params: dict[str, Any] | None = None,
+    inference_params: dict[str, Any],
 ) -> None:
     run_inference(
         model_uri=model_uri,
         input_images=input_images,
-        inference_params=inference_params or {},
+        inference_params=inference_params,
     )

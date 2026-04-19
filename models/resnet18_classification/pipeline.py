@@ -90,7 +90,9 @@ def _preprocess_onnx_image(img_path: Any) -> tuple[Any, Any, Any, Any]:
 def predict(session: Any, input_images: str, params: dict[str, Any]) -> dict[str, Any]:
     from fair.utils.data import resolve_directory
 
-    threshold = float(params.get("threshold", 0.5))
+    if "confidence_threshold" not in params:
+        raise ValueError("params['confidence_threshold'] is required")
+    confidence_threshold = float(params["confidence_threshold"])
     input_name = session.get_inputs()[0].name
 
     input_dir = resolve_directory(input_images)
@@ -106,7 +108,7 @@ def predict(session: Any, input_images: str, params: dict[str, Any]) -> dict[str
         logits = session.run(None, {input_name: batch})[0]
         logit_value = float(logits.reshape(-1)[0])
         confidence = _sigmoid(logit_value)
-        label = "building" if confidence > threshold else "no_building"
+        label = "building" if confidence > confidence_threshold else "no_building"
 
         feature = _bounds_to_geo_feature(
             bounds.left,
@@ -442,10 +444,10 @@ def run_inference(
 def inference_pipeline(
     model_uri: str,
     input_images: str,
-    inference_params: dict[str, Any] | None = None,
+    inference_params: dict[str, Any],
 ) -> None:
     run_inference(
         model_uri=model_uri,
         input_images=input_images,
-        inference_params=inference_params or {},
+        inference_params=inference_params,
     )

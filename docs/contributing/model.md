@@ -798,10 +798,22 @@ Example:
 ```json
 "mlm:hyperparameters": {
     "training.epochs": 5,
+    "training.batch_size": 4,
     "training.learning_rate": 0.0001,
-    "inference.min_class_value": 1
+    "inference.confidence_threshold": 0.5,
 }
 ```
+
+The STAC schema enforces four keys as **compulsory** in every
+`mlm:hyperparameters` block (base and local models):
+
+| Key | Purpose |
+| --- | --- |
+| `training.epochs` | Training epochs |
+| `training.batch_size` | Training batch size |
+| `training.learning_rate` | Optimizer learning rate |
+| `inference.confidence_threshold` | Minimum score to keep a prediction |
+
 
 fAIr chips are 256*256; each model handles any internal resize to its native ONNX
 input size inside `preprocess`.

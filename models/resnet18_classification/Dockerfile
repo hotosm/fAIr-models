@@ -9,7 +9,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY pyproject.toml README.md fair_zenml_patch.pth /tmp/fair-src/
 COPY fair /tmp/fair-src/fair
 RUN --mount=type=cache,target=/root/.cache/uv \
-    HATCH_VCS_PRETEND_VERSION=0.0.0 \
+    SETUPTOOLS_SCM_PRETEND_VERSION=0.0.0 \
     uv pip install \
     --extra-index-url https://download.pytorch.org/whl/cpu \
     --index-strategy unsafe-best-match \
@@ -47,7 +47,7 @@ FROM runtime AS test
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 COPY --from=builder /tmp/fair-src /tmp/fair-src
 RUN --mount=type=cache,target=/root/.cache/uv \
-    HATCH_VCS_PRETEND_VERSION=0.0.0 \
+    SETUPTOOLS_SCM_PRETEND_VERSION=0.0.0 \
     uv pip install --system /tmp/fair-src[test]
 
 # Inference builder stage: distroless-ready venv with serving deps
@@ -55,10 +55,10 @@ FROM ghcr.io/astral-sh/uv:bookworm-slim AS inference-builder
 ENV UV_PYTHON_INSTALL_DIR=/python UV_PYTHON_PREFERENCE=only-managed
 RUN uv python install 3.13
 WORKDIR /app
-COPY pyproject.toml README.md /tmp/fair-src/
+COPY pyproject.toml README.md fair_zenml_patch.pth /tmp/fair-src/
 COPY fair /tmp/fair-src/fair
 RUN --mount=type=cache,target=/root/.cache/uv \
-    HATCH_VCS_PRETEND_VERSION=0.0.0 \
+    export SETUPTOOLS_SCM_PRETEND_VERSION=0.0.0 && \
     uv venv && uv pip install \
     /tmp/fair-src[serve] \
     rasterio \

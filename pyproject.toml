@@ -45,6 +45,7 @@ dependencies = [
 [project.optional-dependencies]
 test = [
     "pytest>=8.0",
+    "pytest-cov>=6.0",
     "zenml[server]==0.93.3",
 ]
 k8s = [
@@ -119,7 +120,7 @@ line-length = 120
 select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+testpaths = ["tests", "fair/serve/tests"]
 addopts = "--cov=fair --cov-report=term-missing"
 markers = ["slow: marks tests as slow (deselect with '-m \"not slow\"')"]
 
@@ -128,7 +129,7 @@ source = ["fair"]
 omit = ["tests/*"]
 
 [tool.coverage.report]
-fail_under = 60
+fail_under = 90
 exclude_lines = [
     "pragma: no cover",
     "if TYPE_CHECKING:",

@@ -245,13 +245,17 @@ resource "kubernetes_namespace" "predict" {
   metadata { name = "predict" }
 }
 
+resource "kubernetes_namespace" "knative_serving" {
+  metadata { name = "knative-serving" }
+}
+
 resource "helm_release" "knative_operator" {
   name             = "knative-operator"
   namespace        = "knative-operator"
   create_namespace = true
   repository       = "https://knative.github.io/operator"
   chart            = "knative-operator"
-  version          = "v1.17.0"
+  version          = "v1.17.8"
   timeout          = 600
   wait             = true
 }
@@ -280,7 +284,7 @@ resource "kubernetes_manifest" "knative_serving" {
     }
   }
 
-  depends_on = [helm_release.knative_operator]
+  depends_on = [helm_release.knative_operator, kubernetes_namespace.knative_serving]
 }
 
 resource "kubernetes_ingress_v1" "predict" {
@@ -308,7 +312,7 @@ resource "kubernetes_ingress_v1" "predict" {
           path_type = "Prefix"
           backend {
             service {
-              name = "kourier"
+              name = "predict-gateway"
               port { number = 80 }
             }
           }

@@ -420,7 +420,7 @@ class FairClient:
         if model_asset is None:
             raise FairClientError(f"Model '{model_id}' missing 'model' (ONNX) asset")
 
-        base_model_name = self._base_model_name_for_live_service(model_item, collection)
+        service_name = self._base_model_name_for_live_service(model_item, collection)
 
         prefix = self._artifact_store_prefix()
         if self._upload_artifacts and prefix and "://" not in image_path:
@@ -434,9 +434,14 @@ class FairClient:
             "params": inference_params(model_item.properties.get("mlm:hyperparameters", {})),
         }
 
-        base = predict_base_url or self._predict_base_url()
-        url = f"{base.rstrip('/')}/{base_model_name}/predict"
-        response = httpx.post(url, json=payload, timeout=timeout)
+        base = self._predict_base_url(predict_base_url)
+        url = f"{base.rstrip('/')}/{service_name}/predict"
+        response = httpx.post(
+            url,
+            json=payload,
+            timeout=timeout,
+            verify=self._predict_verify_ssl(),
+        )
         response.raise_for_status()
         return response.json()
 
@@ -452,13 +457,31 @@ class FairClient:
         base = cat.get_item(BASE_MODELS_COLLECTION, base_id)
         return knative_service_name(base.properties.get("mlm:name") or base.id)
 
-    def _predict_base_url(self) -> str:
+    def _predict_base_url(self, predict_base_url: str | None = None) -> str:
         import os
 
+        if predict_base_url:
+            return predict_base_url
+
         url = os.environ.get("FAIR_PREDICT_BASE_URL")
-        if not url:
-            raise FairClientError("FAIR_PREDICT_BASE_URL is not set; pass predict_base_url explicitly")
-        return url
+        if url:
+            return url
+
+        public_domain = os.environ.get("FAIR_LABEL_DOMAIN")
+        if public_domain:
+            return f"https://predict.{public_domain}"
+
+        raise FairClientError("Set FAIR_PREDICT_BASE_URL, FAIR_LABEL_DOMAIN, or pass predict_base_url explicitly")
+
+    def _predict_verify_ssl(self) -> bool:
+        import os
+
+        value = os.environ.get("FAIR_PREDICT_VERIFY_SSL")
+        if value is None:
+            value = os.environ.get("ZENML_STORE_VERIFY_SSL")
+        if value is None:
+            return True
+        return str(value).strip().lower() not in {"0", "false", "no"}
 
     def predict(self, local_model_id: str, image_path: str) -> dict[str, Any]:
         cat = self._get_backend()

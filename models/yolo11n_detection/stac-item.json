@@ -273,7 +273,7 @@
             ]
         },
         "mlm:inference": {
-            "href": "ghcr.io/hotosm/fair-models/yolo11n_detection:latest",
+            "href": "ghcr.io/hotosm/fair-models/yolo11n_detection:latest-inference",
             "type": "application/vnd.oci.image.index.v1+json",
             "title": "Inference Docker Image",
             "roles": [

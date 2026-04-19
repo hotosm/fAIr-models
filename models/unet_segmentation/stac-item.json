@@ -344,7 +344,7 @@
             ]
         },
         "mlm:inference": {
-            "href": "ghcr.io/hotosm/fair-models/unet_segmentation:latest",
+            "href": "ghcr.io/hotosm/fair-models/unet_segmentation:latest-inference",
             "type": "application/vnd.oci.image.index.v1+json",
             "title": "Inference Docker Image",
             "roles": [

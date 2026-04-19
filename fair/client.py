@@ -13,6 +13,7 @@ import yaml
 from zenml.client import Client
 from zenml.enums import StackComponentType
 
+from fair.params import inference_params
 from fair.stac.builders import (
     BaseModelItemParams,
     DatasetItemParams,
@@ -180,7 +181,15 @@ class FairClient:
             archive_previous_version(cat, BASE_MODELS_COLLECTION, prev, successor_href)
 
         published = cat.publish_item(BASE_MODELS_COLLECTION, item)
-        print(f"register: base-model {published.id} v{published.properties['version']}")
+
+        try:
+            from fair.infra.knative import ensure_knative_service
+
+            ensure_knative_service(published)
+            print(f"register: base-model {published.id} v{published.properties['version']} (knative ok)")
+        except Exception as exc:
+            logger.warning("register_base_model: KNative service not ensured (%s)", exc)
+            print(f"register: base-model {published.id} v{published.properties['version']}")
         return published.id
 
     def _register_dataset_from_item(self, stac_item_path: str) -> str:
@@ -389,6 +398,67 @@ class FairClient:
         )
         print(f"promote: {item.id}")
         return item.id
+
+    def predict_live(
+        self,
+        model_id: str,
+        image_path: str,
+        *,
+        predict_base_url: str | None = None,
+        collection: str = LOCAL_MODELS_COLLECTION,
+        timeout: float = 120.0,
+    ) -> dict[str, Any]:
+        import httpx
+
+        cat = self._get_backend()
+        try:
+            model_item = cat.get_item(collection, model_id)
+        except KeyError as exc:
+            raise FairClientError(f"Model '{model_id}' not found in '{collection}'") from exc
+
+        model_asset = model_item.assets.get("model")
+        if model_asset is None:
+            raise FairClientError(f"Model '{model_id}' missing 'model' (ONNX) asset")
+
+        base_model_name = self._base_model_name_for_live_service(model_item, collection)
+
+        prefix = self._artifact_store_prefix()
+        if self._upload_artifacts and prefix and "://" not in image_path:
+            remote_path = f"{prefix}/predict/{model_id}/input"
+            upload_local_directory(Path(image_path), remote_path)
+            image_path = remote_path
+
+        payload = {
+            "model_uri": model_asset.href,
+            "input_images": image_path,
+            "params": inference_params(model_item.properties.get("mlm:hyperparameters", {})),
+        }
+
+        base = predict_base_url or self._predict_base_url()
+        url = f"{base.rstrip('/')}/{base_model_name}/predict"
+        response = httpx.post(url, json=payload, timeout=timeout)
+        response.raise_for_status()
+        return response.json()
+
+    def _base_model_name_for_live_service(self, model_item: pystac.Item, collection: str) -> str:
+        from fair.infra.knative import knative_service_name
+
+        if collection == BASE_MODELS_COLLECTION:
+            return knative_service_name(model_item.properties.get("mlm:name") or model_item.id)
+        base_id = model_item.properties.get("fair:base_model_id")
+        if not base_id:
+            raise FairClientError(f"Local model '{model_item.id}' missing 'fair:base_model_id'")
+        cat = self._get_backend()
+        base = cat.get_item(BASE_MODELS_COLLECTION, base_id)
+        return knative_service_name(base.properties.get("mlm:name") or base.id)
+
+    def _predict_base_url(self) -> str:
+        import os
+
+        url = os.environ.get("FAIR_PREDICT_BASE_URL")
+        if not url:
+            raise FairClientError("FAIR_PREDICT_BASE_URL is not set; pass predict_base_url explicitly")
+        return url
 
     def predict(self, local_model_id: str, image_path: str) -> dict[str, Any]:
         cat = self._get_backend()

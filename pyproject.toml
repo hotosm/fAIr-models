@@ -52,6 +52,11 @@ k8s = [
     "pystac-client>=0.9,<1",
     "zenml[connectors-aws,connectors-kubernetes,s3fs]==0.93.3",
 ]
+serve = [
+    "starlette>=0.40,<0.46",
+    "uvicorn[standard]>=0.34",
+    "onnxruntime>=1.22",
+]
 
 [project.urls]
 Homepage = "https://github.com/hotosm/fAIr-models"

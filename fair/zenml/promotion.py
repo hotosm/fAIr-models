@@ -30,25 +30,57 @@ def promote_model_version(model_name: str, version: Annotated[int, Ge(1)]) -> No
     log.info("ZenML: %s v%d -> production", model_name, version)
 
 
+def _materialize_onnx_bytes(onnx_art: Any) -> bytes:
+    data = onnx_art.load()
+    if isinstance(data, bytes):
+        return data
+    if isinstance(data, bytearray | memoryview):
+        return bytes(data)
+    msg = f"'onnx_model' artifact did not materialize to bytes (got {type(data).__name__})"
+    raise TypeError(msg)
+
+
+def _materialize_checkpoint_bytes(weights_art: Any) -> bytes:
+    import io
+
+    import torch
+
+    model = weights_art.load()
+    buffer = io.BytesIO()
+    torch.save(model, buffer)
+    return buffer.getvalue()
+
+
 def _upload_model_artifacts(
-    weights_uri: str,
-    onnx_uri: str,
+    weights_art: Any,
+    onnx_art: Any,
     item_id: str,
     prefix: str | None,
 ) -> tuple[str, str]:
+    import tempfile
+    from pathlib import Path
+
     from upath import UPath
 
+    onnx_bytes = _materialize_onnx_bytes(onnx_art)
+    checkpoint_bytes = _materialize_checkpoint_bytes(weights_art)
+
     if prefix is None:
-        return s3_uri_to_http_url(weights_uri), s3_uri_to_http_url(onnx_uri)
+        local_root = Path(tempfile.mkdtemp(prefix=f"fair-local-{item_id}-"))
+        checkpoint_path = local_root / f"{item_id}.pt"
+        onnx_path = local_root / f"{item_id}.onnx"
+        checkpoint_path.write_bytes(checkpoint_bytes)
+        onnx_path.write_bytes(onnx_bytes)
+        return str(checkpoint_path), str(onnx_path)
 
     checkpoint_dest = f"{prefix}/local-models/{item_id}/checkpoint/{item_id}.pt"
     onnx_dest = f"{prefix}/local-models/{item_id}/model/{item_id}.onnx"
 
-    log.info("Mirroring checkpoint %s -> %s", weights_uri, checkpoint_dest)
-    UPath(checkpoint_dest).write_bytes(UPath(weights_uri).read_bytes())
+    log.info("Writing checkpoint -> %s", checkpoint_dest)
+    UPath(checkpoint_dest).write_bytes(checkpoint_bytes)
 
-    log.info("Mirroring ONNX %s -> %s", onnx_uri, onnx_dest)
-    UPath(onnx_dest).write_bytes(UPath(onnx_uri).read_bytes())
+    log.info("Writing ONNX -> %s", onnx_dest)
+    UPath(onnx_dest).write_bytes(onnx_bytes)
 
     return s3_uri_to_http_url(checkpoint_dest), s3_uri_to_http_url(onnx_dest)
 
@@ -157,8 +189,8 @@ def publish_promoted_model(
     artifact_version_id = str(weights_art.id)
 
     checkpoint_href, onnx_href = _upload_model_artifacts(
-        weights_uri=weights_art.uri,
-        onnx_uri=onnx_art.uri,
+        weights_art=weights_art,
+        onnx_art=onnx_art,
         item_id=new_item_id,
         prefix=artifact_store_prefix,
     )
@@ -168,6 +200,10 @@ def publish_promoted_model(
         training_metrics_href = _upload_training_metrics(loss_history, new_item_id, artifact_store_prefix)
 
     base_model_item = catalog_manager.get_item(BASE_MODELS_COLLECTION, base_model_item_id)
+
+    base_hyperparams = base_model_item.properties.get("mlm:hyperparameters", {}) or {}
+    inference_defaults = {k: v for k, v in base_hyperparams.items() if k.startswith("inference.")}
+    hyperparams = {**inference_defaults, **hyperparams}
 
     # Geometry: prefer caller-provided, fallback to dataset item geometry
     dataset_item = catalog_manager.get_item(DATASETS_COLLECTION, dataset_item_id)

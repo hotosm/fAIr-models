@@ -11,7 +11,8 @@ from typing import Annotated, Any
 from zenml import log_metadata, pipeline, step
 
 from fair.zenml.instrumentation import log_evaluation_results, mlflow_training_context
-from fair.zenml.steps import load_model
+
+MODEL_INPUT_SIZE = 256
 
 
 def _get_device() -> str:
@@ -24,7 +25,7 @@ def _get_device() -> str:
     return "cpu"
 
 
-def _vectorize_segmentation_mask(mask, transform, crs):
+def _vectorize_segmentation_mask(mask, transform, crs, min_class_value: int = 1):
     import numpy as np
     import rasterio.features
     from pyproj import Transformer
@@ -35,7 +36,7 @@ def _vectorize_segmentation_mask(mask, transform, crs):
 
     features = []
     for geom, value in rasterio.features.shapes(mask_uint8, transform=transform):
-        if value == 0:
+        if value < min_class_value:
             continue
         if transformer:
             coords = geom["coordinates"]
@@ -66,6 +67,51 @@ def postprocess(logits: Any) -> Any:
     import numpy as np
 
     return logits.argmax(dim=1).cpu().numpy().astype(np.uint8)
+
+
+def _preprocess_onnx_image(img_path: Any) -> tuple[Any, Any, Any]:
+    import numpy as np
+    import rasterio
+
+    with rasterio.open(img_path) as src:
+        arr = src.read([1, 2, 3]).astype(np.float32) / 255.0
+        transform = src.transform
+        crs = src.crs
+    if arr.shape[-2:] != (MODEL_INPUT_SIZE, MODEL_INPUT_SIZE):
+        arr = _resize_chw(arr, MODEL_INPUT_SIZE)
+    return arr[np.newaxis, ...], transform, crs
+
+
+def _resize_chw(arr: Any, size: int) -> Any:
+    import numpy as np
+    from PIL import Image
+
+    channels = [
+        np.asarray(Image.fromarray(arr[c]).resize((size, size), Image.Resampling.BILINEAR)) for c in range(arr.shape[0])
+    ]
+    return np.stack(channels, axis=0).astype(np.float32)
+
+
+def predict(session: Any, input_images: str, params: dict[str, Any]) -> dict[str, Any]:
+    from fair.utils.data import resolve_directory
+
+    min_class_value = int(params.get("min_class_value", 1))
+    input_name = session.get_inputs()[0].name
+
+    input_dir = resolve_directory(input_images)
+    patterns = ("*.png", "*.tif", "*.tiff")
+    img_paths = sorted(p for pat in patterns for p in input_dir.glob(pat))
+    if not img_paths:
+        msg = f"No input images found in {input_dir}"
+        raise FileNotFoundError(msg)
+
+    features: list[dict[str, Any]] = []
+    for img_path in img_paths:
+        batch, transform, crs = _preprocess_onnx_image(img_path)
+        logits = session.run(None, {input_name: batch})[0]
+        mask = logits[0].argmax(axis=0)
+        features.extend(_vectorize_segmentation_mask(mask, transform, crs, min_class_value))
+    return _build_feature_collection(features)
 
 
 def _build_dataset(
@@ -335,60 +381,15 @@ def evaluate_model(
 
 
 @step
-def load_base_model(
-    model_uri: str,
-    num_classes: int,
-) -> Any:
-    import torch
-    from torchgeo.models import unet
-
-    model = unet(weights=None, classes=num_classes)
-    local_path = _download_checkpoint(model_uri)
-    state = torch.load(local_path, map_location="cpu", weights_only=True)
-    model.load_state_dict(state, strict=False)
-    return model.cpu()
-
-
-@step
 def run_inference(
-    model: Any,
+    model_uri: str,
     input_images: str,
-    chip_size: int,
-    num_classes: int,
+    inference_params: dict[str, Any],
 ) -> Annotated[dict[str, Any], "predictions"]:
-    import rasterio
-    import torch
-    import torch.nn.functional as F
+    from fair.serve.base import load_session
 
-    from fair.utils.data import resolve_directory
-
-    device = _get_device()
-    model = model.to(device)
-    model.eval()
-
-    input_dir = resolve_directory(input_images)
-    patterns = ("*.png", "*.tif", "*.tiff")
-    img_paths = sorted(p for pat in patterns for p in input_dir.glob(pat))
-    if not img_paths:
-        msg = f"No input images found in {input_dir}"
-        raise FileNotFoundError(msg)
-
-    all_features: list[dict[str, Any]] = []
-    with torch.no_grad():
-        for img_path in img_paths:
-            with rasterio.open(img_path) as src:
-                img = src.read([1, 2, 3]).transpose(1, 2, 0)
-                transform = src.transform
-                crs = src.crs
-
-            tensor = torch.from_numpy(img).permute(2, 0, 1).unsqueeze(0).float() / 255.0
-            if tensor.shape[-2:] != (chip_size, chip_size):
-                tensor = F.interpolate(tensor, size=(chip_size, chip_size), mode="bilinear", align_corners=False)
-
-            mask = postprocess(model(tensor.to(device)))[0]
-            all_features.extend(_vectorize_segmentation_mask(mask, transform, crs))
-
-    return _build_feature_collection(all_features)
+    session = load_session(model_uri)
+    return predict(session, input_images, inference_params)
 
 
 @step
@@ -420,6 +421,8 @@ def export_onnx(
             dynamic_axes={"input": {0: "batch"}, "output": {0: "batch"}},
             opset_version=18,
         )
+        proto = onnx.load(path)
+        onnx.save_model(proto, path, save_as_external_data=False)
         onnx.checker.check_model(path)
         return Path(path).read_bytes()
     finally:
@@ -466,18 +469,10 @@ def training_pipeline(
 def inference_pipeline(
     model_uri: str,
     input_images: str,
-    chip_size: int,
-    num_classes: int,
-    zenml_artifact_version_id: str = "",
-    use_base_model: bool = False,
+    inference_params: dict[str, Any] | None = None,
 ) -> None:
-    if use_base_model:
-        model = load_base_model(model_uri=model_uri, num_classes=num_classes)
-    else:
-        model = load_model(model_uri=model_uri, zenml_artifact_version_id=zenml_artifact_version_id)
     run_inference(
-        model=model,
+        model_uri=model_uri,
         input_images=input_images,
-        chip_size=chip_size,
-        num_classes=num_classes,
+        inference_params=inference_params or {},
     )

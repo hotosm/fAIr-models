@@ -8,7 +8,8 @@ on:
       - "models/**"
       - "pyproject.toml"
       - "uv.lock"
-      - ".github/workflows/style.yml"
+      - ".github/workflows/**"
+      - ".github/scripts/**"
   pull_request:
     branches: [ master ]
     paths:
@@ -17,7 +18,8 @@ on:
       - "models/**"
       - "pyproject.toml"
       - "uv.lock"
-      - ".github/workflows/style.yml"
+      - ".github/workflows/**"
+      - ".github/scripts/**"
   workflow_dispatch:
 permissions:
   contents: read
@@ -85,6 +87,8 @@ jobs:
         uses: codecov/codecov-action@v5
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
+          flags: fair
+          name: fair-coverage
   build:
     name: build check
     runs-on: ubuntu-latest

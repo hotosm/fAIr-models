@@ -227,7 +227,10 @@ def test_backend_and_dataclass_registration_branches(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    local_client = FairClient(config_dir=str(tmp_path))
+    catalog_path = tmp_path / "stac_catalog" / "catalog.json"
+    client_module.initialize_catalog(str(catalog_path))
+
+    local_client = FairClient(config_dir=str(tmp_path), catalog_path=str(catalog_path))
     assert local_client._get_backend().__class__.__name__ == "StacCatalogManager"
 
     real_import = builtins.__import__

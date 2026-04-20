@@ -585,13 +585,16 @@ def evaluate_model(
 
 
 @step
-def export_onnx(trained_model: Any) -> Annotated[str, "onnx_model"]:
+def export_onnx(trained_model: Any) -> Annotated[bytes, "onnx_model"]:
     import onnx
 
     model = _restore_checkpoint(trained_model)
     onnx_path = model.export(format="onnx")
-    onnx.checker.check_model(onnx_path)
-    return str(onnx_path)
+    onnx_path = Path(str(onnx_path))
+    if not onnx_path.exists():
+        raise FileNotFoundError(f"ONNX export did not produce expected file: {onnx_path}")
+    onnx.checker.check_model(str(onnx_path))
+    return onnx_path.read_bytes()
 
 
 @step

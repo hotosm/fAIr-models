@@ -166,4 +166,6 @@ def test_export_onnx() -> None:
         with patch("models.yolo_v8_segmentation.pipeline._restore_checkpoint", return_value=_MockModel(onnx_path)):
             exported = export_onnx.entrypoint(trained_model=b"fake")
 
-    assert Path(exported).exists()
+    assert isinstance(exported, bytes)
+    loaded = onnx.load_from_string(exported)
+    onnx.checker.check_model(loaded)

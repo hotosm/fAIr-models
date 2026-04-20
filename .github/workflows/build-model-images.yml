@@ -95,7 +95,7 @@ jobs:
             "${{ matrix.name }}:test" \
             python -m pytest -o addopts='' models/${{ matrix.name }}/tests/ -v --tb=short --model-dir=models/${{ matrix.name }}
 
-      - name: Run integration test (exports fresh ONNX for smoke test)
+      - name: Run integration test
         run: |
           mkdir -p "$PWD/ci-artifacts"
           docker run --rm --entrypoint "" \
@@ -149,7 +149,7 @@ jobs:
           cache-from: type=gha,scope=${{ matrix.name }}-inference
           cache-to: type=gha,mode=max,scope=${{ matrix.name }}-inference
 
-      - name: Smoke test inference image (with fresh ONNX from integration)
+      - name: Smoke test inference image 
         run: |
           python3 scripts/smoke_test_inference_image.py \
             --image "${{ matrix.name }}:inference" \

@@ -245,6 +245,21 @@ resource "kubernetes_namespace" "predict" {
   metadata { name = "predict" }
 }
 
+resource "kubernetes_secret" "s3_credentials" {
+  metadata {
+    name      = "s3-credentials"
+    namespace = kubernetes_namespace.predict.metadata[0].name
+  }
+
+  data = {
+    AWS_ENDPOINT_URL      = local.spaces_endpoint
+    AWS_ACCESS_KEY_ID     = var.spaces_access_key
+    AWS_SECRET_ACCESS_KEY = var.spaces_secret_key
+  }
+
+  depends_on = [kubernetes_namespace.predict]
+}
+
 resource "kubernetes_namespace" "knative_serving" {
   metadata { name = "knative-serving" }
 }

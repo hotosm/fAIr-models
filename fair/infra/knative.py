@@ -19,6 +19,7 @@ KNATIVE_VERSION = "v1"
 KNATIVE_PLURAL = "services"
 DEFAULT_NAMESPACE = "predict"
 PUBLIC_INGRESS_NAMESPACE = "knative-serving"
+S3_CREDENTIALS_SECRET = "s3-credentials"
 PREDICT_GATEWAY_NAME = "predict-gateway"
 PREDICT_GATEWAY_LOCATION_TEMPLATE = """
     location ~ ^/{service_name}(/|$)(.*)$ {{
@@ -172,6 +173,9 @@ def build_knative_manifest(item: pystac.Item, namespace: str = DEFAULT_NAMESPACE
                             "ports": [{"containerPort": 8080}],
                             "env": [
                                 {"name": "MODEL_MODULE", "value": _module_from_entrypoint(entrypoint)},
+                            ],
+                            "envFrom": [
+                                {"secretRef": {"name": S3_CREDENTIALS_SECRET}},
                             ],
                         }
                     ],

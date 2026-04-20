@@ -104,6 +104,14 @@ def _build_dataset_stac_item(chips_dir: Path, labels_dir: Path) -> dict[str, Any
             "label:classes": [{"name": "building", "classes": ["building"]}],
             "label:description": "Toy polygon labels",
             "keywords": ["building"],
+            "providers": [
+                {
+                    "name": "HOTOSM",
+                    "roles": ["producer"],
+                    "url": "https://www.hotosm.org",
+                    "description": "Humanitarian OpenStreetMap Team",
+                }
+            ],
             "fair:user_id": "test",
             "version": "1",
             "deprecated": False,

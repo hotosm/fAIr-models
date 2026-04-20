@@ -111,3 +111,25 @@ def test_full_pipeline(
     predictions = fair_client.predict(local_model_id, image_path=predict_images)
     assert predictions["type"] == "FeatureCollection"
     assert "features" in predictions
+
+    export_dir = os.environ.get("FAIR_CI_ONNX_EXPORT_DIR")
+    if export_dir:
+        _export_promoted_onnx(fair_client, local_model_id, Path(export_dir), model_dir.name)
+
+
+def _export_promoted_onnx(fair_client: Any, local_model_id: str, export_dir: Path, model_name: str) -> None:
+    import shutil
+    from urllib.parse import urlparse
+
+    from fair.stac.constants import LOCAL_MODELS_COLLECTION
+
+    cat = fair_client._get_backend()
+    model_item = cat.get_item(LOCAL_MODELS_COLLECTION, local_model_id)
+    href = model_item.assets["model"].href
+    parsed = urlparse(href)
+    source = Path(parsed.path) if parsed.scheme in ("", "file") else None
+    if source is None or not source.exists():
+        raise RuntimeError(f"Cannot export ONNX: unexpected asset href '{href}'")
+
+    export_dir.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(source, export_dir / f"{model_name}.onnx")

@@ -8,6 +8,7 @@ tests run without a live server.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 from contextlib import contextmanager
@@ -80,14 +81,8 @@ def dataset_stac_item(generate_toy_dataset: dict[str, Path]) -> Path:
 
 
 @pytest.fixture()
-def base_hyperparameters(chip_size: int) -> dict[str, Any]:
-    return {
-        "epochs": 1,
-        "batch_size": 2,
-        "learning_rate": 0.001,
-        "val_ratio": 0.3,
-        "split_seed": 42,
-    }
+def base_hyperparameters() -> dict[str, Any]:
+    return {"epochs": 1}
 
 
 @contextmanager
@@ -95,13 +90,32 @@ def _noop_context(*_args: Any, **_kwargs: Any):
     yield
 
 
+def _discover_pipeline_modules() -> list[str]:
+    models_root = Path(__file__).parent
+    return sorted(f"models.{p.parent.name}.pipeline" for p in models_root.glob("*/pipeline.py"))
+
+
 @pytest.fixture(autouse=True)
 def mock_instrumentation():
-    with (
+    import importlib
+
+    patches = [
         patch("fair.zenml.instrumentation.mlflow_training_context", _noop_context),
         patch("fair.zenml.instrumentation.log_evaluation_results"),
+        patch("fair.zenml.metrics.log_metadata"),
+        patch("fair.zenml.metrics.log_loss_history"),
         patch("zenml.log_metadata"),
-    ):
+    ]
+    for module_name in _discover_pipeline_modules():
+        try:
+            importlib.import_module(module_name)
+        except ImportError:
+            continue
+        patches.append(patch(f"{module_name}.log_metadata"))
+
+    with contextlib.ExitStack() as stack:
+        for p in patches:
+            stack.enter_context(p)
         yield
 
 

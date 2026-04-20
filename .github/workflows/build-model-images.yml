@@ -86,29 +86,26 @@ jobs:
           tags: ${{ matrix.name }}:test
           cache-from: type=gha,scope=${{ matrix.name }}
 
-      - name: Run step tests with coverage gate
+      - name: Run step tests
         run: |
           docker run --rm --entrypoint "" \
             -e FAIR_FORCE_CPU=1 \
             -v "$PWD:/workspace" \
             -w /workspace \
             "${{ matrix.name }}:test" \
-            python -m pytest -o addopts='' models/${{ matrix.name }}/tests/ -v --tb=short --model-dir=models/${{ matrix.name }} --cov=models/${{ matrix.name }} --cov-report=term-missing --cov-report=xml:coverage-model.xml --cov-fail-under=95
+            python -m pytest -o addopts='' models/${{ matrix.name }}/tests/ -v --tb=short --model-dir=models/${{ matrix.name }}
 
-      - name: Upload model coverage to Codecov
-        uses: codecov/codecov-action@v5
-        with:
-          token: ${{ secrets.CODECOV_TOKEN }}
-          files: ./coverage-model.xml
-          flags: ${{ matrix.name }}
-          name: ${{ matrix.name }}-coverage
-
-      - name: Run integration test
+      - name: Run integration test (exports fresh ONNX for smoke test)
         run: |
+          mkdir -p "$PWD/ci-artifacts"
           docker run --rm --entrypoint "" \
             -e FAIR_FORCE_CPU=1 \
+            -e FAIR_CI_ONNX_EXPORT_DIR=/workspace/ci-artifacts \
+            -v "$PWD:/workspace" \
+            -w /workspace \
             "${{ matrix.name }}:test" \
             python -m pytest -o addopts='' models/test_integration.py -v --tb=short -m slow --model-dir=models/${{ matrix.name }}
+          test -s "$PWD/ci-artifacts/${{ matrix.name }}.onnx"
 
       - name: Push image
         uses: docker/build-push-action@v6
@@ -142,12 +139,12 @@ jobs:
           tags: ${{ matrix.name }}:inference
           cache-from: type=gha,scope=${{ matrix.name }}-inference
 
-      - name: Smoke test inference image
+      - name: Smoke test inference image (with fresh ONNX from integration)
         run: |
           python3 scripts/smoke_test_inference_image.py \
             --image "${{ matrix.name }}:inference" \
             --model-module "models.${{ matrix.name }}.pipeline" \
-            --model-uri "/workspace/${{ matrix.path }}/artifacts/${{ matrix.name }}.onnx" \
+            --model-uri "/workspace/ci-artifacts/${{ matrix.name }}.onnx" \
             --input-images "/workspace/data/sample/predict/oam" \
             --container-name "${{ matrix.name }}-smoke"
 

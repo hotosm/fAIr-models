@@ -34,12 +34,18 @@ def _predict(
     model_uri: str,
     input_images: str,
     confidence_threshold: float,
+    iou_threshold: float,
+    min_class_value: int,
     timeout_seconds: float,
 ) -> dict[str, Any]:
     payload = {
         "model_uri": model_uri,
         "input_images": input_images,
-        "params": {"confidence_threshold": confidence_threshold},
+        "params": {
+            "confidence_threshold": confidence_threshold,
+            "iou_threshold": iou_threshold,
+            "min_class_value": min_class_value,
+        },
     }
     data = json.dumps(payload).encode("utf-8")
     req = request.Request(
@@ -86,6 +92,8 @@ def main() -> int:
     parser.add_argument("--health-timeout", type=float, default=60.0)
     parser.add_argument("--predict-timeout", type=float, default=120.0)
     parser.add_argument("--confidence-threshold", type=float, default=0.5)
+    parser.add_argument("--iou-threshold", type=float, default=0.45)
+    parser.add_argument("--min-class-value", type=int, default=1)
     parser.add_argument("--container-name", default="")
     args = parser.parse_args()
 
@@ -98,14 +106,13 @@ def main() -> int:
             [
                 "docker",
                 "run",
-                "--rm",
                 "-d",
                 "--name",
                 container_name,
                 "-e",
                 f"MODEL_MODULE={args.model_module}",
                 "-v",
-                f"{workspace}:/workspace",
+                f"{workspace}:/workspace:ro",
                 "-w",
                 "/workspace",
                 "-p",
@@ -122,6 +129,8 @@ def main() -> int:
             model_uri=args.model_uri,
             input_images=args.input_images,
             confidence_threshold=args.confidence_threshold,
+            iou_threshold=args.iou_threshold,
+            min_class_value=args.min_class_value,
             timeout_seconds=args.predict_timeout,
         )
         print(json.dumps({"status": "ok", "feature_count": len(result["features"])}))

@@ -107,17 +107,25 @@ jobs:
             python -m pytest -o addopts='' models/test_integration.py -v --tb=short -m slow --model-dir=models/${{ matrix.name }}
           test -s "$PWD/ci-artifacts/${{ matrix.name }}.onnx"
 
-      - name: Push image
+      - name: Build runtime image
         uses: docker/build-push-action@v6
         with:
           context: .
           file: ${{ matrix.path }}/Dockerfile
           target: runtime
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
+          load: true
+          tags: ${{ matrix.name }}:runtime
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha,scope=${{ matrix.name }}
           cache-to: type=gha,mode=max,scope=${{ matrix.name }}
+
+      - name: Push runtime image
+        run: |
+          while IFS= read -r tag; do
+            [[ -n "$tag" ]] || continue
+            docker tag "${{ matrix.name }}:runtime" "$tag"
+            docker push "$tag"
+          done <<< "${{ steps.meta.outputs.tags }}"
 
       - uses: docker/metadata-action@v5
         id: inference-meta
@@ -137,7 +145,9 @@ jobs:
           target: inference
           load: true
           tags: ${{ matrix.name }}:inference
+          labels: ${{ steps.inference-meta.outputs.labels }}
           cache-from: type=gha,scope=${{ matrix.name }}-inference
+          cache-to: type=gha,mode=max,scope=${{ matrix.name }}-inference
 
       - name: Smoke test inference image (with fresh ONNX from integration)
         run: |
@@ -149,13 +159,11 @@ jobs:
             --container-name "${{ matrix.name }}-smoke"
 
       - name: Push inference image
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: ${{ matrix.path }}/Dockerfile
-          target: inference
-          push: true
-          tags: ${{ steps.inference-meta.outputs.tags }}
-          labels: ${{ steps.inference-meta.outputs.labels }}
-          cache-from: type=gha,scope=${{ matrix.name }}-inference
-          cache-to: type=gha,mode=max,scope=${{ matrix.name }}-inference
+        run: |
+          while IFS= read -r tag; do
+            [[ -n "$tag" ]] || continue
+            docker tag "${{ matrix.name }}:inference" "$tag"
+            docker push "$tag"
+          done <<< "${{ steps.inference-meta.outputs.tags }}"
+
+

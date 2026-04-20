@@ -66,3 +66,19 @@ COPY --from=builder /tmp/fair-src /tmp/fair-src
 RUN --mount=type=cache,target=/root/.cache/uv \
     SETUPTOOLS_SCM_PRETEND_VERSION=0.0.0 \
     uv pip install --python /app/.venv/bin/python /tmp/fair-src[test]
+
+# ---------------------------------------------------------------------------
+# Inference stage: runtime + serving deps for smoke/live API
+# ---------------------------------------------------------------------------
+FROM runtime AS inference
+
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+COPY --from=builder /tmp/fair-src /tmp/fair-src
+
+RUN --mount=type=cache,target=/root/.cache/uv \
+    SETUPTOOLS_SCM_PRETEND_VERSION=0.0.0 \
+    uv pip install --python /app/.venv/bin/python /tmp/fair-src[serve]
+
+ENV PYTHONPATH=/workspace
+EXPOSE 8080
+CMD ["/app/.venv/bin/uvicorn", "fair.serve.base:create_app", "--factory", "--host", "0.0.0.0", "--port", "8080"]

@@ -11,14 +11,14 @@ import rasterio
 from rasterio.crs import CRS
 from rasterio.transform import from_bounds
 
-CHIP_COUNT = 4
+CHIP_COUNT = 6
 CHIP_SIZE = 128
 # Web Mercator zoom and tile grid used by hot_fair_utilities label clipping
 # (see clip_labels._bounding_box_from_filename).
 _OAM_ZOOM = 18
 # Four neighbouring tiles — x,y must be in [0, 2**z) for mercantile (avoids
 # FutureWarning on tile 0,0,0 edge cases).
-_TILE_XY = [(100, 200), (101, 200), (100, 201), (101, 201)]
+_TILE_XY = [(100, 200), (101, 200), (102, 200), (100, 201), (101, 201), (102, 201)]
 
 _bounds = mercantile.bounds(mercantile.Tile(x=_TILE_XY[0][0], y=_TILE_XY[0][1], z=_OAM_ZOOM))
 _WEST, _SOUTH, _EAST, _NORTH = _bounds.west, _bounds.south, _bounds.east, _bounds.north

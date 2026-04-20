@@ -317,6 +317,34 @@ def _training_cache_dir(dataset_chips: str, dataset_labels: str) -> Path:
     return Path(tempfile.gettempdir()) / f"yolo_v8_segmentation_{cache_key}"
 
 
+def _ensure_non_empty_validation_split(yolo_dir: Path) -> None:
+    """Guarantee at least one validation sample for YOLO training."""
+    val_images_dir = yolo_dir / "images" / "val"
+    val_labels_dir = yolo_dir / "labels" / "val"
+    if any(val_images_dir.glob("*")):
+        return
+
+    for source_split in ("train", "test"):
+        source_images_dir = yolo_dir / "images" / source_split
+        source_labels_dir = yolo_dir / "labels" / source_split
+        image_candidates = sorted(p for p in source_images_dir.glob("*") if p.is_file())
+        if not image_candidates:
+            continue
+
+        image_path = image_candidates[0]
+        val_images_dir.mkdir(parents=True, exist_ok=True)
+        val_labels_dir.mkdir(parents=True, exist_ok=True)
+        shutil.move(str(image_path), str(val_images_dir / image_path.name))
+
+        label_name = image_path.with_suffix(".txt").name
+        label_path = source_labels_dir / label_name
+        if label_path.exists():
+            shutil.move(str(label_path), str(val_labels_dir / label_name))
+        return
+
+    raise RuntimeError(f"YOLO split produced no validation candidates under {yolo_dir}")
+
+
 def _prepare_training_split(
     dataset_chips: str,
     dataset_labels: str,
@@ -355,6 +383,7 @@ def _prepare_training_split(
             val_split=p_val,
             test_split=0.0,
         )
+        _ensure_non_empty_validation_split(yolo_dir)
 
     train_count = len(list((yolo_dir / "images" / "train").glob("*")))
     val_count = len(list((yolo_dir / "images" / "val").glob("*")))

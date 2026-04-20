@@ -177,12 +177,14 @@
             }
         ],
         "mlm:hyperparameters": {
-            "epochs": 20,
-            "batch_size": 16,
-            "imgsz": 256,
-            "pc": 2.0,
-            "val_ratio": 0.2,
-            "split_seed": 42
+            "training.epochs": 20,
+            "training.batch_size": 16,
+            "training.learning_rate": 0.01,
+            "training.val_ratio": 0.2,
+            "training.split_seed": 42,
+            "training.imgsz": 256,
+            "training.pc": 2.0,
+            "inference.confidence_threshold": 0.5
         },
         "fair:split_spec": {
             "strategy": "random",
@@ -201,6 +203,27 @@
                 "mlm:weights"
             ],
             "mlm:artifact_type": "torch.save",
+            "raster:bands": [
+                {
+                    "name": "red"
+                },
+                {
+                    "name": "green"
+                },
+                {
+                    "name": "blue"
+                }
+            ]
+        },
+        "model": {
+            "href": "https://huggingface.co/qualcomm/YOLOv8-Segmentation/resolve/2b1347cf7d0fa58cb021f68b54ebb327544aa83e/YOLOv8-Segmentation.onnx",
+            "title": "Portable ONNX inference model",
+            "type": "application/octet-stream; framework=onnx",
+            "roles": [
+                "mlm:model",
+                "mlm:compiled"
+            ],
+            "mlm:artifact_type": "onnx",
             "raster:bands": [
                 {
                     "name": "red"

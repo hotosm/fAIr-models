@@ -299,11 +299,7 @@ def _materialize_training_input(dataset_chips: str, dataset_labels: str, work_di
                 if data.shape[0] < 3:
                     continue
                 rgb = np.transpose(data[:3], (1, 2, 0))
-                rgb = (
-                    (rgb * 255).astype(np.uint8)
-                    if rgb.max() <= 1.0
-                    else np.clip(rgb, 0, 255).astype(np.uint8)
-                )
+                rgb = (rgb * 255).astype(np.uint8) if rgb.max() <= 1.0 else np.clip(rgb, 0, 255).astype(np.uint8)
                 Image.fromarray(rgb).save(png_path)
 
     for png_path in png_paths:
@@ -329,8 +325,13 @@ def _prepare_training_split(
 ) -> dict[str, Any]:
     from hot_fair_utilities.preprocessing.yolo_v8 import yolo_format
 
-    p_val = float(hyperparameters.get("p_val", hyperparameters.get("val_ratio", 0.2)))
-    seed = int(hyperparameters.get("split_seed", 42))
+    p_val = float(
+        hyperparameters.get(
+            "training.val_ratio",
+            hyperparameters.get("p_val", hyperparameters.get("val_ratio", 0.2)),
+        )
+    )
+    seed = int(hyperparameters.get("training.split_seed", hyperparameters.get("split_seed", 42)))
     if not 0.0 < p_val < 1.0:
         raise ValueError("p_val/val_ratio must be in (0.0, 1.0)")
 
@@ -494,9 +495,9 @@ def train_model(
     dataset_id: str | None = None,
 ) -> Annotated[bytes, "trained_model"]:
     _ = (num_classes, model_name, base_model_id, dataset_id)
-    epochs = int(hyperparameters.get("epochs", 20))
-    batch_size = int(hyperparameters.get("batch_size", 16))
-    pc = float(hyperparameters.get("pc", 2.0))
+    epochs = int(hyperparameters.get("training.epochs", hyperparameters.get("epochs", 20)))
+    batch_size = int(hyperparameters.get("training.batch_size", hyperparameters.get("batch_size", 16)))
+    pc = float(hyperparameters.get("training.pc", hyperparameters.get("pc", 2.0)))
 
     yolo_dir = Path(split_info["_yolo_dir"])
     if not (yolo_dir / "yolo_dataset.yaml").exists():
@@ -526,7 +527,12 @@ def evaluate_model(
     class_names: list[str] | None = None,
 ) -> Annotated[dict[str, Any], "metrics"]:
     _ = class_names
-    imgsz = int(hyperparameters.get("imgsz", hyperparameters.get("chip_size", 256)))
+    imgsz = int(
+        hyperparameters.get(
+            "training.imgsz",
+            hyperparameters.get("imgsz", hyperparameters.get("chip_size", 256)),
+        )
+    )
 
     dataset_yaml = Path(split_info["_dataset_yaml"])
     if not dataset_yaml.exists():

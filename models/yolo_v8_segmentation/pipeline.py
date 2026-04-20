@@ -615,7 +615,7 @@ def run_inference(
     output_dir: str,
     confidence: float = 0.5,
     model_cache_dir: str | None = None,
-) -> dict[str, Any]:
+) -> Annotated[dict[str, Any], "predictions"]:
     """Inference wrapper preserving existing predict -> polygonize flow."""
     return infer_yolo_model(
         model_uri=model_uri,

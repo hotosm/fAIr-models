@@ -254,186 +254,6 @@ def postprocess(prediction_path: str, output_geojson: str) -> dict[str, Any]:
         return json.load(f)
 
 
-def _build_feature_collection(features: list[dict[str, Any]]) -> dict[str, Any]:
-    return {"type": "FeatureCollection", "features": features}
-
-
-def _preprocess_onnx_image(img_path: Path, model_input_size: int) -> tuple[Any, Any, Any, tuple[int, int], str]:
-    import numpy as np
-    import rasterio
-    from PIL import Image
-
-    with rasterio.open(img_path) as src:
-        arr = src.read([1, 2, 3]).astype(np.float32) / 255.0
-        transform = src.transform
-        crs = src.crs
-        original_hw = (int(src.height), int(src.width))
-
-    resized = [
-        np.asarray(
-            Image.fromarray(arr[c]).resize((model_input_size, model_input_size), Image.Resampling.BILINEAR)
-        )
-        for c in range(arr.shape[0])
-    ]
-    batch = np.stack(resized, axis=0)[np.newaxis, ...].astype(np.float32)
-    return batch, transform, crs, original_hw, img_path.name
-
-
-def _nms(boxes: Any, scores: Any, iou_threshold: float) -> list[int]:
-    import numpy as np
-
-    if len(boxes) == 0:
-        return []
-    x1 = boxes[:, 0]
-    y1 = boxes[:, 1]
-    x2 = boxes[:, 2]
-    y2 = boxes[:, 3]
-    areas = (x2 - x1) * (y2 - y1)
-    order = scores.argsort()[::-1]
-
-    keep: list[int] = []
-    while order.size > 0:
-        i = int(order[0])
-        keep.append(i)
-        if order.size == 1:
-            break
-        xx1 = np.maximum(x1[i], x1[order[1:]])
-        yy1 = np.maximum(y1[i], y1[order[1:]])
-        xx2 = np.minimum(x2[i], x2[order[1:]])
-        yy2 = np.minimum(y2[i], y2[order[1:]])
-        w = np.maximum(0.0, xx2 - xx1)
-        h = np.maximum(0.0, yy2 - yy1)
-        inter = w * h
-        iou = inter / (areas[i] + areas[order[1:]] - inter + 1e-9)
-        order = order[1:][iou <= iou_threshold]
-    return keep
-
-
-def _decode_yolo_output(output: Any, confidence_threshold: float, iou_threshold: float) -> list[dict[str, Any]]:
-    """Decode ultralytics YOLO ONNX output with shape (1, 4+nc, anchors)."""
-    import numpy as np
-
-    preds = np.squeeze(output, axis=0)
-    if preds.ndim != 2:
-        return []
-    if preds.shape[0] < preds.shape[1]:
-        preds = preds.transpose(1, 0)
-
-    boxes_cxcywh = preds[:, :4]
-    class_scores = preds[:, 4:]
-    if class_scores.shape[1] == 0:
-        return []
-
-    class_ids = class_scores.argmax(axis=1)
-    confidences = class_scores.max(axis=1)
-    keep_mask = confidences >= confidence_threshold
-    if not keep_mask.any():
-        return []
-
-    boxes_cxcywh = boxes_cxcywh[keep_mask]
-    confidences = confidences[keep_mask]
-    class_ids = class_ids[keep_mask]
-
-    cx = boxes_cxcywh[:, 0]
-    cy = boxes_cxcywh[:, 1]
-    w = boxes_cxcywh[:, 2]
-    h = boxes_cxcywh[:, 3]
-    boxes_xyxy = np.stack([cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2], axis=1)
-
-    keep_idx = _nms(boxes_xyxy, confidences, iou_threshold)
-    detections: list[dict[str, Any]] = []
-    for idx in keep_idx:
-        x1, y1, x2, y2 = boxes_xyxy[idx]
-        detections.append(
-            {
-                "bbox": [float(x1), float(y1), float(x2), float(y2)],
-                "confidence": float(confidences[idx]),
-                "class": int(class_ids[idx]),
-            }
-        )
-    return detections
-
-
-def _pixel_bbox_to_geo_feature(
-    bbox_xyxy: list[float],
-    transform: Any,
-    crs: Any,
-    source: str,
-    confidence: float,
-    class_id: int,
-) -> dict[str, Any]:
-    from pyproj import Transformer
-
-    x1, y1, x2, y2 = bbox_xyxy
-    corners_pixel = [(x1, y1), (x2, y1), (x2, y2), (x1, y2), (x1, y1)]
-    corners_crs = [transform * (col, row) for col, row in corners_pixel]
-
-    if crs is not None and str(crs) != "EPSG:4326":
-        t = Transformer.from_crs(crs, "EPSG:4326", always_xy=True)
-        corners_geo = [list(t.transform(cx, cy)) for cx, cy in corners_crs]
-    else:
-        corners_geo = [list(c) for c in corners_crs]
-
-    return {
-        "type": "Feature",
-        "properties": {
-            "source": source,
-            "confidence": round(confidence, 6),
-            "class": class_id,
-        },
-        "geometry": {"type": "Polygon", "coordinates": [corners_geo]},
-    }
-
-
-def predict(session: Any, input_images: str, params: dict[str, Any]) -> dict[str, Any]:
-    from fair.utils.data import resolve_directory
-
-    if "confidence_threshold" not in params:
-        raise ValueError("params['confidence_threshold'] is required")
-
-    confidence_threshold = float(params["confidence_threshold"])
-    iou_threshold = float(params.get("iou_threshold", 0.45))
-    model_input_size = int(params.get("model_input_size", 640))
-    input_name = session.get_inputs()[0].name
-
-    input_dir = resolve_directory(input_images)
-    patterns = ("*.png", "*.tif", "*.tiff", "*.jpg", "*.jpeg")
-    img_paths = sorted(p for pat in patterns for p in input_dir.glob(pat))
-    if not img_paths:
-        raise FileNotFoundError(f"No input images found in {input_dir}")
-
-    features: list[dict[str, Any]] = []
-    for img_path in img_paths:
-        batch, transform, crs, original_hw, source = _preprocess_onnx_image(img_path, model_input_size)
-        output = session.run(None, {input_name: batch})[0]
-        detections = _decode_yolo_output(output, confidence_threshold, iou_threshold)
-
-        orig_h, orig_w = original_hw
-        scale_x = float(orig_w) / float(model_input_size)
-        scale_y = float(orig_h) / float(model_input_size)
-
-        for det in detections:
-            x1, y1, x2, y2 = det["bbox"]
-            pixel_bbox = [
-                max(0.0, min(float(orig_w), x1 * scale_x)),
-                max(0.0, min(float(orig_h), y1 * scale_y)),
-                max(0.0, min(float(orig_w), x2 * scale_x)),
-                max(0.0, min(float(orig_h), y2 * scale_y)),
-            ]
-            features.append(
-                _pixel_bbox_to_geo_feature(
-                    pixel_bbox,
-                    transform=transform,
-                    crs=crs,
-                    source=source,
-                    confidence=float(det["confidence"]),
-                    class_id=int(det["class"]),
-                )
-            )
-
-    return _build_feature_collection(features)
-
-
 def _select_or_merge_labels(labels_path: Path, destination: Path) -> None:
     """Materialize a single labels.geojson for hot_fair_utilities preprocess."""
     if labels_path.is_file():
@@ -641,6 +461,118 @@ def _restore_checkpoint(trained_model: Any):
     if isinstance(trained_model, (str, Path)):
         return YOLO(str(trained_model))
     return trained_model
+
+
+def _build_feature_collection(features: list[dict[str, Any]]) -> dict[str, Any]:
+    return {"type": "FeatureCollection", "features": features}
+
+
+def _softmax(logits: Any, axis: int) -> Any:
+    import numpy as np
+
+    shifted = logits - logits.max(axis=axis, keepdims=True)
+    exp = np.exp(shifted)
+    return exp / exp.sum(axis=axis, keepdims=True)
+
+
+def _preprocess_onnx_image(img_path: Path, model_size: int = 640) -> tuple[Any, Any, Any]:
+    import numpy as np
+    import rasterio
+    from PIL import Image
+    from rasterio import Affine
+
+    with rasterio.open(img_path) as src:
+        arr = src.read([1, 2, 3]).astype(np.float32) / 255.0
+        transform = src.transform
+        crs = src.crs
+        src_height = src.height
+        src_width = src.width
+
+    resized = [
+        np.asarray(Image.fromarray(arr[c]).resize((model_size, model_size), Image.Resampling.BILINEAR))
+        for c in range(arr.shape[0])
+    ]
+    batch = np.stack(resized, axis=0)[np.newaxis, ...].astype(np.float32)
+
+    # Model output mask is in model_size x model_size coordinates; scale affine accordingly.
+    scaled_transform = transform * Affine.scale(src_width / float(model_size), src_height / float(model_size))
+    return batch, scaled_transform, crs
+
+
+def _vectorize_binary_mask(mask: Any, transform: Any, crs: Any, confidence: float) -> list[dict[str, Any]]:
+    import numpy as np
+    import rasterio.features
+    from pyproj import Transformer
+
+    mask_uint8 = mask.astype(np.uint8)
+    needs_reproject = crs is not None and str(crs) != "EPSG:4326"
+    transformer = Transformer.from_crs(crs, "EPSG:4326", always_xy=True) if needs_reproject else None
+
+    features: list[dict[str, Any]] = []
+    for geom, value in rasterio.features.shapes(mask_uint8, transform=transform):
+        if int(value) < 1:
+            continue
+        if transformer:
+            coords = geom["coordinates"]
+            geom["coordinates"] = [[list(transformer.transform(x, y)) for x, y in ring] for ring in coords]
+        features.append(
+            {
+                "type": "Feature",
+                "properties": {"class": 0, "confidence": confidence},
+                "geometry": geom,
+            }
+        )
+    return features
+
+
+def _decode_segmentation_mask(outputs: list[Any], confidence_threshold: float) -> Any | None:
+    import numpy as np
+
+    if not outputs:
+        return None
+
+    for output in outputs:
+        arr = np.asarray(output)
+        if arr.ndim != 4:
+            continue
+        if arr.shape[0] != 1:
+            continue
+
+        # Common segmentation ONNX output layouts:
+        # - (1, classes, H, W)
+        # - (1, 1, H, W)
+        if arr.shape[1] > 1:
+            probs = _softmax(arr[0], axis=0)
+            top_prob = probs.max(axis=0)
+            return np.where(top_prob >= confidence_threshold, 1, 0).astype(np.uint8)
+        if arr.shape[1] == 1:
+            logits = arr[0, 0]
+            return (logits >= confidence_threshold).astype(np.uint8)
+    return None
+
+
+def predict(session: Any, input_images: str, params: dict[str, Any]) -> dict[str, Any]:
+    from fair.utils.data import resolve_directory
+
+    confidence_threshold = float(params.get("confidence_threshold", 0.5))
+    model_size = int(params.get("model_input_size", 640))
+    input_name = session.get_inputs()[0].name
+
+    input_dir = resolve_directory(input_images)
+    patterns = ("*.png", "*.tif", "*.tiff", "*.jpg")
+    img_paths = sorted(p for pat in patterns for p in input_dir.glob(pat))
+    if not img_paths:
+        raise FileNotFoundError(f"No input images found in {input_dir}")
+
+    features: list[dict[str, Any]] = []
+    for img_path in img_paths:
+        batch, transform, crs = _preprocess_onnx_image(img_path, model_size=model_size)
+        outputs = session.run(None, {input_name: batch})
+        mask = _decode_segmentation_mask(outputs, confidence_threshold)
+        if mask is None:
+            continue
+        features.extend(_vectorize_binary_mask(mask, transform, crs, confidence_threshold))
+    return _build_feature_collection(features)
 
 
 def infer_yolo_model(

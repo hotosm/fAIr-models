@@ -1009,6 +1009,7 @@ k8s = [
     { name = "zenml", extra = ["connectors-aws", "connectors-kubernetes", "s3fs"] },
 ]
 serve = [
+    { name = "s3fs" },
     { name = "starlette" },
     { name = "uvicorn", extra = ["standard"] },
 ]
@@ -1073,6 +1074,7 @@ requires-dist = [
     { name = "pystac-client", marker = "extra == 'k8s'", specifier = ">=0.9,<1" },
     { name = "pytest", marker = "extra == 'test'", specifier = ">=8.0" },
     { name = "pytest-cov", marker = "extra == 'test'", specifier = ">=6.0" },
+    { name = "s3fs", marker = "extra == 'serve'", specifier = ">=2025.3.0" },
     { name = "starlette", marker = "extra == 'serve'", specifier = ">=0.40,<0.46" },
     { name = "universal-pathlib", specifier = ">=0.3.10" },
     { name = "uvicorn", extras = ["standard"], marker = "extra == 'serve'", specifier = ">=0.34" },

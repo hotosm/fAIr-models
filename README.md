@@ -1,5 +1,7 @@
 # fAIr-models
 
+[![codecov](https://codecov.io/gh/hotosm/fAIr-models/branch/master/graph/badge.svg)](https://codecov.io/gh/hotosm/fAIr-models)
+
 Model registry and ML pipeline orchestration for [fAIr](https://github.com/hotosm/fAIr). 
 
 **`fair-py-ops`** is the Python package for building [ZenML](https://zenml.io/) pipelines, validating [STAC](https://stacspec.org/) items, and testing locally. The `models/` directory is the single source of truth for base model contributions.
@@ -22,10 +24,6 @@ See [Getting Started](docs/getting-started.md) for detailed setup, environment o
 - **[Contributing a Model](docs/contributing/model.md)** : Guide for adding base models to fAIr
 - **[API Reference](docs/reference/index.md)** : Python package documentation
 - **[Changelog](docs/changelog.md)** : Release history
-
-<img width="4488" height="2904" alt="image" src="https://github.com/user-attachments/assets/c0156fb3-06d6-478d-8364-e79884209949" />
-
-
 
 ## Examples
 

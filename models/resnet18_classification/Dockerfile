@@ -19,7 +19,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     pyproj \
     onnx \
     onnxscript \
-    /tmp/fair-src[k8s]
+    /tmp/fair-src[k8s,serve]
 
 # Runtime stage: minimal image
 FROM python:3.13-slim-trixie AS runtime
@@ -49,3 +49,29 @@ COPY --from=builder /tmp/fair-src /tmp/fair-src
 RUN --mount=type=cache,target=/root/.cache/uv \
     SETUPTOOLS_SCM_PRETEND_VERSION=0.0.0 \
     uv pip install --system /tmp/fair-src[test]
+
+# Inference builder stage: distroless-ready venv with serving deps
+FROM ghcr.io/astral-sh/uv:bookworm-slim AS inference-builder
+ENV UV_PYTHON_INSTALL_DIR=/python UV_PYTHON_PREFERENCE=only-managed
+RUN uv python install 3.13
+WORKDIR /app
+COPY pyproject.toml README.md fair_zenml_patch.pth /tmp/fair-src/
+COPY fair /tmp/fair-src/fair
+RUN --mount=type=cache,target=/root/.cache/uv \
+    export SETUPTOOLS_SCM_PRETEND_VERSION=0.0.0 && \
+    uv venv && uv pip install \
+    /tmp/fair-src[serve] \
+    rasterio \
+    pyproj \
+    numpy \
+    Pillow
+COPY models/resnet18_classification/pipeline.py /app/models/resnet18_classification/pipeline.py
+
+# Inference stage: distroless runtime for live serving
+FROM gcr.io/distroless/cc-debian12:nonroot AS inference
+COPY --from=inference-builder /python /python
+COPY --from=inference-builder /app/.venv /app/.venv
+COPY --from=inference-builder /app/models /app/models
+ENV PATH="/app/.venv/bin:$PATH" PYTHONPATH=/app
+EXPOSE 8080
+CMD ["uvicorn", "fair.serve.base:create_app", "--factory", "--host", "0.0.0.0", "--port", "8080"]

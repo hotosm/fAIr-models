@@ -315,7 +315,19 @@
           }
         },
         "mlm:hyperparameters": {
-          "type": "object"
+          "type": "object",
+          "required": [
+            "training.epochs",
+            "training.batch_size",
+            "training.learning_rate",
+            "inference.confidence_threshold"
+          ],
+          "properties": {
+            "training.epochs": {"type": "integer", "minimum": 1},
+            "training.batch_size": {"type": "integer", "minimum": 1},
+            "training.learning_rate": {"type": "number", "exclusiveMinimum": 0},
+            "inference.confidence_threshold": {"type": "number", "minimum": 0, "maximum": 1}
+          }
         },
         "keywords": {
           "type": "array",

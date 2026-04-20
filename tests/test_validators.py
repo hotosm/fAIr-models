@@ -62,6 +62,7 @@ def _model(keywords=None, tasks=None):
         mlm_hyperparameters={},
         keywords=keywords or ["building", "semantic-segmentation"],
         checkpoint_href="w.pt",
+        onnx_href="https://example.com/model.onnx",
         checkpoint_artifact_type="torch.save",
         mlm_pretrained=False,
         mlm_pretrained_source=None,
@@ -173,9 +174,15 @@ def _valid_base_model():
         mlm_framework_version="2.1.0",
         mlm_input=copy.deepcopy(_MLM_INPUT),
         mlm_output=copy.deepcopy(_MLM_OUTPUT),
-        mlm_hyperparameters={"epochs": 10, "batch_size": 4},
+        mlm_hyperparameters={
+            "training.epochs": 10,
+            "training.batch_size": 4,
+            "training.learning_rate": 0.001,
+            "inference.confidence_threshold": 0.5,
+        },
         keywords=["building", "semantic-segmentation", "polygon"],
         checkpoint_href="https://example.com/weights.pt",
+        onnx_href="https://example.com/model.onnx",
         checkpoint_artifact_type="torch.save",
         mlm_pretrained=True,
         mlm_pretrained_source="imagenet",
@@ -315,6 +322,30 @@ class TestValidateBaseModelItem:
         item.properties["keywords"] = ["tree", "object-detection", "point"]
         item.properties["mlm:tasks"] = ["object-detection"]
         assert validate_item(item) == []
+
+
+class TestMandatoryHyperparameters:
+    def test_missing_training_epochs_flagged(self):
+        item = _valid_base_model()
+        hp = dict(item.properties["mlm:hyperparameters"])
+        del hp["training.epochs"]
+        item.properties["mlm:hyperparameters"] = hp
+        errors = validate_item(item)
+        assert any("training.epochs" in e for e in errors)
+
+    def test_missing_inference_confidence_threshold_flagged(self):
+        item = _valid_base_model()
+        hp = dict(item.properties["mlm:hyperparameters"])
+        del hp["inference.confidence_threshold"]
+        item.properties["mlm:hyperparameters"] = hp
+        errors = validate_item(item)
+        assert any("inference.confidence_threshold" in e for e in errors)
+
+    def test_confidence_threshold_out_of_range_flagged(self):
+        item = _valid_base_model()
+        item.properties["mlm:hyperparameters"]["inference.confidence_threshold"] = 1.5
+        errors = validate_item(item)
+        assert any("1.5" in e or "maximum" in e for e in errors)
 
 
 class TestSplitSpecValidation:

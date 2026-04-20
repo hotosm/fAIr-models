@@ -239,6 +239,91 @@ resource "helm_release" "mlflow" {
   depends_on = [helm_release.ingress_nginx, digitalocean_database_db.mlflow, digitalocean_database_db.mlflow_auth]
 }
 
+# ---------- KNative live serving tier ----------
+
+resource "kubernetes_namespace" "predict" {
+  metadata { name = "predict" }
+}
+
+resource "kubernetes_namespace" "knative_serving" {
+  metadata { name = "knative-serving" }
+}
+
+resource "helm_release" "knative_operator" {
+  name             = "knative-operator"
+  namespace        = "knative-operator"
+  create_namespace = true
+  repository       = "https://knative.github.io/operator"
+  chart            = "knative-operator"
+  version          = "v1.17.8"
+  timeout          = 600
+  wait             = true
+}
+
+resource "kubernetes_manifest" "knative_serving" {
+  manifest = {
+    apiVersion = "operator.knative.dev/v1beta1"
+    kind       = "KnativeServing"
+    metadata = {
+      name      = "knative-serving"
+      namespace = "knative-serving"
+    }
+    spec = {
+      ingress = {
+        kourier = { enabled = true }
+      }
+      config = {
+        network = {
+          "ingress-class" = "kourier.ingress.networking.knative.dev"
+        }
+        autoscaler = {
+          "enable-scale-to-zero"       = "true"
+          "scale-to-zero-grace-period" = "30s"
+        }
+      }
+    }
+  }
+
+  depends_on = [helm_release.knative_operator, kubernetes_namespace.knative_serving]
+}
+
+resource "kubernetes_ingress_v1" "predict" {
+  metadata {
+    name      = "predict"
+    namespace = "knative-serving"
+    annotations = {
+      "cert-manager.io/cluster-issuer" = "letsencrypt"
+    }
+  }
+
+  spec {
+    ingress_class_name = "nginx"
+
+    tls {
+      secret_name = "predict-tls"
+      hosts       = ["predict.${var.domain}"]
+    }
+
+    rule {
+      host = "predict.${var.domain}"
+      http {
+        path {
+          path      = "/"
+          path_type = "Prefix"
+          backend {
+            service {
+              name = "predict-gateway"
+              port { number = 80 }
+            }
+          }
+        }
+      }
+    }
+  }
+
+  depends_on = [kubernetes_manifest.knative_serving]
+}
+
 resource "helm_release" "zenml" {
   name       = "zenml"
   namespace  = kubernetes_namespace.fair.metadata[0].name

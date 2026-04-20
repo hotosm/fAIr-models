@@ -11,6 +11,8 @@ from pathlib import Path
 from typing import Any
 from unittest.mock import patch
 
+import pytest
+
 
 @contextmanager
 def _noop_mlflow_ctx(*_args: Any, **_kwargs: Any):
@@ -169,3 +171,75 @@ def test_export_onnx() -> None:
     assert isinstance(exported, bytes)
     loaded = onnx.load_from_string(exported)
     onnx.checker.check_model(loaded)
+
+
+def test_predict_returns_feature_collection(tmp_path: Path) -> None:
+    import numpy as np
+
+    from models.yolo_v8_segmentation.pipeline import predict
+
+    class _Input:
+        name = "images"
+
+    class _Session:
+        def get_inputs(self) -> list[Any]:
+            return [_Input()]
+
+        def run(self, _output_names: Any, _feeds: Any) -> list[Any]:
+            output = np.zeros((1, 6, 1), dtype=np.float32)
+            output[0, :, 0] = np.array([320.0, 320.0, 128.0, 128.0, 0.95, 0.05], dtype=np.float32)
+            return [output]
+
+    image_path = tmp_path / "chip.tif"
+    image_path.write_bytes(b"fake")
+
+    with patch("models.yolo_v8_segmentation.pipeline._preprocess_onnx_image") as preprocess_mock:
+        preprocess_mock.return_value = (
+            np.zeros((1, 3, 640, 640), dtype=np.float32),
+            (1, 0, 0, 0, 1, 0),
+            "EPSG:4326",
+            (640, 640),
+            "chip.tif",
+        )
+        with (
+            patch("fair.utils.data.resolve_directory", return_value=tmp_path),
+            patch(
+                "models.yolo_v8_segmentation.pipeline._pixel_bbox_to_geo_feature",
+                return_value={"type": "Feature", "properties": {}, "geometry": {"type": "Polygon", "coordinates": []}},
+            ),
+        ):
+            result = predict(_Session(), str(tmp_path), {"confidence_threshold": 0.5})
+
+    assert result["type"] == "FeatureCollection"
+    assert isinstance(result["features"], list)
+
+
+def test_predict_requires_confidence_threshold(tmp_path: Path) -> None:
+    from models.yolo_v8_segmentation.pipeline import predict
+
+    class _Session:
+        def get_inputs(self) -> list[Any]:
+            return []
+
+    with pytest.raises(ValueError, match="confidence_threshold"):
+        predict(_Session(), str(tmp_path), {})
+
+
+def test_predict_raises_on_empty_input_dir(tmp_path: Path) -> None:
+    from models.yolo_v8_segmentation.pipeline import predict
+
+    class _Input:
+        name = "images"
+
+    class _Session:
+        def get_inputs(self) -> list[Any]:
+            return [_Input()]
+
+        def run(self, _output_names: Any, _feeds: Any) -> list[Any]:
+            return []
+
+    with (
+        patch("fair.utils.data.resolve_directory", return_value=tmp_path),
+        pytest.raises(FileNotFoundError, match="No input images found"),
+    ):
+        predict(_Session(), str(tmp_path), {"confidence_threshold": 0.5})

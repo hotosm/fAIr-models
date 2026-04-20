@@ -658,7 +658,8 @@ def training_pipeline(
 def inference_pipeline(
     model_uri: str,
     input_images: str,
-    output_dir: str,
+    inference_params: dict[str, Any] | None = None,
+    output_dir: str = "",
     chip_size: int = 256,
     num_classes: int = 1,
     confidence: float = 0.5,
@@ -666,7 +667,9 @@ def inference_pipeline(
     prediction_path: str = "",
 ) -> dict[str, Any]:
     _ = (chip_size, num_classes)
-    prediction_dir = prediction_path or str(Path(output_dir) / "predictions")
+    resolved_output_dir = output_dir or str(Path(tempfile.mkdtemp(prefix="yolo_v8_seg_inference_")))
+    resolved_confidence = float((inference_params or {}).get("confidence_threshold", confidence))
+    prediction_dir = prediction_path or str(Path(resolved_output_dir) / "predictions")
     model = (
         load_model(model_uri=model_uri, zenml_artifact_version_id=zenml_artifact_version_id)
         if zenml_artifact_version_id
@@ -676,6 +679,6 @@ def inference_pipeline(
         model_uri=model,
         input_images=input_images,
         prediction_path=prediction_dir,
-        output_dir=output_dir,
-        confidence=confidence,
+        output_dir=resolved_output_dir,
+        confidence=resolved_confidence,
     )

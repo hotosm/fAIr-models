@@ -68,6 +68,17 @@
         "license": "Apache-2.0",
         "version": "2",
         "deprecated": false,
+        "providers": [
+            {
+                "name": "HOTOSM",
+                "roles": [
+                    "producer",
+                    "host"
+                ],
+                "url": "https://www.hotosm.org",
+                "description": "Humanitarian OpenStreetMap Team"
+            }
+        ],
         "fair:metrics_spec": [
             {
                 "key": "fair:accuracy",
@@ -181,12 +192,13 @@
         }
     },
     "assets": {
-        "model": {
+        "checkpoint": {
             "href": "https://github.com/hotosm/fAIr-utilities/raw/refs/heads/master/yolov8s_v2-seg.pt",
             "title": "Pretrained YOLOv8 segmentation weights",
             "type": "application/octet-stream; framework=pytorch",
             "roles": [
-                "mlm:model"
+                "mlm:model",
+                "mlm:weights"
             ],
             "mlm:artifact_type": "torch.save",
             "raster:bands": [

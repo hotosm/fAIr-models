@@ -1,4 +1,3 @@
-# ruff: noqa: UP006, UP007, UP035, UP045
 """ZenML pipeline for YOLOv8 building instance segmentation."""
 
 import gc
@@ -7,11 +6,12 @@ import json
 import shutil
 import tempfile
 from pathlib import Path
-from typing import Annotated, Any, Optional, Union
+from typing import Annotated, Any
 from urllib.request import urlretrieve
 
-from fair.zenml.steps import load_model
 from zenml import log_metadata, pipeline, step
+
+from fair.zenml.steps import load_model
 
 _DEFAULT_WEIGHTS_CACHE = Path("/workspace/.yolo_weights_cache")
 
@@ -49,7 +49,7 @@ def _to_local_path(path_value: str, purpose: str) -> Path:
 
 def resolve_model_href(
     model_uri: str,
-    cache_dir: Optional[Path] = None,
+    cache_dir: Path | None = None,
 ) -> str:
     """Resolve model_uri to a local .pt checkpoint path."""
     if not isinstance(model_uri, str):
@@ -169,9 +169,16 @@ def _patch_yolo_write_yolo_file_with_affine() -> None:
                         continue
 
                     # Drop closing coordinate if it repeats the first point.
-                    if ring and ring[0] and ring[-1] and len(ring[0]) >= 2 and len(ring[-1]) >= 2:
-                        if ring[0][0] == ring[-1][0] and ring[0][1] == ring[-1][1]:
-                            ring = ring[:-1]
+                    if (
+                        ring
+                        and ring[0]
+                        and ring[-1]
+                        and len(ring[0]) >= 2
+                        and len(ring[-1]) >= 2
+                        and ring[0][0] == ring[-1][0]
+                        and ring[0][1] == ring[-1][1]
+                    ):
+                        ring = ring[:-1]
 
                     points = []
                     for coord in ring:
@@ -201,7 +208,9 @@ def _patch_yolo_write_yolo_file_with_affine() -> None:
     # - the already-imported global in the yolo_format module
     yolo_utils.write_yolo_file = _patched_write_yolo_file
     yolo_format_module = importlib.import_module("hot_fair_utilities.preprocessing.yolo_v8.yolo_format")
-    yolo_format_module.write_yolo_file = _patched_write_yolo_file
+    from typing import cast
+
+    cast(Any, yolo_format_module).write_yolo_file = _patched_write_yolo_file
     yolo_utils._fair_models_affine_patch_applied = True
 
 
@@ -290,10 +299,11 @@ def _materialize_training_input(dataset_chips: str, dataset_labels: str, work_di
                 if data.shape[0] < 3:
                     continue
                 rgb = np.transpose(data[:3], (1, 2, 0))
-                if rgb.max() <= 1.0:
-                    rgb = (rgb * 255).astype(np.uint8)
-                else:
-                    rgb = np.clip(rgb, 0, 255).astype(np.uint8)
+                rgb = (
+                    (rgb * 255).astype(np.uint8)
+                    if rgb.max() <= 1.0
+                    else np.clip(rgb, 0, 255).astype(np.uint8)
+                )
                 Image.fromarray(rgb).save(png_path)
 
     for png_path in png_paths:
@@ -414,16 +424,16 @@ def _restore_checkpoint(trained_model: Any):
 
 
 def infer_yolo_model(
-    model_uri: Union[str, Path, Any],
+    model_uri: str | Path | Any,
     input_path: str,
     prediction_path: str,
     output_dir: str,
     confidence: float = 0.5,
-    model_cache_dir: Optional[str] = None,
+    model_cache_dir: str | None = None,
 ) -> dict[str, Any]:
     """Run YOLO instance-segmentation inference and return final GeoJSON content."""
-    from hot_fair_utilities import predict
     import ultralytics
+    from hot_fair_utilities import predict
 
     cache = Path(model_cache_dir) if model_cache_dir else None
 
@@ -551,12 +561,12 @@ def export_onnx(trained_model: Any) -> Annotated[str, "onnx_model"]:
 
 @step
 def run_inference(
-    model_uri: Union[str, Path, Any],
+    model_uri: str | Path | Any,
     input_images: str,
     prediction_path: str,
     output_dir: str,
     confidence: float = 0.5,
-    model_cache_dir: Optional[str] = None,
+    model_cache_dir: str | None = None,
 ) -> dict[str, Any]:
     """Inference wrapper preserving existing predict -> polygonize flow."""
     return infer_yolo_model(

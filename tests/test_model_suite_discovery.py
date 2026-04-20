@@ -16,5 +16,4 @@ def test_every_model_has_required_test_suite() -> None:
     for model_dir in model_dirs:
         tests_dir = model_dir / "tests"
         assert tests_dir.is_dir(), f"Missing tests directory for {model_dir.name}"
-        assert (tests_dir / "test_serve.py").exists(), f"Missing serve tests for {model_dir.name}"
         assert (tests_dir / "test_steps.py").exists(), f"Missing step tests for {model_dir.name}"

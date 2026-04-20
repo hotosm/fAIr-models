@@ -235,11 +235,21 @@ def postprocess(prediction_path: str, output_geojson: str) -> dict[str, Any]:
     """Merge predicted-mask GeoTIFF tiles into a building-footprint GeoJSON."""
     from hot_fair_utilities import polygonize
 
-    polygonize(
-        input_path=prediction_path,
-        output_path=output_geojson,
-        remove_inputs=False,
-    )
+    try:
+        polygonize(
+            input_path=prediction_path,
+            output_path=output_geojson,
+            remove_inputs=False,
+        )
+    except Exception as exc:
+        # Zero detections can bubble up from geomltoolkits/rtree as an empty STR bulk-load stream.
+        # In that case, treat inference output as a valid empty FeatureCollection.
+        if "Empty data stream given" not in str(exc):
+            raise
+        empty = {"type": "FeatureCollection", "features": []}
+        Path(output_geojson).write_text(json.dumps(empty), encoding="utf-8")
+        return empty
+
     with open(output_geojson, encoding="utf-8") as f:
         return json.load(f)
 

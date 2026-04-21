@@ -327,33 +327,6 @@ def _training_cache_dir(dataset_chips: str, dataset_labels: str) -> Path:
     return Path(tempfile.gettempdir()) / f"yolo_v8_segmentation_{cache_key}"
 
 
-def _ensure_non_empty_validation_split(yolo_dir: Path) -> None:
-    """Guarantee at least one validation sample for YOLO training."""
-    val_images_dir = yolo_dir / "images" / "val"
-    val_labels_dir = yolo_dir / "labels" / "val"
-    if any(val_images_dir.glob("*")):
-        return
-
-    for source_split in ("train", "test"):
-        source_images_dir = yolo_dir / "images" / source_split
-        source_labels_dir = yolo_dir / "labels" / source_split
-        image_candidates = sorted(p for p in source_images_dir.glob("*") if p.is_file())
-        if not image_candidates:
-            continue
-
-        image_path = image_candidates[0]
-        val_images_dir.mkdir(parents=True, exist_ok=True)
-        val_labels_dir.mkdir(parents=True, exist_ok=True)
-        shutil.move(str(image_path), str(val_images_dir / image_path.name))
-
-        label_name = image_path.with_suffix(".txt").name
-        label_path = source_labels_dir / label_name
-        if label_path.exists():
-            shutil.move(str(label_path), str(val_labels_dir / label_name))
-        return
-
-    raise RuntimeError(f"YOLO split produced no validation candidates under {yolo_dir}")
-
 
 def _prepare_training_split(
     dataset_chips: str,
@@ -393,7 +366,6 @@ def _prepare_training_split(
             val_split=p_val,
             test_split=0.0,
         )
-        _ensure_non_empty_validation_split(yolo_dir)
 
     train_count = len(list((yolo_dir / "images" / "train").glob("*")))
     val_count = len(list((yolo_dir / "images" / "val").glob("*")))
@@ -461,6 +433,171 @@ def _restore_checkpoint(trained_model: Any):
     if isinstance(trained_model, (str, Path)):
         return YOLO(str(trained_model))
     return trained_model
+
+
+def _build_feature_collection(features: list[dict[str, Any]]) -> dict[str, Any]:
+    return {"type": "FeatureCollection", "features": features}
+
+
+def _prepare_onnx_image(img_path: Path, input_width: int, input_height: int) -> tuple[Any, Any, Any]:
+    import numpy as np
+    import rasterio
+    from PIL import Image
+
+    with rasterio.open(img_path) as src:
+        arr = src.read([1, 2, 3]).astype(np.float32) / 255.0
+        transform = src.transform
+        crs = src.crs
+        src_height = src.height
+        src_width = src.width
+
+    resized = [
+        np.asarray(Image.fromarray(arr[c]).resize((input_width, input_height), Image.Resampling.BILINEAR))
+        for c in range(arr.shape[0])
+    ]
+    batch = np.stack(resized, axis=0)[np.newaxis, ...].astype(np.float32)
+    return batch, transform, (src_width, src_height, input_width, input_height, crs)
+
+
+def _extract_yolo_shapes(session: Any) -> tuple[str, int, int]:
+    input_meta = session.get_inputs()[0]
+    input_name = input_meta.name
+    shape = input_meta.shape
+    if len(shape) != 4:
+        raise RuntimeError(f"Unexpected ONNX input shape: {shape}")
+    input_height = int(shape[2])
+    input_width = int(shape[3])
+    return input_name, input_width, input_height
+
+
+def _decode_yoloseg_instance_mask(
+    box_output: Any,
+    mask_output: Any,
+    input_width: int,
+    input_height: int,
+    src_width: int,
+    src_height: int,
+    confidence_threshold: float,
+    iou_threshold: float,
+    num_masks: int = 32,
+) -> Any:
+    import numpy as np
+    from PIL import Image
+    from predictor.yoloseg.utils import nms, sigmoid, xywh2xyxy
+
+    predictions = np.squeeze(np.asarray(box_output)).T
+    num_classes = int(np.asarray(box_output).shape[1]) - num_masks - 4
+    scores = np.max(predictions[:, 4 : 4 + num_classes], axis=1)
+
+    keep = scores > confidence_threshold
+    predictions = predictions[keep]
+    scores = scores[keep]
+    if len(scores) == 0:
+        return np.zeros((src_height, src_width), dtype=np.uint8)
+
+    box_predictions = predictions[..., : num_classes + 4]
+    mask_predictions = predictions[..., num_classes + 4 :]
+    boxes = box_predictions[:, :4]
+    boxes = boxes / np.array([input_width, input_height, input_width, input_height], dtype=np.float32)
+    boxes *= np.array([src_width, src_height, src_width, src_height], dtype=np.float32)
+    boxes = xywh2xyxy(boxes)
+    boxes[:, 0] = np.clip(boxes[:, 0], 0, src_width)
+    boxes[:, 1] = np.clip(boxes[:, 1], 0, src_height)
+    boxes[:, 2] = np.clip(boxes[:, 2], 0, src_width)
+    boxes[:, 3] = np.clip(boxes[:, 3], 0, src_height)
+
+    indices = nms(boxes, scores, iou_threshold)
+    if len(indices) == 0:
+        return np.zeros((src_height, src_width), dtype=np.uint8)
+    boxes = boxes[indices]
+    mask_predictions = mask_predictions[indices]
+
+    proto = np.squeeze(np.asarray(mask_output))
+    num_mask, mask_h, mask_w = proto.shape
+    masks = sigmoid(mask_predictions @ proto.reshape((num_mask, -1))).reshape((-1, mask_h, mask_w))
+
+    combined = np.zeros((src_height, src_width), dtype=np.uint8)
+    scale_boxes = boxes / np.array([src_width, src_height, src_width, src_height], dtype=np.float32)
+    scale_boxes *= np.array([mask_w, mask_h, mask_w, mask_h], dtype=np.float32)
+
+    for i in range(len(scale_boxes)):
+        sx1, sy1 = int(np.floor(scale_boxes[i][0])), int(np.floor(scale_boxes[i][1]))
+        sx2, sy2 = int(np.ceil(scale_boxes[i][2])), int(np.ceil(scale_boxes[i][3]))
+        x1, y1 = int(np.floor(boxes[i][0])), int(np.floor(boxes[i][1]))
+        x2, y2 = int(np.ceil(boxes[i][2])), int(np.ceil(boxes[i][3]))
+        if x2 <= x1 or y2 <= y1:
+            continue
+
+        crop = masks[i][sy1:sy2, sx1:sx2]
+        if crop.size == 0:
+            continue
+        resized_crop = np.asarray(
+            Image.fromarray(crop).resize((x2 - x1, y2 - y1), Image.Resampling.BILINEAR),
+            dtype=np.float32,
+        )
+        binary = (resized_crop > 0.5).astype(np.uint8)
+        combined[y1:y2, x1:x2] = np.maximum(combined[y1:y2, x1:x2], binary)
+
+    return combined
+
+
+def _vectorize_binary_mask(mask: Any, transform: Any, crs: Any, confidence: float) -> list[dict[str, Any]]:
+    import numpy as np
+    import rasterio.features
+    from pyproj import Transformer
+
+    mask_uint8 = np.asarray(mask).astype(np.uint8)
+    transformer = Transformer.from_crs(crs, "EPSG:4326", always_xy=True) if crs and str(crs) != "EPSG:4326" else None
+
+    features: list[dict[str, Any]] = []
+    for geom, value in rasterio.features.shapes(mask_uint8, transform=transform):
+        if int(value) < 1:
+            continue
+        if transformer is not None:
+            coords = geom["coordinates"]
+            geom["coordinates"] = [[list(transformer.transform(x, y)) for x, y in ring] for ring in coords]
+        features.append(
+            {
+                "type": "Feature",
+                "properties": {"class": 0, "confidence": round(confidence, 4)},
+                "geometry": geom,
+            }
+        )
+    return features
+
+
+def predict(session: Any, input_images: str, params: dict[str, Any]) -> dict[str, Any]:
+    from fair.utils.data import resolve_directory
+
+    confidence_threshold = float(params.get("confidence_threshold", 0.5))
+    iou_threshold = float(params.get("iou_threshold", 0.3))
+    input_name, input_width, input_height = _extract_yolo_shapes(session)
+
+    input_dir = resolve_directory(input_images)
+    patterns = ("*.png", "*.tif", "*.tiff", "*.jpg")
+    img_paths = sorted(p for pat in patterns for p in input_dir.glob(pat))
+    if not img_paths:
+        raise FileNotFoundError(f"No input images found in {input_dir}")
+
+    features: list[dict[str, Any]] = []
+    for img_path in img_paths:
+        batch, transform, meta = _prepare_onnx_image(img_path, input_width, input_height)
+        src_width, src_height, _iw, _ih, crs = meta
+        outputs = session.run(None, {input_name: batch})
+        if len(outputs) < 2:
+            continue
+        mask = _decode_yoloseg_instance_mask(
+            outputs[0],
+            outputs[1],
+            input_width=input_width,
+            input_height=input_height,
+            src_width=src_width,
+            src_height=src_height,
+            confidence_threshold=confidence_threshold,
+            iou_threshold=iou_threshold,
+        )
+        features.extend(_vectorize_binary_mask(mask, transform, crs, confidence_threshold))
+    return _build_feature_collection(features)
 
 
 def infer_yolo_model(

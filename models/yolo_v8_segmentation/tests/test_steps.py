@@ -18,7 +18,9 @@ def _noop_mlflow_ctx(*_args: Any, **_kwargs: Any):
 
 
 def test_split_dataset(toy_chips: Path, toy_labels: Path, base_hyperparameters: dict[str, Any]) -> None:
-    from models.yolo_v8_segmentation.pipeline import split_dataset
+    import numpy as np
+
+    from models.yolo_v8_segmentation.pipeline import predict, split_dataset
 
     hyperparameters = dict(base_hyperparameters)
     hyperparameters.update({"epochs": 1, "batch_size": 1, "p_val": 0.25, "split_seed": 42})
@@ -38,6 +40,26 @@ def test_split_dataset(toy_chips: Path, toy_labels: Path, base_hyperparameters: 
     assert Path(result["_dataset_yaml"]).exists()
     assert (Path(result["_yolo_dir"]) / "images" / "train").is_dir()
     assert (Path(result["_yolo_dir"]) / "images" / "val").is_dir()
+
+    class _InputMeta:
+        name = "images"
+        shape = (1, 3, 640, 640)
+
+    class _Session:
+        def get_inputs(self) -> list[_InputMeta]:
+            return [_InputMeta()]
+
+        def run(self, *_args: Any, **_kwargs: Any) -> list[Any]:
+            box_output = np.zeros((1, 37, 1), dtype=np.float32)
+            box_output[0, 0:4, 0] = [320.0, 320.0, 300.0, 300.0]
+            box_output[0, 4, 0] = 0.99
+            mask_output = np.ones((1, 32, 160, 160), dtype=np.float32)
+            return [box_output, mask_output]
+
+    with patch("fair.utils.data.resolve_directory", return_value=toy_chips):
+        pred = predict(_Session(), str(toy_chips), {"confidence_threshold": 0.5})
+    assert pred["type"] == "FeatureCollection"
+    assert isinstance(pred["features"], list)
 
 
 def test_train_model(toy_chips: Path, toy_labels: Path, base_hyperparameters: dict[str, Any], tmp_path: Path) -> None:

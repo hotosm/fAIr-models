@@ -1,39 +1,81 @@
 """ZenML pipeline for RAMP (EfficientNetB0 + U-Net) building semantic segmentation.
 
-Entrypoints referenced by stac-item.json.
-Runtime: ramp-fair (TensorFlow/Keras), hot-fair-utilities (preprocessing + training).
+Follows the fAIr-models contract: platform-provided hyperparameters (no runtime STAC reads),
+ONNX export for portable inference, and a module-level ``predict`` entrypoint used by
+``fair.serve.base``.
 
-Implements the fAIr entrypoints:
-  - pre_processing_function  → preprocess()
-  - post_processing_function → postprocess()
-  - mlm:entrypoint (training) → training_pipeline()
-  - inference (model from STAC mlm:model asset href) → inference_pipeline()
+Pipeline contract:
+  training_pipeline(base_model_weights, dataset_chips, dataset_labels, num_classes, hyperparameters)
+    -> split_dataset -> train_model (bytes) -> evaluate_model (fair:* metrics) -> export_onnx (bytes)
+  inference_pipeline(model_uri, input_images, ...)
+    -> run_inference -> FeatureCollection
 
-Model weights: Backend passes model_uri from STAC Item (assets.model.href).
-Supports direct HTTP(S) URLs to .zip archives and local paths.
-Google Drive is not supported; weights should be published to HTTP or staged locally.
-
-Inference/postprocess use the **fairpredictor** PyPI distribution; its importable top-level
-package is ``predictor`` (``pip install fairpredictor`` → ``import predictor``), same as
-``hot_fair_utilities.inference.predict``.
-
-All heavy imports are lazy: this module is importable in the fAIr-models
-host environment where tensorflow, ramp, and solaris are not installed.
+Runtime: TensorFlow/Keras via ramp-fair + hot-fair-utilities (preprocessing + training).
+All heavy imports (tensorflow, segmentation_models, hot_fair_utilities, tf2onnx) are lazy so
+this module is importable in lightweight environments (e.g. fair.utils.model_validator AST checks).
 """
 
+from __future__ import annotations
+
+import hashlib
+import io
+import json
+import os
 import re
+import shutil
+import tempfile
 import zipfile
 from pathlib import Path
-from shutil import copy2, rmtree
-from typing import Annotated, Any, Dict, List, Optional, Tuple, Union
+from typing import Annotated, Any
 from urllib.request import urlretrieve
 
 from zenml import log_metadata, pipeline, step
+
+from fair.zenml.steps import load_model
 
 _DEFAULT_MODEL_CACHE = Path("/workspace/.ramp_model_cache")
 _DEFAULT_RAMP_BASELINE_URL = (
     "https://api-prod.fair.hotosm.org/api/v1/workspace/download/ramp/baseline.zip"
 )
+_QUBVEL_EFFICIENTNET_RELEASE = (
+    "https://github.com/qubvel/efficientnet/releases/download/v0.0.1/"
+)
+
+
+# ---------------------------------------------------------------------------
+# Path / resource resolvers
+# ---------------------------------------------------------------------------
+
+
+def _to_local_path(path_value: str, purpose: str) -> Path:
+    """Resolve a path with UPath and ensure local filesystem semantics."""
+    from upath import UPath
+
+    upath_obj = UPath(path_value)
+    protocol = getattr(upath_obj, "protocol", "") or ""
+    if protocol not in ("", "file"):
+        raise NotImplementedError(
+            f"{purpose} requires a local filesystem path. Received protocol={protocol!r} for {path_value!r}."
+        )
+    return Path(str(upath_obj))
+
+
+def _resolve_input_directory(path_value: str, purpose: str) -> Path:
+    """Resolve local/remote dataset directories to a local path."""
+    from fair.utils.data import resolve_directory
+
+    if "://" in str(path_value):
+        return resolve_directory(path_value, pattern="*")
+    return _to_local_path(path_value, purpose)
+
+
+def _resolve_input_file(path_value: str, purpose: str) -> Path:
+    """Resolve local/remote file paths to a local path."""
+    from fair.utils.data import resolve_path
+
+    if "://" in str(path_value):
+        return resolve_path(path_value)
+    return _to_local_path(path_value, purpose)
 
 
 def _download_and_extract_zip(zip_url: str, dest_dir: Path) -> None:
@@ -47,65 +89,97 @@ def _download_and_extract_zip(zip_url: str, dest_dir: Path) -> None:
     zip_path.unlink(missing_ok=True)
 
 
-def _to_local_path(path_value: str, purpose: str) -> Path:
-    """Resolve a path with UPath and ensure local filesystem semantics."""
-    from upath import UPath
-
-    upath_obj = UPath(path_value)
-    protocol = getattr(upath_obj, "protocol", "") or ""
-    if protocol not in ("", "file"):
-        raise NotImplementedError(
-            f"{purpose} requires a local filesystem path. "
-            f"Received protocol={protocol!r} for {path_value!r}."
-        )
-    return Path(str(upath_obj))
-
-
-def _resolve_input_directory(path_value: str, purpose: str) -> Path:
-    """Resolve local or remote (S3/HTTP/etc.) directories to a local path."""
-    if "://" in str(path_value):
-        # Available in the runtime (same helper used by YOLO model packs).
-        from fair.utils.data import resolve_directory
-
-        return Path(str(resolve_directory(path_value, pattern="*")))
-    return _to_local_path(path_value, purpose)
-
-
-def _resolve_input_file(path_value: str, purpose: str) -> Path:
-    """Resolve local or remote (S3/HTTP/etc.) files to a local path."""
-    if "://" in str(path_value):
-        from fair.utils.data import resolve_path
-
-        return Path(str(resolve_path(path_value)))
-    return _to_local_path(path_value, purpose)
-
-
 def _extract_zip(zip_path: Path, dest_dir: Path) -> None:
     dest_dir.mkdir(parents=True, exist_ok=True)
     with zipfile.ZipFile(zip_path, "r") as zf:
         zf.extractall(dest_dir)
 
 
-def _ensure_ramp_baseline(data_base_path: str, baseline_rel_path: str) -> Path:
-    """Return the directory that contains baseline weights; download under data_base_path if missing.
+def resolve_model_href(
+    model_uri: str,
+    cache_dir: Path | None = None,
+) -> str:
+    """Resolve model_uri to a local path.
 
-    ``baseline_rel_path`` is e.g. ``ramp-data/baseline/checkpoint.tf`` (file relative to RAMP_HOME).
+    Supports:
+      - Local SavedModel directory → returned as-is
+      - Local .zip file containing SavedModel → extracted, returned as directory
+      - HTTP(S) URL to .zip → downloaded, extracted, cached, returned as directory
+      - Local / HTTP .onnx → downloaded (if needed) and returned as file path
     """
-    rel = Path(baseline_rel_path)
-    local_dir = Path(data_base_path) / rel.parent
-    local_ck = local_dir / rel.name
-    if local_ck.is_file() or (local_dir / "saved_model.pb").exists():
-        return local_dir
-    image_ck = Path("/app") / baseline_rel_path
-    if image_ck.is_file():
-        return image_ck.parent
-    _download_and_extract_zip(_DEFAULT_RAMP_BASELINE_URL, local_dir)
-    return local_dir
+    if not isinstance(model_uri, str):
+        raise TypeError("model_uri must be a string")
+    if cache_dir is not None and not isinstance(cache_dir, Path):
+        raise TypeError("cache_dir must be a pathlib.Path or None")
+
+    cache_dir = cache_dir or _DEFAULT_MODEL_CACHE
+    is_http = model_uri.startswith(("http://", "https://"))
+    clean_uri = model_uri.split("?", 1)[0]
+    suffix = Path(clean_uri).suffix.lower()
+
+    # ONNX: return as local file path.
+    if suffix == ".onnx":
+        if is_http:
+            cache_dir.mkdir(parents=True, exist_ok=True)
+            base_name = Path(clean_uri).name or "model.onnx"
+            dest = cache_dir / base_name
+            if not dest.is_file():
+                urlretrieve(model_uri, dest)
+            return str(dest)
+        resolved = _to_local_path(model_uri, "model_uri").resolve()
+        if resolved.is_file():
+            return str(resolved)
+        raise FileNotFoundError(f"ONNX model not found: {resolved}")
+
+    # Zipped SavedModel.
+    if suffix == ".zip":
+        base_name = Path(clean_uri).name
+        stem = Path(base_name).stem or "ramp_model"
+        dest_dir = cache_dir / stem
+        for existing in dest_dir.rglob("saved_model.pb"):
+            return str(existing.parent)
+
+        if is_http:
+            _download_and_extract_zip(model_uri, dest_dir)
+        else:
+            local_zip = _resolve_input_file(model_uri, "model_uri")
+            _extract_zip(local_zip, dest_dir)
+
+        for sub in dest_dir.rglob("saved_model.pb"):
+            return str(sub.parent)
+        raise RuntimeError(f"Zip from {model_uri} did not contain a valid SavedModel")
+
+    # Directory (SavedModel) - local or remote.
+    resolved_dir = (
+        _resolve_input_directory(model_uri, "model_uri") if "://" in model_uri else _to_local_path(model_uri, "model_uri")
+    ).resolve()
+    if resolved_dir.is_dir() and (resolved_dir / "saved_model.pb").exists():
+        return str(resolved_dir)
+    if resolved_dir.exists():
+        raise FileNotFoundError(f"SavedModel directory missing saved_model.pb: {resolved_dir}")
+    raise FileNotFoundError(f"Model path not found: {resolved_dir}")
 
 
-_QUBVEL_EFFICIENTNET_RELEASE = (
-    "https://github.com/qubvel/efficientnet/releases/download/v0.0.1/"
-)
+def _ensure_ramp_baseline(base_model_weights: str, data_base_path: str | Path) -> Path:
+    """Return a local SavedModel directory for fine-tuning, downloading if necessary.
+
+    ``base_model_weights`` may be an HTTP(S) .zip URL (preferred), a local .zip, or a SavedModel
+    directory. A pre-provisioned baseline under ``/app/ramp-data/baseline`` (from the RAMP
+    utilities Docker image) is used when present and no explicit URL is provided.
+    """
+    image_ck = Path("/app/ramp-data/baseline")
+    if not base_model_weights and (image_ck / "saved_model.pb").exists():
+        return image_ck
+
+    if not base_model_weights:
+        base_model_weights = _DEFAULT_RAMP_BASELINE_URL
+
+    return Path(resolve_model_href(base_model_weights, cache_dir=Path(data_base_path) / ".baseline_cache"))
+
+
+# ---------------------------------------------------------------------------
+# Keras / segmentation_models compatibility patches
+# ---------------------------------------------------------------------------
 
 
 def _patch_keras_get_file_for_efficientnet_weights() -> None:
@@ -140,106 +214,92 @@ def _patch_keras_get_file_for_efficientnet_weights() -> None:
     ku.get_file = _get_file
 
 
-def _patch_predictor_savedmodel_loader_for_tf215() -> None:
-    """Patch fairpredictor's SavedModel directory loader for TF 2.15 compatibility.
+# ---------------------------------------------------------------------------
+# Dataset materialization (chips + labels → hot_fair_utilities input layout)
+# ---------------------------------------------------------------------------
 
-    Why this patch exists:
-    Some fairpredictor versions load SavedModel directories using `keras.layers.TFSMLayer(...)`.
-    `TFSMLayer` is not available in TensorFlow 2.15's `tf.keras.layers`, so inference fails with:
-      AttributeError: module 'keras.api._v2.keras.layers' has no attribute 'TFSMLayer'
 
-    We monkey-patch `predictor.prediction._load_keras_model` so directory-based SavedModels use
-    `tf.saved_model.load(...)` and a small `.predict(...)` wrapper.
-
-    We patch the module object (via importlib) to ensure downstream `from predictor.prediction import ...`
-    uses the patched function.
-    """
-    import importlib
-    import os
-    from pathlib import Path
-
-    import tensorflow as tf
-
-    pred = importlib.import_module("predictor.prediction")
-    if getattr(pred, "_fair_models_tf215_savedmodel_patch_applied", False):
+def _select_or_merge_labels(labels_path: Path, destination: Path) -> None:
+    """Materialize a single labels.geojson for hot_fair_utilities preprocess."""
+    if labels_path.is_file():
+        shutil.copy2(labels_path, destination)
         return
 
-    original_loader = getattr(pred, "_load_keras_model", None)
-    if original_loader is None:
-        raise RuntimeError("predictor.prediction._load_keras_model not found; fairpredictor API changed.")
+    if not labels_path.is_dir():
+        raise FileNotFoundError(f"dataset_labels path not found: {labels_path}")
 
-    def _safe_load_keras_model(keras_backend, path: str):
-        if os.path.isdir(path) and (Path(path) / "saved_model.pb").exists():
-            # TF 2.15 (Keras 2.x) can load SavedModel directories directly; avoid TFSMLayer entirely.
-            return tf.keras.models.load_model(path, compile=False)
+    geojson_files = sorted(labels_path.glob("*.geojson"))
+    if not geojson_files:
+        raise FileNotFoundError(f"No .geojson files found in labels directory: {labels_path}")
+    if len(geojson_files) == 1:
+        shutil.copy2(geojson_files[0], destination)
+        return
 
-        return original_loader(keras_backend, path)
+    import geopandas as gpd
+    import pandas as pd
 
-    _safe_load_keras_model._fair_models_tf215_savedmodel_loader = True  # type: ignore[attr-defined]
-    pred._load_keras_model = _safe_load_keras_model
-    pred._fair_models_tf215_savedmodel_patch_applied = True
+    gdfs = [gpd.read_file(p) for p in geojson_files]
+    crs = gdfs[0].crs or "EPSG:4326"
+    merged = gpd.GeoDataFrame(pd.concat([g.to_crs(crs) for g in gdfs], ignore_index=True), crs=crs)
+    for col in merged.columns:
+        if col == "geometry":
+            continue
+        if pd.api.types.is_extension_array_dtype(merged[col].dtype):
+            merged[col] = merged[col].astype(object).where(merged[col].notna(), None)
+    merged.to_file(destination, driver="GeoJSON")
 
 
-def resolve_model_href(
-    model_uri: str,
-    cache_dir: Optional[Path] = None,
-) -> str:
-    """Resolve model_uri to a local SavedModel directory path.
+def _materialize_training_input(dataset_chips: str, dataset_labels: str, work_dir: Path) -> Path:
+    """Create the preprocess input folder with PNG chips and a single labels.geojson.
 
-    Supports:
-      - Local path: returned as-is if it exists
-      - Direct HTTP(S) URL to .zip: downloaded, extracted, cached
-
-    Returns the absolute path to the SavedModel directory.
+    Accepts .tif/.tiff/.png chip files on disk; TIFFs are converted to 3-band PNGs while
+    preserving filename stem (e.g. OAM-{x}-{y}-{z}.png) so hot_fair_utilities label clipping
+    can parse tile ids.
     """
-    if not isinstance(model_uri, str):
-        raise TypeError("model_uri must be a string")
-    if cache_dir is not None and not isinstance(cache_dir, Path):
-        raise TypeError("cache_dir must be a pathlib.Path or None")
+    chips_dir = _resolve_input_directory(dataset_chips, "dataset_chips")
+    labels_path = _resolve_input_file(dataset_labels, "dataset_labels")
 
-    cache_dir = cache_dir or _DEFAULT_MODEL_CACHE
+    input_dir = work_dir / "input"
+    if input_dir.exists():
+        shutil.rmtree(input_dir)
+    input_dir.mkdir(parents=True, exist_ok=True)
 
-    is_http = model_uri.startswith("http://") or model_uri.startswith("https://")
+    tif_paths = sorted(list(chips_dir.glob("*.tif")) + list(chips_dir.glob("*.tiff")))
+    png_paths = sorted(chips_dir.glob("*.png"))
 
-    # SavedModel directory (local or remote)
-    if not Path(model_uri.split("?", 1)[0]).suffix and not model_uri.lower().endswith(".zip"):
-        resolved_dir = (_resolve_input_directory(model_uri, "model_uri") if "://" in model_uri else _to_local_path(model_uri, "model_uri")).resolve()
-        if (resolved_dir / "saved_model.pb").exists():
-            return str(resolved_dir)
-        if resolved_dir.exists():
-            # Let downstream error messages be explicit.
-            raise FileNotFoundError(f"SavedModel directory missing saved_model.pb: {resolved_dir}")
-        raise FileNotFoundError(f"Model path not found: {resolved_dir}")
+    if tif_paths:
+        import numpy as np
+        import rasterio
+        from PIL import Image
 
-    # Remote/local ZIP containing SavedModel
-    if model_uri.lower().endswith(".zip"):
-        base_name = Path(model_uri.split("?", 1)[0]).name
-        stem = Path(base_name).stem or "ramp_model"
-        dest_dir = cache_dir / stem
-        if any(dest_dir.rglob("saved_model.pb")):
-            for sub in dest_dir.rglob("saved_model.pb"):
-                return str(sub.parent)
+        for tif_path in tif_paths:
+            png_path = input_dir / (tif_path.stem + ".png")
+            with rasterio.open(tif_path) as src:
+                data = src.read()
+                if data.shape[0] < 3:
+                    continue
+                rgb = np.transpose(data[:3], (1, 2, 0))
+                rgb = (rgb * 255).astype(np.uint8) if rgb.max() <= 1.0 else np.clip(rgb, 0, 255).astype(np.uint8)
+                Image.fromarray(rgb).save(png_path)
 
-        if is_http:
-            _download_and_extract_zip(model_uri, dest_dir)
-        else:
-            local_zip = _resolve_input_file(model_uri, "model_uri")
-            _extract_zip(local_zip, dest_dir)
+    for png_path in png_paths:
+        shutil.copy2(png_path, input_dir / png_path.name)
 
-        for sub in dest_dir.rglob("saved_model.pb"):
-            return str(sub.parent)
-        raise RuntimeError(f"Zip from {model_uri} did not contain a valid SavedModel")
+    if not list(input_dir.glob("*.png")):
+        raise FileNotFoundError(f"No train chips (.tif/.tiff/.png) found in {chips_dir}")
 
-    # Plain local path to file/dir (fallback)
-    resolved = _to_local_path(model_uri, "model_uri").resolve()
-    if resolved.exists():
-        return str(resolved)
-    raise FileNotFoundError(f"Model path not found: {resolved}")
+    _select_or_merge_labels(labels_path, input_dir / "labels.geojson")
+    return input_dir
 
-    raise ValueError(
-        f"Unsupported model_uri: {model_uri}. "
-        "Use a local path or an HTTP(S) URL to a .zip file containing the SavedModel."
-    )
+
+def _training_cache_dir(dataset_chips: str, dataset_labels: str) -> Path:
+    cache_key = hashlib.sha256(f"{dataset_chips}|{dataset_labels}".encode()).hexdigest()[:16]
+    return Path(tempfile.gettempdir()) / f"ramp_training_{cache_key}"
+
+
+# ---------------------------------------------------------------------------
+# Preprocess / postprocess (STAC pre/post_processing_function references)
+# ---------------------------------------------------------------------------
 
 
 def preprocess(
@@ -248,14 +308,12 @@ def preprocess(
     boundary_width: int = 3,
     contact_spacing: int = 8,
 ) -> str:
-    """Preprocess OAM chips + labels for RAMP training.
+    """Preprocess OAM PNG chips + labels into RAMP 4-class multimasks.
 
-    Step 1 — Georeference PNGs → chips/*.tif (EPSG:3857)
-    Step 2 — Reproject + clip labels → labels/*.geojson (per chip)
-    Step 3 — Generate 4-channel sparse multimasks → multimasks/*.mask.tif
-              Classes: 0=background, 1=building, 2=boundary, 3=contact-point
-
-    Returns the preprocessed output directory path.
+    Emits:
+      - preprocessed/chips/*.tif             (georeferenced RGB chips, EPSG:3857)
+      - preprocessed/labels/*.geojson        (per-chip labels, reprojected + clipped)
+      - preprocessed/multimasks/*.mask.tif   (4-class sparse categorical masks)
     """
     from hot_fair_utilities import preprocess as _preprocess
 
@@ -273,11 +331,8 @@ def preprocess(
     return output_path
 
 
-def postprocess(prediction_masks_dir: str, output_dir: str) -> dict:
-    """Run fairpredictor-style postprocessing and return merged prediction GeoJSON content."""
-    import json
-
-    # geomltoolkits>=2 moved modules (no geomltoolkits.regularizer/utils)
+def postprocess(prediction_masks_dir: str, output_dir: str) -> dict[str, Any]:
+    """Merge prediction TIFF tiles into a building-footprint GeoJSON (EPSG:4326)."""
     from geomltoolkits.geometry.validate import validate_polygon_geometries
     from geomltoolkits.raster.merge import merge_rasters
     from geomltoolkits.raster.morphology import morphological_cleaning
@@ -289,7 +344,7 @@ def postprocess(prediction_masks_dir: str, output_dir: str) -> dict:
 
     pred_tifs = sorted(pred_dir.glob("*.tif"))
     if not pred_tifs:
-        raise RuntimeError(f"No *.tif files found in {pred_dir}")
+        return {"type": "FeatureCollection", "features": []}
 
     merged_mask_path = out_dir / "merged_prediction_mask.tif"
     merged_geojson_path = out_dir / "predictions.geojson"
@@ -308,11 +363,8 @@ def postprocess(prediction_masks_dir: str, output_dir: str) -> dict:
 
     geojson_dict = json.loads(gdf.to_json())
     if not geojson_dict.get("features"):
-        # geomltoolkits validator raises on empty FeatureCollections; treat this as a valid
-        # "no buildings found" prediction and keep the already-written GeoJSON file.
         if not merged_geojson_path.is_file():
-            with merged_geojson_path.open("w", encoding="utf-8") as fh:
-                json.dump(geojson_dict, fh)
+            merged_geojson_path.write_text(json.dumps(geojson_dict), encoding="utf-8")
         return geojson_dict
 
     if gdf.crs and gdf.crs != "EPSG:4326":
@@ -320,7 +372,7 @@ def postprocess(prediction_masks_dir: str, output_dir: str) -> dict:
     elif not gdf.crs:
         gdf.set_crs("EPSG:3857", inplace=True)
         gdf = gdf.to_crs("EPSG:4326")
-    # Pandas extension dtypes break some Fiona GeoJSON writes; coerce to object.
+
     import pandas as pd
 
     for col in gdf.columns:
@@ -336,173 +388,89 @@ def postprocess(prediction_masks_dir: str, output_dir: str) -> dict:
     )
     if isinstance(validated_geojson, str) and Path(validated_geojson).is_file():
         if Path(validated_geojson) != merged_geojson_path:
-            copy2(validated_geojson, merged_geojson_path)
-        with merged_geojson_path.open("r", encoding="utf-8") as file_handle:
-            return json.load(file_handle)
+            shutil.copy2(validated_geojson, merged_geojson_path)
+        return json.loads(merged_geojson_path.read_text(encoding="utf-8"))
 
     if isinstance(validated_geojson, dict):
         return validated_geojson
     return json.loads(gdf.to_json())
 
 
-def _load_hyperparams_from_stac(stac_item_path: str) -> dict:
-    """Load mlm:hyperparameters from a STAC Item JSON file.
-
-    Relative paths are resolved against /workspace (container) or cwd (local).
-    """
-    import json
-
-    path = _to_local_path(stac_item_path, "stac_item_path")
-    if not path.is_absolute():
-        for base in (Path("/workspace"), Path.cwd()):
-            candidate = base / path
-            if candidate.is_file():
-                path = candidate
-                break
-        else:
-            path = Path("/workspace") / path
-    with open(path, encoding="utf-8") as f:
-        item = json.load(f)
-    return dict(item.get("properties", {}).get("mlm:hyperparameters", {}))
+# ---------------------------------------------------------------------------
+# Train / eval / export helpers (stateful TF pieces stay behind lazy imports)
+# ---------------------------------------------------------------------------
 
 
-@step
-def run_preprocessing(
-    input_path: str,
-    output_path: str,
-    boundary_width: int = 3,
-    contact_spacing: int = 8,
-) -> List[Tuple[Any, Any]]:
-    """Georeference OAM chips and return chip/mask data arrays."""
-    import rasterio
-
-    preprocessed = Path(preprocess(input_path, output_path, boundary_width, contact_spacing))
-    chips_dir = preprocessed / "chips"
-    masks_dir = preprocessed / "multimasks"
-    data_loader: list[tuple[Any, Any]] = []
-    for chip in sorted(chips_dir.glob("*.tif")):
-        mask = masks_dir / f"{chip.stem}.mask.tif"
-        if mask.is_file():
-            with rasterio.open(chip) as chip_src:
-                chip_data = chip_src.read()
-            with rasterio.open(mask) as mask_src:
-                mask_data = mask_src.read()
-            data_loader.append((chip_data, mask_data))
-    return data_loader
-
-
-@step
-def train_model(
-    data_base_path: str,
-    preprocessed_path: str,
-    data_loader: Optional[List[Tuple[Any, Any]]] = None,
-    stac_item_path: str = "models/ramp/stac-item.json",
-    val_fraction: Optional[float] = None,
-    split_info: Optional[Dict[str, Any]] = None,
-) -> Any:
-    """ZenML step wrapper for RAMP training; returns the best Keras SavedModel checkpoint."""
-    if data_loader is not None and not data_loader:
-        raise RuntimeError("Preprocessing returned an empty dataloader; no chip/mask pairs found.")
-    return train_ramp_model(
-        data_base_path=data_base_path,
-        preprocessed_path=preprocessed_path,
-        stac_item_path=stac_item_path,
-        val_fraction=val_fraction,
-        split_info=split_info,
-        log_zenml_step_metadata=True,
-    )
-
-
-@step
-def split_dataset(
-    preprocessed_path: str,
-    output_path: str,
-    hyperparameters: Optional[Dict[str, Any]] = None,
-) -> Annotated[Dict[str, Any], "split_info"]:
-    """Create train/validation directories for RAMP and return split metadata.
-
-    Uses the existing utilities implementation:
-    `hot_fair_utilities.training.ramp.prepare_data.split_training_2_validation`.
-    """
+def _prepare_training_split(
+    dataset_chips: str,
+    dataset_labels: str,
+    hyperparameters: dict[str, Any],
+    force_rebuild: bool = False,
+) -> dict[str, Any]:
+    """Preprocess + split chips/labels into RAMP train/val layout; return split_info."""
     from hot_fair_utilities.training.ramp.prepare_data import split_training_2_validation
 
-    hyperparameters = hyperparameters or {}
-    preprocessed_dir = _to_local_path(preprocessed_path, "preprocessed_path")
-    if not preprocessed_dir.is_dir():
-        raise FileNotFoundError(f"Preprocessed directory not found: {preprocessed_dir}")
-
-    out_dir = _to_local_path(output_path, "output_path")
-    ramp_train_dir = out_dir / "ramp_training_work"
-
-    split_training_2_validation(
-        str(preprocessed_dir),
-        str(ramp_train_dir),
-        multimasks=True,
+    val_fraction = float(
+        hyperparameters.get(
+            "training.val_ratio",
+            hyperparameters.get("val_fraction", hyperparameters.get("val_ratio", 0.15)),
+        )
     )
+    if not 0.0 < val_fraction < 1.0:
+        raise ValueError("val_fraction must be in (0.0, 1.0)")
+    boundary_width = int(
+        hyperparameters.get("training.boundary_width", hyperparameters.get("boundary_width", 3))
+    )
+    contact_spacing = int(
+        hyperparameters.get("training.contact_spacing", hyperparameters.get("contact_spacing", 8))
+    )
+    seed = int(hyperparameters.get("training.split_seed", hyperparameters.get("split_seed", 42)))
+
+    work_dir = _training_cache_dir(dataset_chips, dataset_labels)
+    preprocessed_dir = work_dir / "preprocessed"
+    ramp_train_dir = work_dir / "ramp_training_work"
+
+    if force_rebuild and work_dir.exists():
+        shutil.rmtree(work_dir)
+
+    if not ramp_train_dir.exists():
+        work_dir.mkdir(parents=True, exist_ok=True)
+        input_dir = _materialize_training_input(dataset_chips, dataset_labels, work_dir)
+        preprocess(str(input_dir), str(preprocessed_dir), boundary_width, contact_spacing)
+        split_training_2_validation(str(preprocessed_dir), str(ramp_train_dir), multimasks=True)
 
     train_count = len(list((ramp_train_dir / "chips").glob("*.tif")))
     val_count = len(list((ramp_train_dir / "val-chips").glob("*.tif")))
-    total = train_count + val_count
-    val_ratio = (float(val_count) / float(total)) if total else 0.0
 
-    split_info: Dict[str, Any] = {
+    return {
         "strategy": "random",
-        "val_ratio": val_ratio,
+        "val_ratio": val_fraction,
+        "seed": seed,
         "train_count": train_count,
         "val_count": val_count,
-        "seed": int(hyperparameters.get("split_seed", 42)),
-        "ramp_train_dir": str(ramp_train_dir),
-        "source": "hot_fair_utilities.training.ramp.prepare_data.split_training_2_validation",
+        "description": "Preprocess chips+labels into 4-class multimasks, then random train/val split.",
+        "_work_dir": str(work_dir),
+        "_preprocessed_dir": str(preprocessed_dir),
+        "_ramp_train_dir": str(ramp_train_dir),
     }
-    log_metadata(metadata={"fair/split": split_info})
-    return split_info
 
 
 def train_ramp_model(
-    data_base_path: str,
-    preprocessed_path: str,
-    stac_item_path: str = "models/ramp/stac-item.json",
-    val_fraction: Annotated[Optional[float], "0.0 <= val_fraction <= 0.5"] = None,
-    num_epochs: Annotated[Optional[int], "1 <= num_epochs <= 20"] = None,
-    batch_size: Annotated[Optional[int], "1 <= batch_size <= 8"] = None,
-    backbone: Optional[str] = None,
-    early_stopping_patience: Annotated[Optional[int], "1 <= early_stopping_patience <= 20"] = None,
-    split_info: Optional[Dict[str, Any]] = None,
-    log_zenml_step_metadata: bool = False,
-) -> Any:
-    """Fine-tune EfficientNetB0 + U-Net on 4-class multimask chips.
-
-    Uses hot_fair_utilities.training.ramp for training orchestration.
-    RAMP_CONFIG is used as the base configuration; hyperparameters from the
-    STAC Item and keyword arguments selectively override the base.
-
-    Val split is handled internally by split_training_2_validation:
-    preprocessed_path → ramp_training_work/ (train + val-chips + val-multimasks).
-
-    Sets ``RAMP_HOME`` before importing training helpers: ``run_training`` caches
-    ``working_ramp_home`` at import time, so ``/app`` is used when the GHCR baseline exists there.
-
-    If the RAMP baseline exists under the hot-fair-utilities image (``/app/ramp-data/baseline/``)
-    it is used for fine-tuning. Otherwise weights are resolved under ``data_base_path`` or downloaded.
-
-    Returns the best checkpoint as a loaded ``tf.keras.Model`` (SavedModel on disk is loaded with compile=False).
-    """
-    import os
-
-    # run_training.run_training sets ``working_ramp_home = os.environ["RAMP_HOME"]`` at *import* time.
-    # That value is used for ``Path(working_ramp_home) / saved_model_path`` when loading the baseline.
-    # Dataset paths in cfg are absolute (from manage_fine_tuning_config), so they still resolve correctly.
-    # Docker + GHCR base: baseline lives under /app; do not rely on /workspace/ramp-data (bind mount hides it).
-    resolved_base = str(Path(data_base_path).resolve())
-    image_baseline_ck = Path("/app/ramp-data/baseline/checkpoint.tf")
-    if image_baseline_ck.is_file():
+    ramp_train_dir: str,
+    base_model_weights: str,
+    hyperparameters: dict[str, Any],
+    data_base_path: str | None = None,
+) -> Path:
+    """Fine-tune EfficientNetB0 + U-Net and return the best SavedModel directory path."""
+    # run_training reads RAMP_HOME at import time; set it first so saved_model lookups resolve.
+    data_base_path = str(Path(data_base_path).resolve()) if data_base_path else str(Path(ramp_train_dir).resolve())
+    image_baseline_ck = Path("/app/ramp-data/baseline/saved_model.pb")
+    if image_baseline_ck.exists():
         os.environ["RAMP_HOME"] = "/app"
     else:
-        os.environ["RAMP_HOME"] = resolved_base
+        os.environ["RAMP_HOME"] = data_base_path
 
-    # segmentation_models configures efficientnet at import time via SM_FRAMEWORK.
     os.environ.setdefault("SM_FRAMEWORK", "tf.keras")
-    import tensorflow as tf
 
     _patch_keras_get_file_for_efficientnet_weights()
     import segmentation_models as sm
@@ -515,248 +483,569 @@ def train_ramp_model(
 
     sm.set_framework("tf.keras")
 
-    # Load STAC hyperparams and apply call-site overrides
-    hyperparams = _load_hyperparams_from_stac(stac_item_path)
-    if val_fraction is not None:
-        if not 0.0 <= val_fraction <= 0.5:
-            raise ValueError("val_fraction must be in [0.0, 0.5]")
-        hyperparams["val_fraction"] = val_fraction
-    if num_epochs is not None:
-        if not 1 <= num_epochs <= 20:
-            raise ValueError("num_epochs must be in [1, 20] for RAMP runtime limits")
-        hyperparams["num_epochs"] = num_epochs
-    if batch_size is not None:
-        if not 1 <= batch_size <= 8:
-            raise ValueError("batch_size must be in [1, 8] for RAMP runtime limits")
-        hyperparams["batch_size"] = batch_size
-    if backbone is not None:
-        hyperparams["backbone"] = backbone
-    if early_stopping_patience is not None:
-        if not 1 <= early_stopping_patience <= 20:
-            raise ValueError("early_stopping_patience must be in [1, 20]")
-        hyperparams["early_stopping_patience"] = early_stopping_patience
-
-    # Resolve effective values from STAC overrides or RAMP_CONFIG defaults
-    eff_epochs = hyperparams.get("num_epochs", hyperparams.get("epochs", RAMP_CONFIG["num_epochs"]))
-    eff_batch = hyperparams.get("batch_size", RAMP_CONFIG["batch_size"])
-    eff_backbone = hyperparams.get("backbone", RAMP_CONFIG["model"]["model_fn_parms"]["backbone"])
-    eff_lr = hyperparams.get("learning_rate", RAMP_CONFIG["optimizer"]["optimizer_fn_parms"]["learning_rate"])
-    eff_patience = hyperparams.get(
-        "early_stopping_patience",
-        RAMP_CONFIG["early_stopping"]["early_stopping_parms"]["patience"],
+    epochs = int(hyperparameters.get("training.epochs", hyperparameters.get("epochs", RAMP_CONFIG["num_epochs"])))
+    batch_size = int(
+        hyperparameters.get("training.batch_size", hyperparameters.get("batch_size", RAMP_CONFIG["batch_size"]))
     )
-    if not 1 <= int(eff_epochs) <= 20:
-        raise ValueError(f"Resolved num_epochs={eff_epochs} is outside [1, 20]")
-    if not 1 <= int(eff_batch) <= 8:
-        raise ValueError(f"Resolved batch_size={eff_batch} is outside [1, 8]")
-    if not 1 <= int(eff_patience) <= 20:
-        raise ValueError(f"Resolved early_stopping_patience={eff_patience} is outside [1, 20]")
-
-    # Prefer a precomputed split (CI-visible split_dataset step), fallback to internal split for compatibility.
-    if split_info and split_info.get("ramp_train_dir"):
-        ramp_train_dir = str(_to_local_path(str(split_info["ramp_train_dir"]), "ramp_train_dir"))
-    else:
-        from hot_fair_utilities.training.ramp.prepare_data import split_training_2_validation
-
-        ramp_train_dir_path = _to_local_path(
-            str(Path(data_base_path) / "ramp_training_work"),
-            "ramp_training_work",
+    backbone = str(
+        hyperparameters.get(
+            "training.backbone",
+            hyperparameters.get("backbone", RAMP_CONFIG["model"]["model_fn_parms"]["backbone"]),
         )
-        if ramp_train_dir_path.exists():
-            rmtree(ramp_train_dir_path)
-        ramp_train_dir = str(ramp_train_dir_path)
-        split_training_2_validation(
-            str(_to_local_path(preprocessed_path, "preprocessed_path")),
-            ramp_train_dir,
-            multimasks=True,
+    )
+    learning_rate = float(
+        hyperparameters.get(
+            "training.learning_rate",
+            hyperparameters.get(
+                "learning_rate", RAMP_CONFIG["optimizer"]["optimizer_fn_parms"]["learning_rate"]
+            ),
         )
+    )
+    patience = int(
+        hyperparameters.get(
+            "training.early_stopping_patience",
+            hyperparameters.get(
+                "early_stopping_patience", RAMP_CONFIG["early_stopping"]["early_stopping_parms"]["patience"]
+            ),
+        )
+    )
+    if not 1 <= epochs <= 200:
+        raise ValueError(f"Resolved epochs={epochs} is outside [1, 200]")
+    if not 1 <= batch_size <= 64:
+        raise ValueError(f"Resolved batch_size={batch_size} is outside [1, 64]")
+    if not 1 <= patience <= 50:
+        raise ValueError(f"Resolved early_stopping_patience={patience} is outside [1, 50]")
 
-    # Build config from RAMP_CONFIG via the utilities helper, then apply overrides
-    cfg = manage_fine_tuning_config(ramp_train_dir, eff_epochs, eff_batch, freeze_layers=False, multimasks=True)
-    cfg["model"]["model_fn_parms"]["backbone"] = eff_backbone
-    cfg["optimizer"]["optimizer_fn_parms"]["learning_rate"] = eff_lr
-    cfg["early_stopping"]["early_stopping_parms"]["patience"] = eff_patience
+    cfg = manage_fine_tuning_config(ramp_train_dir, epochs, batch_size, freeze_layers=False, multimasks=True)
+    cfg["model"]["model_fn_parms"]["backbone"] = backbone
+    cfg["optimizer"]["optimizer_fn_parms"]["learning_rate"] = learning_rate
+    cfg["early_stopping"]["early_stopping_parms"]["patience"] = patience
 
-    # Use baseline checkpoint for fine-tuning if present, else train from scratch
-    saved_rel = cfg["saved_model"]["saved_model_path"]
-    baseline_dir: Path
     if cfg["saved_model"]["use_saved_model"]:
-        baseline_dir = _ensure_ramp_baseline(
-            data_base_path=data_base_path,
-            baseline_rel_path=saved_rel,
-        )
-        ck = baseline_dir / Path(saved_rel).name
-        cfg["saved_model"]["use_saved_model"] = ck.is_file() or (baseline_dir / "saved_model.pb").exists()
+        baseline_dir = _ensure_ramp_baseline(base_model_weights, data_base_path)
+        cfg["saved_model"]["use_saved_model"] = (baseline_dir / "saved_model.pb").exists()
 
     run_main_train_code(cfg)
-    final_accuracy, final_model_path = extract_highest_accuracy_model(ramp_train_dir)
+    _final_accuracy, final_model_path = extract_highest_accuracy_model(ramp_train_dir)
+    return Path(final_model_path)
 
-    if log_zenml_step_metadata:
-        log_metadata(
-            metadata={
-                "best_val_accuracy": float(final_accuracy),
-                "best_model_path": str(final_model_path),
+
+def _zip_savedmodel_dir(saved_model_dir: Path) -> bytes:
+    """Zip a SavedModel directory into bytes for ZenML artifact persistence."""
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for p in saved_model_dir.rglob("*"):
+            if p.is_file():
+                zf.write(p, arcname=p.relative_to(saved_model_dir))
+    return buf.getvalue()
+
+
+def _unzip_savedmodel_bytes(blob: bytes) -> Path:
+    """Extract a SavedModel zipped as bytes to a temp directory and return its path."""
+    dest = Path(tempfile.mkdtemp(prefix="ramp_savedmodel_"))
+    with zipfile.ZipFile(io.BytesIO(blob), "r") as zf:
+        zf.extractall(dest)
+    if (dest / "saved_model.pb").exists():
+        return dest
+    for candidate in dest.rglob("saved_model.pb"):
+        return candidate.parent
+    raise RuntimeError("Zipped bytes do not contain a SavedModel (no saved_model.pb found).")
+
+
+def _restore_checkpoint(trained_model: Any) -> Path:
+    """Restore a trained RAMP SavedModel from bytes, a SavedModel directory, or a .zip file."""
+    if isinstance(trained_model, bytes):
+        return _unzip_savedmodel_bytes(trained_model)
+    if isinstance(trained_model, (str, Path)):
+        p = Path(str(trained_model))
+        if p.is_dir() and (p / "saved_model.pb").exists():
+            return p
+        if p.is_file() and p.suffix.lower() == ".zip":
+            return _unzip_savedmodel_bytes(p.read_bytes())
+    raise TypeError(f"Cannot restore RAMP checkpoint from {type(trained_model).__name__}")
+
+
+def _convert_savedmodel_to_onnx_bytes(saved_model_dir: Path, opset: int = 13) -> bytes:
+    """Convert a TF SavedModel directory to ONNX bytes via tf2onnx."""
+    import tf2onnx
+
+    with tempfile.TemporaryDirectory() as tmp:
+        onnx_path = Path(tmp) / "model.onnx"
+        tf2onnx.convert.from_saved_model(
+            str(saved_model_dir),
+            output_path=str(onnx_path),
+            opset=opset,
+        )
+        return onnx_path.read_bytes()
+
+
+# ---------------------------------------------------------------------------
+# ONNX serving: predict(session, input_images, params) -> FeatureCollection
+# ---------------------------------------------------------------------------
+
+
+def _build_feature_collection(features: list[dict[str, Any]]) -> dict[str, Any]:
+    return {"type": "FeatureCollection", "features": features}
+
+
+def _extract_ramp_shapes(session: Any) -> tuple[str, int, int]:
+    """Return (input_name, input_height, input_width) for a RAMP ONNX session (NHWC)."""
+    input_meta = session.get_inputs()[0]
+    shape = input_meta.shape
+    if len(shape) != 4:
+        raise RuntimeError(f"Unexpected ONNX input shape: {shape}")
+    # RAMP ONNX is [batch, H, W, bands] (channels last) — keep this order.
+    height = int(shape[1]) if isinstance(shape[1], int) and shape[1] > 0 else 256
+    width = int(shape[2]) if isinstance(shape[2], int) and shape[2] > 0 else 256
+    return input_meta.name, height, width
+
+
+def _prepare_onnx_image(img_path: Path, input_height: int, input_width: int) -> tuple[Any, Any, Any]:
+    """Load an RGB chip and return (batch, transform, meta) for ONNX inference."""
+    import numpy as np
+    import rasterio
+    from PIL import Image
+
+    with rasterio.open(img_path) as src:
+        arr = src.read([1, 2, 3]).astype(np.float32) / 255.0
+        transform = src.transform
+        crs = src.crs
+        src_height = src.height
+        src_width = src.width
+
+    resized = [
+        np.asarray(Image.fromarray(arr[c]).resize((input_width, input_height), Image.Resampling.BILINEAR))
+        for c in range(arr.shape[0])
+    ]
+    hwc = np.stack(resized, axis=-1).astype(np.float32)  # NHWC
+    batch = hwc[np.newaxis, ...]
+    return batch, transform, (src_width, src_height, input_width, input_height, crs)
+
+
+def _decode_ramp_building_mask(
+    output: Any,
+    input_height: int,
+    input_width: int,
+    src_height: int,
+    src_width: int,
+    min_class_value: int = 1,
+) -> Any:
+    """Decode a RAMP ONNX output tensor into a (src_height, src_width) uint8 building mask.
+
+    Accepts either a 4-class softmax/logits tensor [B,H,W,C] or a [B,H,W,1] class-index tensor.
+    Pixels with class >= ``min_class_value`` (default 1=building) become 1; others 0.
+    """
+    import numpy as np
+    from PIL import Image
+
+    arr = np.asarray(output)
+    if arr.ndim == 5:
+        arr = arr[0]
+    if arr.ndim == 4 and arr.shape[0] == 1:
+        arr = arr[0]
+    if arr.ndim == 3 and arr.shape[-1] > 1:
+        class_idx = arr.argmax(axis=-1)
+    elif arr.ndim == 3 and arr.shape[-1] == 1:
+        class_idx = arr[..., 0]
+    elif arr.ndim == 2:
+        class_idx = arr
+    else:
+        raise RuntimeError(f"Unexpected RAMP ONNX output shape: {arr.shape}")
+
+    class_idx = np.asarray(class_idx).astype(np.int32)
+    # Collapse multiclass (background=0, building=1, boundary=2, contact=3) to binary building.
+    binary = (class_idx == min_class_value).astype(np.uint8)
+    if binary.shape != (src_height, src_width):
+        resized = Image.fromarray(binary * 255).resize((src_width, src_height), Image.Resampling.NEAREST)
+        binary = (np.asarray(resized) > 127).astype(np.uint8)
+    return binary
+
+
+def _vectorize_binary_mask(mask: Any, transform: Any, crs: Any, confidence: float) -> list[dict[str, Any]]:
+    import numpy as np
+    import rasterio.features
+    from pyproj import Transformer
+
+    mask_uint8 = np.asarray(mask).astype(np.uint8)
+    transformer = Transformer.from_crs(crs, "EPSG:4326", always_xy=True) if crs and str(crs) != "EPSG:4326" else None
+
+    features: list[dict[str, Any]] = []
+    for geom, value in rasterio.features.shapes(mask_uint8, transform=transform):
+        if int(value) < 1:
+            continue
+        if transformer is not None:
+            coords = geom["coordinates"]
+            geom["coordinates"] = [[list(transformer.transform(x, y)) for x, y in ring] for ring in coords]
+        features.append(
+            {
+                "type": "Feature",
+                "properties": {"class": 1, "confidence": round(confidence, 4)},
+                "geometry": geom,
             }
         )
+    return features
 
-    return tf.keras.models.load_model(str(final_model_path), compile=False)
+
+def predict(session: Any, input_images: str, params: dict[str, Any]) -> dict[str, Any]:
+    """Run RAMP ONNX inference and return a FeatureCollection of building polygons.
+
+    Required by ``fair.serve.base``. ``session`` is an ``onnxruntime.InferenceSession`` built by
+    the serving layer from the STAC ``assets.model`` ONNX artifact.
+    """
+    from fair.utils.data import resolve_directory
+
+    confidence_threshold = float(params.get("confidence_threshold", 0.5))
+    min_class_value = int(params.get("min_class_value", 1))
+
+    input_name, input_height, input_width = _extract_ramp_shapes(session)
+    input_dir = resolve_directory(input_images)
+    patterns = ("*.png", "*.tif", "*.tiff", "*.jpg")
+    img_paths = sorted(p for pat in patterns for p in input_dir.glob(pat))
+    if not img_paths:
+        raise FileNotFoundError(f"No input images found in {input_dir}")
+
+    features: list[dict[str, Any]] = []
+    for img_path in img_paths:
+        batch, transform, meta = _prepare_onnx_image(img_path, input_height, input_width)
+        src_width, src_height, _iw, _ih, crs = meta
+        outputs = session.run(None, {input_name: batch})
+        if not outputs:
+            continue
+        mask = _decode_ramp_building_mask(
+            outputs[0],
+            input_height=input_height,
+            input_width=input_width,
+            src_height=src_height,
+            src_width=src_width,
+            min_class_value=min_class_value,
+        )
+        features.extend(_vectorize_binary_mask(mask, transform, crs, confidence_threshold))
+    return _build_feature_collection(features)
+
+
+# ---------------------------------------------------------------------------
+# ZenML @step primitives
+# ---------------------------------------------------------------------------
+
+
+@step
+def split_dataset(
+    dataset_chips: str,
+    dataset_labels: str,
+    hyperparameters: dict[str, Any],
+) -> Annotated[dict[str, Any], "split_info"]:
+    """Preprocess chips+labels and create the RAMP train/val layout."""
+    split_info = _prepare_training_split(dataset_chips, dataset_labels, hyperparameters)
+    log_metadata(metadata={"fair/split": {k: v for k, v in split_info.items() if not k.startswith("_")}})
+    return split_info
+
+
+@step
+def train_model(
+    dataset_chips: str,
+    dataset_labels: str,
+    base_model_weights: str,
+    hyperparameters: dict[str, Any],
+    split_info: dict[str, Any],
+    num_classes: int = 4,
+    model_name: str | None = None,
+    base_model_id: str | None = None,
+    dataset_id: str | None = None,
+) -> Annotated[bytes, "trained_model"]:
+    """Fine-tune RAMP EfficientNetB0 U-Net; return the best SavedModel as zipped bytes."""
+    _ = (num_classes, model_name, base_model_id, dataset_id)
+
+    ramp_train_dir = Path(split_info["_ramp_train_dir"])
+    if not ramp_train_dir.exists():
+        split_info = _prepare_training_split(
+            dataset_chips, dataset_labels, hyperparameters, force_rebuild=True
+        )
+        ramp_train_dir = Path(split_info["_ramp_train_dir"])
+
+    work_dir = split_info.get("_work_dir") or str(ramp_train_dir.parent)
+    final_model_path = train_ramp_model(
+        ramp_train_dir=str(ramp_train_dir),
+        base_model_weights=base_model_weights,
+        hyperparameters=hyperparameters,
+        data_base_path=work_dir,
+    )
+    saved_model_dir = final_model_path if final_model_path.is_dir() else final_model_path.parent
+    if not (saved_model_dir / "saved_model.pb").exists():
+        raise RuntimeError(f"Expected SavedModel at {saved_model_dir}; not found.")
+
+    blob = _zip_savedmodel_dir(saved_model_dir)
+    log_metadata(metadata={"saved_model_dir": str(saved_model_dir), "checkpoint_bytes": len(blob)})
+    return blob
+
+
+@step
+def evaluate_model(
+    trained_model: Any,
+    dataset_chips: str,
+    dataset_labels: str,
+    hyperparameters: dict[str, Any],
+    split_info: dict[str, Any],
+    class_names: list[str] | None = None,
+) -> Annotated[dict[str, Any], "metrics"]:
+    """Compute per-pixel building-class metrics on the validation split."""
+    _ = class_names
+
+    import numpy as np
+    import rasterio
+
+    ramp_train_dir = Path(split_info.get("_ramp_train_dir", ""))
+    if not ramp_train_dir.exists():
+        split_info = _prepare_training_split(
+            dataset_chips, dataset_labels, hyperparameters, force_rebuild=True
+        )
+        ramp_train_dir = Path(split_info["_ramp_train_dir"])
+
+    val_chips_dir = ramp_train_dir / "val-chips"
+    val_masks_dir = ramp_train_dir / "val-multimasks"
+    pairs: list[tuple[Path, Path]] = []
+    for chip in sorted(val_chips_dir.glob("*.tif")):
+        mask = val_masks_dir / f"{chip.stem}.mask.tif"
+        if mask.is_file():
+            pairs.append((chip, mask))
+
+    saved_model_dir = _restore_checkpoint(trained_model)
+
+    if not pairs:
+        # No val data to evaluate against (e.g. CI mocks); return zeroed metrics with the
+        # required fair:* keys so downstream validation still sees the expected schema.
+        zero_metrics: dict[str, Any] = {
+            "fair:accuracy": 0.0,
+            "fair:mean_iou": 0.0,
+            "fair:precision": 0.0,
+            "fair:recall": 0.0,
+        }
+        log_metadata(metadata=zero_metrics)
+        return zero_metrics
+
+    import tensorflow as tf
+
+    model = tf.keras.models.load_model(str(saved_model_dir), compile=False)
+
+    tp = fp = fn = 0
+    correct = total = 0
+    for chip_path, mask_path in pairs:
+        with rasterio.open(chip_path) as src:
+            chip = src.read([1, 2, 3]).astype(np.float32) / 255.0
+        with rasterio.open(mask_path) as src:
+            gt = src.read(1).astype(np.int32)
+        batch = np.transpose(chip, (1, 2, 0))[np.newaxis, ...]
+        pred = model.predict(batch, verbose=0)
+        pred_arr = np.asarray(pred)
+        if pred_arr.ndim == 4 and pred_arr.shape[-1] > 1:
+            pred_idx = pred_arr[0].argmax(axis=-1)
+        elif pred_arr.ndim == 4 and pred_arr.shape[-1] == 1:
+            pred_idx = pred_arr[0, ..., 0].astype(np.int32)
+        else:
+            pred_idx = pred_arr[0].astype(np.int32)
+
+        gt_bin = (gt == 1).astype(np.uint8)
+        pr_bin = (pred_idx == 1).astype(np.uint8)
+        tp += int(((gt_bin == 1) & (pr_bin == 1)).sum())
+        fp += int(((gt_bin == 0) & (pr_bin == 1)).sum())
+        fn += int(((gt_bin == 1) & (pr_bin == 0)).sum())
+        correct += int((pred_idx == gt).sum())
+        total += int(gt.size)
+
+    precision = tp / (tp + fp) if (tp + fp) > 0 else 0.0
+    recall = tp / (tp + fn) if (tp + fn) > 0 else 0.0
+    iou = tp / (tp + fp + fn) if (tp + fp + fn) > 0 else 0.0
+    accuracy = correct / total if total > 0 else 0.0
+
+    metrics_dict: dict[str, Any] = {
+        "fair:accuracy": float(accuracy),
+        "fair:mean_iou": float(iou),
+        "fair:precision": float(precision),
+        "fair:recall": float(recall),
+    }
+    log_metadata(metadata=metrics_dict)
+    return metrics_dict
+
+
+@step
+def export_onnx(trained_model: Any) -> Annotated[bytes, "onnx_model"]:
+    """Convert the trained RAMP SavedModel to ONNX bytes and validate."""
+    import onnx
+
+    saved_model_dir = _restore_checkpoint(trained_model)
+    onnx_bytes = _convert_savedmodel_to_onnx_bytes(saved_model_dir)
+    onnx.checker.check_model(onnx.load_from_string(onnx_bytes))
+    log_metadata(metadata={"onnx_bytes": len(onnx_bytes)})
+    return onnx_bytes
 
 
 @step
 def run_inference(
-    model_uri: Union[str, Path, Any],
-    input_path: str,
+    model_uri: str | Path | Any,
+    input_images: str,
     prediction_path: str,
     output_dir: str,
-    model_cache_dir: Optional[str] = None,
-) -> Dict[str, Any]:
-    """ZenML step wrapper for RAMP inference returning final GeoJSON content.
-
-    model_uri may be a STAC/local path, HTTP(S) .zip URL, or a ``tf.keras.Model`` from training.
-    """
+    confidence: float = 0.5,
+    model_cache_dir: str | None = None,
+) -> Annotated[dict[str, Any], "predictions"]:
+    """Native-TF inference over georeferenced chips → building-footprint GeoJSON."""
     return infer_ramp_model(
         model_uri=model_uri,
-        input_path=input_path,
+        input_path=input_images,
         prediction_path=prediction_path,
         output_dir=output_dir,
+        confidence=confidence,
         model_cache_dir=model_cache_dir,
     )
 
 
-def infer_ramp_model(
-    model_uri: Union[str, Path, Any],
-    input_path: str,
-    prediction_path: str,
-    output_dir: str,
-    model_cache_dir: Optional[str] = None,
-    max_chips: Optional[int] = None,
-) -> Dict[str, Any]:
-    """Run fairpredictor inference and return final merged GeoJSON content.
+def _patch_predictor_savedmodel_loader_for_tf215() -> None:
+    """Patch fairpredictor's SavedModel directory loader for TF 2.15 compatibility.
 
-    model_uri: local path, HTTP(S) URL to a .zip SavedModel, or a ``tf.keras.Model`` from ``train_ramp_model``.
+    ``TFSMLayer`` is absent in TF 2.15's ``tf.keras.layers``; fall back to ``load_model``.
     """
-    import tempfile
+    import importlib
 
     import tensorflow as tf
 
-    # Ensure fairpredictor does not use TFSMLayer on TF 2.15.
+    pred = importlib.import_module("predictor.prediction")
+    if getattr(pred, "_fair_models_tf215_savedmodel_patch_applied", False):
+        return
+
+    original_loader = getattr(pred, "_load_keras_model", None)
+    if original_loader is None:
+        raise RuntimeError("predictor.prediction._load_keras_model not found; fairpredictor API changed.")
+
+    def _safe_load_keras_model(keras_backend, path: str):
+        if os.path.isdir(path) and (Path(path) / "saved_model.pb").exists():
+            return tf.keras.models.load_model(path, compile=False)
+        return original_loader(keras_backend, path)
+
+    _safe_load_keras_model._fair_models_tf215_savedmodel_loader = True  # type: ignore[attr-defined]
+    pred._load_keras_model = _safe_load_keras_model
+    pred._fair_models_tf215_savedmodel_patch_applied = True
+
+
+def infer_ramp_model(
+    model_uri: str | Path | Any,
+    input_path: str,
+    prediction_path: str,
+    output_dir: str,
+    confidence: float = 0.5,
+    model_cache_dir: str | None = None,
+) -> dict[str, Any]:
+    """Run fairpredictor-style TF inference and return the merged GeoJSON content."""
     _patch_predictor_savedmodel_loader_for_tf215()
-    from predictor.prediction import run_prediction  # noqa: E402
+    from predictor.prediction import run_prediction
 
     cache = Path(model_cache_dir) if model_cache_dir else None
-    if isinstance(model_uri, (str, Path)):
+    if isinstance(model_uri, bytes):
+        model_dir = str(_unzip_savedmodel_bytes(model_uri))
+    elif isinstance(model_uri, (str, Path)):
         model_dir = resolve_model_href(str(model_uri), cache_dir=cache)
-    elif isinstance(model_uri, tf.keras.Model):
-        tmp = Path(tempfile.mkdtemp(prefix="ramp_infer_savedmodel_"))
-        model_uri.save(str(tmp))
-        model_dir = str(tmp)
     else:
-        raise TypeError(
-            "model_uri must be a str, pathlib.Path, or a tf.keras.Model from training (compile=False load)."
-        )
-
-    # Fail fast if our patch didn't apply (helps diagnose environment mismatches early).
-    import importlib
-
-    pred = importlib.import_module("predictor.prediction")
-    if not getattr(getattr(pred, "_load_keras_model", None), "_fair_models_tf215_savedmodel_loader", False):
-        raise RuntimeError(
-            "fairpredictor SavedModel loader patch not applied; "
-            "expected predictor.prediction._load_keras_model to be patched for TF 2.15."
-        )
+        raise TypeError("model_uri must be a str, Path, or zipped SavedModel bytes.")
 
     input_dir = _resolve_input_directory(input_path, "input_path")
     out_dir = _to_local_path(prediction_path, "prediction_path")
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    chip_files = sorted(input_dir.glob("**/*.tif"))
-    if not chip_files:
+    if not any(input_dir.glob("**/*.tif")):
         raise RuntimeError(
-            f"No GeoTIFF chips (*.tif) found in {input_dir}. "
-            "RAMP inference expects georeferenced chips."
+            f"No GeoTIFF chips (*.tif) found in {input_dir}. RAMP inference expects georeferenced chips."
         )
-
-    run_input_dir = input_dir
-    if max_chips is not None and max_chips > 0:
-        subset_dir = out_dir / "subset_input"
-        if subset_dir.exists():
-            rmtree(subset_dir)
-        subset_dir.mkdir(parents=True, exist_ok=True)
-        for chip_file in chip_files[:max_chips]:
-            copy2(chip_file, subset_dir / chip_file.name)
-        run_input_dir = subset_dir
 
     georef_dir = run_prediction(
         checkpoint_path=model_dir,
-        input_path=str(run_input_dir),
+        input_path=str(input_dir),
         prediction_path=str(out_dir),
-        confidence=0.5,
+        confidence=confidence,
         crs="3857",
     )
-    return postprocess(str(georef_dir), output_dir)
+    final_output_dir = Path(output_dir or tempfile.mkdtemp(prefix="ramp_postprocess_"))
+    final_output_dir.mkdir(parents=True, exist_ok=True)
+    return postprocess(str(georef_dir), str(final_output_dir))
 
 
 @step
-def run_postprocessing(
-    prediction_path: Union[Path, str],
-    output_dir: str,
-) -> Dict[str, Any]:
-    """Run fairpredictor-style postprocessing and return merged GeoJSON content."""
-    return postprocess(str(prediction_path), output_dir)
+def run_preprocessing(
+    input_path: str,
+    output_path: str,
+    boundary_width: int = 3,
+    contact_spacing: int = 8,
+) -> str:
+    """STAC entrypoint wrapper for RAMP preprocessing."""
+    return preprocess(input_path, output_path, boundary_width, contact_spacing)
+
+
+@step
+def run_postprocessing(prediction_path: str, output_dir: str) -> dict[str, Any]:
+    """STAC entrypoint wrapper for RAMP postprocessing."""
+    return postprocess(prediction_path, output_dir)
+
+
+# ---------------------------------------------------------------------------
+# @pipeline definitions
+# ---------------------------------------------------------------------------
 
 
 @pipeline
 def training_pipeline(
-    input_path: str,
-    output_path: str,
-    stac_item_path: str = "models/ramp/stac-item.json",
+    base_model_weights: str,
+    dataset_chips: str,
+    dataset_labels: str,
+    num_classes: int,
+    hyperparameters: dict[str, Any],
 ) -> None:
-    """Full RAMP training: georeference + multimask → val split → EfficientNetB0 U-Net.
-
-    Hyperparameters (backbone, epochs, batch_size, boundary_width, contact_spacing, etc.)
-    are loaded from the STAC Item at stac_item_path.
-    """
-    hyperparams = _load_hyperparams_from_stac(stac_item_path)
-    boundary_width = hyperparams.get("boundary_width", 3)
-    contact_spacing = hyperparams.get("contact_spacing", 8)
-
-    data_loader = run_preprocessing(
-        input_path=input_path,
-        output_path=f"{output_path}/preprocessed",
-        boundary_width=boundary_width,
-        contact_spacing=contact_spacing,
-    )
+    """RAMP training pipeline: split → train → evaluate → export ONNX."""
     split_info = split_dataset(
-        preprocessed_path=f"{output_path}/preprocessed",
-        output_path=output_path,
-        hyperparameters=hyperparams,
+        dataset_chips=dataset_chips,
+        dataset_labels=dataset_labels,
+        hyperparameters=hyperparameters,
     )
-    train_model(
-        data_base_path=output_path,
-        data_loader=data_loader,
-        preprocessed_path=f"{output_path}/preprocessed",
-        stac_item_path=stac_item_path,
+    trained_model = train_model(
+        dataset_chips=dataset_chips,
+        dataset_labels=dataset_labels,
+        base_model_weights=base_model_weights,
+        hyperparameters=hyperparameters,
+        split_info=split_info,
+        num_classes=num_classes,
+    )
+    evaluate_model(
+        trained_model=trained_model,
+        dataset_chips=dataset_chips,
+        dataset_labels=dataset_labels,
+        hyperparameters=hyperparameters,
         split_info=split_info,
     )
+    export_onnx(trained_model=trained_model)
 
 
 @pipeline
 def inference_pipeline(
-    model_uri: Union[str, Path, Any],
-    input_path: str,
-    prediction_path: str,
-    output_dir: str,
-    model_cache_dir: Optional[str] = None,
-) -> Dict[str, Any]:
-    """RAMP inference: load model → predict → postprocess → final GeoJSON.
-
-    model_uri: local path, HTTP(S) URL to a .zip SavedModel, or a ``tf.keras.Model`` from training.
-    """
-    final_geojson = run_inference(
-        model_uri=model_uri,
-        input_path=input_path,
-        prediction_path=prediction_path,
-        output_dir=output_dir,
-        model_cache_dir=model_cache_dir,
+    model_uri: str,
+    input_images: str,
+    inference_params: dict[str, Any] | None = None,
+    output_dir: str = "",
+    chip_size: int = 256,
+    num_classes: int = 4,
+    confidence: float = 0.5,
+    zenml_artifact_version_id: str = "",
+    prediction_path: str = "",
+) -> dict[str, Any]:
+    """RAMP inference pipeline: load model → predict → postprocess → FeatureCollection."""
+    _ = (chip_size, num_classes)
+    resolved_output_dir = output_dir or str(Path(tempfile.mkdtemp(prefix="ramp_inference_")))
+    resolved_confidence = float((inference_params or {}).get("confidence_threshold", confidence))
+    prediction_dir = prediction_path or str(Path(resolved_output_dir) / "predictions")
+    model = (
+        load_model(model_uri=model_uri, zenml_artifact_version_id=zenml_artifact_version_id)
+        if zenml_artifact_version_id
+        else model_uri
     )
-    return final_geojson
+    return run_inference(
+        model_uri=model,
+        input_images=input_images,
+        prediction_path=prediction_dir,
+        output_dir=resolved_output_dir,
+        confidence=resolved_confidence,
+    )

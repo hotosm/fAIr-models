@@ -1,12 +1,13 @@
 {
     "type": "Feature",
-    "stac_version": "1.0.0",
+    "stac_version": "1.1.0",
     "stac_extensions": [
         "https://stac-extensions.github.io/mlm/v1.5.1/schema.json",
         "https://stac-extensions.github.io/version/v1.2.0/schema.json",
         "https://stac-extensions.github.io/classification/v2.0.0/schema.json",
         "https://stac-extensions.github.io/file/v2.1.0/schema.json",
-        "https://stac-extensions.github.io/raster/v1.1.0/schema.json"
+        "https://stac-extensions.github.io/raster/v1.1.0/schema.json",
+        "https://hotosm.github.io/fAIr-models/schemas/v1.0.0/base-model/schema.json"
     ],
     "id": "ramp-v1",
     "geometry": {
@@ -24,6 +25,10 @@
     "bbox": [-180, -90, 180, 90],
     "properties": {
         "datetime": "2024-01-01T00:00:00Z",
+        "created": "2024-01-01T00:00:00Z",
+        "updated": "2024-01-01T00:00:00Z",
+        "title": "RAMP EfficientNetB0 + U-Net Building Segmentation",
+        "description": "RAMP semantic-segmentation base model: EfficientNetB0 encoder with U-Net decoder outputs 4-class sparse-categorical masks (background, building, boundary, contact) from RGB aerial imagery. Packaged for fAIr finetuning and ONNX-based inference.",
         "mlm:name": "ramp-v1",
         "mlm:architecture": "EffUnet",
         "mlm:tasks": [
@@ -33,60 +38,69 @@
         "mlm:framework_version": "2.15.1",
         "mlm:pretrained": true,
         "mlm:pretrained_source": "https://api-prod.fair.hotosm.org/api/v1/workspace/download/ramp/baseline.zip",
+        "mlm:accelerator": "amd64",
+        "mlm:accelerator_constrained": false,
+        "mlm:total_parameters": 7500000,
+        "mlm:memory_size": 536870912,
         "keywords": [
             "building",
             "semantic-segmentation",
-            "polygon"
+            "polygon",
+            "ramp"
         ],
+        "license": "Apache-2.0",
         "version": "1",
-        "license": "Apache-2.0",  
-        "status": "active",
-        "mlm:total_parameters": 7500000,
-        "mlm:memory_size": 536870912,
-        "mlm:accelerator": null,
-        "mlm:accelerator_constrained": false,
-        "licenses": {
-            "model": "Apache-2.0",
-            "data": "ODbL-1.0",
-            "code": "Apache-2.0"
+        "deprecated": false,
+        "providers": [
+            {
+                "name": "HOTOSM",
+                "roles": [
+                    "producer",
+                    "host"
+                ],
+                "url": "https://www.hotosm.org",
+                "description": "Humanitarian OpenStreetMap Team"
+            },
+            {
+                "name": "Development Seed",
+                "roles": [
+                    "producer"
+                ],
+                "url": "https://developmentseed.org",
+                "description": "Original authors of the RAMP model."
+            }
+        ],
+        "fair:metrics_spec": [
+            {
+                "key": "fair:accuracy",
+                "name": "Pixel accuracy",
+                "description": "Per-pixel classification accuracy across all 4 classes on the validation split."
+            },
+            {
+                "key": "fair:mean_iou",
+                "name": "Building IoU",
+                "description": "Intersection-over-Union of the building class (class 1) on the validation split."
+            },
+            {
+                "key": "fair:precision",
+                "name": "Building precision",
+                "description": "Per-pixel precision of the building class (class 1) on the validation split."
+            },
+            {
+                "key": "fair:recall",
+                "name": "Building recall",
+                "description": "Per-pixel recall of the building class (class 1) on the validation split."
+            }
+        ],
+        "fair:split_spec": {
+            "strategy": "random",
+            "default_ratio": 0.15,
+            "seed": 42,
+            "description": "Preprocess chips + labels into 4-class multimasks, then seeded random train/validation split via hot_fair_utilities.split_training_2_validation."
         },
         "inference_time_per_256x256": {
             "value": 45,
             "unit": "ms"
-        },
-        "pipeline_input": {
-            "type": "directory",
-            "description": "Directory of georeferenced RGB GeoTIFF chips (256×256, EPSG:3857)",
-            "expected_files": "*.tif",
-            "required_params": ["input_path", "model_uri"]
-        },
-        "pipeline_output": {
-            "type": "directory",
-            "description": "Directory containing merged prediction GeoJSON (`predictions.geojson`) built from fairpredictor-style postprocessing",
-            "expected_files": "predictions.geojson",
-            "geometry_types": ["Polygon", "MultiPolygon"]
-        },
-        "evaluation_metrics": [
-            {
-                "metric": "val_sparse_categorical_accuracy",
-                "definition": "Sparse categorical accuracy on validation set",
-                "value": 0.92
-            },
-            {
-                "metric": "val_loss",
-                "definition": "Sparse categorical crossentropy on validation set",
-                "value": 0.15
-            }
-        ],
-        "zenml_entrypoints": {
-            "preprocessing": "models.ramp.pipeline:run_preprocessing",
-            "inference": "models.ramp.pipeline:inference_pipeline",
-            "postprocessing": "models.ramp.pipeline:run_postprocessing",
-            "training": "models.ramp.pipeline:train_model"
-        },
-        "training_time": {
-            "value": 4.0,
-            "unit": "hours"
         },
         "mlm:input": [
             {
@@ -111,65 +125,89 @@
         ],
         "mlm:output": [
             {
-                "name": "4-class sparse categorical multimask",
+                "name": "4-class sparse-categorical multimask",
                 "tasks": ["semantic-segmentation"],
                 "result": {
-                    "shape": [-1, 256, 256, 1],
-                    "dim_order": ["batch", "height", "width", "channel"],
-                    "data_type": "uint8"
+                    "shape": [-1, 256, 256, 4],
+                    "dim_order": ["batch", "height", "width", "classes"],
+                    "data_type": "float32"
                 },
                 "classification:classes": [
                     {
                         "name": "background",
                         "value": 0,
-                        "description": "Non-building pixels"
+                        "description": "Non-building pixels."
                     },
                     {
                         "name": "building",
                         "value": 1,
-                        "description": "Building interior pixels"
+                        "description": "Building interior pixels."
                     },
                     {
                         "name": "boundary",
                         "value": 2,
-                        "description": "Building boundary pixels (helps separate adjacent buildings)"
+                        "description": "Building boundary pixels (helps separate adjacent buildings)."
                     },
                     {
                         "name": "contact",
                         "value": 3,
-                        "description": "Close-contact points between neighbouring buildings"
+                        "description": "Close-contact points between neighbouring buildings."
                     }
                 ],
                 "post_processing_function": {
                     "format": "python",
                     "expression": "models.ramp.pipeline:postprocess"
-                }
+                },
+                "bands": []
             }
         ],
         "mlm:hyperparameters": {
-            "backbone": "efficientnetb0",
-            "num_classes": 4,
-            "epochs": 20,
-            "batch_size": 8,
-            "learning_rate": 0.0003,
-            "loss": "sparse_categorical_crossentropy",
-            "optimizer": "adam",
-            "input_img_shape": [256, 256],
-            "output_img_shape": [256, 256],
-            "boundary_width": 3,
-            "contact_spacing": 8,
-            "val_fraction": 0.15,
-            "early_stopping_patience": 10,
-            "augmentation": false
+            "training.backbone": "efficientnetb0",
+            "training.epochs": 20,
+            "training.batch_size": 8,
+            "training.learning_rate": 0.0003,
+            "training.val_ratio": 0.15,
+            "training.split_seed": 42,
+            "training.boundary_width": 3,
+            "training.contact_spacing": 8,
+            "training.early_stopping_patience": 10,
+            "training.augmentation": false,
+            "training.imgsz": 256,
+            "training.num_classes": 4,
+            "inference.confidence_threshold": 0.5,
+            "inference.min_class_value": 1
+        },
+        "licenses": {
+            "model": "Apache-2.0",
+            "data": "ODbL-1.0",
+            "code": "Apache-2.0"
         }
     },
     "assets": {
-        "model": {
+        "checkpoint": {
             "href": "https://api-prod.fair.hotosm.org/api/v1/workspace/download/ramp/baseline.zip",
-            "type": "application/octet-stream; framework=tensorflow",
-            "title": "RAMP EfficientNetB0 U-Net weights (Keras SavedModel)",
-            "roles": ["mlm:model"],
+            "title": "RAMP EfficientNetB0 + U-Net baseline weights (zipped TF SavedModel)",
+            "type": "application/zip; framework=tensorflow",
+            "roles": [
+                "mlm:model",
+                "mlm:weights"
+            ],
             "mlm:artifact_type": "tf.keras.Model",
+            "raster:bands": [
+                {"name": "red"},
+                {"name": "green"},
+                {"name": "blue"}
+            ]
+        },
+        "model": {
+            "href": "https://api-prod.fair.hotosm.org/api/v1/workspace/download/ramp/ramp-v1.onnx",
+            "title": "Portable ONNX inference model",
+            "type": "application/octet-stream; framework=onnx",
+            "roles": [
+                "mlm:model",
+                "mlm:compiled"
+            ],
+            "mlm:artifact_type": "onnx",
             "raster:bands": [
                 {"name": "red"},
                 {"name": "green"},
@@ -180,21 +218,48 @@
             "href": "https://github.com/hotosm/fAIr-models/tree/main/models/ramp",
             "type": "text/html",
             "title": "RAMP model pack source",
-            "roles": ["code"],
+            "roles": [
+                "code"
+            ],
             "mlm:entrypoint": "models.ramp.pipeline:training_pipeline"
         },
         "mlm:training": {
             "href": "ghcr.io/hotosm/fair-models/ramp:v1",
             "type": "application/vnd.oci.image.index.v1+json",
             "title": "Training Docker Image",
-            "roles": ["mlm:training-runtime"]
+            "roles": [
+                "mlm:training-runtime"
+            ]
         },
         "mlm:inference": {
             "href": "ghcr.io/hotosm/fair-models/ramp:v1",
             "type": "application/vnd.oci.image.index.v1+json",
             "title": "Inference Docker Image",
-            "roles": ["mlm:inference-runtime"]
+            "roles": [
+                "mlm:inference-runtime"
+            ]
+        },
+        "readme": {
+            "href": "https://raw.githubusercontent.com/hotosm/fAIr-models/refs/heads/main/models/ramp/README.md",
+            "type": "text/markdown",
+            "roles": [
+                "metadata"
+            ],
+            "title": "Model README"
         }
     },
-    "links": []
+    "links": [
+        {
+            "rel": "license",
+            "href": "https://www.apache.org/licenses/LICENSE-2.0",
+            "type": "text/html",
+            "title": "Apache License 2.0"
+        },
+        {
+            "rel": "cite-as",
+            "href": "https://github.com/radiantearth/ramp-code",
+            "type": "text/html",
+            "title": "RAMP — Replicable AI for Microplanning"
+        }
+    ]
 }

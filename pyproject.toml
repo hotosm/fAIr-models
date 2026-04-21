@@ -122,12 +122,6 @@ line-length = 120
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
 
-# models/ramp/pipeline.py: ZenML @step / @pipeline signatures must keep typing.Union,
-# Optional, List, Tuple, Dict (not PEP 604 / builtin generics).
-
-[tool.ruff.lint.per-file-ignores]
-"models/ramp/pipeline.py" = ["UP006", "UP007", "UP035", "UP045"]
-
 [tool.pytest.ini_options]
 testpaths = ["tests", "fair/serve/tests"]
 addopts = "--cov=fair --cov-report=term-missing"

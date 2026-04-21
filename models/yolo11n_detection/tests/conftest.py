@@ -73,18 +73,6 @@ def generate_toy_dataset(tmp_path_factory: pytest.TempPathFactory) -> dict[str, 
     return create_toy_data(tmp_path_factory.mktemp("toy_detection"))
 
 
-@pytest.fixture()
-def base_hyperparameters(chip_size: int) -> dict[str, Any]:
-    return {
-        "epochs": 1,
-        "batch_size": 2,
-        "learning_rate": 0.001,
-        "chip_size": min(chip_size, 64),
-        "val_ratio": 0.3,
-        "split_seed": 42,
-    }
-
-
 def _build_dataset_stac_item(chips_dir: Path, labels_path: Path) -> dict[str, Any]:
     return {
         "type": "Feature",

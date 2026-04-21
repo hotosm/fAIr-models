@@ -29,8 +29,8 @@ _MODEL_ASSET_KEYS: tuple[str, ...] = ("checkpoint", "model")
 def validate_model_asset_urls(
     item: pystac.Item,
     *,
-    required_keys: tuple[str, ...] = ("checkpoint",),
-    optional_keys: tuple[str, ...] = ("model",),
+    required_keys: tuple[str, ...] = ("checkpoint", "model"),
+    optional_keys: tuple[str, ...] = (),
     timeout: float = 10.0,
 ) -> list[str]:
 

@@ -50,9 +50,16 @@ def _base_model(**overrides: Any):
                 "post_processing_function": {"format": "python", "expression": "mod:postprocess"},
             }
         ],
-        "mlm_hyperparameters": {"epochs": 15, "batch_size": 4, "learning_rate": 0.0001},
+        "mlm_hyperparameters": {
+            "training.epochs": 15,
+            "training.batch_size": 4,
+            "training.learning_rate": 0.0001,
+            "inference.confidence_threshold": 0.5,
+            "inference.min_class_value": 1,
+        },
         "keywords": ["building"],
         "checkpoint_href": "https://example.com/weights.pt",
+        "onnx_href": "https://example.com/model.onnx",
         "checkpoint_artifact_type": "torch.save",
         "mlm_pretrained": True,
         "mlm_pretrained_source": "OAM-TCD",
@@ -100,14 +107,43 @@ def _dataset(tmp_path):
     )
 
 
+def _local_model(**kw: Any):
+    from fair.stac.builders import build_local_model_item
+
+    defaults: dict[str, Any] = {
+        "base_model_item": _base_model(),
+        "item_id": "local-v1",
+        "checkpoint_href": "s3://store/model/abc.pt",
+        "onnx_href": "s3://store/model/abc.onnx",
+        "mlm_hyperparameters": {
+            "training.epochs": 15,
+            "training.batch_size": 4,
+            "training.learning_rate": 0.0001,
+            "inference.confidence_threshold": 0.5,
+            "inference.min_class_value": 1,
+        },
+        "keywords": ["building"],
+        "base_model_href": "../base-models/unet/unet.json",
+        "dataset_href": "../datasets/ds-1/ds-1.json",
+        "version": "1",
+        "title": "Local UNet",
+        "description": "Finetuned.",
+        "user_id": "osm-test",
+        "providers": [{"name": "osm-test", "roles": ["producer"]}],
+    }
+    defaults.update(kw)
+    return build_local_model_item(**defaults)
+
+
 def test_training_config(tmp_path):
     cfg = generate_training_config(_base_model(), _dataset(tmp_path), model_name="finetuned")
     p = cfg["parameters"]
     hp = p["hyperparameters"]
     assert cfg["model"]["name"] == "finetuned"
     assert hp["epochs"] == 15 and hp["batch_size"] == 4
+    assert "inference.min_class_value" not in hp
     assert p["dataset_chips"] == "data/oam/"
-    assert hp["chip_size"] == 512 and p["num_classes"] == 2
+    assert p["num_classes"] == 2
     assert p["base_model_weights"] == "https://example.com/weights.pt"
     assert cfg["settings"]["docker"]["parent_image"] == "ghcr.io/hotosm/fair-unet:v1"
     assert cfg["steps"]["train_model"]["parameters"]["model_name"] == "finetuned"
@@ -124,44 +160,16 @@ def test_training_overrides(tmp_path):
     )
     hp = cfg["parameters"]["hyperparameters"]
     assert hp["epochs"] == 1
-    assert hp["batch_size"] == 4  # non-overridden default preserved
+    assert hp["batch_size"] == 4
 
 
 def test_inference_config():
-    cfg = generate_inference_config(_base_model(), "/data/input/")
+    cfg = generate_inference_config(_local_model(), "/data/input/")
     p = cfg["parameters"]
-    assert p["model_uri"] == "https://example.com/weights.pt"
+    assert p["model_uri"] == "s3://store/model/abc.onnx"
     assert p["input_images"] == "/data/input/"
-    assert p["chip_size"] == 512 and p["num_classes"] == 2
+    assert p["inference_params"] == {"confidence_threshold": 0.5, "min_class_value": 1}
     assert cfg["settings"]["docker"]["parent_image"] == "ghcr.io/hotosm/fair-unet:v1"
-    assert "zenml_artifact_version_id" not in p
-
-
-def test_inference_config_with_artifact_id():
-    """When model asset has fair:zenml_artifact_version_id, it flows into config."""
-    from fair.stac.builders import build_local_model_item
-
-    base = _base_model()
-    local = build_local_model_item(
-        base_model_item=base,
-        item_id="local-v1",
-        checkpoint_href="s3://store/model/abc",
-        onnx_href="s3://store/model/abc.onnx",
-        mlm_hyperparameters={},
-        keywords=["building"],
-        base_model_href="../base-models/unet/unet.json",
-        dataset_href="../datasets/ds-1/ds-1.json",
-        version="1",
-        title="Local UNet",
-        description="Finetuned.",
-        user_id="osm-test",
-        providers=[{"name": "osm-test", "roles": ["producer"]}],
-        zenml_artifact_version_id="uuid-123",
-    )
-    cfg = generate_inference_config(local, "/data/input/")
-    p = cfg["parameters"]
-    assert p["model_uri"] == "s3://store/model/abc"
-    assert p["zenml_artifact_version_id"] == "uuid-123"
 
 
 # --- scheduling settings tests ---
@@ -279,7 +287,8 @@ def test_training_config_includes_k8s_settings(tmp_path):
 
 
 def test_inference_config_includes_k8s_settings():
-    item = _item_with_accelerator("cuda")
-    cfg = generate_inference_config(item, "/images/")
-    assert "orchestrator.kubernetes" in cfg["steps"]["predict"]["settings"]
+    local = _local_model()
+    local.properties["mlm:accelerator"] = "cuda"
+    cfg = generate_inference_config(local, "/images/")
+    assert "orchestrator.kubernetes" in cfg["steps"]["run_inference"]["settings"]
     assert "orchestrator.kubernetes" not in cfg.get("settings", {})

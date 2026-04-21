@@ -157,10 +157,11 @@ are the contract ; use these exact argument names.
 | Export | Kind | Wired to |
 | --- | --- | --- |
 | `training_pipeline` | `@pipeline` | Platform finetuning dispatch |
-| `inference_pipeline` | `@pipeline` | Platform inference dispatch |
+| `inference_pipeline` | `@pipeline` | Platform inference dispatch (batch) |
 | `split_dataset` | `@step` | CI AST check |
 | `preprocess` | function | `mlm:input[].pre_processing_function` |
 | `postprocess` | function | `mlm:output[].post_processing_function` |
+| `predict` | function | Live HTTP serving + batch `run_inference` step |
 
 ```python title="pipeline.py contract"
 from typing import Annotated, Any
@@ -179,10 +180,7 @@ def training_pipeline(
 def inference_pipeline(
     model_uri: str,
     input_images: str,
-    chip_size: int,
-    num_classes: int,
-    zenml_artifact_version_id: str = "",
-    use_base_model: bool = False,
+    inference_params: dict[str, Any] | None = None,
 ) -> None: ...
 
 @step
@@ -192,8 +190,14 @@ def split_dataset(
     hyperparameters: dict[str, Any],
 ) -> Annotated[dict[str, Any], "split_info"]: ...
 
-def preprocess(image_path: Any, chip_size: int) -> Any: ...
+def preprocess(image_path: Any) -> Any: ...
 def postprocess(raw_output: Any) -> Any: ...
+
+def predict(
+    session: Any,
+    input_images: str,
+    params: dict[str, Any],
+) -> dict[str, Any]: ...
 ```
 
 ### Training flow
@@ -420,54 +424,59 @@ def export_onnx(
 
 ### Inference flow
 
-`inference_pipeline` handles **two branches**. The platform injects
-`use_base_model=True` whenever the target STAC item has no ZenML artifact
-attached, so every model **must** support both.
+Inference runs on ONNX via a single `predict(session, input_images, params)`
+function. The same function powers three paths:
 
-| Branch | Condition | How to load weights |
+| Path | Entrypoint | Runtime |
 | --- | --- | --- |
-| Finetuned | `use_base_model=False` | `fair.zenml.steps.load_model` (materializer handles deserialization) |
-| Base model | `use_base_model=True` | Your own `load_base_model` step, which downloads the checkpoint from its URL |
+| Live HTTP serving | KNative service, `fair/serve/base.py` routes `POST /predict` | distroless image, scale-to-zero |
+| Batch (`client.predict`) | `inference_pipeline` → `run_inference` step → `predict(...)` | ZenML image |
+| Local / test | Direct call to `predict(...)` with a stubbed ONNX session | any |
 
 === "inference_pipeline"
 
     ```python
+    @step
+    def run_inference(
+        model_uri: str,
+        input_images: str,
+        inference_params: dict[str, Any],
+    ) -> Annotated[dict[str, Any], "predictions"]:
+        from fair.serve.base import load_session
+        session = load_session(model_uri)
+        return predict(session, input_images, inference_params)
+
     @pipeline
     def inference_pipeline(
         model_uri: str,
         input_images: str,
-        chip_size: int,
-        num_classes: int,
-        zenml_artifact_version_id: str = "",
-        use_base_model: bool = False,
+        inference_params: dict[str, Any] | None = None,
     ) -> None:
-        if use_base_model:
-            model = load_base_model(model_uri, num_classes)
-        else:
-            model = load_model(model_uri, zenml_artifact_version_id)
-        predict(model, input_images, chip_size)
+        run_inference(
+            model_uri=model_uri,
+            input_images=input_images,
+            inference_params=inference_params or {},
+        )
     ```
 
-=== "load_base_model"
+=== "predict"
 
     ```python
-    @step
-    def load_base_model(model_uri: str, num_classes: int) -> Any:
-        local_path = _download_checkpoint(model_uri)
-        model = build_fresh_architecture(num_classes)
-        model.load_state_dict(torch.load(local_path, weights_only=True))
-        return model
+    def predict(
+        session: onnxruntime.InferenceSession,
+        input_images: str,
+        params: dict[str, Any],
+    ) -> dict[str, Any]:
+        # 1. Iterate over image files in input_images directory
+        # 2. For each: preprocess, run session, decode
+        # 3. Return {"type": "FeatureCollection", "features": [...]}
+        ...
     ```
 
-!!! tip "Non-serializable frameworks (YOLO pattern)"
-
-    If your framework's model object isn't pickle-safe (e.g. ultralytics
-    YOLO), return raw checkpoint **bytes**
-    (`Path(checkpoint).read_bytes()`) from `train_model` and
-    `load_base_model` instead of the model object. Downstream steps write
-    the bytes back to a temp file and reopen with the framework loader
-    (e.g. `YOLO(tmp_path)`). See
-    [`models/yolo11n_detection/pipeline.py`](https://github.com/hotosm/fAIr-models/tree/master/models/yolo11n_detection/pipeline.py).
+The `predict` function always returns a GeoJSON FeatureCollection. Valid
+`params` keys and whether they are required are declared in
+`mlm:hyperparameters` using the `inference.` prefix (see
+[Hyperparameters](#hyperparameters) below).
 
 ### Pre/post processing & weights
 
@@ -524,7 +533,7 @@ code.
 
 ## Dockerfile
 
-Your Dockerfile must be **self-contained** and use **three named stages**:
+Your Dockerfile must be **self-contained** and use **four named stages**:
 
 ```mermaid
 flowchart LR
@@ -536,9 +545,17 @@ flowchart LR
 
 | Stage | Purpose |
 |---|---|
-| `builder` | Install and compile all dependencies |
-| `runtime` | Production image (ML framework + fair-py-ops, no test deps) |
+| `builder` | Install and compile all training/batch dependencies |
+| `runtime` | Production training + batch image (ML framework + fair-py-ops) |
 | `test` | Extends `runtime` with `fair-py-ops[test]` (pytest + zenml[server]) for CI |
+| `inference` | Distroless ONNX serving image (`fair-py-ops[serve]` only) |
+
+The `inference` stage uses a two-step distroless build (builder venv ->
+`gcr.io/distroless/cc-debian12:nonroot`) so live serving cold starts and
+image sizes stay small. It installs only `fair-py-ops[serve]` plus the
+model's inference-specific libs (rasterio, pyproj, numpy, Pillow, etc.)
+and copies `pipeline.py` into `/app/models/{name}/pipeline.py`. The CMD
+is `uvicorn fair.serve.base:create_app --factory --host 0.0.0.0 --port 8080`.
 
 Requirements:
 
@@ -555,10 +572,11 @@ for the full pattern.
 
 ## Testing
 
-Each model needs a `tests/` directory with two files:
+Each model needs a `tests/` directory with three files:
 
 - `conftest.py` : a `generate_toy_dataset` fixture that creates toy chips + labels at test time
 - `test_steps.py` : four test functions : `test_split_dataset`, `test_train_model`, `test_evaluate_model`, `test_export_onnx`
+- `test_serve.py` : tests that call `predict(session, input_images, params)` against a mocked ONNX session and assert the output is a valid GeoJSON FeatureCollection
 
 The shared `models/conftest.py` provides common fixtures (`toy_chips`,
 `toy_labels`, `base_hyperparameters`, etc.) automatically. You only write
@@ -761,11 +779,44 @@ Example: `["building", "semantic-segmentation", "polygon"]`
 
 ### Hyperparameters
 
-The `mlm:hyperparameters` object in your STAC item declares the **default
-training configuration**. When users finetune your model, the platform reads
-these defaults and merges any user overrides into a generated YAML config
-(via `fair.zenml.config.generate_training_config`). This YAML is then passed
+The `mlm:hyperparameters` object in your STAC item declares default values
+for **both** training and inference. Keys are **prefixed** so the platform
+can route them to the right path:
+
+| Prefix | Goes to |
+| --- | --- |
+| `training.` | `training_pipeline` (after `fair.params.training_params()` strips the prefix) |
+| `inference.` | `predict(..., params=...)` and live HTTP `POST /predict` body (`fair.params.inference_params()`) |
+
+When users finetune your model, the platform reads these defaults and
+merges any user overrides into a generated YAML config (via
+`fair.zenml.config.generate_training_config`). This YAML is then passed
 to your `training_pipeline`.
+
+Example:
+
+```json
+"mlm:hyperparameters": {
+    "training.epochs": 5,
+    "training.batch_size": 4,
+    "training.learning_rate": 0.0001,
+    "inference.confidence_threshold": 0.5,
+}
+```
+
+The STAC schema enforces four keys as **compulsory** in every
+`mlm:hyperparameters` block (base and local models):
+
+| Key | Purpose |
+| --- | --- |
+| `training.epochs` | Training epochs |
+| `training.batch_size` | Training batch size |
+| `training.learning_rate` | Optimizer learning rate |
+| `inference.confidence_threshold` | Minimum score to keep a prediction |
+
+
+fAIr chips are 256*256; each model handles any internal resize to its native ONNX
+input size inside `preprocess`.
 
 Your `training_pipeline` receives all hyperparameters as a single
 `hyperparameters: dict[str, Any]` argument. Each step reads values with
@@ -916,7 +967,7 @@ data_type), `classification:classes` (one entry per output class with
 | --- | --- | --- |
 | `checkpoint` | Pretrained torch weights (HTTPS URL) | `mlm:artifact_type` (e.g. `torch.save`) |
 | `model` | ONNX model _(optional for base models, required for local)_ | `mlm:artifact_type`: `onnx` |
-| `source-code` | Link to model source code (git URL) | `mlm:entrypoint` (e.g. `models.your_model.pipeline:training_pipeline`) |
+| `source-code` | Link to model source code (git URL) | `mlm:entrypoint` (e.g. `models.your_model.pipeline:predict`) |
 | `mlm:training` | Training Docker image | `href` = Docker image reference |
 | `mlm:inference` | Inference Docker image | `href` = Docker image reference |
 | `readme` | Model documentation (README.md) | _(none)_ |
@@ -937,7 +988,7 @@ data_type), `classification:classes` (one entry per output class with
             "type": "text/x-python",
             "title": "UNet pipeline source",
             "roles": ["mlm:source_code"],
-            "mlm:entrypoint": "models.unet_segmentation.pipeline:training_pipeline"
+            "mlm:entrypoint": "models.unet_segmentation.pipeline:predict"
         },
         "mlm:training": {
             "href": "ghcr.io/hotosm/fair-models/unet_segmentation:latest",
@@ -1044,19 +1095,22 @@ Before opening a PR, make sure:
 
     - [ ] `pipeline.py` exports `training_pipeline` and `inference_pipeline` as `@pipeline`
     - [ ] `pipeline.py` exports `split_dataset` as `@step`
-    - [ ] `pipeline.py` exports `preprocess` and `postprocess`
+    - [ ] `pipeline.py` exports `preprocess`, `postprocess`, and `predict`
     - [ ] `train_model` reads the **train** split only; `evaluate_model` reads the **val** split only
 
 === "Docker"
 
-    - [ ] `Dockerfile` has three stages: `builder`, `runtime` (production), and `test` (CI)
+    - [ ] `Dockerfile` has four stages: `builder`, `runtime`, `test`, and `inference` (distroless)
     - [ ] `runtime` stage contains no test dependencies
-    - [ ] `ENTRYPOINT` is `["/usr/local/bin/python"]`
+    - [ ] `inference` stage installs only `fair-py-ops[serve]` + model-specific serving libs
+    - [ ] `ENTRYPOINT` is `["/usr/local/bin/python"]` for runtime/test
+    - [ ] `CMD` for `inference` is `uvicorn fair.serve.base:create_app --factory --host 0.0.0.0 --port 8080`
 
 === "Tests"
 
     - [ ] `tests/conftest.py` defines `generate_toy_dataset` fixture returning `{"chips", "labels", "dataset_stac_item"}`
     - [ ] `tests/test_steps.py` defines `test_split_dataset`, `test_train_model`, `test_evaluate_model`, `test_export_onnx`
+    - [ ] `tests/test_serve.py` covers `predict(session, input_images, params)` against a mocked ONNX session
     - [ ] `just test-models your_model` passes inside Docker
 
 === "STAC"

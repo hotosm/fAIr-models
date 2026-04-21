@@ -36,6 +36,7 @@ classifiers = [
 dependencies = [
     "httpx>=0.28.1",
     "mlflow>=2.1.1,<4",
+    "onnxruntime>=1.24.4",
     "pystac[validation]>=1.14.3,<2",
     "universal-pathlib>=0.3.10",
     "zenml==0.93.3",
@@ -43,7 +44,9 @@ dependencies = [
 
 [project.optional-dependencies]
 test = [
+    "kubernetes",
     "pytest>=8.0",
+    "pytest-cov>=6.0",
     "zenml[server]==0.93.3",
 ]
 k8s = [
@@ -51,6 +54,11 @@ k8s = [
     "pypgstac[psycopg]>=0.9",
     "pystac-client>=0.9,<1",
     "zenml[connectors-aws,connectors-kubernetes,s3fs]==0.93.3",
+]
+serve = [
+    "s3fs>=2025.3.0",
+    "starlette>=0.40,<0.46",
+    "uvicorn[standard]>=0.34",
 ]
 
 [project.urls]
@@ -77,6 +85,7 @@ packages = ["fair"]
 dev = [
     "ty",
     "ruff",
+    "kubernetes",
     "pytest>=8.0",
     "pytest-cov>=6.0",
     "commitizen>=4.1",
@@ -120,7 +129,7 @@ select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
 "models/ramp/pipeline.py" = ["UP006", "UP007", "UP035", "UP045"]
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+testpaths = ["tests", "fair/serve/tests"]
 addopts = "--cov=fair --cov-report=term-missing"
 markers = ["slow: marks tests as slow (deselect with '-m \"not slow\"')"]
 
@@ -129,6 +138,7 @@ source = ["fair"]
 omit = ["tests/*"]
 
 [tool.coverage.report]
+fail_under = 95
 exclude_lines = [
     "pragma: no cover",
     "if TYPE_CHECKING:",

@@ -36,7 +36,7 @@ jobs:
       - uses: extractions/setup-just@v2
 
       - name: Install dependencies
-        run: uv sync --extra k8s --group example
+        run: uv sync --extra k8s --extra serve --group example
 
       - name: Create Kind cluster
         uses: helm/kind-action@v1

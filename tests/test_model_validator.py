@@ -52,7 +52,10 @@ def train_model(): ...
 def _scaffold(tmp_path: Path) -> None:
     """Create all required files except pipeline.py."""
     (tmp_path / "README.md").write_text("# Model\n")
-    (tmp_path / "stac-item.json").write_text("{}\n")
+    (tmp_path / "stac-item.json").write_text(
+        '{"assets": {"checkpoint": {"href": "https://example.com/weights.pt"}, '
+        '"model": {"href": "https://example.com/model.onnx"}}}\n'
+    )
     tests_dir = tmp_path / "tests"
     tests_dir.mkdir()
     (tests_dir / "test_steps.py").write_text(
@@ -137,7 +140,10 @@ def inference_pipeline(): ...
             assert any(filename in e for e in errors)
 
     def test_missing_readme_only(self, tmp_path: Path) -> None:
-        (tmp_path / "stac-item.json").write_text("{}\n")
+        (tmp_path / "stac-item.json").write_text(
+            '{"assets": {"checkpoint": {"href": "https://example.com/weights.pt"}, '
+            '"model": {"href": "https://example.com/model.onnx"}}}\n'
+        )
         tests_dir = tmp_path / "tests"
         tests_dir.mkdir()
         (tests_dir / "test_steps.py").write_text(

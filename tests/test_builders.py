@@ -81,6 +81,7 @@ _BASE_DEFAULTS: dict[str, Any] = {
     "mlm_hyperparameters": {"epochs": 15, "batch_size": 4, "learning_rate": 0.0001},
     "keywords": ["building", "semantic-segmentation", "polygon"],
     "checkpoint_href": "https://example.com/weights.pt",
+    "onnx_href": "https://example.com/model.onnx",
     "checkpoint_artifact_type": "torch.save",
     "mlm_pretrained": True,
     "mlm_pretrained_source": "OAM-TCD",

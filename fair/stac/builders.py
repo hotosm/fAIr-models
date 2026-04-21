@@ -85,7 +85,7 @@ class BaseModelItemParams:
     description: str
     fair_metrics_spec: list[dict[str, Any]]
     providers: list[dict[str, Any]]
-    onnx_href: str | None = None
+    onnx_href: str
     readme_href: str = ""
 
 
@@ -216,6 +216,19 @@ def _validate_providers(providers: list[dict[str, Any]]) -> None:
         if not isinstance(entry, dict) or not entry.get("name") or not entry.get("roles"):
             msg = "each provider must be a dict with non-empty 'name' and 'roles'"
             raise ValueError(msg)
+
+
+def _raster_bands_from_model_input(mlm_input: list[dict[str, Any]]) -> list[dict[str, str]] | None:
+    seen: set[str] = set()
+    bands: list[dict[str, str]] = []
+    for model_input in mlm_input:
+        for band in model_input.get("bands", []):
+            name = band if isinstance(band, str) else band.get("name")
+            if not name or name in seen:
+                continue
+            seen.add(name)
+            bands.append({"name": name})
+    return bands or None
 
 
 def build_dataset_item(
@@ -379,7 +392,7 @@ def build_base_model_item(
     description: str,
     fair_metrics_spec: list[dict[str, Any]],
     providers: list[dict[str, Any]],
-    onnx_href: str | None = None,
+    onnx_href: str,
     readme_href: str = "",
 ) -> pystac.Item:
     _validate_providers(providers)
@@ -417,26 +430,31 @@ def build_base_model_item(
         stac_extensions=BASE_MODEL_EXTENSIONS,
     )
 
+    asset_bands = _raster_bands_from_model_input(mlm_input)
+    checkpoint_extra = {"mlm:artifact_type": checkpoint_artifact_type}
+    if asset_bands:
+        checkpoint_extra["raster:bands"] = asset_bands
     item.add_asset(
         "checkpoint",
         pystac.Asset(
             href=checkpoint_href,
             media_type=f"application/octet-stream; framework={mlm_framework}",
             roles=["mlm:model", "mlm:weights"],
-            extra_fields={"mlm:artifact_type": checkpoint_artifact_type},
+            extra_fields=checkpoint_extra,
         ),
     )
-    # TODO: enforce ONNX 'model' asset for base-models once all upstreams ship one
-    if onnx_href:
-        item.add_asset(
-            "model",
-            pystac.Asset(
-                href=onnx_href,
-                media_type="application/onnx",
-                roles=["mlm:model"],
-                extra_fields={"mlm:artifact_type": "onnx"},
-            ),
-        )
+    model_extra = {"mlm:artifact_type": "onnx"}
+    if asset_bands:
+        model_extra["raster:bands"] = asset_bands
+    item.add_asset(
+        "model",
+        pystac.Asset(
+            href=onnx_href,
+            media_type="application/octet-stream; framework=onnx",
+            roles=["mlm:model", "mlm:compiled"],
+            extra_fields=model_extra,
+        ),
+    )
     item.add_asset(
         "source-code",
         pystac.Asset(
@@ -604,9 +622,13 @@ def build_local_model_item(
         base_checkpoint.extra_fields.get("mlm:artifact_type", "torch.save") if base_checkpoint else "torch.save"
     )
 
+    asset_bands = _raster_bands_from_model_input(base_props.get("mlm:input", []))
+
     checkpoint_extra: dict[str, Any] = {"mlm:artifact_type": checkpoint_artifact_type}
     if zenml_artifact_version_id:
         checkpoint_extra["zenml:artifact_version_id"] = zenml_artifact_version_id
+    if asset_bands:
+        checkpoint_extra["raster:bands"] = asset_bands
     item.add_asset(
         "checkpoint",
         pystac.Asset(
@@ -620,12 +642,14 @@ def build_local_model_item(
     onnx_extra: dict[str, Any] = {"mlm:artifact_type": "onnx"}
     if zenml_artifact_version_id:
         onnx_extra["zenml:artifact_version_id"] = zenml_artifact_version_id
+    if asset_bands:
+        onnx_extra["raster:bands"] = asset_bands
     item.add_asset(
         "model",
         pystac.Asset(
             href=onnx_href,
-            media_type="application/onnx",
-            roles=["mlm:model"],
+            media_type="application/octet-stream; framework=onnx",
+            roles=["mlm:model", "mlm:compiled"],
             extra_fields=onnx_extra,
         ),
     )

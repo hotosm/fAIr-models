@@ -13,7 +13,8 @@ from typing import Annotated, Any
 from zenml import log_metadata, pipeline, step
 
 from fair.zenml.instrumentation import log_evaluation_results, mlflow_training_context
-from fair.zenml.steps import load_model
+
+MODEL_INPUT_SIZE = 256
 
 
 def _get_device() -> str:
@@ -64,6 +65,65 @@ def postprocess(logits: Any) -> Any:
     import torch
 
     return (torch.sigmoid(logits) > 0.5).int().cpu().numpy()
+
+
+def _sigmoid(x: float) -> float:
+    import math
+
+    return 1.0 / (1.0 + math.exp(-x))
+
+
+def _preprocess_onnx_image(img_path: Any) -> tuple[Any, Any, Any, Any]:
+    import numpy as np
+    import rasterio
+    from PIL import Image
+
+    with rasterio.open(img_path) as src:
+        bounds = src.bounds
+        crs = src.crs
+
+    img = Image.open(img_path).convert("RGB").resize((MODEL_INPUT_SIZE, MODEL_INPUT_SIZE), Image.Resampling.BILINEAR)
+    arr = np.asarray(img, dtype=np.float32).transpose(2, 0, 1) / 255.0
+    return arr[np.newaxis, ...], bounds, crs, img_path.name
+
+
+def predict(session: Any, input_images: str, params: dict[str, Any]) -> dict[str, Any]:
+    from fair.utils.data import resolve_directory
+
+    if "confidence_threshold" not in params:
+        raise ValueError("params['confidence_threshold'] is required")
+    confidence_threshold = float(params["confidence_threshold"])
+    input_name = session.get_inputs()[0].name
+
+    input_dir = resolve_directory(input_images)
+    patterns = ("*.png", "*.tif", "*.tiff", "*.jpg")
+    img_paths = sorted(p for pat in patterns for p in input_dir.glob(pat))
+    if not img_paths:
+        msg = f"No input images found in {input_dir}"
+        raise FileNotFoundError(msg)
+
+    features: list[dict[str, Any]] = []
+    for img_path in img_paths:
+        batch, bounds, crs, source = _preprocess_onnx_image(img_path)
+        logits = session.run(None, {input_name: batch})[0]
+        logit_value = float(logits.reshape(-1)[0])
+        confidence = _sigmoid(logit_value)
+        label = "building" if confidence > confidence_threshold else "no_building"
+
+        feature = _bounds_to_geo_feature(
+            bounds.left,
+            bounds.bottom,
+            bounds.right,
+            bounds.top,
+            crs,
+            {
+                "label": label,
+                "confidence": round(confidence, 4),
+                "source": source,
+            },
+        )
+        features.append(feature)
+    return _build_feature_collection(features)
 
 
 def _load_samples(chips_path: str, labels_csv_path: str) -> list[tuple[Path, int]]:
@@ -329,6 +389,8 @@ def export_onnx(
             dynamic_axes={"input": {0: "batch"}, "output": {0: "batch"}},
             opset_version=18,
         )
+        proto = onnx.load(path)
+        onnx.save_model(proto, path, save_as_external_data=False)
         onnx.checker.check_model(path)
         return Path(path).read_bytes()
     finally:
@@ -367,94 +429,25 @@ def training_pipeline(
 
 
 @step
-def load_base_model(
+def run_inference(
     model_uri: str,
-    num_classes: int,
-) -> Any:
-    import torch
-    import torch.nn as nn
-    from torchvision.models import resnet18
+    input_images: str,
+    inference_params: dict[str, Any],
+) -> Annotated[dict[str, Any], "predictions"]:
+    from fair.serve.base import load_session
 
-    model = resnet18(weights=None)
-    local_path = _download_checkpoint(model_uri)
-    state = torch.load(local_path, map_location="cpu", weights_only=True)
-    model.load_state_dict(state, strict=False)
-    model.fc = nn.Linear(model.fc.in_features, 1)
-    return model.cpu()
+    session = load_session(model_uri)
+    return predict(session, input_images, inference_params)
 
 
 @pipeline
 def inference_pipeline(
     model_uri: str,
     input_images: str,
-    chip_size: int = 256,
-    num_classes: int = 2,
-    zenml_artifact_version_id: str = "",
-    use_base_model: bool = False,
+    inference_params: dict[str, Any],
 ) -> None:
-    if use_base_model:
-        model = load_base_model(model_uri=model_uri, num_classes=num_classes)
-    else:
-        model = load_model(model_uri=model_uri, zenml_artifact_version_id=zenml_artifact_version_id)
-    classify(model=model, input_images=input_images, chip_size=chip_size)
-
-
-@step
-def classify(
-    model: Any,
-    input_images: str,
-    chip_size: int = 256,
-) -> Annotated[dict[str, Any], "predictions"]:
-    import rasterio
-    import torch
-    from PIL import Image
-    from torchvision import transforms
-
-    from fair.utils.data import resolve_directory
-
-    device = _get_device()
-    model = model.to(device)
-    model.eval()
-
-    transform = transforms.Compose(
-        [
-            transforms.Resize((chip_size, chip_size)),
-            transforms.ToTensor(),
-        ]
+    run_inference(
+        model_uri=model_uri,
+        input_images=input_images,
+        inference_params=inference_params,
     )
-
-    input_dir = resolve_directory(input_images)
-    patterns = ("*.png", "*.tif", "*.tiff", "*.jpg")
-    img_paths = sorted(p for pat in patterns for p in input_dir.glob(pat))
-    if not img_paths:
-        msg = f"No input images found in {input_dir}"
-        raise FileNotFoundError(msg)
-
-    features: list[dict[str, Any]] = []
-    with torch.no_grad():
-        for img_path in img_paths:
-            img = Image.open(img_path).convert("RGB")
-            tensor = transform(img).unsqueeze(0).to(device)
-            logit = model(tensor).squeeze()
-            confidence = torch.sigmoid(logit).item()
-            label = "building" if confidence > 0.5 else "no_building"
-
-            with rasterio.open(img_path) as src:
-                b = src.bounds
-                crs = src.crs
-
-            feature = _bounds_to_geo_feature(
-                b.left,
-                b.bottom,
-                b.right,
-                b.top,
-                crs,
-                {
-                    "label": label,
-                    "confidence": round(confidence, 4),
-                    "source": img_path.name,
-                },
-            )
-            features.append(feature)
-
-    return _build_feature_collection(features)

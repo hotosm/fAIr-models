@@ -13,6 +13,7 @@ import yaml
 from zenml.client import Client
 from zenml.enums import StackComponentType
 
+from fair.params import inference_params
 from fair.stac.builders import (
     BaseModelItemParams,
     DatasetItemParams,
@@ -156,7 +157,7 @@ class FairClient:
             item = build_base_model_item(**dataclasses.asdict(stac_item))
         if errs := validate_item(item):
             raise FairClientError(f"Schema validation failed: {errs}")
-        if errs := validate_model_asset_urls(item, required_keys=("checkpoint",), optional_keys=("model",)):
+        if errs := validate_model_asset_urls(item, required_keys=("checkpoint", "model"), optional_keys=()):
             raise FairClientError(f"Asset URL validation failed: {errs}")
 
         prev = find_previous_active_item(cat, BASE_MODELS_COLLECTION, "mlm:name", item.properties.get("mlm:name"))
@@ -166,12 +167,10 @@ class FairClient:
         else:
             item.properties.setdefault("version", "1")
 
-        # TODO: enforce ONNX 'model' asset for base-models once all upstreams ship one
         if self._upload_artifacts:
             self._mirror_asset_to_artifact_store(item, "checkpoint", BASE_MODELS_COLLECTION)
-            if "model" in item.assets:
-                self._mirror_asset_to_artifact_store(item, "model", BASE_MODELS_COLLECTION)
-            if errs := validate_model_asset_urls(item, required_keys=("checkpoint",), optional_keys=("model",)):
+            self._mirror_asset_to_artifact_store(item, "model", BASE_MODELS_COLLECTION)
+            if errs := validate_model_asset_urls(item, required_keys=("checkpoint", "model"), optional_keys=()):
                 raise FairClientError(f"Mirrored asset URL validation failed: {errs}")
         self._upload_assets_if_remote(item, BASE_MODELS_COLLECTION)
 
@@ -180,7 +179,15 @@ class FairClient:
             archive_previous_version(cat, BASE_MODELS_COLLECTION, prev, successor_href)
 
         published = cat.publish_item(BASE_MODELS_COLLECTION, item)
-        print(f"register: base-model {published.id} v{published.properties['version']}")
+
+        try:
+            from fair.infra.knative import ensure_knative_service
+
+            ensure_knative_service(published)
+            print(f"register: base-model {published.id} v{published.properties['version']} (knative ok)")
+        except Exception as exc:
+            logger.warning("register_base_model: KNative service not ensured (%s)", exc)
+            print(f"register: base-model {published.id} v{published.properties['version']}")
         return published.id
 
     def _register_dataset_from_item(self, stac_item_path: str) -> str:
@@ -389,6 +396,90 @@ class FairClient:
         )
         print(f"promote: {item.id}")
         return item.id
+
+    def predict_live(
+        self,
+        model_id: str,
+        image_path: str,
+        *,
+        predict_base_url: str | None = None,
+        collection: str = LOCAL_MODELS_COLLECTION,
+        timeout: float = 120.0,
+    ) -> dict[str, Any]:
+        import httpx
+
+        cat = self._get_backend()
+        try:
+            model_item = cat.get_item(collection, model_id)
+        except KeyError as exc:
+            raise FairClientError(f"Model '{model_id}' not found in '{collection}'") from exc
+
+        model_asset = model_item.assets.get("model")
+        if model_asset is None:
+            raise FairClientError(f"Model '{model_id}' missing 'model' (ONNX) asset")
+
+        service_name = self._base_model_name_for_live_service(model_item, collection)
+
+        prefix = self._artifact_store_prefix()
+        if self._upload_artifacts and prefix and "://" not in image_path:
+            remote_path = f"{prefix}/predict/{model_id}/input"
+            upload_local_directory(Path(image_path), remote_path)
+            image_path = remote_path
+
+        payload = {
+            "model_uri": model_asset.href,
+            "input_images": image_path,
+            "params": inference_params(model_item.properties.get("mlm:hyperparameters", {})),
+        }
+
+        base = self._predict_base_url(predict_base_url)
+        url = f"{base.rstrip('/')}/{service_name}/predict"
+        response = httpx.post(
+            url,
+            json=payload,
+            timeout=timeout,
+            verify=self._predict_verify_ssl(),
+        )
+        response.raise_for_status()
+        return response.json()
+
+    def _base_model_name_for_live_service(self, model_item: pystac.Item, collection: str) -> str:
+        from fair.infra.knative import knative_service_name
+
+        if collection == BASE_MODELS_COLLECTION:
+            return knative_service_name(model_item.properties.get("mlm:name") or model_item.id)
+        base_id = model_item.properties.get("fair:base_model_id")
+        if not base_id:
+            raise FairClientError(f"Local model '{model_item.id}' missing 'fair:base_model_id'")
+        cat = self._get_backend()
+        base = cat.get_item(BASE_MODELS_COLLECTION, base_id)
+        return knative_service_name(base.properties.get("mlm:name") or base.id)
+
+    def _predict_base_url(self, predict_base_url: str | None = None) -> str:
+        import os
+
+        if predict_base_url:
+            return predict_base_url
+
+        url = os.environ.get("FAIR_PREDICT_BASE_URL")
+        if url:
+            return url
+
+        public_domain = os.environ.get("FAIR_LABEL_DOMAIN")
+        if public_domain:
+            return f"https://predict.{public_domain}"
+
+        raise FairClientError("Set FAIR_PREDICT_BASE_URL, FAIR_LABEL_DOMAIN, or pass predict_base_url explicitly")
+
+    def _predict_verify_ssl(self) -> bool:
+        import os
+
+        value = os.environ.get("FAIR_PREDICT_VERIFY_SSL")
+        if value is None:
+            value = os.environ.get("ZENML_STORE_VERIFY_SSL")
+        if value is None:
+            return True
+        return str(value).strip().lower() not in {"0", "false", "no"}
 
     def predict(self, local_model_id: str, image_path: str) -> dict[str, Any]:
         cat = self._get_backend()

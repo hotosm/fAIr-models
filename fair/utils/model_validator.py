@@ -36,7 +36,7 @@ def _find_top_level_functions(source: str) -> set[str]:
     return {node.name for node in ast.iter_child_nodes(tree) if isinstance(node, ast.FunctionDef)}
 
 
-def _checkpoint_href_is_url(model_dir: Path) -> bool | None:
+def _asset_href_is_https_url(model_dir: Path, asset_name: str) -> bool | None:
     stac_path = model_dir / "stac-item.json"
     if not stac_path.exists():
         return None
@@ -44,7 +44,7 @@ def _checkpoint_href_is_url(model_dir: Path) -> bool | None:
         item = json.loads(stac_path.read_text())
     except (OSError, json.JSONDecodeError):
         return None
-    href = item.get("assets", {}).get("checkpoint", {}).get("href", "")
+    href = item.get("assets", {}).get(asset_name, {}).get("href", "")
     if not href:
         return None
     return href.startswith(("http://", "https://"))
@@ -120,9 +120,15 @@ def validate_model(model_dir: Path) -> list[str]:
     for name in sorted(REQUIRED_STEPS - steps):
         errors.append(f"{model_dir.name}: missing @step function '{name}'")
 
-    is_url = _checkpoint_href_is_url(model_dir)
-    if is_url is False:
+    checkpoint_is_url = _asset_href_is_https_url(model_dir, "checkpoint")
+    if checkpoint_is_url is False:
         errors.append(f"{model_dir.name}: checkpoint asset href must be an https URL")
+
+    model_is_url = _asset_href_is_https_url(model_dir, "model")
+    if model_is_url is None:
+        errors.append(f"{model_dir.name}: model asset href is required and must be an https URL")
+    elif model_is_url is False:
+        errors.append(f"{model_dir.name}: model asset href must be an https URL")
 
     errors.extend(_validate_step_return_types(source, model_dir.name))
     errors.extend(_validate_test_steps(model_dir))

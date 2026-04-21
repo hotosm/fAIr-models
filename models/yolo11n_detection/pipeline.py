@@ -15,7 +15,9 @@ from typing import Annotated, Any
 from zenml import log_metadata, pipeline, step
 
 from fair.zenml.instrumentation import log_evaluation_results, mlflow_training_context
-from fair.zenml.steps import load_model
+
+MODEL_INPUT_SIZE = 640
+CHIP_SIZE = 256
 
 
 def _get_device() -> str:
@@ -131,6 +133,134 @@ def postprocess(results: Any) -> list[dict[str, Any]]:
                 }
             )
     return detections
+
+
+def _preprocess_onnx_image(img_path: Any) -> tuple[Any, Any, Any]:
+    import numpy as np
+    import rasterio
+    from PIL import Image
+
+    with rasterio.open(img_path) as src:
+        arr = src.read([1, 2, 3]).astype(np.float32) / 255.0
+        transform = src.transform
+        crs = src.crs
+
+    resized = [
+        np.asarray(Image.fromarray(arr[c]).resize((MODEL_INPUT_SIZE, MODEL_INPUT_SIZE), Image.Resampling.BILINEAR))
+        for c in range(arr.shape[0])
+    ]
+    batch = np.stack(resized, axis=0)[np.newaxis, ...].astype(np.float32)
+    return batch, transform, crs
+
+
+def _nms(boxes: Any, scores: Any, iou_threshold: float) -> list[int]:
+    import numpy as np
+
+    if len(boxes) == 0:
+        return []
+    x1 = boxes[:, 0]
+    y1 = boxes[:, 1]
+    x2 = boxes[:, 2]
+    y2 = boxes[:, 3]
+    areas = (x2 - x1) * (y2 - y1)
+    order = scores.argsort()[::-1]
+
+    keep: list[int] = []
+    while order.size > 0:
+        i = int(order[0])
+        keep.append(i)
+        if order.size == 1:
+            break
+        xx1 = np.maximum(x1[i], x1[order[1:]])
+        yy1 = np.maximum(y1[i], y1[order[1:]])
+        xx2 = np.minimum(x2[i], x2[order[1:]])
+        yy2 = np.minimum(y2[i], y2[order[1:]])
+        w = np.maximum(0.0, xx2 - xx1)
+        h = np.maximum(0.0, yy2 - yy1)
+        inter = w * h
+        iou = inter / (areas[i] + areas[order[1:]] - inter + 1e-9)
+        order = order[1:][iou <= iou_threshold]
+    return keep
+
+
+def _decode_yolo_output(
+    output: Any,
+    confidence_threshold: float,
+    iou_threshold: float,
+) -> list[dict[str, Any]]:
+    """Decode ultralytics YOLO ONNX output: shape (1, 4+nc, num_anchors)."""
+    import numpy as np
+
+    preds = np.squeeze(output, axis=0)
+    if preds.shape[0] < preds.shape[1]:
+        preds = preds.transpose(1, 0)
+
+    boxes_cxcywh = preds[:, :4]
+    class_scores = preds[:, 4:]
+    if class_scores.shape[1] == 0:
+        return []
+    class_ids = class_scores.argmax(axis=1)
+    confidences = class_scores.max(axis=1)
+
+    keep_mask = confidences >= confidence_threshold
+    if not keep_mask.any():
+        return []
+    boxes_cxcywh = boxes_cxcywh[keep_mask]
+    confidences = confidences[keep_mask]
+    class_ids = class_ids[keep_mask]
+
+    cx, cy, w, h = boxes_cxcywh[:, 0], boxes_cxcywh[:, 1], boxes_cxcywh[:, 2], boxes_cxcywh[:, 3]
+    boxes_xyxy = np.stack([cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2], axis=1)
+
+    keep_idx = _nms(boxes_xyxy, confidences, iou_threshold)
+
+    scale = CHIP_SIZE / MODEL_INPUT_SIZE
+    detections: list[dict[str, Any]] = []
+    for idx in keep_idx:
+        x1, y1, x2, y2 = boxes_xyxy[idx] * scale
+        detections.append(
+            {
+                "bbox": [float(x1), float(y1), float(x2), float(y2)],
+                "confidence": float(confidences[idx]),
+                "class": int(class_ids[idx]),
+            }
+        )
+    return detections
+
+
+def predict(session: Any, input_images: str, params: dict[str, Any]) -> dict[str, Any]:
+    from fair.utils.data import resolve_directory
+
+    if "confidence_threshold" not in params:
+        raise ValueError("params['confidence_threshold'] is required")
+    confidence_threshold = float(params["confidence_threshold"])
+    iou_threshold = float(params.get("iou_threshold", 0.45))
+    input_name = session.get_inputs()[0].name
+
+    input_dir = resolve_directory(input_images)
+    patterns = ("*.png", "*.tif", "*.tiff", "*.jpg")
+    img_paths = sorted(p for pat in patterns for p in input_dir.glob(pat))
+    if not img_paths:
+        msg = f"No input images found in {input_dir}"
+        raise FileNotFoundError(msg)
+
+    features: list[dict[str, Any]] = []
+    for img_path in img_paths:
+        batch, transform, crs = _preprocess_onnx_image(img_path)
+        output = session.run(None, {input_name: batch})[0]
+        for det in _decode_yolo_output(output, confidence_threshold, iou_threshold):
+            feature = _pixel_bbox_to_geo_feature(
+                det["bbox"],
+                transform,
+                crs,
+                {
+                    "confidence": round(det["confidence"], 4),
+                    "class": det["class"],
+                    "source": img_path.name,
+                },
+            )
+            features.append(feature)
+    return _build_feature_collection(features)
 
 
 def _dataset_cache_dir(chips_path: str, coco_json_path: str) -> Path:
@@ -326,6 +456,8 @@ def export_onnx(trained_model: Any) -> Annotated[bytes, "onnx_model"]:
 
     model = _restore_checkpoint(trained_model)
     onnx_path = model.export(format="onnx")
+    proto = onnx.load(onnx_path)
+    onnx.save_model(proto, onnx_path, save_as_external_data=False)
     onnx.checker.check_model(onnx_path)
     try:
         return Path(onnx_path).read_bytes()
@@ -334,46 +466,15 @@ def export_onnx(trained_model: Any) -> Annotated[bytes, "onnx_model"]:
 
 
 @step
-def detect(
-    model: Any,
+def run_inference(
+    model_uri: str,
     input_images: str,
-    chip_size: int = 640,
+    inference_params: dict[str, Any],
 ) -> Annotated[dict[str, Any], "predictions"]:
-    import rasterio
+    from fair.serve.base import load_session
 
-    from fair.utils.data import resolve_directory
-
-    yolo_model = _restore_checkpoint(model)
-
-    input_dir = resolve_directory(input_images)
-    patterns = ("*.png", "*.tif", "*.tiff", "*.jpg")
-    img_paths = sorted(p for pat in patterns for p in input_dir.glob(pat))
-    if not img_paths:
-        msg = f"No input images found in {input_dir}"
-        raise FileNotFoundError(msg)
-
-    all_features: list[dict[str, Any]] = []
-    for img_path in img_paths:
-        tensor = preprocess(img_path, chip_size)
-        results = yolo_model(tensor, verbose=False)
-        with rasterio.open(img_path) as src:
-            img_transform = src.transform
-            crs = src.crs
-
-        for det in postprocess(results):
-            feature = _pixel_bbox_to_geo_feature(
-                det["bbox"],
-                img_transform,
-                crs,
-                {
-                    "confidence": round(det["confidence"], 4),
-                    "class": det["class"],
-                    "source": img_path.name,
-                },
-            )
-            all_features.append(feature)
-
-    return _build_feature_collection(all_features)
+    session = load_session(model_uri)
+    return predict(session, input_images, inference_params)
 
 
 @pipeline
@@ -407,26 +508,14 @@ def training_pipeline(
     export_onnx(trained_model=trained_model)
 
 
-@step
-def load_base_model(
-    model_uri: str,
-    num_classes: int,
-) -> Any:
-    checkpoint = _download_checkpoint(model_uri)
-    return checkpoint.read_bytes()
-
-
 @pipeline
 def inference_pipeline(
     model_uri: str,
     input_images: str,
-    chip_size: int = 640,
-    num_classes: int = 1,
-    zenml_artifact_version_id: str = "",
-    use_base_model: bool = False,
+    inference_params: dict[str, Any],
 ) -> None:
-    if use_base_model:
-        model = load_base_model(model_uri=model_uri, num_classes=num_classes)
-    else:
-        model = load_model(model_uri=model_uri, zenml_artifact_version_id=zenml_artifact_version_id)
-    detect(model=model, input_images=input_images, chip_size=chip_size)
+    run_inference(
+        model_uri=model_uri,
+        input_images=input_images,
+        inference_params=inference_params,
+    )

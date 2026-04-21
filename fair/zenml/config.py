@@ -5,6 +5,7 @@ from typing import Any
 
 import pystac
 
+from fair.params import inference_params, training_params
 from fair.stac.constants import CONTAINER_REGISTRIES, OCI_IMAGE_INDEX_TYPE
 from fair.utils.data import http_url_to_s3_uri
 
@@ -17,14 +18,6 @@ def _normalize_container_href(href: str) -> str:
         if (idx := href.find(registry)) != -1:
             return href[idx:]
     return href
-
-
-def _extract_input_spec(mlm_input: list[dict[str, Any]]) -> dict[str, Any]:
-    # Band names are model-internal, only chip_size is a pipeline param
-    if not mlm_input:
-        return {}
-    shape = mlm_input[0].get("input", {}).get("shape", [])
-    return {"chip_size": shape[-1]} if len(shape) == 4 else {}
 
 
 def _extract_num_classes(mlm_output: list[dict[str, Any]]) -> int | None:
@@ -136,8 +129,7 @@ def generate_training_config(
     # ZenML config schema: https://docs.zenml.io/concepts/steps_and_pipelines/yaml_configuration
     props = base_model_item.properties
 
-    hyperparams: dict[str, Any] = dict(props.get("mlm:hyperparameters", {}))
-    input_spec = _extract_input_spec(props.get("mlm:input", []))
+    hyperparams: dict[str, Any] = training_params(props.get("mlm:hyperparameters", {}))
     num_classes = _extract_num_classes(props.get("mlm:output", []))
     class_names = _extract_class_names(props.get("mlm:output", []))
 
@@ -158,7 +150,6 @@ def generate_training_config(
         msg = f"Base model item '{base_model_item.id}' missing 'checkpoint' asset"
         raise KeyError(msg)
 
-    hyperparams.update(input_spec)
     if overrides:
         hyperparams.update(overrides)
 
@@ -233,30 +224,17 @@ def generate_inference_config(
 ) -> dict[str, Any]:
     # Works for both base-model and local-model items (same MLM structure)
     props = model_item.properties
-    input_spec = _extract_input_spec(props.get("mlm:input", []))
 
-    checkpoint_asset = model_item.assets.get("checkpoint")
-    if checkpoint_asset is None:
-        msg = f"Model item '{model_item.id}' missing 'checkpoint' asset"
+    model_asset = model_item.assets.get("model")
+    if model_asset is None:
+        msg = f"Model item '{model_item.id}' missing 'model' (ONNX) asset"
         raise KeyError(msg)
-    zenml_art_id = checkpoint_asset.extra_fields.get("zenml:artifact_version_id")
 
     parameters: dict[str, Any] = {
-        "model_uri": http_url_to_s3_uri(checkpoint_asset.href),
+        "model_uri": http_url_to_s3_uri(model_asset.href),
         "input_images": http_url_to_s3_uri(input_images_path),
-        **input_spec,
+        "inference_params": inference_params(props.get("mlm:hyperparameters", {})),
     }
-
-    # Base model: no ZenML artifact, load from pretrained weights directly
-    # Finetuned model: resolve from artifact store via ID (fast) or URI (fallback)
-    if zenml_art_id:
-        parameters["zenml_artifact_version_id"] = zenml_art_id
-    else:
-        parameters["use_base_model"] = True
-
-    num_classes = _extract_num_classes(props.get("mlm:output", []))
-    if num_classes is not None:
-        parameters["num_classes"] = num_classes
 
     config: dict[str, Any] = {
         "parameters": parameters,
@@ -275,6 +253,6 @@ def generate_inference_config(
 
     k8s = _scheduling_settings(model_item, "inference")
     if k8s:
-        config.setdefault("steps", {}).setdefault("predict", {}).setdefault("settings", {}).update(k8s)
+        config.setdefault("steps", {}).setdefault("run_inference", {}).setdefault("settings", {}).update(k8s)
 
     return config

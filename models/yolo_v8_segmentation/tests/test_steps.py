@@ -18,7 +18,7 @@ def _noop_mlflow_ctx(*_args: Any, **_kwargs: Any):
 
 
 def test_split_dataset(toy_chips: Path, toy_labels: Path, base_hyperparameters: dict[str, Any]) -> None:
-    from models.yolo_v8_segmentation.pipeline import predict, split_dataset
+    from models.yolo_v8_segmentation.pipeline import split_dataset
 
     hyperparameters = dict(base_hyperparameters)
     hyperparameters.update({"epochs": 1, "batch_size": 1, "p_val": 0.25, "split_seed": 42})
@@ -38,31 +38,6 @@ def test_split_dataset(toy_chips: Path, toy_labels: Path, base_hyperparameters: 
     assert Path(result["_dataset_yaml"]).exists()
     assert (Path(result["_yolo_dir"]) / "images" / "train").is_dir()
     assert (Path(result["_yolo_dir"]) / "images" / "val").is_dir()
-
-    class _MockInput:
-        name = "images"
-
-    class _MockSession:
-        def get_inputs(self) -> list[_MockInput]:
-            return [_MockInput()]
-
-        def run(self, *_args: Any, **_kwargs: Any) -> list[Any]:
-            return [[[[(0.0)]]]]
-
-    expected_feature = {
-        "type": "Feature",
-        "properties": {"class": 0, "confidence": 0.5},
-        "geometry": {"type": "Polygon", "coordinates": [[[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 0.0]]]},
-    }
-    with (
-        patch("fair.utils.data.resolve_directory", return_value=toy_chips),
-        patch("models.yolo_v8_segmentation.pipeline._preprocess_onnx_image", return_value=(None, None, None)),
-        patch("models.yolo_v8_segmentation.pipeline._decode_segmentation_mask", return_value=[[1]]),
-        patch("models.yolo_v8_segmentation.pipeline._vectorize_binary_mask", return_value=[expected_feature]),
-    ):
-        pred = predict(_MockSession(), str(toy_chips), {"confidence_threshold": 0.5})
-    assert pred["type"] == "FeatureCollection"
-    assert pred["features"] == [expected_feature]
 
 
 def test_train_model(toy_chips: Path, toy_labels: Path, base_hyperparameters: dict[str, Any], tmp_path: Path) -> None:

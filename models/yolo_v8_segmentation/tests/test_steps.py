@@ -39,6 +39,7 @@ def test_split_dataset(toy_chips: Path, toy_labels: Path, base_hyperparameters: 
     assert (Path(result["_yolo_dir"]) / "images" / "train").is_dir()
     assert (Path(result["_yolo_dir"]) / "images" / "val").is_dir()
 
+
 def test_train_model(toy_chips: Path, toy_labels: Path, base_hyperparameters: dict[str, Any], tmp_path: Path) -> None:
     from models.yolo_v8_segmentation.pipeline import train_model
 

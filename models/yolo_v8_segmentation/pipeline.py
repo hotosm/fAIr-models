@@ -327,7 +327,6 @@ def _training_cache_dir(dataset_chips: str, dataset_labels: str) -> Path:
     return Path(tempfile.gettempdir()) / f"yolo_v8_segmentation_{cache_key}"
 
 
-
 def _prepare_training_split(
     dataset_chips: str,
     dataset_labels: str,

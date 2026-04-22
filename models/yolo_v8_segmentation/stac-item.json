@@ -1,0 +1,287 @@
+{
+    "type": "Feature",
+    "stac_version": "1.1.0",
+    "stac_extensions": [
+        "https://stac-extensions.github.io/mlm/v1.5.1/schema.json",
+        "https://stac-extensions.github.io/version/v1.2.0/schema.json",
+        "https://stac-extensions.github.io/classification/v2.0.0/schema.json",
+        "https://stac-extensions.github.io/file/v2.1.0/schema.json",
+        "https://stac-extensions.github.io/raster/v1.1.0/schema.json",
+        "https://hotosm.github.io/fAIr-models/schemas/v1.0.0/base-model/schema.json"
+    ],
+    "id": "yolo-v8-segmentation",
+    "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+            [
+                [
+                    -180,
+                    -90
+                ],
+                [
+                    180,
+                    -90
+                ],
+                [
+                    180,
+                    90
+                ],
+                [
+                    -180,
+                    90
+                ],
+                [
+                    -180,
+                    -90
+                ]
+            ]
+        ]
+    },
+    "bbox": [
+        -180,
+        -90,
+        180,
+        90
+    ],
+    "properties": {
+        "datetime": "2024-01-01T00:00:00Z",
+        "created": "2024-01-01T00:00:00Z",
+        "updated": "2024-01-01T00:00:00Z",
+        "title": "YOLOv8 Building Footprint Segmentation",
+        "description": "YOLOv8 segmentation base model for extracting building footprints from RGB aerial imagery, with geospatial preprocessing and polygon postprocessing integrated for fAIr finetuning and inference workflows.",
+        "mlm:name": "yolo-v8-segmentation",
+        "mlm:architecture": "YOLOv8-Seg",
+        "mlm:tasks": [
+            "instance-segmentation"
+        ],
+        "mlm:framework": "PyTorch",
+        "mlm:framework_version": "2.10.0",
+        "mlm:pretrained": true,
+        "mlm:pretrained_source": "https://github.com/hotosm/fAIr-utilities/raw/refs/heads/master/yolov8s_v2-seg.pt",
+        "mlm:accelerator": "amd64",
+        "mlm:accelerator_count": 1,
+        "keywords": [
+            "building",
+            "instance-segmentation",
+            "polygon"
+        ],
+        "license": "Apache-2.0",
+        "version": "2",
+        "deprecated": false,
+        "providers": [
+            {
+                "name": "HOTOSM",
+                "roles": [
+                    "producer",
+                    "host"
+                ],
+                "url": "https://www.hotosm.org",
+                "description": "Humanitarian OpenStreetMap Team"
+            }
+        ],
+        "fair:metrics_spec": [
+            {
+                "key": "fair:accuracy",
+                "name": "mAP50 (Segmentation)",
+                "description": "Segmentation mean Average Precision at IoU 0.50 from YOLO validation."
+            },
+            {
+                "key": "fair:mean_iou",
+                "name": "mAP50-95 (Segmentation)",
+                "description": "Segmentation mean Average Precision averaged from IoU 0.50 to 0.95."
+            },
+            {
+                "key": "fair:precision",
+                "name": "Precision",
+                "description": "Segmentation precision across all classes."
+            },
+            {
+                "key": "fair:recall",
+                "name": "Recall",
+                "description": "Segmentation recall across all classes."
+            }
+        ],
+        "mlm:input": [
+            {
+                "name": "RGB chips",
+                "bands": [
+                    {
+                        "name": "red"
+                    },
+                    {
+                        "name": "green"
+                    },
+                    {
+                        "name": "blue"
+                    }
+                ],
+                "input": {
+                    "shape": [
+                        -1,
+                        3,
+                        256,
+                        256
+                    ],
+                    "dim_order": [
+                        "batch",
+                        "bands",
+                        "height",
+                        "width"
+                    ],
+                    "data_type": "float32"
+                },
+                "pre_processing_function": {
+                    "format": "python",
+                    "expression": "models.yolo_v8_segmentation.pipeline:preprocess"
+                }
+            }
+        ],
+        "mlm:output": [
+            {
+                "name": "building masks",
+                "tasks": [
+                    "instance-segmentation"
+                ],
+                "result": {
+                    "shape": [
+                        -1,
+                        1,
+                        256,
+                        256
+                    ],
+                    "dim_order": [
+                        "batch",
+                        "channel",
+                        "height",
+                        "width"
+                    ],
+                    "data_type": "uint8"
+                },
+                "classification:classes": [
+                    {
+                        "name": "background",
+                        "value": 0,
+                        "description": "Non-building pixels."
+                    },
+                    {
+                        "name": "building",
+                        "value": 1,
+                        "description": "Building footprint pixels."
+                    }
+                ],
+                "post_processing_function": {
+                    "format": "python",
+                    "expression": "models.yolo_v8_segmentation.pipeline:postprocess"
+                },
+                "bands": []
+            }
+        ],
+        "mlm:hyperparameters": {
+            "training.epochs": 20,
+            "training.batch_size": 16,
+            "training.learning_rate": 0.01,
+            "training.val_ratio": 0.2,
+            "training.split_seed": 42,
+            "training.imgsz": 256,
+            "training.pc": 2.0,
+            "inference.confidence_threshold": 0.5
+        },
+        "fair:split_spec": {
+            "strategy": "random",
+            "default_ratio": 0.2,
+            "seed": 42,
+            "description": "Preprocess chips and labels, then apply seeded YOLO train/validation split."
+        }
+    },
+    "assets": {
+        "checkpoint": {
+            "href": "https://github.com/hotosm/fAIr-utilities/raw/refs/heads/master/yolov8s_v2-seg.pt",
+            "title": "Pretrained YOLOv8 segmentation weights",
+            "type": "application/octet-stream; framework=pytorch",
+            "roles": [
+                "mlm:model",
+                "mlm:weights"
+            ],
+            "mlm:artifact_type": "torch.save",
+            "raster:bands": [
+                {
+                    "name": "red"
+                },
+                {
+                    "name": "green"
+                },
+                {
+                    "name": "blue"
+                }
+            ]
+        },
+        "model": {
+            "href": "https://huggingface.co/qualcomm/YOLOv8-Segmentation/resolve/2b1347cf7d0fa58cb021f68b54ebb327544aa83e/YOLOv8-Segmentation.onnx",
+            "title": "Portable ONNX inference model",
+            "type": "application/octet-stream; framework=onnx",
+            "roles": [
+                "mlm:model",
+                "mlm:compiled"
+            ],
+            "mlm:artifact_type": "onnx",
+            "raster:bands": [
+                {
+                    "name": "red"
+                },
+                {
+                    "name": "green"
+                },
+                {
+                    "name": "blue"
+                }
+            ]
+        },
+        "source-code": {
+            "href": "https://github.com/hotosm/fAIr-models/tree/main/models/yolo_v8_segmentation",
+            "type": "text/html",
+            "title": "YOLOv8 segmentation model pack source",
+            "roles": [
+                "code"
+            ],
+            "mlm:entrypoint": "models.yolo_v8_segmentation.pipeline:training_pipeline"
+        },
+        "mlm:training": {
+            "href": "ghcr.io/hotosm/fair-models/yolo-v8-segmentation:v1",
+            "type": "application/vnd.oci.image.index.v1+json",
+            "title": "Training Docker Image",
+            "roles": [
+                "mlm:training-runtime"
+            ]
+        },
+        "mlm:inference": {
+            "href": "ghcr.io/hotosm/fair-models/yolo-v8-segmentation:v1",
+            "type": "application/vnd.oci.image.index.v1+json",
+            "title": "Inference Docker Image",
+            "roles": [
+                "mlm:inference-runtime"
+            ]
+        },
+        "readme": {
+            "href": "https://raw.githubusercontent.com/hotosm/fAIr-models/refs/heads/main/models/yolo_v8_segmentation/README.md",
+            "type": "text/markdown",
+            "roles": [
+                "metadata"
+            ],
+            "title": "Model README"
+        }
+    },
+    "links": [
+        {
+            "rel": "license",
+            "href": "https://www.apache.org/licenses/LICENSE-2.0",
+            "type": "text/html",
+            "title": "Apache License 2.0"
+        },
+        {
+            "rel": "cite-as",
+            "href": "https://docs.ultralytics.com/models/yolov8/#instance-segmentation",
+            "type": "text/html",
+            "title": "Ultralytics YOLOv8 Segmentation Documentation"
+        }
+    ]
+}

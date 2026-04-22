@@ -1,18 +1,4 @@
 """ZenML pipeline for RAMP (EfficientNetB0 + U-Net) building semantic segmentation.
-
-Follows the fAIr-models contract: platform-provided hyperparameters (no runtime STAC reads),
-ONNX export for portable inference, and a module-level ``predict`` entrypoint used by
-``fair.serve.base``.
-
-Pipeline contract:
-  training_pipeline(base_model_weights, dataset_chips, dataset_labels, num_classes, hyperparameters)
-    -> split_dataset -> train_model (bytes) -> evaluate_model (fair:* metrics) -> export_onnx (bytes)
-  inference_pipeline(model_uri, input_images, ...)
-    -> run_inference -> FeatureCollection
-
-Runtime: TensorFlow/Keras via ramp-fair + hot-fair-utilities (preprocessing + training).
-All heavy imports (tensorflow, segmentation_models, hot_fair_utilities, tf2onnx) are lazy so
-this module is importable in lightweight environments (e.g. fair.utils.model_validator AST checks).
 """
 
 from __future__ import annotations
@@ -26,7 +12,7 @@ import shutil
 import tempfile
 import zipfile
 from pathlib import Path
-from typing import Annotated, Any
+from typing import Annotated, Any, cast
 from urllib.request import urlretrieve
 
 from zenml import log_metadata, pipeline, step
@@ -150,9 +136,10 @@ def resolve_model_href(
         raise RuntimeError(f"Zip from {model_uri} did not contain a valid SavedModel")
 
     # Directory (SavedModel) - local or remote.
-    resolved_dir = (
-        _resolve_input_directory(model_uri, "model_uri") if "://" in model_uri else _to_local_path(model_uri, "model_uri")
-    ).resolve()
+    if "://" in model_uri:
+        resolved_dir = _resolve_input_directory(model_uri, "model_uri").resolve()
+    else:
+        resolved_dir = _to_local_path(model_uri, "model_uri").resolve()
     if resolved_dir.is_dir() and (resolved_dir / "saved_model.pb").exists():
         return str(resolved_dir)
     if resolved_dir.exists():
@@ -163,9 +150,10 @@ def resolve_model_href(
 def _ensure_ramp_baseline(base_model_weights: str, data_base_path: str | Path) -> Path:
     """Return a local SavedModel directory for fine-tuning, downloading if necessary.
 
-    ``base_model_weights`` may be an HTTP(S) .zip URL (preferred), a local .zip, or a SavedModel
-    directory. A pre-provisioned baseline under ``/app/ramp-data/baseline`` (from the RAMP
-    utilities Docker image) is used when present and no explicit URL is provided.
+    ``base_model_weights`` may be an HTTP(S) .zip URL (preferred), a local .zip,
+    or a SavedModel directory. A pre-provisioned baseline under
+    ``/app/ramp-data/baseline`` (from the RAMP utilities Docker image) is used
+    when present and no explicit URL is provided.
     """
     image_ck = Path("/app/ramp-data/baseline")
     if not base_model_weights and (image_ck / "saved_model.pb").exists():
@@ -908,10 +896,11 @@ def _patch_predictor_savedmodel_loader_for_tf215() -> None:
     import tensorflow as tf
 
     pred = importlib.import_module("predictor.prediction")
-    if getattr(pred, "_fair_models_tf215_savedmodel_patch_applied", False):
+    pred_mod = cast(Any, pred)
+    if getattr(pred_mod, "_fair_models_tf215_savedmodel_patch_applied", False):
         return
 
-    original_loader = getattr(pred, "_load_keras_model", None)
+    original_loader = getattr(pred_mod, "_load_keras_model", None)
     if original_loader is None:
         raise RuntimeError("predictor.prediction._load_keras_model not found; fairpredictor API changed.")
 
@@ -921,8 +910,8 @@ def _patch_predictor_savedmodel_loader_for_tf215() -> None:
         return original_loader(keras_backend, path)
 
     _safe_load_keras_model._fair_models_tf215_savedmodel_loader = True  # type: ignore[attr-defined]
-    pred._load_keras_model = _safe_load_keras_model
-    pred._fair_models_tf215_savedmodel_patch_applied = True
+    pred_mod._load_keras_model = _safe_load_keras_model
+    pred_mod._fair_models_tf215_savedmodel_patch_applied = True
 
 
 def infer_ramp_model(

@@ -20,6 +20,7 @@ def validate_item(item: pystac.Item) -> list[str]:
     except pystac.errors.STACValidationError as e:
         errors.append(str(e))
     errors.extend(_validate_keyword_vocabulary(item))
+    errors.extend(_validate_hyperparameters_spec_coverage(item))
     return errors
 
 
@@ -221,6 +222,39 @@ def validate_metrics_against_spec(
         name = entry.get("name", "")
         if name and name not in metrics:
             errors.append(f"Missing declared metric: {name}")
+    return errors
+
+
+_SPEC_REQUIRED_FIELDS: frozenset[str] = frozenset({"type", "default", "description"})
+_HP_PREFIXES: tuple[str, ...] = ("training.", "inference.")
+
+
+def _bare_hp_key(key: str) -> str:
+    for prefix in _HP_PREFIXES:
+        if key.startswith(prefix):
+            return key[len(prefix) :]
+    return key
+
+
+def _validate_hyperparameters_spec_coverage(item: pystac.Item) -> list[str]:
+    errors: list[str] = []
+    hyperparameters: dict = item.properties.get("mlm:hyperparameters", {})
+    spec: list[dict] = item.properties.get("fair:hyperparameters_spec", [])
+    if not hyperparameters or not spec:
+        return errors
+
+    for entry in spec:
+        key = entry.get("key", "<unknown>")
+        missing = _SPEC_REQUIRED_FIELDS - entry.keys()
+        if missing:
+            errors.append(f"fair:hyperparameters_spec entry '{key}' missing required fields: {sorted(missing)}")
+
+    spec_keys = {entry["key"] for entry in spec if "key" in entry}
+    for hp_key in hyperparameters:
+        bare = _bare_hp_key(hp_key)
+        if bare not in spec_keys:
+            errors.append(f"mlm:hyperparameters key '{hp_key}' has no matching entry in fair:hyperparameters_spec")
+
     return errors
 
 

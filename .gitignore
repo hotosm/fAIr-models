@@ -225,11 +225,19 @@ implementation.md
 
 # data
 data/sample/predict/predictions
+data/sample/ramp_work
+data/sample/yolo_work
 stac_catalog
 
 # hatch-vcs generated version file
 fair/_version.py
 
+
+# runs
+runs/
+
+# weights
+yolov8s_v2-seg.pt
 # dev infra
 infra/dev/.port-forward.pids
 infra/dev/.pf-logs/

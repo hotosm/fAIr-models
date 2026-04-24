@@ -51,7 +51,7 @@ clean:
 
 [doc('Run tests')]
 test:
-    uv run pytest tests/ -v
+    uv run pytest -v
 
 [doc('Run model tests inside Docker (requires built images)')]
 test-models model="":

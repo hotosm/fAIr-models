@@ -155,7 +155,9 @@ jobs:
             --image "${{ matrix.name }}:inference" \
             --model-module "models.${{ matrix.name }}.pipeline" \
             --model-uri "/workspace/ci-artifacts/${{ matrix.name }}.onnx" \
-            --input-images "/workspace/data/sample/predict/oam" \
+            --image-uri "https://tiles.openaerialmap.org/62d85d11d8499800053796c1/0/62d85d11d8499800053796c2/{z}/{x}/{y}" \
+            --bbox "85.51678033745037,27.6313353660439,85.52323021107895,27.637438390948745" \
+            --zoom 18 \
             --container-name "${{ matrix.name }}-smoke"
 
       - name: Push inference image

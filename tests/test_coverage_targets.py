@@ -362,7 +362,12 @@ def test_dataset_and_prediction_error_paths(monkeypatch: pytest.MonkeyPatch, tmp
         client.predict("missing-model", str(tmp_path))
 
     with pytest.raises(FairClientError, match="not found in 'local-models'"):
-        client.predict_live("missing-model", str(tmp_path))
+        client.predict_live(
+            "missing-model",
+            image_uri="https://tiles.example.com/{z}/{x}/{y}",
+            bbox=[0.0, 0.0, 1.0, 1.0],
+            zoom=18,
+        )
 
 
 def test_dataset_param_and_finetune_validation_error_paths(

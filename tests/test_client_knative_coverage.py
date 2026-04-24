@@ -478,13 +478,6 @@ def test_predict_live_error_paths_and_success(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(client, "_get_backend", lambda: backend)
     monkeypatch.setattr(client, "_artifact_store_prefix", lambda: "s3://bucket")
 
-    upload_calls: list[tuple[str, str]] = []
-    monkeypatch.setattr(
-        client_module,
-        "upload_local_directory",
-        lambda path, remote: upload_calls.append((str(path), remote)),
-    )
-
     captured: dict[str, Any] = {}
 
     def fake_post(url: str, **kwargs: Any) -> DummyResponse:
@@ -495,27 +488,50 @@ def test_predict_live_error_paths_and_success(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(httpx, "post", fake_post)
     monkeypatch.setenv("FAIR_PREDICT_VERIFY_SSL", "no")
 
+    image_uri = "https://tiles.example.com/{z}/{x}/{y}"
+    bbox = [85.5, 27.6, 85.52, 27.63]
+    zoom = 18
+    predict_base_url = "https://predict.example.com"
+
     result = client.predict_live(
         local_model.id,
-        str(tmp_path),
+        image_uri=image_uri,
+        bbox=bbox,
+        zoom=zoom,
+        predict_base_url=predict_base_url,
         collection=LOCAL_MODELS_COLLECTION,
-        predict_base_url="https://predict.example.com",
     )
     assert result == {"ok": True}
-    assert upload_calls[-1][1] == f"s3://bucket/predict/{local_model.id}/input"
     assert captured["url"] == "https://predict.example.com/resnet18-classification/predict"
     assert captured["kwargs"]["verify"] is False
+    sent = captured["kwargs"]["json"]
+    assert sent["image_uri"] == image_uri
+    assert sent["bbox"] == bbox
+    assert sent["zoom"] == zoom
+    assert "input_images" not in sent
 
     missing_model_backend = DummyBackend()
     monkeypatch.setattr(client, "_get_backend", lambda: missing_model_backend)
     with pytest.raises(FairClientError):
-        client.predict_live("missing", str(tmp_path), predict_base_url="https://predict.example.com")
+        client.predict_live(
+            "missing",
+            image_uri=image_uri,
+            bbox=bbox,
+            zoom=zoom,
+            predict_base_url=predict_base_url,
+        )
 
     no_asset_item = _build_item("no-asset")
     no_asset_backend = DummyBackend({(LOCAL_MODELS_COLLECTION, no_asset_item.id): no_asset_item})
     monkeypatch.setattr(client, "_get_backend", lambda: no_asset_backend)
     with pytest.raises(FairClientError):
-        client.predict_live(no_asset_item.id, str(tmp_path), predict_base_url="https://predict.example.com")
+        client.predict_live(
+            no_asset_item.id,
+            image_uri=image_uri,
+            bbox=bbox,
+            zoom=zoom,
+            predict_base_url=predict_base_url,
+        )
 
 
 def test_knative_helpers_and_gateway_management(monkeypatch) -> None:

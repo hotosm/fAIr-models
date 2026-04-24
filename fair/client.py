@@ -400,8 +400,10 @@ class FairClient:
     def predict_live(
         self,
         model_id: str,
-        image_path: str,
         *,
+        image_uri: str,
+        bbox: list[float],
+        zoom: int,
         predict_base_url: str | None = None,
         collection: str = LOCAL_MODELS_COLLECTION,
         timeout: float = 120.0,
@@ -420,15 +422,11 @@ class FairClient:
 
         service_name = self._base_model_name_for_live_service(model_item, collection)
 
-        prefix = self._artifact_store_prefix()
-        if self._upload_artifacts and prefix and "://" not in image_path:
-            remote_path = f"{prefix}/predict/{model_id}/input"
-            upload_local_directory(Path(image_path), remote_path)
-            image_path = remote_path
-
         payload = {
             "model_uri": model_asset.href,
-            "input_images": image_path,
+            "image_uri": image_uri,
+            "bbox": bbox,
+            "zoom": zoom,
             "params": inference_params(model_item.properties.get("mlm:hyperparameters", {})),
         }
 

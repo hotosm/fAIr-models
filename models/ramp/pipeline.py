@@ -27,12 +27,6 @@ _QUBVEL_EFFICIENTNET_RELEASE = (
     "https://github.com/qubvel/efficientnet/releases/download/v0.0.1/"
 )
 
-
-# ---------------------------------------------------------------------------
-# Path / resource resolvers
-# ---------------------------------------------------------------------------
-
-
 def _to_local_path(path_value: str, purpose: str) -> Path:
     """Resolve a path with UPath and ensure local filesystem semantics."""
     from upath import UPath
@@ -67,7 +61,7 @@ def _resolve_input_file(path_value: str, purpose: str) -> Path:
 def _download_and_extract_zip(zip_url: str, dest_dir: Path) -> None:
     """Download a ZIP URL and extract in dest_dir."""
     dest_dir.mkdir(parents=True, exist_ok=True)
-    zip_name = Path(zip_url.split("/")[-1]).name or "archive.zip"
+    zip_name = Path(zip_url.split("/")[-1]).name or "ramp_v1.zip"
     zip_path = dest_dir / zip_name
     urlretrieve(zip_url, zip_path)
     with zipfile.ZipFile(zip_path, "r") as zf:
@@ -81,71 +75,57 @@ def _extract_zip(zip_path: Path, dest_dir: Path) -> None:
         zf.extractall(dest_dir)
 
 
-def resolve_model_href(
-    model_uri: str,
-    cache_dir: Path | None = None,
-) -> str:
-    """Resolve model_uri to a local path.
-
-    Supports:
-      - Local SavedModel directory → returned as-is
-      - Local .zip file containing SavedModel → extracted, returned as directory
-      - HTTP(S) URL to .zip → downloaded, extracted, cached, returned as directory
-      - Local / HTTP .onnx → downloaded (if needed) and returned as file path
+def resolve_model_href(model_uri: str, cache_dir: Path | None = None) -> str:
+    """Resolve only .onnx or .zip model URIs to local paths.
+    - .onnx -> local .onnx file path
+    - .zip  -> extracted SavedModel directory path (folder containing saved_model.pb)
     """
     if not isinstance(model_uri, str):
         raise TypeError("model_uri must be a string")
     if cache_dir is not None and not isinstance(cache_dir, Path):
         raise TypeError("cache_dir must be a pathlib.Path or None")
-
     cache_dir = cache_dir or _DEFAULT_MODEL_CACHE
+    cache_dir.mkdir(parents=True, exist_ok=True)
     is_http = model_uri.startswith(("http://", "https://"))
     clean_uri = model_uri.split("?", 1)[0]
     suffix = Path(clean_uri).suffix.lower()
-
-    # ONNX: return as local file path.
+    # ONNX path
     if suffix == ".onnx":
         if is_http:
-            cache_dir.mkdir(parents=True, exist_ok=True)
-            base_name = Path(clean_uri).name or "model.onnx"
-            dest = cache_dir / base_name
+            dest = cache_dir / (Path(clean_uri).name or "model.onnx")
             if not dest.is_file():
                 urlretrieve(model_uri, dest)
             return str(dest)
-        resolved = _to_local_path(model_uri, "model_uri").resolve()
-        if resolved.is_file():
-            return str(resolved)
-        raise FileNotFoundError(f"ONNX model not found: {resolved}")
-
-    # Zipped SavedModel.
+        # local onnx path
+        p = Path(model_uri).resolve()
+        if p.is_file():
+            return str(p)
+        raise FileNotFoundError(f"ONNX model not found: {p}")
+    # ZIP path -> must contain saved_model.pb somewhere inside
     if suffix == ".zip":
-        base_name = Path(clean_uri).name
-        stem = Path(base_name).stem or "ramp_model"
+        stem = Path(clean_uri).stem or "ramp_model"
         dest_dir = cache_dir / stem
+        # cache hit
         for existing in dest_dir.rglob("saved_model.pb"):
             return str(existing.parent)
-
         if is_http:
-            _download_and_extract_zip(model_uri, dest_dir)
+            zip_path = cache_dir / (Path(clean_uri).name or "model.zip")
+            if not zip_path.is_file():
+                urlretrieve(model_uri, zip_path)
         else:
-            local_zip = _resolve_input_file(model_uri, "model_uri")
-            _extract_zip(local_zip, dest_dir)
-
-        for sub in dest_dir.rglob("saved_model.pb"):
-            return str(sub.parent)
+            zip_path = Path(model_uri).resolve()
+            if not zip_path.is_file():
+                raise FileNotFoundError(f"ZIP model not found: {zip_path}")
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        import zipfile
+        with zipfile.ZipFile(zip_path, "r") as zf:
+            zf.extractall(dest_dir)
+        for existing in dest_dir.rglob("saved_model.pb"):
+            return str(existing.parent)
         raise RuntimeError(f"Zip from {model_uri} did not contain a valid SavedModel")
-
-    # Directory (SavedModel) - local or remote.
-    if "://" in model_uri:
-        resolved_dir = _resolve_input_directory(model_uri, "model_uri").resolve()
-    else:
-        resolved_dir = _to_local_path(model_uri, "model_uri").resolve()
-    if resolved_dir.is_dir() and (resolved_dir / "saved_model.pb").exists():
-        return str(resolved_dir)
-    if resolved_dir.exists():
-        raise FileNotFoundError(f"SavedModel directory missing saved_model.pb: {resolved_dir}")
-    raise FileNotFoundError(f"Model path not found: {resolved_dir}")
-
+    raise ValueError(
+        f"Unsupported model format for {model_uri!r}. Only .onnx and .zip are accepted."
+    )
 
 def _ensure_ramp_baseline(base_model_weights: str, data_base_path: str | Path) -> Path:
     """Return a local SavedModel directory for fine-tuning, downloading if necessary.
@@ -165,11 +145,6 @@ def _ensure_ramp_baseline(base_model_weights: str, data_base_path: str | Path) -
     return Path(resolve_model_href(base_model_weights, cache_dir=Path(data_base_path) / ".baseline_cache"))
 
 
-# ---------------------------------------------------------------------------
-# Keras / segmentation_models compatibility patches
-# ---------------------------------------------------------------------------
-
-
 def _patch_keras_get_file_for_efficientnet_weights() -> None:
     """Redirect broken Callidior EfficientNet weight URLs to qubvel's GitHub release assets.
 
@@ -180,62 +155,26 @@ def _patch_keras_get_file_for_efficientnet_weights() -> None:
     import tensorflow as tf
 
     ku = tf.keras.utils
-    if getattr(ku.get_file, "_ramp_efficientnet_mirror", False):
+    if hasattr(ku.get_file, "_ramp_efficientnet_mirror"):
         return
 
-    _orig = ku.get_file
+    original = ku.get_file
 
     def _get_file(fname, origin, *args, **kwargs):
-        if isinstance(origin, str) and "Callidior" in origin and isinstance(fname, str):
+        if isinstance(origin, str) and "Callidior" in origin:
             m = re.match(
                 r"^(efficientnet-b\d+)_weights_tf_dim_ordering_tf_kernels_autoaugment_notop\.h5$",
-                fname,
+                fname or "",
             )
             if m:
                 alt = f"{m.group(1)}_imagenet_1000_notop.h5"
                 origin = f"{_QUBVEL_EFFICIENTNET_RELEASE}{alt}"
                 kwargs = dict(kwargs)
                 kwargs["file_hash"] = None
-        return _orig(fname, origin, *args, **kwargs)
+        return original(fname, origin, *args, **kwargs)
 
     _get_file._ramp_efficientnet_mirror = True  # type: ignore[attr-defined]
     ku.get_file = _get_file
-
-
-# ---------------------------------------------------------------------------
-# Dataset materialization (chips + labels → hot_fair_utilities input layout)
-# ---------------------------------------------------------------------------
-
-
-def _select_or_merge_labels(labels_path: Path, destination: Path) -> None:
-    """Materialize a single labels.geojson for hot_fair_utilities preprocess."""
-    if labels_path.is_file():
-        shutil.copy2(labels_path, destination)
-        return
-
-    if not labels_path.is_dir():
-        raise FileNotFoundError(f"dataset_labels path not found: {labels_path}")
-
-    geojson_files = sorted(labels_path.glob("*.geojson"))
-    if not geojson_files:
-        raise FileNotFoundError(f"No .geojson files found in labels directory: {labels_path}")
-    if len(geojson_files) == 1:
-        shutil.copy2(geojson_files[0], destination)
-        return
-
-    import geopandas as gpd
-    import pandas as pd
-
-    gdfs = [gpd.read_file(p) for p in geojson_files]
-    crs = gdfs[0].crs or "EPSG:4326"
-    merged = gpd.GeoDataFrame(pd.concat([g.to_crs(crs) for g in gdfs], ignore_index=True), crs=crs)
-    for col in merged.columns:
-        if col == "geometry":
-            continue
-        if pd.api.types.is_extension_array_dtype(merged[col].dtype):
-            merged[col] = merged[col].astype(object).where(merged[col].notna(), None)
-    merged.to_file(destination, driver="GeoJSON")
-
 
 def _materialize_training_input(dataset_chips: str, dataset_labels: str, work_dir: Path) -> Path:
     """Create the preprocess input folder with PNG chips and a single labels.geojson.
@@ -276,19 +215,15 @@ def _materialize_training_input(dataset_chips: str, dataset_labels: str, work_di
     if not list(input_dir.glob("*.png")):
         raise FileNotFoundError(f"No train chips (.tif/.tiff/.png) found in {chips_dir}")
 
-    _select_or_merge_labels(labels_path, input_dir / "labels.geojson")
+    if not labels_path.is_file():
+        raise FileNotFoundError(f"dataset_labels file not found: {labels_path}")
+    shutil.copy2(labels_path, input_dir / "labels.geojson")
     return input_dir
 
 
 def _training_cache_dir(dataset_chips: str, dataset_labels: str) -> Path:
     cache_key = hashlib.sha256(f"{dataset_chips}|{dataset_labels}".encode()).hexdigest()[:16]
     return Path(tempfile.gettempdir()) / f"ramp_training_{cache_key}"
-
-
-# ---------------------------------------------------------------------------
-# Preprocess / postprocess (STAC pre/post_processing_function references)
-# ---------------------------------------------------------------------------
-
 
 def preprocess(
     input_path: str,
@@ -382,11 +317,6 @@ def postprocess(prediction_masks_dir: str, output_dir: str) -> dict[str, Any]:
     if isinstance(validated_geojson, dict):
         return validated_geojson
     return json.loads(gdf.to_json())
-
-
-# ---------------------------------------------------------------------------
-# Train / eval / export helpers (stateful TF pieces stay behind lazy imports)
-# ---------------------------------------------------------------------------
 
 
 def _prepare_training_split(
@@ -567,11 +497,6 @@ def _convert_savedmodel_to_onnx_bytes(saved_model_dir: Path, opset: int = 13) ->
         return onnx_path.read_bytes()
 
 
-# ---------------------------------------------------------------------------
-# ONNX serving: predict(session, input_images, params) -> FeatureCollection
-# ---------------------------------------------------------------------------
-
-
 def _build_feature_collection(features: list[dict[str, Any]]) -> dict[str, Any]:
     return {"type": "FeatureCollection", "features": features}
 
@@ -710,10 +635,6 @@ def predict(session: Any, input_images: str, params: dict[str, Any]) -> dict[str
         features.extend(_vectorize_binary_mask(mask, transform, crs, confidence_threshold))
     return _build_feature_collection(features)
 
-
-# ---------------------------------------------------------------------------
-# ZenML @step primitives
-# ---------------------------------------------------------------------------
 
 
 @step
@@ -970,11 +891,6 @@ def run_preprocessing(
 def run_postprocessing(prediction_path: str, output_dir: str) -> dict[str, Any]:
     """STAC entrypoint wrapper for RAMP postprocessing."""
     return postprocess(prediction_path, output_dir)
-
-
-# ---------------------------------------------------------------------------
-# @pipeline definitions
-# ---------------------------------------------------------------------------
 
 
 @pipeline

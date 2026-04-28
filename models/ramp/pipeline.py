@@ -1,5 +1,4 @@
-"""ZenML pipeline for RAMP (EfficientNetB0 + U-Net) building semantic segmentation.
-"""
+"""ZenML pipeline for RAMP (EfficientNetB0 + U-Net) building semantic segmentation."""
 
 from __future__ import annotations
 
@@ -20,12 +19,9 @@ from zenml import log_metadata, pipeline, step
 from fair.zenml.steps import load_model
 
 _DEFAULT_MODEL_CACHE = Path("/workspace/.ramp_model_cache")
-_DEFAULT_RAMP_BASELINE_URL = (
-    "https://api-prod.fair.hotosm.org/api/v1/workspace/download/ramp/baseline.zip"
-)
-_QUBVEL_EFFICIENTNET_RELEASE = (
-    "https://github.com/qubvel/efficientnet/releases/download/v0.0.1/"
-)
+_DEFAULT_RAMP_BASELINE_URL = "https://api-prod.fair.hotosm.org/api/v1/workspace/download/ramp/baseline.zip"
+_QUBVEL_EFFICIENTNET_RELEASE = "https://github.com/qubvel/efficientnet/releases/download/v0.0.1/"
+
 
 def _to_local_path(path_value: str, purpose: str) -> Path:
     """Resolve a path with UPath and ensure local filesystem semantics."""
@@ -118,14 +114,14 @@ def resolve_model_href(model_uri: str, cache_dir: Path | None = None) -> str:
                 raise FileNotFoundError(f"ZIP model not found: {zip_path}")
         dest_dir.mkdir(parents=True, exist_ok=True)
         import zipfile
+
         with zipfile.ZipFile(zip_path, "r") as zf:
             zf.extractall(dest_dir)
         for existing in dest_dir.rglob("saved_model.pb"):
             return str(existing.parent)
         raise RuntimeError(f"Zip from {model_uri} did not contain a valid SavedModel")
-    raise ValueError(
-        f"Unsupported model format for {model_uri!r}. Only .onnx and .zip are accepted."
-    )
+    raise ValueError(f"Unsupported model format for {model_uri!r}. Only .onnx and .zip are accepted.")
+
 
 def _ensure_ramp_baseline(base_model_weights: str, data_base_path: str | Path) -> Path:
     """Return a local SavedModel directory for fine-tuning, downloading if necessary.
@@ -176,6 +172,7 @@ def _patch_keras_get_file_for_efficientnet_weights() -> None:
     _get_file._ramp_efficientnet_mirror = True  # type: ignore[attr-defined]
     ku.get_file = _get_file
 
+
 def _materialize_training_input(dataset_chips: str, dataset_labels: str, work_dir: Path) -> Path:
     """Create the preprocess input folder with PNG chips and a single labels.geojson.
 
@@ -224,6 +221,7 @@ def _materialize_training_input(dataset_chips: str, dataset_labels: str, work_di
 def _training_cache_dir(dataset_chips: str, dataset_labels: str) -> Path:
     cache_key = hashlib.sha256(f"{dataset_chips}|{dataset_labels}".encode()).hexdigest()[:16]
     return Path(tempfile.gettempdir()) / f"ramp_training_{cache_key}"
+
 
 def preprocess(
     input_path: str,
@@ -336,12 +334,8 @@ def _prepare_training_split(
     )
     if not 0.0 < val_fraction < 1.0:
         raise ValueError("val_fraction must be in (0.0, 1.0)")
-    boundary_width = int(
-        hyperparameters.get("training.boundary_width", hyperparameters.get("boundary_width", 3))
-    )
-    contact_spacing = int(
-        hyperparameters.get("training.contact_spacing", hyperparameters.get("contact_spacing", 8))
-    )
+    boundary_width = int(hyperparameters.get("training.boundary_width", hyperparameters.get("boundary_width", 3)))
+    contact_spacing = int(hyperparameters.get("training.contact_spacing", hyperparameters.get("contact_spacing", 8)))
     seed = int(hyperparameters.get("training.split_seed", hyperparameters.get("split_seed", 42)))
 
     work_dir = _training_cache_dir(dataset_chips, dataset_labels)
@@ -414,9 +408,7 @@ def train_ramp_model(
     learning_rate = float(
         hyperparameters.get(
             "training.learning_rate",
-            hyperparameters.get(
-                "learning_rate", RAMP_CONFIG["optimizer"]["optimizer_fn_parms"]["learning_rate"]
-            ),
+            hyperparameters.get("learning_rate", RAMP_CONFIG["optimizer"]["optimizer_fn_parms"]["learning_rate"]),
         )
     )
     patience = int(
@@ -636,7 +628,6 @@ def predict(session: Any, input_images: str, params: dict[str, Any]) -> dict[str
     return _build_feature_collection(features)
 
 
-
 @step
 def split_dataset(
     dataset_chips: str,
@@ -666,9 +657,7 @@ def train_model(
 
     ramp_train_dir = Path(split_info["_ramp_train_dir"])
     if not ramp_train_dir.exists():
-        split_info = _prepare_training_split(
-            dataset_chips, dataset_labels, hyperparameters, force_rebuild=True
-        )
+        split_info = _prepare_training_split(dataset_chips, dataset_labels, hyperparameters, force_rebuild=True)
         ramp_train_dir = Path(split_info["_ramp_train_dir"])
 
     work_dir = split_info.get("_work_dir") or str(ramp_train_dir.parent)
@@ -704,9 +693,7 @@ def evaluate_model(
 
     ramp_train_dir = Path(split_info.get("_ramp_train_dir", ""))
     if not ramp_train_dir.exists():
-        split_info = _prepare_training_split(
-            dataset_chips, dataset_labels, hyperparameters, force_rebuild=True
-        )
+        split_info = _prepare_training_split(dataset_chips, dataset_labels, hyperparameters, force_rebuild=True)
         ramp_train_dir = Path(split_info["_ramp_train_dir"])
 
     val_chips_dir = ramp_train_dir / "val-chips"

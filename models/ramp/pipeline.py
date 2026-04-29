@@ -19,7 +19,6 @@ from zenml import log_metadata, pipeline, step
 from fair.zenml.steps import load_model
 
 _DEFAULT_MODEL_CACHE = Path("/workspace/.ramp_model_cache")
-_DEFAULT_RAMP_BASELINE_URL = "https://api-prod.fair.hotosm.org/api/v1/workspace/download/ramp/baseline.zip"
 _QUBVEL_EFFICIENTNET_RELEASE = "https://github.com/qubvel/efficientnet/releases/download/v0.0.1/"
 
 
@@ -129,14 +128,17 @@ def _ensure_ramp_baseline(base_model_weights: str, data_base_path: str | Path) -
     ``base_model_weights`` may be an HTTP(S) .zip URL (preferred), a local .zip,
     or a SavedModel directory. A pre-provisioned baseline under
     ``/app/ramp-data/baseline`` (from the RAMP utilities Docker image) is used
-    when present and no explicit URL is provided.
+    when present and no explicit URL is provided. If the pre-provisioned baseline
+    is missing, callers must provide `base_model_weights` (typically from STAC).
     """
     image_ck = Path("/app/ramp-data/baseline")
     if not base_model_weights and (image_ck / "saved_model.pb").exists():
         return image_ck
 
     if not base_model_weights:
-        base_model_weights = _DEFAULT_RAMP_BASELINE_URL
+        raise ValueError(
+            "RAMP baseline weights are required but were not provided. "
+        )
 
     return Path(resolve_model_href(base_model_weights, cache_dir=Path(data_base_path) / ".baseline_cache"))
 

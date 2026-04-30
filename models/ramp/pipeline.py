@@ -1,7 +1,5 @@
 """ZenML pipeline for RAMP (EfficientNetB0 + U-Net) building semantic segmentation."""
 
-from __future__ import annotations
-
 import hashlib
 import io
 import json
@@ -11,7 +9,7 @@ import shutil
 import tempfile
 import zipfile
 from pathlib import Path
-from typing import Annotated, Any, cast
+from typing import Annotated, Any, Optional, Union, cast
 from urllib.request import urlretrieve
 
 from zenml import log_metadata, pipeline, step
@@ -70,7 +68,7 @@ def _extract_zip(zip_path: Path, dest_dir: Path) -> None:
         zf.extractall(dest_dir)
 
 
-def resolve_model_href(model_uri: str, cache_dir: Path | None = None) -> str:
+def resolve_model_href(model_uri: str, cache_dir: Optional[Path] = None) -> str:
     """Resolve only .onnx or .zip model URIs to local paths.
     - .onnx -> local .onnx file path
     - .zip  -> extracted SavedModel directory path (folder containing saved_model.pb)
@@ -122,7 +120,7 @@ def resolve_model_href(model_uri: str, cache_dir: Path | None = None) -> str:
     raise ValueError(f"Unsupported model format for {model_uri!r}. Only .onnx and .zip are accepted.")
 
 
-def _ensure_ramp_baseline(base_model_weights: str, data_base_path: str | Path) -> Path:
+def _ensure_ramp_baseline(base_model_weights: str, data_base_path: Union[str, Path]) -> Path:
     """Return a local SavedModel directory for fine-tuning, downloading if necessary.
 
     ``base_model_weights`` may be an HTTP(S) .zip URL (preferred), a local .zip,
@@ -136,9 +134,7 @@ def _ensure_ramp_baseline(base_model_weights: str, data_base_path: str | Path) -
         return image_ck
 
     if not base_model_weights:
-        raise ValueError(
-            "RAMP baseline weights are required but were not provided. "
-        )
+        raise ValueError("RAMP baseline weights are required but were not provided. ")
 
     return Path(resolve_model_href(base_model_weights, cache_dir=Path(data_base_path) / ".baseline_cache"))
 
@@ -373,7 +369,7 @@ def train_ramp_model(
     ramp_train_dir: str,
     base_model_weights: str,
     hyperparameters: dict[str, Any],
-    data_base_path: str | None = None,
+    data_base_path: Optional[str] = None,
 ) -> Path:
     """Fine-tune EfficientNetB0 + U-Net and return the best SavedModel directory path."""
     # run_training reads RAMP_HOME at import time; set it first so saved_model lookups resolve.
@@ -464,30 +460,58 @@ def _unzip_savedmodel_bytes(blob: bytes) -> Path:
     raise RuntimeError("Zipped bytes do not contain a SavedModel (no saved_model.pb found).")
 
 
+def _normalize_to_savedmodel_dir(model_path: Union[str, Path], context: str = "model") -> Path:
+    """Return a directory containing `saved_model.pb` for a produced/loaded model path."""
+    candidate = Path(str(model_path))
+    if candidate.is_dir():
+        if (candidate / "saved_model.pb").exists():
+            return candidate
+        for nested in candidate.rglob("saved_model.pb"):
+            return nested.parent
+    elif candidate.is_file() and candidate.suffix.lower() in {".h5", ".keras"}:
+        import tensorflow as tf
+
+        model = tf.keras.models.load_model(str(candidate), compile=False)
+        exported_dir = Path(tempfile.mkdtemp(prefix="ramp_savedmodel_export_")) / "saved_model"
+        model.save(str(exported_dir), save_format="tf")
+        if (exported_dir / "saved_model.pb").exists():
+            return exported_dir
+    raise RuntimeError(f"{context} must resolve to a SavedModel directory containing saved_model.pb; got: {candidate}")
+
+
 def _restore_checkpoint(trained_model: Any) -> Path:
     """Restore a trained RAMP SavedModel from bytes, a SavedModel directory, or a .zip file."""
     if isinstance(trained_model, bytes):
         return _unzip_savedmodel_bytes(trained_model)
     if isinstance(trained_model, (str, Path)):
         p = Path(str(trained_model))
-        if p.is_dir() and (p / "saved_model.pb").exists():
-            return p
         if p.is_file() and p.suffix.lower() == ".zip":
             return _unzip_savedmodel_bytes(p.read_bytes())
+        return _normalize_to_savedmodel_dir(p, context="trained_model")
     raise TypeError(f"Cannot restore RAMP checkpoint from {type(trained_model).__name__}")
 
 
 def _convert_savedmodel_to_onnx_bytes(saved_model_dir: Path, opset: int = 13) -> bytes:
     """Convert a TF SavedModel directory to ONNX bytes via tf2onnx."""
     import tf2onnx
+    import tensorflow as tf
 
     with tempfile.TemporaryDirectory() as tmp:
         onnx_path = Path(tmp) / "model.onnx"
-        tf2onnx.convert.from_saved_model(
-            str(saved_model_dir),
-            output_path=str(onnx_path),
-            opset=opset,
-        )
+        from_saved_model = getattr(tf2onnx.convert, "from_saved_model", None)
+        if callable(from_saved_model):
+            from_saved_model(
+                str(saved_model_dir),
+                output_path=str(onnx_path),
+                opset=opset,
+            )
+        else:
+            model = tf.keras.models.load_model(str(saved_model_dir), compile=False)
+            tf2onnx.convert.from_keras(
+                model,
+                opset=opset,
+                output_path=str(onnx_path),
+            )
         return onnx_path.read_bytes()
 
 
@@ -650,9 +674,9 @@ def train_model(
     hyperparameters: dict[str, Any],
     split_info: dict[str, Any],
     num_classes: int = 4,
-    model_name: str | None = None,
-    base_model_id: str | None = None,
-    dataset_id: str | None = None,
+    model_name: Optional[str] = None,
+    base_model_id: Optional[str] = None,
+    dataset_id: Optional[str] = None,
 ) -> Annotated[bytes, "trained_model"]:
     """Fine-tune RAMP EfficientNetB0 U-Net; return the best SavedModel as zipped bytes."""
     _ = (num_classes, model_name, base_model_id, dataset_id)
@@ -669,9 +693,7 @@ def train_model(
         hyperparameters=hyperparameters,
         data_base_path=work_dir,
     )
-    saved_model_dir = final_model_path if final_model_path.is_dir() else final_model_path.parent
-    if not (saved_model_dir / "saved_model.pb").exists():
-        raise RuntimeError(f"Expected SavedModel at {saved_model_dir}; not found.")
+    saved_model_dir = _normalize_to_savedmodel_dir(final_model_path, context="train_model output")
 
     blob = _zip_savedmodel_dir(saved_model_dir)
     log_metadata(metadata={"saved_model_dir": str(saved_model_dir), "checkpoint_bytes": len(blob)})
@@ -685,7 +707,7 @@ def evaluate_model(
     dataset_labels: str,
     hyperparameters: dict[str, Any],
     split_info: dict[str, Any],
-    class_names: list[str] | None = None,
+    class_names: Optional[list[str]] = None,
 ) -> Annotated[dict[str, Any], "metrics"]:
     """Compute per-pixel building-class metrics on the validation split."""
     _ = class_names
@@ -778,12 +800,12 @@ def export_onnx(trained_model: Any) -> Annotated[bytes, "onnx_model"]:
 
 @step
 def run_inference(
-    model_uri: str | Path | Any,
+    model_uri: Union[str, Path, Any],
     input_images: str,
     prediction_path: str,
     output_dir: str,
     confidence: float = 0.5,
-    model_cache_dir: str | None = None,
+    model_cache_dir: Optional[str] = None,
 ) -> Annotated[dict[str, Any], "predictions"]:
     """Native-TF inference over georeferenced chips → building-footprint GeoJSON."""
     return infer_ramp_model(
@@ -825,12 +847,12 @@ def _patch_predictor_savedmodel_loader_for_tf215() -> None:
 
 
 def infer_ramp_model(
-    model_uri: str | Path | Any,
+    model_uri: Union[str, Path, Any],
     input_path: str,
     prediction_path: str,
     output_dir: str,
     confidence: float = 0.5,
-    model_cache_dir: str | None = None,
+    model_cache_dir: Optional[str] = None,
 ) -> dict[str, Any]:
     """Run fairpredictor-style TF inference and return the merged GeoJSON content."""
     _patch_predictor_savedmodel_loader_for_tf215()
@@ -918,7 +940,7 @@ def training_pipeline(
 def inference_pipeline(
     model_uri: str,
     input_images: str,
-    inference_params: dict[str, Any] | None = None,
+    inference_params: Optional[dict[str, Any]] = None,
     output_dir: str = "",
     chip_size: int = 256,
     num_classes: int = 4,

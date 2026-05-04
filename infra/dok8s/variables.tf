@@ -14,7 +14,8 @@ variable "region" {
 }
 
 variable "domain" {
-  type = string
+  type        = string
+  description = "Wildcard base domain, e.g. fair.example.com"
 }
 
 variable "infra_node_size" {
@@ -27,22 +28,18 @@ variable "ml_node_size" {
   default = "s-4vcpu-8gb"
 }
 
-variable "spaces_bucket" {
+variable "ml_max_nodes" {
+  type    = number
+  default = 5
+}
+
+variable "letsencrypt_email" {
   type = string
-}
-
-variable "spaces_access_key" {
-  type      = string
-  sensitive = true
-}
-
-variable "spaces_secret_key" {
-  type      = string
-  sensitive = true
 }
 
 variable "mlflow_admin_user" {
-  type = string
+  type    = string
+  default = "admin"
 }
 
 variable "mlflow_admin_password" {
@@ -51,24 +48,11 @@ variable "mlflow_admin_password" {
 }
 
 variable "zenml_admin_user" {
-  type = string
+  type    = string
+  default = "default"
 }
 
 variable "zenml_admin_password" {
   type      = string
   sensitive = true
-}
-
-variable "letsencrypt_email" {
-  type = string
-}
-
-variable "insecure_ssl" {
-  type    = bool
-  default = false
-}
-
-variable "public_read" {
-  type    = bool
-  default = false
 }

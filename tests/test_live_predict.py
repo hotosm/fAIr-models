@@ -75,7 +75,9 @@ def test_predict_live_routes_with_knative_host_header(monkeypatch) -> None:
 
     result = client.predict_live(
         "resnet18-classification",
-        image_path="data/sample/predict/oam",
+        image_uri="https://tiles.openaerialmap.org/abc/{z}/{x}/{y}",
+        bbox=[85.5, 27.6, 85.52, 27.63],
+        zoom=18,
         predict_base_url="https://predict.example.com",
         collection=BASE_MODELS_COLLECTION,
     )
@@ -84,7 +86,13 @@ def test_predict_live_routes_with_knative_host_header(monkeypatch) -> None:
     assert captured["url"] == "https://predict.example.com/resnet18-classification/predict"
     assert "headers" not in captured["kwargs"]
     assert captured["kwargs"]["verify"] is False
-    assert captured["kwargs"]["json"]["params"] == {"confidence_threshold": 0.5}
+    sent = captured["kwargs"]["json"]
+    assert sent["params"] == {"confidence_threshold": 0.5}
+    assert sent["image_uri"] == "https://tiles.openaerialmap.org/abc/{z}/{x}/{y}"
+    assert sent["bbox"] == [85.5, 27.6, 85.52, 27.63]
+    assert sent["zoom"] == 18
+    assert sent["model_uri"] == "https://example.com/model.onnx"
+    assert "input_images" not in sent
 
 
 def test_predict_live_uses_public_model_domain_when_configured(monkeypatch) -> None:
@@ -105,7 +113,9 @@ def test_predict_live_uses_public_model_domain_when_configured(monkeypatch) -> N
 
     result = client.predict_live(
         "resnet18-classification",
-        image_path="data/sample/predict/oam",
+        image_uri="https://tiles.openaerialmap.org/abc/{z}/{x}/{y}",
+        bbox=[85.5, 27.6, 85.52, 27.63],
+        zoom=18,
         collection=BASE_MODELS_COLLECTION,
     )
 

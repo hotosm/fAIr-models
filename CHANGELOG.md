@@ -12,6 +12,80 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - add ZenML integration for model promotion and STAC catalog synchronization
 - implement STAC catalog management and builders for datasets and models
 
+## v0.1.1 (2026-05-03)
+
+### Fix
+
+- **models**: added models in fair packaging
+
+## v0.1.0 (2026-05-03)
+
+### Feat
+
+- **api**: add stac api backend in the fair-models
+- **predictor**: adds geomltoolkits in the predict api
+- **knative**: model serve
+- **loss**: adds loss history record
+- **onnx**: adds onnx feature building
+- **opentofu**: adds opentofu with dok8s implementation
+- **test**: adds test cases for the base models and the validators
+- **freeze**: encoder fixes and stac item
+- **model-validation**: adds validation for weight
+- **schema**: introduces stac schema in hosted env
+- **dtataset**: stac item
+- **api**: exoose high level api
+
+### Fix
+
+- **local**: stac api url edge case
+- **validation**: fix validation on the hyperparam key spec
+- **ci**: bump docker build version v7
+- **inference**: add s3fs in inference dep list
+- **distro**: fix inference image distroless
+- **ci**: checks eerymodel
+- **test**: drop test coverage for models
+- **ci**: catalog
+- **onnx**: checkpoint addition
+- **ci**: fix the coverage report to be model specific
+- **ci**: added codecovtoken
+- **ci**: add kubernetics to add test
+- **knative**: fixes public domain dns mapping
+- **dockerfile**: add fix for setuptools
+- **coverage**: 6o percent drop
+- **docker**: fixes the setup builds with hatch vcs
+- **coverage**: fix the pipeline and add the coverage ( ci integration pipeline )
+- **hyperparam**: enforce required hyperparam for training and inference with epoch
+- **bump**: latest version of model images
+- **test**: added test cases providers
+- **provider**: added providers option in the stac metadata for models too
+- **patch**: patch the log metdata in test
+- **test-cases**: failing on local mode hence check it with upath
+- **env**: migrates .env to tf vars opentofu
+- **basemodels**: add deprecated lifecycle
+- **pin**: pin zenml version in the lock file
+- **docker**: fixes ci tests
+- **deps**: remove rasterio deps from the main lib
+- **ci**: fixes test cases added each test cases
+- **session**: fix session never waited problem
+- **pytest**: fix the path listing discovery
+- **client**: fixes bug on inference when it loads last artifacts
+- **ci**: remove unnecessary zenml pipeline
+- **hotfix**: weight resolve on string
+- **zenml**: config
+- **ci**: add correct path for the workflow ci
+- **schemas**: ci not being served static json
+- **i**: ci
+- **dataset**: adds seg version
+- **href**: fix the absolute uri being returned in stac items
+- **db**: fix db creds parse
+- **env**: fixes db multiple env issue
+- **classification**: add pyproj to classification
+- **yolo**: checkpoints issue in k8s pod
+
+### Perf
+
+- **chore-bump**: version of stac item
+
 ## v0.0.7 (2026-04-05)
 
 ### Feat

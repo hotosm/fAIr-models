@@ -11,6 +11,7 @@ from typing import Annotated, Any
 from zenml import log_metadata, pipeline, step
 
 from fair.zenml.instrumentation import log_evaluation_results, mlflow_training_context
+from fair.zenml.materializers import ONNXMaterializer
 
 MODEL_INPUT_SIZE = 256
 
@@ -408,7 +409,7 @@ def run_inference(
     return predict(session, input_images, inference_params)
 
 
-@step
+@step(output_materializers={"onnx_model": ONNXMaterializer})
 def export_onnx(
     trained_model: Any,
     hyperparameters: dict[str, Any],

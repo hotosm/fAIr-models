@@ -190,7 +190,8 @@ def test_artifact_store_setup_and_registration_error_paths(
     assert upload_calls == [("s3://bucket", "base-models")]
 
     monkeypatch.setattr(client_module, "Client", lambda: (_ for _ in ()).throw(RuntimeError("boom")))
-    assert client._artifact_store_prefix() is None
+    with pytest.raises(RuntimeError, match="boom"):
+        client._artifact_store_prefix()
 
     catalog_calls: list[str] = []
     subprocess_calls: list[list[str]] = []
@@ -247,8 +248,32 @@ def test_backend_and_dataclass_registration_branches(
 
     monkeypatch.setattr(builtins, "__import__", _fake_import)
 
-    with pytest.raises(FairClientError, match="dsn is required"):
-        FairClient(stac_api_url="https://stac.example.com", config_dir=str(tmp_path))._get_backend()
+    class _DummyStacApiBackend:
+        def __init__(self, stac_api_url: str, *, api_key: str | None = None) -> None:
+            self.stac_api_url = stac_api_url
+            self.api_key = api_key
+
+    def _fake_import_with_api(name: str, *args: Any, **kwargs: Any) -> Any:
+        if name == "fair.stac.api_backend":
+            return SimpleNamespace(StacApiBackend=_DummyStacApiBackend)
+        if name == "fair.stac.pgstac_backend":
+            return SimpleNamespace(PgStacBackend=_DummyPgStacBackend)
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", _fake_import_with_api)
+
+    api_backend = FairClient(stac_api_url="https://stac.example.com", config_dir=str(tmp_path))._get_backend()
+    assert isinstance(api_backend, _DummyStacApiBackend)
+    assert api_backend.stac_api_url == "https://stac.example.com"
+    assert api_backend.api_key is None
+
+    api_backend_with_key = FairClient(
+        stac_api_url="https://stac.example.com",
+        stac_api_key="bearer-token",
+        config_dir=str(tmp_path),
+    )._get_backend()
+    assert isinstance(api_backend_with_key, _DummyStacApiBackend)
+    assert api_backend_with_key.api_key == "bearer-token"
 
     remote_backend = FairClient(
         stac_api_url="https://stac.example.com",
@@ -362,7 +387,12 @@ def test_dataset_and_prediction_error_paths(monkeypatch: pytest.MonkeyPatch, tmp
         client.predict("missing-model", str(tmp_path))
 
     with pytest.raises(FairClientError, match="not found in 'local-models'"):
-        client.predict_live("missing-model", str(tmp_path))
+        client.predict_live(
+            "missing-model",
+            image_uri="https://tiles.example.com/{z}/{x}/{y}",
+            bbox=[0.0, 0.0, 1.0, 1.0],
+            zoom=18,
+        )
 
 
 def test_dataset_param_and_finetune_validation_error_paths(

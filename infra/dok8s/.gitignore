@@ -1,5 +1,6 @@
 .env
-.env.bak
+.env.helmfile
+.lb-ip
 .dok8s-stack-resolved.yaml
 
 # OpenTofu

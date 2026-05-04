@@ -231,6 +231,22 @@
                 "type": "bool",
                 "default": true,
                 "description": "Freeze pretrained backbone layers during finetuning"
+            },
+            {
+                "key": "confidence_threshold",
+                "type": "float",
+                "default": 0.25,
+                "min": 0.0,
+                "max": 1.0,
+                "description": "Minimum detection confidence score to retain a predicted bounding box at inference"
+            },
+            {
+                "key": "iou_threshold",
+                "type": "float",
+                "default": 0.45,
+                "min": 0.0,
+                "max": 1.0,
+                "description": "IoU threshold for non-maximum suppression during inference"
             }
         ]
     },

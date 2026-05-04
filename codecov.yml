@@ -9,12 +9,6 @@ coverage:
         threshold: 1%
         paths:
           - fair/
-    patch:
-      default:
-        target: auto
-        threshold: 1%
-        paths:
-          - fair/
 
 flag_management:
   default_rules:

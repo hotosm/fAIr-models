@@ -39,7 +39,7 @@ def s3_uri_to_http_url(s3_uri: str) -> str:
         return s3_uri
     bucket = parsed.netloc
     key = parsed.path.lstrip("/")
-    endpoint = os.environ.get("AWS_ENDPOINT_URL", "").rstrip("/")
+    endpoint = os.environ.get("FAIR_S3_PUBLIC_URL", os.environ.get("AWS_ENDPOINT_URL", "")).rstrip("/")
     if endpoint:
         return f"{endpoint}/{bucket}/{key}"
     region = os.environ.get("AWS_REGION", os.environ.get("AWS_DEFAULT_REGION", "us-east-1"))
@@ -50,8 +50,10 @@ def http_url_to_s3_uri(url: str) -> str:
     parsed = urlparse(url)
     if parsed.scheme not in ("http", "https"):
         return url
-    endpoint = os.environ.get("AWS_ENDPOINT_URL", "").rstrip("/")
-    if endpoint:
+    for env_var in ("FAIR_S3_PUBLIC_URL", "AWS_ENDPOINT_URL"):
+        endpoint = os.environ.get(env_var, "").rstrip("/")
+        if not endpoint:
+            continue
         endpoint_parsed = urlparse(endpoint)
         if parsed.hostname == endpoint_parsed.hostname:
             path_parts = parsed.path.lstrip("/").split("/", 1)

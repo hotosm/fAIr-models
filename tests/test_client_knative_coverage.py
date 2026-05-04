@@ -318,6 +318,10 @@ def test_setup_register_base_model_and_register_dataset_paths(monkeypatch, tmp_p
     assert client.register_base_model("base.json") == "resnet18-classification"
     assert item.properties["version"] == "2"
     assert archived == ["done"]
+    assert ensured == [], "local mode (no stac_api_url) must not provision a KNative service"
+
+    client._stac_api_url = "https://stac.example.com"
+    assert client.register_base_model("base.json") == "resnet18-classification"
     assert ensured == ["resnet18-classification"]
 
     monkeypatch.setattr(
@@ -325,7 +329,9 @@ def test_setup_register_base_model_and_register_dataset_paths(monkeypatch, tmp_p
         "ensure_knative_service",
         lambda published: (_ for _ in ()).throw(RuntimeError("boom")),
     )
-    assert client.register_base_model("base.json") == "resnet18-classification"
+    with pytest.raises(RuntimeError, match="boom"):
+        client.register_base_model("base.json")
+    client._stac_api_url = None
 
     source_labels = tmp_path / "labels.geojson"
     source_labels.write_text("{}")
@@ -342,8 +348,9 @@ def test_setup_register_base_model_and_register_dataset_paths(monkeypatch, tmp_p
     monkeypatch.setattr(client_module, "build_dataset_item", lambda **kwargs: published_dataset)
     monkeypatch.setattr(client_module, "validate_item", lambda _: [])
 
-    assert client._register_dataset_from_item("dataset.json") == "published-dataset"
+    assert client._register_dataset_from_item("dataset.json", user_id="anonymous") == "published-dataset"
     assert client.register_dataset("dataset.json") == "published-dataset"
+    assert client.register_dataset("dataset.json", user_id="other-user") == "published-dataset"
 
     monkeypatch.setattr(
         client_module,
@@ -362,7 +369,7 @@ def test_setup_register_base_model_and_register_dataset_paths(monkeypatch, tmp_p
         user_id="tester",
         providers=[{"name": "provider"}],
     )
-    assert client._register_dataset_from_params(params) == "params-dataset"
+    assert client._register_dataset_from_params(params, user_id="anonymous") == "params-dataset"
     assert client.register_dataset(params) == "params-dataset"
 
 
@@ -478,13 +485,6 @@ def test_predict_live_error_paths_and_success(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(client, "_get_backend", lambda: backend)
     monkeypatch.setattr(client, "_artifact_store_prefix", lambda: "s3://bucket")
 
-    upload_calls: list[tuple[str, str]] = []
-    monkeypatch.setattr(
-        client_module,
-        "upload_local_directory",
-        lambda path, remote: upload_calls.append((str(path), remote)),
-    )
-
     captured: dict[str, Any] = {}
 
     def fake_post(url: str, **kwargs: Any) -> DummyResponse:
@@ -495,27 +495,50 @@ def test_predict_live_error_paths_and_success(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(httpx, "post", fake_post)
     monkeypatch.setenv("FAIR_PREDICT_VERIFY_SSL", "no")
 
+    image_uri = "https://tiles.example.com/{z}/{x}/{y}"
+    bbox = [85.5, 27.6, 85.52, 27.63]
+    zoom = 18
+    predict_base_url = "https://predict.example.com"
+
     result = client.predict_live(
         local_model.id,
-        str(tmp_path),
+        image_uri=image_uri,
+        bbox=bbox,
+        zoom=zoom,
+        predict_base_url=predict_base_url,
         collection=LOCAL_MODELS_COLLECTION,
-        predict_base_url="https://predict.example.com",
     )
     assert result == {"ok": True}
-    assert upload_calls[-1][1] == f"s3://bucket/predict/{local_model.id}/input"
     assert captured["url"] == "https://predict.example.com/resnet18-classification/predict"
     assert captured["kwargs"]["verify"] is False
+    sent = captured["kwargs"]["json"]
+    assert sent["image_uri"] == image_uri
+    assert sent["bbox"] == bbox
+    assert sent["zoom"] == zoom
+    assert "input_images" not in sent
 
     missing_model_backend = DummyBackend()
     monkeypatch.setattr(client, "_get_backend", lambda: missing_model_backend)
     with pytest.raises(FairClientError):
-        client.predict_live("missing", str(tmp_path), predict_base_url="https://predict.example.com")
+        client.predict_live(
+            "missing",
+            image_uri=image_uri,
+            bbox=bbox,
+            zoom=zoom,
+            predict_base_url=predict_base_url,
+        )
 
     no_asset_item = _build_item("no-asset")
     no_asset_backend = DummyBackend({(LOCAL_MODELS_COLLECTION, no_asset_item.id): no_asset_item})
     monkeypatch.setattr(client, "_get_backend", lambda: no_asset_backend)
     with pytest.raises(FairClientError):
-        client.predict_live(no_asset_item.id, str(tmp_path), predict_base_url="https://predict.example.com")
+        client.predict_live(
+            no_asset_item.id,
+            image_uri=image_uri,
+            bbox=bbox,
+            zoom=zoom,
+            predict_base_url=predict_base_url,
+        )
 
 
 def test_knative_helpers_and_gateway_management(monkeypatch) -> None:

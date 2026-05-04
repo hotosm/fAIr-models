@@ -14,6 +14,7 @@ from fair.stac.constants import BASE_MODELS_COLLECTION, DATASETS_COLLECTION, LOC
 from fair.stac.validators import validate_model_asset_urls
 from fair.stac.versioning import deprecate_and_link_successor, find_previous_active_item
 from fair.utils.data import s3_uri_to_http_url
+from fair.zenml.materializers import ONNX_FILENAME as _FAIR_ONNX_FILENAME
 from fair.zenml.metrics import read_fair_metrics, read_loss_history, read_training_wall_time
 
 log = logging.getLogger(__name__)
@@ -30,25 +31,48 @@ def promote_model_version(model_name: str, version: Annotated[int, Ge(1)]) -> No
     log.info("ZenML: %s v%d -> production", model_name, version)
 
 
-def _materialize_onnx_bytes(onnx_art: Any) -> bytes:
-    data = onnx_art.load()
-    if isinstance(data, bytes):
-        return data
-    if isinstance(data, bytearray | memoryview):
-        return bytes(data)
-    msg = f"'onnx_model' artifact did not materialize to bytes (got {type(data).__name__})"
-    raise TypeError(msg)
+# Source filenames for the artifacts we promote.
+# Source: zenml/integrations/pytorch/materializers/pytorch_module_materializer.py
+_CHECKPOINT_SOURCE_FILENAME = "checkpoint.pt"
+_CHECKPOINT_DEST_FILENAME = "weights.pt"
+
+# onnx_model: written by our own ONNXMaterializer (fair.zenml.materializers).
+_ONNX_SOURCE_FILENAME = _FAIR_ONNX_FILENAME
+_ONNX_DEST_FILENAME = _FAIR_ONNX_FILENAME
 
 
-def _materialize_checkpoint_bytes(weights_art: Any) -> bytes:
-    import io
+def _copy_artifact_to_prefix(
+    source_uri: str,
+    dest_dir: str,
+    source_filename: str,
+    dest_filename: str,
+) -> str:
 
-    import torch
+    from upath import UPath
 
-    model = weights_art.load()
-    buffer = io.BytesIO()
-    torch.save(model, buffer)
-    return buffer.getvalue()
+    src = UPath(source_uri)
+    dst = UPath(dest_dir) / dest_filename
+
+    if src.is_file():
+        log.info("Copy %s -> %s", src, dst)
+        dst.write_bytes(src.read_bytes())
+        return str(dst)
+
+    if not src.is_dir():
+        raise RuntimeError(f"Artifact URI is neither file nor directory: {source_uri}")
+
+    matches = [f for f in src.rglob("*") if f.is_file() and f.name == source_filename]
+    if len(matches) != 1:
+        all_files = sorted(f.name for f in src.rglob("*") if f.is_file())
+        raise RuntimeError(
+            f"Expected exactly one file named {source_filename!r} in {source_uri}; "
+            f"found {len(matches)} (all files: {all_files})"
+        )
+
+    chosen = matches[0]
+    log.info("Copy %s -> %s", chosen, dst)
+    dst.write_bytes(chosen.read_bytes())
+    return str(dst)
 
 
 def _upload_model_artifacts(
@@ -57,31 +81,33 @@ def _upload_model_artifacts(
     item_id: str,
     prefix: str | None,
 ) -> tuple[str, str]:
+    """Promote trained-model artifacts by copying their bytes from the ZenML
+    artifact store URI to a stable local-models prefix.
+
+    No torch / onnx imports. The bytes round-trip ZenML wrote during training
+    stay as bytes; we just relocate them to where the STAC item expects them.
+    """
     import tempfile
     from pathlib import Path
 
-    from upath import UPath
-
-    onnx_bytes = _materialize_onnx_bytes(onnx_art)
-    checkpoint_bytes = _materialize_checkpoint_bytes(weights_art)
-
     if prefix is None:
         local_root = Path(tempfile.mkdtemp(prefix=f"fair-local-{item_id}-"))
-        checkpoint_path = local_root / f"{item_id}.pt"
-        onnx_path = local_root / f"{item_id}.onnx"
-        checkpoint_path.write_bytes(checkpoint_bytes)
-        onnx_path.write_bytes(onnx_bytes)
-        return str(checkpoint_path), str(onnx_path)
+        checkpoint_dir = local_root / "checkpoint"
+        onnx_dir = local_root / "model"
+        checkpoint_dir.mkdir(parents=True, exist_ok=True)
+        onnx_dir.mkdir(parents=True, exist_ok=True)
+        checkpoint_path = _copy_artifact_to_prefix(
+            weights_art.uri, str(checkpoint_dir), _CHECKPOINT_SOURCE_FILENAME, _CHECKPOINT_DEST_FILENAME
+        )
+        onnx_path = _copy_artifact_to_prefix(onnx_art.uri, str(onnx_dir), _ONNX_SOURCE_FILENAME, _ONNX_DEST_FILENAME)
+        return checkpoint_path, onnx_path
 
-    checkpoint_dest = f"{prefix}/local-models/{item_id}/checkpoint/{item_id}.pt"
-    onnx_dest = f"{prefix}/local-models/{item_id}/model/{item_id}.onnx"
-
-    log.info("Writing checkpoint -> %s", checkpoint_dest)
-    UPath(checkpoint_dest).write_bytes(checkpoint_bytes)
-
-    log.info("Writing ONNX -> %s", onnx_dest)
-    UPath(onnx_dest).write_bytes(onnx_bytes)
-
+    checkpoint_dir = f"{prefix}/local-models/{item_id}/checkpoint"
+    onnx_dir = f"{prefix}/local-models/{item_id}/model"
+    checkpoint_dest = _copy_artifact_to_prefix(
+        weights_art.uri, checkpoint_dir, _CHECKPOINT_SOURCE_FILENAME, _CHECKPOINT_DEST_FILENAME
+    )
+    onnx_dest = _copy_artifact_to_prefix(onnx_art.uri, onnx_dir, _ONNX_SOURCE_FILENAME, _ONNX_DEST_FILENAME)
     return s3_uri_to_http_url(checkpoint_dest), s3_uri_to_http_url(onnx_dest)
 
 

@@ -1,0 +1,8 @@
+domain: ""
+ingressEnabled: false
+infraNodeSelector: {}
+zenmlAdminUser: ""
+zenmlAdminPassword: ""
+mlflowAdminUser: "admin"
+mlflowAdminPassword: "admin"
+letsencryptEmail: ""

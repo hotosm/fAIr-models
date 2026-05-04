@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import sys
 from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
@@ -34,8 +33,7 @@ from fair.zenml.config import (
     generate_training_config,
 )
 from fair.zenml.promotion import (
-    _materialize_checkpoint_bytes,
-    _materialize_onnx_bytes,
+    _copy_artifact_to_prefix,
     _upload_model_artifacts,
     _upload_training_metrics,
     publish_promoted_model,
@@ -373,58 +371,97 @@ def test_base_model_stac_items_publish_onnx_assets() -> None:
         assert "mlm:model" in model_asset.get("roles", [])
 
 
-def test_promotion_helpers_cover_materialization_and_storage(monkeypatch: pytest.MonkeyPatch) -> None:
-    onnx_art = MagicMock()
-    onnx_art.load.return_value = b"onnx"
-    assert _materialize_onnx_bytes(onnx_art) == b"onnx"
+def test_copy_artifact_to_prefix_takes_named_source_renames_to_dest(tmp_path: Path) -> None:
+    src = tmp_path / "src"
+    src.mkdir()
+    (src / "checkpoint.pt").write_bytes(b"ckpt")
+    (src / "entire_model.pt").write_bytes(b"full")
+    (src / "metadata.json").write_text("{}")
 
-    onnx_art.load.return_value = bytearray(b"abc")
-    assert _materialize_onnx_bytes(onnx_art) == b"abc"
+    dst = tmp_path / "dst"
+    dst.mkdir()
 
-    onnx_art.load.return_value = memoryview(b"xyz")
-    assert _materialize_onnx_bytes(onnx_art) == b"xyz"
+    result = _copy_artifact_to_prefix(str(src), str(dst), "checkpoint.pt", "weights.pt")
+    assert result.endswith("weights.pt")
+    assert (dst / "weights.pt").read_bytes() == b"ckpt"
+    assert not (dst / "entire_model.pt").exists()
+    assert not (dst / "metadata.json").exists()
 
-    onnx_art.load.return_value = "bad"
-    with pytest.raises(TypeError):
-        _materialize_onnx_bytes(onnx_art)
 
-    monkeypatch.setitem(
-        sys.modules,
-        "torch",
-        SimpleNamespace(save=lambda _model, buffer: buffer.write(b"checkpoint")),
-    )
+def test_copy_artifact_to_prefix_handles_single_file_uri(tmp_path: Path) -> None:
+    src = tmp_path / "anything.bin"
+    src.write_bytes(b"single-blob")
+    dst = tmp_path / "dst"
+    dst.mkdir()
+
+    result = _copy_artifact_to_prefix(str(src), str(dst), "ignored", "model.onnx")
+    assert (dst / "model.onnx").read_bytes() == b"single-blob"
+    assert result.endswith("model.onnx")
+
+
+def test_copy_artifact_to_prefix_raises_when_source_filename_missing(tmp_path: Path) -> None:
+    src = tmp_path / "src"
+    src.mkdir()
+    (src / "entire_model.pt").write_bytes(b"x")
+
+    dst = tmp_path / "dst"
+    dst.mkdir()
+
+    with pytest.raises(RuntimeError, match="Expected exactly one file"):
+        _copy_artifact_to_prefix(str(src), str(dst), "checkpoint.pt", "weights.pt")
+
+
+def test_copy_artifact_to_prefix_raises_on_multiple_matches(tmp_path: Path) -> None:
+    src = tmp_path / "src"
+    src.mkdir()
+    (src / "checkpoint.pt").write_bytes(b"a")
+    nested = src / "sub"
+    nested.mkdir()
+    (nested / "checkpoint.pt").write_bytes(b"b")
+
+    dst = tmp_path / "dst"
+    dst.mkdir()
+
+    with pytest.raises(RuntimeError, match="Expected exactly one file"):
+        _copy_artifact_to_prefix(str(src), str(dst), "checkpoint.pt", "weights.pt")
+
+
+def test_upload_model_artifacts_uses_uri_not_load(tmp_path: Path) -> None:
+    src_root = tmp_path / "artifacts"
+    weights_src = src_root / "weights"
+    weights_src.mkdir(parents=True)
+    (weights_src / "checkpoint.pt").write_bytes(b"weights-bytes")
+
+    onnx_src = src_root / "onnx"
+    onnx_src.mkdir(parents=True)
+    # Our ONNXMaterializer writes the bytes as model.onnx
+    (onnx_src / "model.onnx").write_bytes(b"onnx-bytes")
 
     weights_art = MagicMock()
-    weights_art.load.return_value = {"weights": [1, 2, 3]}
-    assert _materialize_checkpoint_bytes(weights_art) == b"checkpoint"
+    weights_art.uri = str(weights_src)
+    weights_art.load.side_effect = AssertionError("must NOT call .load()")
 
+    onnx_art = MagicMock()
+    onnx_art.uri = str(onnx_src)
+    onnx_art.load.side_effect = AssertionError("must NOT call .load()")
+
+    checkpoint_path, onnx_path = _upload_model_artifacts(weights_art, onnx_art, "demo", None)
+    assert Path(checkpoint_path).read_bytes() == b"weights-bytes"
+    assert Path(onnx_path).read_bytes() == b"onnx-bytes"
+
+
+def test_upload_training_metrics_local_and_remote(monkeypatch: pytest.MonkeyPatch) -> None:
     class DummyRemotePath:
         storage: ClassVar[dict[str, bytes | str]] = {}
 
         def __init__(self, path: str) -> None:
             self.path = path
 
-        def write_bytes(self, data: bytes) -> None:
-            self.storage[self.path] = data
-
         def write_text(self, data: str) -> None:
             self.storage[self.path] = data
 
     monkeypatch.setattr("upath.UPath", DummyRemotePath)
     monkeypatch.setattr("fair.zenml.promotion.s3_uri_to_http_url", lambda path: f"https://cdn.example/{path[5:]}")
-
-    checkpoint_path, onnx_path = _upload_model_artifacts(weights_art, MagicMock(load=lambda: b"onnx"), "demo", None)
-    assert Path(checkpoint_path).exists()
-    assert Path(onnx_path).exists()
-
-    remote_checkpoint, remote_onnx = _upload_model_artifacts(
-        weights_art,
-        MagicMock(load=lambda: b"onnx"),
-        "demo",
-        "s3://bucket",
-    )
-    assert remote_checkpoint == "https://cdn.example/bucket/local-models/demo/checkpoint/demo.pt"
-    assert remote_onnx == "https://cdn.example/bucket/local-models/demo/model/demo.onnx"
 
     local_metrics = _upload_training_metrics({"train_loss": [1.0], "val_loss": [2.0]}, "demo", None)
     assert local_metrics is not None and Path(local_metrics).exists()
@@ -438,12 +475,14 @@ def test_publish_promoted_model_covers_missing_onnx_and_local_store(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    monkeypatch.setitem(
-        sys.modules,
-        "torch",
-        SimpleNamespace(save=lambda _model, buffer: buffer.write(b"checkpoint")),
-    )
     manager = _catalog(tmp_path)
+
+    weights_dir = tmp_path / "weights-art"
+    weights_dir.mkdir()
+    (weights_dir / "checkpoint.pt").write_bytes(b"weights-bytes")
+    onnx_dir = tmp_path / "onnx-art"
+    onnx_dir.mkdir()
+    (onnx_dir / "model.onnx").write_bytes(b"onnx-bytes")
 
     run = MagicMock()
     run.steps.get.return_value = None
@@ -456,7 +495,7 @@ def test_publish_promoted_model_covers_missing_onnx_and_local_store(
     mv.run_metadata = {}
     weights_art = MagicMock()
     weights_art.id = "weights-artifact"
-    weights_art.load.return_value = {"weights": [1]}
+    weights_art.uri = str(weights_dir)
     mv.get_artifact.side_effect = lambda name: {"trained_model": weights_art}.get(name)
 
     client = MagicMock()
@@ -477,7 +516,7 @@ def test_publish_promoted_model_covers_missing_onnx_and_local_store(
 
     onnx_art = MagicMock()
     onnx_art.id = "onnx-artifact"
-    onnx_art.load.return_value = b"onnx"
+    onnx_art.uri = str(onnx_dir)
     mv.id = "mv-2"
     mv.get_artifact.side_effect = lambda name: {"trained_model": weights_art, "onnx_model": onnx_art}.get(name)
     monkeypatch.setattr(

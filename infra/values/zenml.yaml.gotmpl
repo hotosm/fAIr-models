@@ -1,0 +1,34 @@
+zenml:
+  image:
+    repository: ghcr.io/hotosm/zenml-postgres
+    tag: "0.93.3"
+    pullPolicy: IfNotPresent
+
+  debug: false
+  analyticsOptIn: false
+
+  ingress:
+    enabled: false
+
+  database:
+    url: "postgresql://postgres:postgres@postgres.fair.svc:5432/zenml"
+    backupStrategy: disabled
+
+  environment:
+    ZENML_SERVER_AUTO_ACTIVATE: "1"
+{{- if .Values.zenmlAdminUser }}
+    ZENML_DEFAULT_USER_NAME: {{ .Values.zenmlAdminUser | quote }}
+{{- end }}
+{{- if .Values.zenmlAdminPassword }}
+    ZENML_DEFAULT_USER_PASSWORD: {{ .Values.zenmlAdminPassword | quote }}
+{{- end }}
+    ZENML_STORE_SQL_POOL_SIZE: "10"
+    ZENML_STORE_SQL_MAX_OVERFLOW: "5"
+
+  resources:
+    requests: { cpu: 250m, memory: 512Mi }
+    limits: { cpu: "1", memory: 1Gi }
+{{- with .Values.infraNodeSelector }}
+nodeSelector:
+{{ toYaml . | indent 2 }}
+{{- end }}

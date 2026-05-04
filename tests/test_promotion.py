@@ -25,9 +25,11 @@ def _skip_url_validation(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
-def _stub_artifact_materializers(monkeypatch):
-    monkeypatch.setattr("fair.zenml.promotion._materialize_onnx_bytes", lambda _a: b"onnx-bytes")
-    monkeypatch.setattr("fair.zenml.promotion._materialize_checkpoint_bytes", lambda _a: b"pt-bytes")
+def _stub_artifact_copy(monkeypatch):
+    def _fake_copy(source_uri, dest_dir, source_filename, dest_filename):
+        return f"{dest_dir.rstrip('/')}/{dest_filename}"
+
+    monkeypatch.setattr("fair.zenml.promotion._copy_artifact_to_prefix", _fake_copy)
 
 
 @pytest.fixture()

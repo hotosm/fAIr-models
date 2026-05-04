@@ -136,6 +136,28 @@ class TestListItems:
         assert call_kwargs["json"]["limit"] == 5
 
 
+class TestItemExists:
+    def test_returns_true_for_200(self, _mock_deps, backend):
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        backend._http.get.return_value = mock_resp
+
+        assert backend.item_exists("base-models", "found") is True
+
+    def test_returns_false_for_404(self, _mock_deps, backend):
+        mock_resp = MagicMock()
+        mock_resp.status_code = 404
+        backend._http.get.return_value = mock_resp
+
+        assert backend.item_exists("base-models", "missing") is False
+
+
+class TestItemHref:
+    def test_builds_collection_item_url(self, _mock_deps, backend):
+        href = backend.item_href("datasets", "ds-9")
+        assert href == "http://localhost:8082/collections/datasets/items/ds-9"
+
+
 class TestDeprecateItem:
     def test_sets_deprecated_and_upserts(self, _mock_deps, backend):
         _, mock_loader = _mock_deps

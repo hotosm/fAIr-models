@@ -1,0 +1,9 @@
+domain: {{ requiredEnv "FAIR_DOMAIN" | quote }}
+letsencryptEmail: {{ requiredEnv "LETSENCRYPT_EMAIL" | quote }}
+mlflowAdminUser: {{ requiredEnv "MLFLOW_ADMIN_USER" | quote }}
+mlflowAdminPassword: {{ requiredEnv "MLFLOW_ADMIN_PASSWORD" | quote }}
+zenmlAdminUser: {{ requiredEnv "ZENML_ADMIN_USER" | quote }}
+zenmlAdminPassword: {{ requiredEnv "ZENML_ADMIN_PASSWORD" | quote }}
+ingressEnabled: true
+infraNodeSelector:
+  fair/role: infra

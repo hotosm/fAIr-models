@@ -1,0 +1,100 @@
+environments:
+  dev:
+    values:
+      - environments/dev.yaml
+  dok8s:
+    values:
+      - environments/dok8s.yaml.gotmpl
+
+---
+
+{{- $isDok8s := eq .Environment.Name "dok8s" }}
+
+repositories:
+  - name: ingress-nginx
+    url: https://kubernetes.github.io/ingress-nginx
+  - name: jetstack
+    url: https://charts.jetstack.io
+  - name: minio
+    url: https://charts.min.io/
+  - name: eoapi
+    url: https://devseed.com/eoapi-k8s/
+  - name: community-charts
+    url: https://community-charts.github.io/helm-charts
+  - name: knative-operator
+    url: https://knative.github.io/operator
+  - name: zenml-ecr
+    url: public.ecr.aws/zenml
+    oci: true
+
+helmDefaults:
+  wait: true
+  createNamespace: true
+  timeout: 600
+
+releases:
+  - name: ingress-nginx
+    namespace: ingress-nginx
+    chart: ingress-nginx/ingress-nginx
+    version: "4.15.1"
+    installed: {{ $isDok8s }}
+    values:
+      - controller:
+          service:
+            annotations:
+              service.beta.kubernetes.io/do-loadbalancer-name: fair-lb
+              service.beta.kubernetes.io/do-loadbalancer-size-unit: "1"
+          resources:
+            requests: { cpu: 100m, memory: 128Mi }
+            limits: { cpu: 500m, memory: 256Mi }
+
+  - name: cert-manager
+    namespace: cert-manager
+    chart: jetstack/cert-manager
+    version: "v1.20.1"
+    installed: {{ $isDok8s }}
+    values:
+      - crds:
+          enabled: true
+
+  - name: minio
+    namespace: fair
+    chart: minio/minio
+    version: "5.4.0"
+    values:
+      - values/minio.yaml.gotmpl
+
+  - name: stac
+    namespace: fair
+    chart: eoapi/eoapi
+    version: "0.12.2"
+    wait: false
+    needs:
+      - fair/minio
+    values:
+      - values/stac.yaml.gotmpl
+
+  - name: mlflow
+    namespace: fair
+    chart: community-charts/mlflow
+    version: "1.8.1"
+    needs:
+      - fair/minio
+    values:
+      - values/mlflow.yaml.gotmpl
+
+  - name: zenml
+    namespace: fair
+    chart: zenml-ecr/zenml
+    version: "0.93.3"
+    timeout: 480
+    needs:
+      - fair/minio
+    values:
+      - values/zenml.yaml.gotmpl
+
+  - name: knative-operator
+    namespace: knative-operator
+    chart: knative-operator/knative-operator
+    version: "v1.17.8"
+    installed: {{ $isDok8s }}

@@ -1,42 +1,61 @@
 terraform {
   required_version = ">= 1.6"
-
   required_providers {
     digitalocean = {
       source  = "digitalocean/digitalocean"
       version = "~> 2.46"
     }
-    helm = {
-      source  = "hashicorp/helm"
-      version = "~> 2.17"
-    }
-    kubernetes = {
-      source  = "hashicorp/kubernetes"
-      version = "~> 2.35"
-    }
-    http = {
-      source  = "hashicorp/http"
-      version = "~> 3.4"
+    local = {
+      source  = "hashicorp/local"
+      version = "~> 2.5"
     }
   }
 }
 
 provider "digitalocean" {
-  token             = var.do_token
-  spaces_access_id  = var.spaces_access_key
-  spaces_secret_key = var.spaces_secret_key
+  token = var.do_token
 }
 
-provider "kubernetes" {
-  host                   = digitalocean_kubernetes_cluster.this.endpoint
-  token                  = digitalocean_kubernetes_cluster.this.kube_config[0].token
-  cluster_ca_certificate = base64decode(digitalocean_kubernetes_cluster.this.kube_config[0].cluster_ca_certificate)
-}
+data "digitalocean_kubernetes_versions" "this" {}
 
-provider "helm" {
-  kubernetes {
-    host                   = digitalocean_kubernetes_cluster.this.endpoint
-    token                  = digitalocean_kubernetes_cluster.this.kube_config[0].token
-    cluster_ca_certificate = base64decode(digitalocean_kubernetes_cluster.this.kube_config[0].cluster_ca_certificate)
+resource "digitalocean_kubernetes_cluster" "this" {
+  name    = var.cluster_name
+  region  = var.region
+  version = data.digitalocean_kubernetes_versions.this.latest_version
+
+  node_pool {
+    name       = "infra"
+    size       = var.infra_node_size
+    node_count = 1
+    labels = {
+      "fair/role" = "infra"
+    }
   }
+}
+
+resource "digitalocean_kubernetes_node_pool" "ml" {
+  cluster_id = digitalocean_kubernetes_cluster.this.id
+  name       = "ml"
+  size       = var.ml_node_size
+  auto_scale = true
+  min_nodes  = 0
+  max_nodes  = var.ml_max_nodes
+  labels = {
+    "fair/workload"           = "ml"
+    "${var.domain}/training"  = "true"
+    "${var.domain}/inference" = "true"
+  }
+}
+
+resource "local_file" "env_helmfile" {
+  filename        = "${path.module}/.env.helmfile"
+  file_permission = "0600"
+  content         = <<-EOT
+    export FAIR_DOMAIN=${var.domain}
+    export LETSENCRYPT_EMAIL=${var.letsencrypt_email}
+    export MLFLOW_ADMIN_USER=${var.mlflow_admin_user}
+    export MLFLOW_ADMIN_PASSWORD=${var.mlflow_admin_password}
+    export ZENML_ADMIN_USER=${var.zenml_admin_user}
+    export ZENML_ADMIN_PASSWORD=${var.zenml_admin_password}
+  EOT
 }

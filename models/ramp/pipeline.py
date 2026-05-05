@@ -9,7 +9,7 @@ import shutil
 import tempfile
 import zipfile
 from pathlib import Path
-from typing import Annotated, Any, Optional, Union, cast
+from typing import Annotated, Any, cast
 from urllib.request import urlretrieve
 
 from zenml import log_metadata, pipeline, step
@@ -68,7 +68,7 @@ def _extract_zip(zip_path: Path, dest_dir: Path) -> None:
         zf.extractall(dest_dir)
 
 
-def resolve_model_href(model_uri: str, cache_dir: Optional[Path] = None) -> str:
+def resolve_model_href(model_uri: str, cache_dir: Path | None = None) -> str:
     """Resolve only .onnx or .zip model URIs to local paths.
     - .onnx -> local .onnx file path
     - .zip  -> extracted SavedModel directory path (folder containing saved_model.pb)
@@ -120,7 +120,7 @@ def resolve_model_href(model_uri: str, cache_dir: Optional[Path] = None) -> str:
     raise ValueError(f"Unsupported model format for {model_uri!r}. Only .onnx and .zip are accepted.")
 
 
-def _ensure_ramp_baseline(base_model_weights: str, data_base_path: Union[str, Path]) -> Path:
+def _ensure_ramp_baseline(base_model_weights: str, data_base_path: str | Path) -> Path:
     """Return a local SavedModel directory for fine-tuning, downloading if necessary.
 
     ``base_model_weights`` may be an HTTP(S) .zip URL (preferred), a local .zip,
@@ -369,7 +369,7 @@ def train_ramp_model(
     ramp_train_dir: str,
     base_model_weights: str,
     hyperparameters: dict[str, Any],
-    data_base_path: Optional[str] = None,
+    data_base_path: str | None = None,
 ) -> Path:
     """Fine-tune EfficientNetB0 + U-Net and return the best SavedModel directory path."""
     # run_training reads RAMP_HOME at import time; set it first so saved_model lookups resolve.
@@ -460,7 +460,7 @@ def _unzip_savedmodel_bytes(blob: bytes) -> Path:
     raise RuntimeError("Zipped bytes do not contain a SavedModel (no saved_model.pb found).")
 
 
-def _normalize_to_savedmodel_dir(model_path: Union[str, Path], context: str = "model") -> Path:
+def _normalize_to_savedmodel_dir(model_path: str | Path, context: str = "model") -> Path:
     """Return a directory containing `saved_model.pb` for a produced/loaded model path."""
     candidate = Path(str(model_path))
     if candidate.is_dir():
@@ -493,8 +493,8 @@ def _restore_checkpoint(trained_model: Any) -> Path:
 
 def _convert_savedmodel_to_onnx_bytes(saved_model_dir: Path, opset: int = 13) -> bytes:
     """Convert a TF SavedModel directory to ONNX bytes via tf2onnx."""
-    import tf2onnx
     import tensorflow as tf
+    import tf2onnx
 
     with tempfile.TemporaryDirectory() as tmp:
         onnx_path = Path(tmp) / "model.onnx"
@@ -674,9 +674,9 @@ def train_model(
     hyperparameters: dict[str, Any],
     split_info: dict[str, Any],
     num_classes: int = 4,
-    model_name: Optional[str] = None,
-    base_model_id: Optional[str] = None,
-    dataset_id: Optional[str] = None,
+    model_name: str | None = None,
+    base_model_id: str | None = None,
+    dataset_id: str | None = None,
 ) -> Annotated[bytes, "trained_model"]:
     """Fine-tune RAMP EfficientNetB0 U-Net; return the best SavedModel as zipped bytes."""
     _ = (num_classes, model_name, base_model_id, dataset_id)
@@ -707,7 +707,7 @@ def evaluate_model(
     dataset_labels: str,
     hyperparameters: dict[str, Any],
     split_info: dict[str, Any],
-    class_names: Optional[list[str]] = None,
+    class_names: list[str] | None = None,
 ) -> Annotated[dict[str, Any], "metrics"]:
     """Compute per-pixel building-class metrics on the validation split."""
     _ = class_names
@@ -800,12 +800,12 @@ def export_onnx(trained_model: Any) -> Annotated[bytes, "onnx_model"]:
 
 @step
 def run_inference(
-    model_uri: Union[str, Path, Any],
+    model_uri: str | Path | Any,
     input_images: str,
     prediction_path: str,
     output_dir: str,
     confidence: float = 0.5,
-    model_cache_dir: Optional[str] = None,
+    model_cache_dir: str | None = None,
 ) -> Annotated[dict[str, Any], "predictions"]:
     """Native-TF inference over georeferenced chips → building-footprint GeoJSON."""
     return infer_ramp_model(
@@ -847,12 +847,12 @@ def _patch_predictor_savedmodel_loader_for_tf215() -> None:
 
 
 def infer_ramp_model(
-    model_uri: Union[str, Path, Any],
+    model_uri: str | Path | Any,
     input_path: str,
     prediction_path: str,
     output_dir: str,
     confidence: float = 0.5,
-    model_cache_dir: Optional[str] = None,
+    model_cache_dir: str | None = None,
 ) -> dict[str, Any]:
     """Run fairpredictor-style TF inference and return the merged GeoJSON content."""
     _patch_predictor_savedmodel_loader_for_tf215()
@@ -940,7 +940,7 @@ def training_pipeline(
 def inference_pipeline(
     model_uri: str,
     input_images: str,
-    inference_params: Optional[dict[str, Any]] = None,
+    inference_params: dict[str, Any] | None = None,
     output_dir: str = "",
     chip_size: int = 256,
     num_classes: int = 4,

@@ -13,6 +13,7 @@ from urllib.request import urlretrieve
 
 from zenml import log_metadata, pipeline, step
 
+from fair.zenml.materializers import CheckpointBytesMaterializer, ONNXMaterializer
 from fair.zenml.steps import load_model
 
 _DEFAULT_MODEL_CACHE = Path("/workspace/.ramp_model_cache")
@@ -656,7 +657,7 @@ def split_dataset(
     return split_info
 
 
-@step
+@step(output_materializers={"trained_model": CheckpointBytesMaterializer})
 def train_model(
     dataset_chips: str,
     dataset_labels: str,
@@ -776,7 +777,7 @@ def evaluate_model(
     return metrics_dict
 
 
-@step
+@step(output_materializers={"onnx_model": ONNXMaterializer})
 def export_onnx(trained_model: Any) -> Annotated[bytes, "onnx_model"]:
     """Convert the trained RAMP SavedModel to ONNX bytes and validate."""
     import onnx

@@ -97,6 +97,116 @@
             "seed": 42,
             "description": "Preprocess chips + labels into 4-class multimasks, then seeded random train/validation split via hot_fair_utilities.split_training_2_validation."
         },
+        "fair:hyperparameters_spec": [
+            {
+                "key": "backbone",
+                "type": "str",
+                "default": "efficientnetb0",
+                "description": "Encoder backbone for U-Net segmentation model"
+            },
+            {
+                "key": "epochs",
+                "type": "int",
+                "default": 20,
+                "min": 1,
+                "max": 20,
+                "description": "Number of training epochs"
+            },
+            {
+                "key": "batch_size",
+                "type": "int",
+                "default": 8,
+                "min": 1,
+                "max": 16,
+                "description": "Samples per training batch"
+            },
+            {
+                "key": "learning_rate",
+                "type": "float",
+                "default": 0.0003,
+                "min": 1e-7,
+                "max": 1.0,
+                "description": "Optimizer learning rate"
+            },
+            {
+                "key": "val_ratio",
+                "type": "float",
+                "default": 0.15,
+                "min": 0.05,
+                "max": 0.5,
+                "description": "Fraction of data held out for validation"
+            },
+            {
+                "key": "split_seed",
+                "type": "int",
+                "default": 42,
+                "min": 0,
+                "max": 2147483647,
+                "description": "Random seed for reproducible train/val split"
+            },
+            {
+                "key": "boundary_width",
+                "type": "int",
+                "default": 3,
+                "min": 1,
+                "max": 10,
+                "description": "Width of building boundary class in multimasks"
+            },
+            {
+                "key": "contact_spacing",
+                "type": "int",
+                "default": 8,
+                "min": 1,
+                "max": 20,
+                "description": "Spacing for contact points between neighbouring buildings"
+            },
+            {
+                "key": "early_stopping_patience",
+                "type": "int",
+                "default": 10,
+                "min": 1,
+                "max": 50,
+                "description": "Epochs to wait before stopping if validation metric does not improve"
+            },
+            {
+                "key": "augmentation",
+                "type": "bool",
+                "default": false,
+                "description": "Enable data augmentation during training"
+            },
+            {
+                "key": "imgsz",
+                "type": "int",
+                "default": 256,
+                "min": 128,
+                "max": 512,
+                "description": "Input image size (square chips)"
+            },
+            {
+                "key": "num_classes",
+                "type": "int",
+                "default": 4,
+                "min": 2,
+                "max": 10,
+                "description": "Number of output classes (background, building, boundary, contact)"
+            },
+            {
+                "key": "confidence_threshold",
+                "type": "float",
+                "default": 0.5,
+                "min": 0.0,
+                "max": 1.0,
+                "description": "Minimum per-pixel confidence to retain a predicted building class at inference"
+            },
+            {
+                "key": "min_class_value",
+                "type": "int",
+                "default": 1,
+                "min": 0,
+                "max": 255,
+                "description": "Minimum class index value to retain as a foreground prediction at inference"
+            }
+        ],
         "inference_time_per_256x256": {
             "value": 45,
             "unit": "ms"

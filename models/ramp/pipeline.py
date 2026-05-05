@@ -1,6 +1,5 @@
 """ZenML pipeline for RAMP (EfficientNetB0 + U-Net) building semantic segmentation."""
 
-import hashlib
 import io
 import json
 import os
@@ -216,11 +215,6 @@ def _materialize_training_input(dataset_chips: str, dataset_labels: str, work_di
     return input_dir
 
 
-def _training_cache_dir(dataset_chips: str, dataset_labels: str) -> Path:
-    cache_key = hashlib.sha256(f"{dataset_chips}|{dataset_labels}".encode()).hexdigest()[:16]
-    return Path(tempfile.gettempdir()) / f"ramp_training_{cache_key}"
-
-
 def preprocess(
     input_path: str,
     output_path: str,
@@ -336,18 +330,14 @@ def _prepare_training_split(
     contact_spacing = int(hyperparameters.get("training.contact_spacing", hyperparameters.get("contact_spacing", 8)))
     seed = int(hyperparameters.get("training.split_seed", hyperparameters.get("split_seed", 42)))
 
-    work_dir = _training_cache_dir(dataset_chips, dataset_labels)
+    work_dir = Path(tempfile.mkdtemp(prefix="ramp_training_"))
     preprocessed_dir = work_dir / "preprocessed"
     ramp_train_dir = work_dir / "ramp_training_work"
 
-    if force_rebuild and work_dir.exists():
-        shutil.rmtree(work_dir)
-
-    if not ramp_train_dir.exists():
-        work_dir.mkdir(parents=True, exist_ok=True)
-        input_dir = _materialize_training_input(dataset_chips, dataset_labels, work_dir)
-        preprocess(str(input_dir), str(preprocessed_dir), boundary_width, contact_spacing)
-        split_training_2_validation(str(preprocessed_dir), str(ramp_train_dir), multimasks=True)
+    work_dir.mkdir(parents=True, exist_ok=True)
+    input_dir = _materialize_training_input(dataset_chips, dataset_labels, work_dir)
+    preprocess(str(input_dir), str(preprocessed_dir), boundary_width, contact_spacing)
+    split_training_2_validation(str(preprocessed_dir), str(ramp_train_dir), multimasks=True)
 
     train_count = len(list((ramp_train_dir / "chips").glob("*.tif")))
     val_count = len(list((ramp_train_dir / "val-chips").glob("*.tif")))

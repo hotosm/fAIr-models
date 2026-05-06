@@ -18,6 +18,14 @@ def _noop_mlflow_ctx(*_args: Any, **_kwargs: Any):
     yield
 
 
+class _FakeKerasModel:
+    def __init__(self, payload: bytes):
+        self._payload = payload
+
+    def save(self, path: str) -> None:
+        Path(path).write_bytes(self._payload)
+
+
 def test_split_dataset(toy_chips: Path, toy_labels: Path, base_hyperparameters: dict[str, Any]) -> None:
     from models.ramp.pipeline import split_dataset
 
@@ -52,15 +60,13 @@ def test_split_dataset(toy_chips: Path, toy_labels: Path, base_hyperparameters: 
 
 
 def test_train_model(toy_chips: Path, toy_labels: Path, base_hyperparameters: dict[str, Any], tmp_path: Path) -> None:
+    import tensorflow as tf
+
     from models.ramp.pipeline import train_model
 
     ramp_train_dir = tmp_path / "ramp_training_work"
     (ramp_train_dir / "chips").mkdir(parents=True)
     (ramp_train_dir / "val-chips").mkdir(parents=True)
-
-    fake_saved_model_dir = tmp_path / "saved_model"
-    fake_saved_model_dir.mkdir()
-    (fake_saved_model_dir / "saved_model.pb").write_bytes(b"\x08\x01")  # magic-enough stub
 
     split_info = {
         "_work_dir": str(tmp_path),
@@ -76,10 +82,14 @@ def test_train_model(toy_chips: Path, toy_labels: Path, base_hyperparameters: di
     hyperparameters = dict(base_hyperparameters)
     hyperparameters.update({"epochs": 1, "batch_size": 1})
 
+    expected = b"fake-keras-bytes"
+    fake_model_path = tmp_path / "best_model.keras"
+    fake_model_path.write_bytes(b"stub")
+
     with (
         patch("models.ramp.pipeline.mlflow_training_context", _noop_mlflow_ctx, create=True),
-        patch("models.ramp.pipeline.train_ramp_model", return_value=fake_saved_model_dir),
-        patch("models.ramp.pipeline._zip_savedmodel_dir", return_value=b"fake-savedmodel-zip"),
+        patch("models.ramp.pipeline.train_ramp_model", return_value=fake_model_path),
+        patch.object(tf.keras.models, "load_model", return_value=_FakeKerasModel(expected)),
         patch("models.ramp.pipeline.log_metadata"),
     ):
         model_bytes = train_model.entrypoint(
@@ -92,7 +102,7 @@ def test_train_model(toy_chips: Path, toy_labels: Path, base_hyperparameters: di
         )
 
     assert isinstance(model_bytes, bytes)
-    assert model_bytes == b"fake-savedmodel-zip"
+    assert model_bytes == expected
 
 
 def test_evaluate_model(
@@ -142,6 +152,7 @@ def test_evaluate_model(
 
 def test_export_onnx(tmp_path: Path) -> None:
     import onnx
+    import tensorflow as tf
     from onnx import TensorProto, helper
 
     from models.ramp.pipeline import export_onnx
@@ -154,13 +165,13 @@ def test_export_onnx(tmp_path: Path) -> None:
     toy_model = helper.make_model(graph, producer_name="test")
     toy_bytes = toy_model.SerializeToString()
 
-    fake_saved_model_dir = tmp_path / "saved_model"
-    fake_saved_model_dir.mkdir()
-    (fake_saved_model_dir / "saved_model.pb").write_bytes(b"\x08\x01")
+    fake_keras_path = tmp_path / "model.keras"
+    fake_keras_path.write_bytes(b"stub")
 
     with (
-        patch("models.ramp.pipeline._restore_checkpoint", return_value=fake_saved_model_dir),
-        patch("models.ramp.pipeline._convert_savedmodel_to_onnx_bytes", return_value=toy_bytes),
+        patch("models.ramp.pipeline._restore_checkpoint", return_value=fake_keras_path),
+        patch.object(tf.keras.models, "load_model", return_value=_FakeKerasModel(b"ignored")),
+        patch("tf2onnx.convert.from_keras", side_effect=lambda _m, opset, output_path: Path(output_path).write_bytes(toy_bytes)),
         patch("models.ramp.pipeline.log_metadata"),
     ):
         exported = export_onnx.entrypoint(trained_model=b"fake")

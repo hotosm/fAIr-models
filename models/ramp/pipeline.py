@@ -1,6 +1,5 @@
 """ZenML pipeline for RAMP (EfficientNetB0 + U-Net) building semantic segmentation."""
 
-import io
 import json
 import os
 import re
@@ -8,13 +7,12 @@ import shutil
 import tempfile
 import zipfile
 from pathlib import Path
-from typing import Annotated, Any, cast
+from typing import Annotated, Any
 from urllib.request import urlretrieve
 
 from zenml import log_metadata, pipeline, step
 
 from fair.zenml.materializers import CheckpointBytesMaterializer, ONNXMaterializer
-from fair.zenml.steps import load_model
 
 _DEFAULT_MODEL_CACHE = Path("/workspace/.ramp_model_cache")
 _QUBVEL_EFFICIENTNET_RELEASE = "https://github.com/qubvel/efficientnet/releases/download/v0.0.1/"
@@ -69,8 +67,9 @@ def _extract_zip(zip_path: Path, dest_dir: Path) -> None:
 
 
 def resolve_model_href(model_uri: str, cache_dir: Path | None = None) -> str:
-    """Resolve only .onnx or .zip model URIs to local paths.
+    """Resolve .onnx, .keras, or .zip model URIs to local paths.
     - .onnx -> local .onnx file path
+    - .keras -> local .keras file path
     - .zip  -> extracted SavedModel directory path (folder containing saved_model.pb)
     """
     if not isinstance(model_uri, str):
@@ -94,6 +93,18 @@ def resolve_model_href(model_uri: str, cache_dir: Path | None = None) -> str:
         if p.is_file():
             return str(p)
         raise FileNotFoundError(f"ONNX model not found: {p}")
+    # Keras single-file checkpoint
+    if suffix == ".keras":
+        if is_http:
+            dest = cache_dir / (Path(clean_uri).name or "model.keras")
+            if not dest.is_file():
+                urlretrieve(model_uri, dest)
+            return str(dest)
+        p = Path(model_uri).resolve()
+        if p.is_file():
+            return str(p)
+        raise FileNotFoundError(f"Keras model not found: {p}")
+
     # ZIP path -> must contain saved_model.pb somewhere inside
     if suffix == ".zip":
         stem = Path(clean_uri).stem or "ramp_model"
@@ -117,7 +128,7 @@ def resolve_model_href(model_uri: str, cache_dir: Path | None = None) -> str:
         for existing in dest_dir.rglob("saved_model.pb"):
             return str(existing.parent)
         raise RuntimeError(f"Zip from {model_uri} did not contain a valid SavedModel")
-    raise ValueError(f"Unsupported model format for {model_uri!r}. Only .onnx and .zip are accepted.")
+    raise ValueError(f"Unsupported model format for {model_uri!r}. Only .onnx, .keras and .zip are accepted.")
 
 
 def _ensure_ramp_baseline(base_model_weights: str, data_base_path: str | Path) -> Path:
@@ -408,12 +419,6 @@ def train_ramp_model(
             ),
         )
     )
-    if not 1 <= epochs <= 200:
-        raise ValueError(f"Resolved epochs={epochs} is outside [1, 200]")
-    if not 1 <= batch_size <= 64:
-        raise ValueError(f"Resolved batch_size={batch_size} is outside [1, 64]")
-    if not 1 <= patience <= 50:
-        raise ValueError(f"Resolved early_stopping_patience={patience} is outside [1, 50]")
 
     cfg = manage_fine_tuning_config(ramp_train_dir, epochs, batch_size, freeze_layers=False, multimasks=True)
     cfg["model"]["model_fn_parms"]["backbone"] = backbone
@@ -429,56 +434,22 @@ def train_ramp_model(
     return Path(final_model_path)
 
 
-def _zip_savedmodel_dir(saved_model_dir: Path) -> bytes:
-    """Zip a SavedModel directory into bytes for ZenML artifact persistence."""
-    buf = io.BytesIO()
-    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
-        for p in saved_model_dir.rglob("*"):
-            if p.is_file():
-                zf.write(p, arcname=p.relative_to(saved_model_dir))
-    return buf.getvalue()
-
-
-def _unzip_savedmodel_bytes(blob: bytes) -> Path:
-    """Extract a SavedModel zipped as bytes to a temp directory and return its path."""
-    dest = Path(tempfile.mkdtemp(prefix="ramp_savedmodel_"))
-    with zipfile.ZipFile(io.BytesIO(blob), "r") as zf:
-        zf.extractall(dest)
-    if (dest / "saved_model.pb").exists():
-        return dest
-    for candidate in dest.rglob("saved_model.pb"):
-        return candidate.parent
-    raise RuntimeError("Zipped bytes do not contain a SavedModel (no saved_model.pb found).")
-
-
-def _normalize_to_savedmodel_dir(model_path: str | Path, context: str = "model") -> Path:
-    """Return a directory containing `saved_model.pb` for a produced/loaded model path."""
-    candidate = Path(str(model_path))
-    if candidate.is_dir():
-        if (candidate / "saved_model.pb").exists():
-            return candidate
-        for nested in candidate.rglob("saved_model.pb"):
-            return nested.parent
-    elif candidate.is_file() and candidate.suffix.lower() in {".h5", ".keras"}:
-        import tensorflow as tf
-
-        model = tf.keras.models.load_model(str(candidate), compile=False)
-        exported_dir = Path(tempfile.mkdtemp(prefix="ramp_savedmodel_export_")) / "saved_model"
-        model.save(str(exported_dir), save_format="tf")
-        if (exported_dir / "saved_model.pb").exists():
-            return exported_dir
-    raise RuntimeError(f"{context} must resolve to a SavedModel directory containing saved_model.pb; got: {candidate}")
+def _materialize_keras_bytes(blob: bytes) -> Path:
+    """Write Keras `.keras` bytes to a temp file and return its path."""
+    dest = Path(tempfile.mkdtemp(prefix="ramp_keras_")) / "model.keras"
+    dest.write_bytes(blob)
+    return dest
 
 
 def _restore_checkpoint(trained_model: Any) -> Path:
-    """Restore a trained RAMP SavedModel from bytes, a SavedModel directory, or a .zip file."""
+    """Restore a trained RAMP Keras checkpoint as a local `.keras` file path."""
     if isinstance(trained_model, bytes):
-        return _unzip_savedmodel_bytes(trained_model)
+        return _materialize_keras_bytes(trained_model)
     if isinstance(trained_model, (str, Path)):
         p = Path(str(trained_model))
-        if p.is_file() and p.suffix.lower() == ".zip":
-            return _unzip_savedmodel_bytes(p.read_bytes())
-        return _normalize_to_savedmodel_dir(p, context="trained_model")
+        if p.is_file() and p.suffix.lower() == ".keras":
+            return p
+        return Path(resolve_model_href(str(p)))
     raise TypeError(f"Cannot restore RAMP checkpoint from {type(trained_model).__name__}")
 
 
@@ -669,7 +640,7 @@ def train_model(
     base_model_id: str | None = None,
     dataset_id: str | None = None,
 ) -> Annotated[bytes, "trained_model"]:
-    """Fine-tune RAMP EfficientNetB0 U-Net; return the best SavedModel as zipped bytes."""
+    """Fine-tune RAMP EfficientNetB0 U-Net; return the best model as `.keras` bytes."""
     _ = (num_classes, model_name, base_model_id, dataset_id)
 
     ramp_train_dir = Path(split_info["_ramp_train_dir"])
@@ -684,10 +655,13 @@ def train_model(
         hyperparameters=hyperparameters,
         data_base_path=work_dir,
     )
-    saved_model_dir = _normalize_to_savedmodel_dir(final_model_path, context="train_model output")
+    import tensorflow as tf
 
-    blob = _zip_savedmodel_dir(saved_model_dir)
-    log_metadata(metadata={"saved_model_dir": str(saved_model_dir), "checkpoint_bytes": len(blob)})
+    model = tf.keras.models.load_model(str(final_model_path), compile=False)
+    exported_path = Path(tempfile.mkdtemp(prefix="ramp_keras_export_")) / "model.keras"
+    model.save(str(exported_path))
+    blob = exported_path.read_bytes()
+    log_metadata(metadata={"keras_path": str(exported_path), "checkpoint_bytes": len(blob)})
     return blob
 
 
@@ -719,7 +693,7 @@ def evaluate_model(
         if mask.is_file():
             pairs.append((chip, mask))
 
-    saved_model_dir = _restore_checkpoint(trained_model)
+    restored = _restore_checkpoint(trained_model)
 
     if not pairs:
         # No val data to evaluate against (e.g. CI mocks); return zeroed metrics with the
@@ -735,7 +709,7 @@ def evaluate_model(
 
     import tensorflow as tf
 
-    model = tf.keras.models.load_model(str(saved_model_dir), compile=False)
+    model = tf.keras.models.load_model(str(restored), compile=False)
 
     tp = fp = fn = 0
     correct = total = 0
@@ -779,11 +753,17 @@ def evaluate_model(
 
 @step(output_materializers={"onnx_model": ONNXMaterializer})
 def export_onnx(trained_model: Any) -> Annotated[bytes, "onnx_model"]:
-    """Convert the trained RAMP SavedModel to ONNX bytes and validate."""
+    """Convert the trained RAMP Keras checkpoint to ONNX bytes and validate."""
     import onnx
+    import tensorflow as tf
+    import tf2onnx
 
-    saved_model_dir = _restore_checkpoint(trained_model)
-    onnx_bytes = _convert_savedmodel_to_onnx_bytes(saved_model_dir)
+    restored = _restore_checkpoint(trained_model)
+    model = tf.keras.models.load_model(str(restored), compile=False)
+    with tempfile.TemporaryDirectory() as tmp:
+        onnx_path = Path(tmp) / "model.onnx"
+        tf2onnx.convert.from_keras(model, opset=13, output_path=str(onnx_path))
+        onnx_bytes = onnx_path.read_bytes()
     onnx.checker.check_model(onnx.load_from_string(onnx_bytes))
     log_metadata(metadata={"onnx_bytes": len(onnx_bytes)})
     return onnx_bytes
@@ -791,91 +771,15 @@ def export_onnx(trained_model: Any) -> Annotated[bytes, "onnx_model"]:
 
 @step
 def run_inference(
-    model_uri: str | Path | Any,
+    model_uri: str,
     input_images: str,
-    prediction_path: str,
-    output_dir: str,
-    confidence: float = 0.5,
-    model_cache_dir: str | None = None,
+    inference_params: dict[str, Any],
 ) -> Annotated[dict[str, Any], "predictions"]:
-    """Native-TF inference over georeferenced chips → building-footprint GeoJSON."""
-    return infer_ramp_model(
-        model_uri=model_uri,
-        input_path=input_images,
-        prediction_path=prediction_path,
-        output_dir=output_dir,
-        confidence=confidence,
-        model_cache_dir=model_cache_dir,
-    )
+    """RAMP batch inference using the promoted ONNX `assets.model`."""
+    from fair.serve.base import load_session
 
-
-def _patch_predictor_savedmodel_loader_for_tf215() -> None:
-    """Patch fairpredictor's SavedModel directory loader for TF 2.15 compatibility.
-
-    ``TFSMLayer`` is absent in TF 2.15's ``tf.keras.layers``; fall back to ``load_model``.
-    """
-    import importlib
-
-    import tensorflow as tf
-
-    pred = importlib.import_module("predictor.prediction")
-    pred_mod = cast(Any, pred)
-    if getattr(pred_mod, "_fair_models_tf215_savedmodel_patch_applied", False):
-        return
-
-    original_loader = getattr(pred_mod, "_load_keras_model", None)
-    if original_loader is None:
-        raise RuntimeError("predictor.prediction._load_keras_model not found; fairpredictor API changed.")
-
-    def _safe_load_keras_model(keras_backend, path: str):
-        if os.path.isdir(path) and (Path(path) / "saved_model.pb").exists():
-            return tf.keras.models.load_model(path, compile=False)
-        return original_loader(keras_backend, path)
-
-    _safe_load_keras_model._fair_models_tf215_savedmodel_loader = True  # type: ignore[attr-defined]
-    pred_mod._load_keras_model = _safe_load_keras_model
-    pred_mod._fair_models_tf215_savedmodel_patch_applied = True
-
-
-def infer_ramp_model(
-    model_uri: str | Path | Any,
-    input_path: str,
-    prediction_path: str,
-    output_dir: str,
-    confidence: float = 0.5,
-    model_cache_dir: str | None = None,
-) -> dict[str, Any]:
-    """Run fairpredictor-style TF inference and return the merged GeoJSON content."""
-    _patch_predictor_savedmodel_loader_for_tf215()
-    from predictor.prediction import run_prediction
-
-    cache = Path(model_cache_dir) if model_cache_dir else None
-    if isinstance(model_uri, bytes):
-        model_dir = str(_unzip_savedmodel_bytes(model_uri))
-    elif isinstance(model_uri, (str, Path)):
-        model_dir = resolve_model_href(str(model_uri), cache_dir=cache)
-    else:
-        raise TypeError("model_uri must be a str, Path, or zipped SavedModel bytes.")
-
-    input_dir = _resolve_input_directory(input_path, "input_path")
-    out_dir = _to_local_path(prediction_path, "prediction_path")
-    out_dir.mkdir(parents=True, exist_ok=True)
-
-    if not any(input_dir.glob("**/*.tif")):
-        raise RuntimeError(
-            f"No GeoTIFF chips (*.tif) found in {input_dir}. RAMP inference expects georeferenced chips."
-        )
-
-    georef_dir = run_prediction(
-        checkpoint_path=model_dir,
-        input_path=str(input_dir),
-        prediction_path=str(out_dir),
-        confidence=confidence,
-        crs="3857",
-    )
-    final_output_dir = Path(output_dir or tempfile.mkdtemp(prefix="ramp_postprocess_"))
-    final_output_dir.mkdir(parents=True, exist_ok=True)
-    return postprocess(str(georef_dir), str(final_output_dir))
+    session = load_session(model_uri)
+    return predict(session, input_images, inference_params)
 
 
 @step
@@ -931,28 +835,7 @@ def training_pipeline(
 def inference_pipeline(
     model_uri: str,
     input_images: str,
-    inference_params: dict[str, Any] | None = None,
-    output_dir: str = "",
-    chip_size: int = 256,
-    num_classes: int = 4,
-    confidence: float = 0.5,
-    zenml_artifact_version_id: str = "",
-    prediction_path: str = "",
-) -> dict[str, Any]:
-    """RAMP inference pipeline: load model → predict → postprocess → FeatureCollection."""
-    _ = (chip_size, num_classes)
-    resolved_output_dir = output_dir or str(Path(tempfile.mkdtemp(prefix="ramp_inference_")))
-    resolved_confidence = float((inference_params or {}).get("confidence_threshold", confidence))
-    prediction_dir = prediction_path or str(Path(resolved_output_dir) / "predictions")
-    model = (
-        load_model(model_uri=model_uri, zenml_artifact_version_id=zenml_artifact_version_id)
-        if zenml_artifact_version_id
-        else model_uri
-    )
-    return run_inference(
-        model_uri=model,
-        input_images=input_images,
-        prediction_path=prediction_dir,
-        output_dir=resolved_output_dir,
-        confidence=resolved_confidence,
-    )
+    inference_params: dict[str, Any],
+) -> None:
+    """RAMP inference pipeline: load ONNX session → predict → FeatureCollection."""
+    run_inference(model_uri=model_uri, input_images=input_images, inference_params=inference_params)

@@ -330,7 +330,7 @@
             "roles": [
                 "code"
             ],
-            "mlm:entrypoint": "models.ramp.pipeline:training_pipeline"
+            "mlm:entrypoint": "models.ramp.pipeline:predict"
         },
         "mlm:training": {
             "href": "ghcr.io/hotosm/fair-models/ramp:v1",
@@ -341,7 +341,7 @@
             ]
         },
         "mlm:inference": {
-            "href": "ghcr.io/hotosm/fair-models/ramp:v1",
+            "href": "ghcr.io/hotosm/fair-models/ramp:latest-inference",
             "type": "application/vnd.oci.image.index.v1+json",
             "title": "Inference Docker Image",
             "roles": [

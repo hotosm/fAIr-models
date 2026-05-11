@@ -171,7 +171,10 @@ def test_export_onnx(tmp_path: Path) -> None:
     with (
         patch("models.ramp.pipeline._restore_checkpoint", return_value=fake_keras_path),
         patch.object(tf.keras.models, "load_model", return_value=_FakeKerasModel(b"ignored")),
-        patch("tf2onnx.convert.from_keras", side_effect=lambda _m, opset, output_path: Path(output_path).write_bytes(toy_bytes)),
+        patch(
+            "tf2onnx.convert.from_keras",
+            side_effect=lambda _m, opset, output_path: Path(output_path).write_bytes(toy_bytes),
+        ),
         patch("models.ramp.pipeline.log_metadata"),
     ):
         exported = export_onnx.entrypoint(trained_model=b"fake")

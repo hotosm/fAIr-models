@@ -204,6 +204,12 @@ def _valid_base_model():
         "seed": 42,
         "description": "Random split for testing",
     }
+    item.properties["fair:hyperparameters_spec"] = [
+        {"key": "epochs", "type": "int", "default": 10, "description": "Training epochs"},
+        {"key": "batch_size", "type": "int", "default": 4, "description": "Training batch size"},
+        {"key": "learning_rate", "type": "float", "default": 0.001, "description": "Optimizer learning rate"},
+        {"key": "confidence_threshold", "type": "float", "default": 0.5, "description": "Confidence threshold"},
+    ]
     item.assets["checkpoint"].extra_fields["raster:bands"] = [
         {"name": "red"},
         {"name": "green"},

@@ -15,6 +15,14 @@ repos:
         types: [python]
         pass_filenames: false
 
+      - id: pytest-cov
+        name: pytest-cov
+        entry: uv run pytest -q
+        language: system
+        types: [python]
+        pass_filenames: false
+        stages: [pre-push]
+
   - repo: https://github.com/commitizen-tools/commitizen
     rev: v4.6.0
     hooks:

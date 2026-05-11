@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Any
 
 import pystac
 import yaml
+from upath import UPath
 from zenml.client import Client
 from zenml.enums import StackComponentType
 
@@ -28,10 +29,12 @@ from fair.stac.versioning import archive_previous_version, find_previous_active_
 from fair.utils.data import (
     count_chips,
     create_dataset_archive,
+    mirror,
     s3_uri_to_http_url,
     upload_item_assets,
     upload_local_directory,
 )
+from fair.utils.storage import DatasetStoragePaths, LocalModelStoragePaths
 from fair.zenml.config import generate_inference_config, generate_training_config
 from fair.zenml.promotion import promote_model_version, publish_promoted_model
 
@@ -42,6 +45,14 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 _DEFAULT_CATALOG_PATH = "stac_catalog/catalog.json"
+
+_LABEL_FILE_SUFFIXES = (".json", ".geojson", ".csv")
+
+
+def _labels_dir_from_href(labels_href: str) -> str:
+    if labels_href.lower().endswith(_LABEL_FILE_SUFFIXES):
+        return str(UPath(labels_href).parent)
+    return labels_href
 
 
 class FairClientError(Exception):
@@ -146,8 +157,6 @@ class FairClient:
         asset_key: str,
         collection_id: str,
     ) -> None:
-        from upath import UPath
-
         asset = item.assets.get(asset_key)
         if asset is None:
             return
@@ -161,8 +170,7 @@ class FairClient:
         filename = UPath(source_url).name or f"{asset_key}.bin"
         remote_path = f"{prefix}/{collection_id}/{item.id}/{asset_key}/{filename}"
 
-        logger.info("Mirroring %s -> %s", source_url, remote_path)
-        UPath(remote_path).write_bytes(UPath(source_url).read_bytes())
+        mirror(source_url, remote_path)
         asset.href = s3_uri_to_http_url(remote_path)
 
     def setup(self) -> None:
@@ -211,7 +219,9 @@ class FairClient:
         print(f"register: base-model {published.id} v{published.properties['version']}")
         return published.id
 
-    def _register_dataset_from_item(self, stac_item_path: str, *, user_id: str) -> str:
+    def _register_dataset_from_item(
+        self, stac_item_path: str, *, user_id: str, paths: type[DatasetStoragePaths] | None = None
+    ) -> str:
         cat = self._get_backend()
         item = pystac.Item.from_file(stac_item_path)
         item.make_asset_hrefs_absolute()
@@ -245,8 +255,7 @@ class FairClient:
 
         Path("artifacts").mkdir(exist_ok=True)
         archive_path = Path("artifacts") / f"{title}-v{version}.zip"
-        labels_path = Path(labels_href)
-        labels_dir_str = str(labels_path.parent) if labels_path.is_file() else labels_href
+        labels_dir_str = _labels_dir_from_href(labels_href)
         create_dataset_archive(chips_dir=chips_href, labels_dir=labels_dir_str, output_path=str(archive_path))
 
         dataset_item = build_dataset_item(
@@ -277,7 +286,8 @@ class FairClient:
         if errs := validate_item(dataset_item):
             raise FairClientError(f"Schema validation failed: {errs}")
 
-        self._upload_assets_if_remote(dataset_item, DATASETS_COLLECTION)
+        collection_root = paths.ROOT if paths is not None else DATASETS_COLLECTION
+        self._upload_assets_if_remote(dataset_item, collection_root)
 
         if prev:
             successor_href = cat.item_href(DATASETS_COLLECTION, dataset_item.id)
@@ -287,7 +297,9 @@ class FairClient:
         print(f"register: dataset {published.id} v{published.properties['version']}")
         return published.id
 
-    def _register_dataset_from_params(self, params: DatasetItemParams, *, user_id: str) -> str:
+    def _register_dataset_from_params(
+        self, params: DatasetItemParams, *, user_id: str, paths: type[DatasetStoragePaths] | None = None
+    ) -> str:
         cat = self._get_backend()
         title = params.title
         chips_href = params.chips_href
@@ -300,8 +312,7 @@ class FairClient:
 
         Path("artifacts").mkdir(exist_ok=True)
         archive_path = Path("artifacts") / f"{title}-v{version}.zip"
-        labels_path = Path(labels_href)
-        labels_dir_str = str(labels_path.parent) if labels_path.is_file() else labels_href
+        labels_dir_str = _labels_dir_from_href(labels_href)
         create_dataset_archive(chips_dir=chips_href, labels_dir=labels_dir_str, output_path=str(archive_path))
 
         fields = dataclasses.asdict(params)
@@ -317,7 +328,8 @@ class FairClient:
         if errs := validate_item(dataset_item):
             raise FairClientError(f"Schema validation failed: {errs}")
 
-        self._upload_assets_if_remote(dataset_item, DATASETS_COLLECTION)
+        collection_root = paths.ROOT if paths is not None else DATASETS_COLLECTION
+        self._upload_assets_if_remote(dataset_item, collection_root)
 
         if prev:
             successor_href = cat.item_href(DATASETS_COLLECTION, dataset_item.id)
@@ -327,11 +339,17 @@ class FairClient:
         print(f"register: dataset {published.id} v{published.properties['version']}")
         return published.id
 
-    def register_dataset(self, dataset: str | DatasetItemParams, *, user_id: str | None = None) -> str:
+    def register_dataset(
+        self,
+        dataset: str | DatasetItemParams,
+        *,
+        user_id: str | None = None,
+        paths: type[DatasetStoragePaths] | None = None,
+    ) -> str:
         effective_user_id = user_id or self.user_id
         if isinstance(dataset, str):
-            return self._register_dataset_from_item(dataset, user_id=effective_user_id)
-        return self._register_dataset_from_params(dataset, user_id=effective_user_id)
+            return self._register_dataset_from_item(dataset, user_id=effective_user_id, paths=paths)
+        return self._register_dataset_from_params(dataset, user_id=effective_user_id, paths=paths)
 
     def _prepare_training_pipeline(
         self,
@@ -391,8 +409,13 @@ class FairClient:
         base_model_id: str | None = None,
         dataset_id: str | None = None,
         description: str = "",
+        title: str | None = None,
+        keywords: list[str] | None = None,
         user_id: str | None = None,
+        pipeline_run_id: str | None = None,
+        paths: type[LocalModelStoragePaths] | None = None,
     ) -> str:
+        """Promote a finetuned model version to STAC's local-models collection.s"""
         effective_user_id = user_id or self.user_id
         model_name = finetuned_model_id
 
@@ -400,13 +423,27 @@ class FairClient:
         versions = client.list_model_versions(model=model_name, sort_by="desc:created")
         if not versions:
             raise FairClientError(f"No versions for '{model_name}'. Run finetune first.")
-        latest = versions[0]
-        version_number = latest.number
+
+        if pipeline_run_id is None:
+            target_version = versions[0]
+        else:
+            target_version = None
+            for candidate in versions:
+                links = client.list_model_version_pipeline_run_links(model_version_id=candidate.id)
+                for link in links.items:
+                    if str(link.pipeline_run.id) == pipeline_run_id:
+                        target_version = candidate
+                        break
+                if target_version is not None:
+                    break
+            if target_version is None:
+                raise FairClientError(f"No version of '{model_name}' was produced by pipeline run {pipeline_run_id}")
+        version_number = target_version.number
 
         resolved_base_id = base_model_id
         resolved_dataset_id = dataset_id
         if resolved_base_id is None or resolved_dataset_id is None:
-            run_links = client.list_model_version_pipeline_run_links(model_version_id=latest.id)
+            run_links = client.list_model_version_pipeline_run_links(model_version_id=target_version.id)
             if run_links.items:
                 run = run_links.items[0].pipeline_run
                 step = run.steps.get("train_model")
@@ -432,7 +469,10 @@ class FairClient:
             dataset_item_id=resolved_dataset_id,
             user_id=effective_user_id,
             description=description or f"{model_name} finetuned on {resolved_dataset_id}",
+            title=title,
+            keywords=keywords,
             artifact_store_prefix=self._artifact_store_prefix() if self._upload_artifacts else None,
+            paths=paths,
         )
         print(f"promote: {item.id}")
         return item.id
@@ -630,8 +670,13 @@ class UserScopedFairClient:
     def register_base_model(self, stac_item: str | BaseModelItemParams) -> str:
         return self._client.register_base_model(stac_item)
 
-    def register_dataset(self, dataset: str | DatasetItemParams) -> str:
-        return self._client.register_dataset(dataset, user_id=self._user_id)
+    def register_dataset(
+        self,
+        dataset: str | DatasetItemParams,
+        *,
+        paths: type[DatasetStoragePaths] | None = None,
+    ) -> str:
+        return self._client.register_dataset(dataset, user_id=self._user_id, paths=paths)
 
     def submit_finetune(
         self,
@@ -670,13 +715,21 @@ class UserScopedFairClient:
         base_model_id: str | None = None,
         dataset_id: str | None = None,
         description: str = "",
+        title: str | None = None,
+        keywords: list[str] | None = None,
+        pipeline_run_id: str | None = None,
+        paths: type[LocalModelStoragePaths] | None = None,
     ) -> str:
         return self._client.promote(
             finetuned_model_id,
             base_model_id=base_model_id,
             dataset_id=dataset_id,
             description=description,
+            title=title,
+            keywords=keywords,
             user_id=self._user_id,
+            pipeline_run_id=pipeline_run_id,
+            paths=paths,
         )
 
     def predict(self, local_model_id: str, image_path: str) -> dict[str, Any]:

@@ -12,6 +12,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - add ZenML integration for model promotion and STAC catalog synchronization
 - implement STAC catalog management and builders for datasets and models
 
+## v0.2.0 (2026-05-05)
+
+### Feat
+
+- **patch**: add option to only patch few items in the stac items
+
+### Fix
+
+- **label**: fix labels href
+- **local-stac**: add local stac validation
+- **knative**: fix knative being invoked where it is not installed
+- **dev**: ci k8s
+- **infra**: env variable conflict
+
 ## v0.1.1 (2026-05-03)
 
 ### Fix

@@ -94,6 +94,7 @@ def _dataset_item() -> pystac.Item:
             "coordinates": [[[85.51, 27.63], [85.53, 27.63], [85.53, 27.64], [85.51, 27.64], [85.51, 27.63]]],
         },
         bbox=[85.51, 27.63, 85.53, 27.64],
+        geometry_type="polygon",
     )
 
 
@@ -141,6 +142,7 @@ def _publish(cm: StacCatalogManager, version: int = 1, **kw: Any) -> pystac.Item
         description=kw.get("description", "Test model."),
         keywords=kw.get("keywords", ["building"]),
         geometry=kw.get("geometry"),
+        title=kw.get("title"),
     )
 
 
@@ -174,6 +176,147 @@ def test_publish_and_deprecate_previous(mock_cls, cm):
     assert len(latest_links) == 0
     successor_links = [lnk for lnk in deprecated.links if lnk.rel == "successor-version"]
     assert len(successor_links) == 1
+
+
+@patch("fair.zenml.promotion.Client")
+def test_publish_uses_path_strategy_override(mock_cls, cm, monkeypatch):
+    """Subclass of LocalModelStoragePaths relocates the artifact layout."""
+    from fair.utils.storage import LocalModelStoragePaths
+
+    class CustomPaths(LocalModelStoragePaths):
+        CHECKPOINT_SUBDIR = "weights"
+        MODEL_SUBDIR = "onnx"
+
+    captured: list[str] = []
+
+    def _capture_copy(source_uri, dest_dir, source_filename, dest_filename):
+        captured.append(dest_dir)
+        return f"{dest_dir}/{dest_filename}"
+
+    monkeypatch.setattr("fair.zenml.promotion._copy_artifact_to_prefix", _capture_copy)
+
+    mv, client = _mock_mv({"epochs": 1})
+    mock_cls.return_value = client
+    client.get_model_version.return_value = mv
+
+    publish_promoted_model(
+        model_name="unet-finetuned-banepa",
+        version=1,
+        catalog_manager=cm,
+        base_model_item_id="example-unet",
+        dataset_item_id="dataset-fixed-uuid",
+        user_id="osm-test",
+        description="Test",
+        # prefix=None -> local-temp branch; subdir overrides still apply.
+        paths=CustomPaths,
+    )
+
+    # Both subdir overrides made it through.
+    assert any(d.endswith("/weights") for d in captured)
+    assert any(d.endswith("/onnx") for d in captured)
+
+
+@patch("fair.zenml.promotion.Client")
+def test_publish_inherits_fair_pinned_from_previous_version(mock_cls, cm):
+    """Retraining a pinned model -> new version is also pinned automatically."""
+    mv, client = _mock_mv({"epochs": 1})
+    mock_cls.return_value = client
+    client.get_model_version.return_value = mv
+
+    v1 = _publish(cm, version=1)
+    # Admin pins v1 via set-property (mimic backend pin action).
+    v1.properties["fair:pinned"] = True
+    cm.publish_item("local-models", v1)
+
+    mv2, client2 = _mock_mv({"epochs": 2})
+    mv2.id = "fake-uuid-v2"
+    mv2.run_metadata = {}
+    mock_cls.return_value = client2
+    client2.get_model_version.return_value = mv2
+    v2 = _publish(cm, version=2)
+
+    assert v2.properties.get("fair:pinned") is True
+
+
+@patch("fair.zenml.promotion.Client")
+def test_publish_does_not_inherit_pin_when_previous_was_unpinned(mock_cls, cm):
+    mv, client = _mock_mv({"epochs": 1})
+    mock_cls.return_value = client
+    client.get_model_version.return_value = mv
+    _publish(cm, version=1)  # not pinned
+
+    mv2, client2 = _mock_mv({"epochs": 2})
+    mv2.id = "fake-uuid-v2"
+    mv2.run_metadata = {}
+    mock_cls.return_value = client2
+    client2.get_model_version.return_value = mv2
+    v2 = _publish(cm, version=2)
+
+    assert "fair:pinned" not in v2.properties
+
+
+@patch("fair.zenml.promotion.Client")
+def test_publish_keywords_are_additively_merged(mock_cls, cm):
+    """Final keywords = dedupe(base.keywords + dataset.keywords + [geometry_type] + extras)."""
+    mv, client = _mock_mv({"epochs": 1})
+    mock_cls.return_value = client
+    client.get_model_version.return_value = mv
+
+    item = _publish(cm, version=1, keywords=["building", "high-resolution"])
+    kw = item.properties["keywords"]
+    # base contributes "semantic-segmentation", dataset contributes "building",
+    # dataset has geometry_type "polygon", caller adds "high-resolution".
+    # "building" appears exactly once despite being in both base and dataset+caller.
+    assert "semantic-segmentation" in kw
+    assert "polygon" in kw
+    assert "high-resolution" in kw
+    assert kw.count("building") == 1
+
+
+@patch("fair.zenml.promotion.Client")
+def test_publish_title_override(mock_cls, cm):
+    """Caller-provided `title` replaces the auto `"{name} v{N}"` default."""
+    mv, client = _mock_mv({"epochs": 1})
+    mock_cls.return_value = client
+    client.get_model_version.return_value = mv
+
+    item = _publish(cm, version=1, title="Banepa buildings, March retrain")
+    assert item.properties["title"] == "Banepa buildings, March retrain"
+    # mlm:name must NOT change just because title is overridden.
+    assert item.properties["mlm:name"] == "unet-finetuned-banepa"
+    assert item.properties["version"] == "1"
+
+
+@patch("fair.zenml.promotion.Client")
+def test_publish_keeps_mlm_name_stable_across_versions(mock_cls, cm):
+    """Two promotes of the same model_name -> same mlm:name, distinct ids."""
+    mv, client = _mock_mv({"epochs": 1})
+    mock_cls.return_value = client
+    client.get_model_version.return_value = mv
+
+    v1 = _publish(cm, version=1)
+    v1_id = v1.id  # capture before re-publish potentially mutates the object
+    v1_mlm_name = v1.properties["mlm:name"]
+    v1_version = v1.properties["version"]
+    v1_title = v1.properties["title"]
+
+    mv2, client2 = _mock_mv({"epochs": 2})
+    mv2.id = "fake-uuid-v2"
+    mv2.run_metadata = {}
+    mock_cls.return_value = client2
+    client2.get_model_version.return_value = mv2
+    v2 = _publish(cm, version=2)
+
+    assert v1_id != v2.id
+    assert v1_mlm_name == v2.properties["mlm:name"] == "unet-finetuned-banepa"
+    assert v1_version == "1"
+    assert v2.properties["version"] == "2"
+    assert v1_title == "unet-finetuned-banepa v1"
+    assert v2.properties["title"] == "unet-finetuned-banepa v2"
+    assert v2.properties["deprecated"] is False
+    refetched_v1 = cm.get_item("local-models", v1_id)
+    assert refetched_v1.properties["deprecated"] is True
+    assert refetched_v1.properties["mlm:name"] == "unet-finetuned-banepa"
 
 
 @patch("fair.zenml.promotion.Client")

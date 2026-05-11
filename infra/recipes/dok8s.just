@@ -1,4 +1,4 @@
-_up-dok8s: _tofu-apply _save-kubeconfig _apply-postgres _helmfile-dok8s _post-deploy-dok8s _seed-dok8s _stack-register-dok8s _write-env-dok8s
+_up-dok8s: _tofu-apply _save-kubeconfig _apply-postgres _helmfile-dok8s _post-deploy-dok8s
     @just _urls-dok8s
 
 _tofu-apply:
@@ -14,13 +14,22 @@ _save-kubeconfig:
 _helmfile-dok8s:
     #!/usr/bin/env bash
     set -euo pipefail
-    set -a; source dok8s/.env.helmfile; set +a
+    cd dok8s
+    export FAIR_DOMAIN="$(tofu output -raw fair_domain)"
+    export LETSENCRYPT_EMAIL="$(tofu output -raw letsencrypt_email)"
+    export MLFLOW_ADMIN_USER="$(tofu output -raw mlflow_admin_user)"
+    export MLFLOW_ADMIN_PASSWORD="$(tofu output -raw mlflow_admin_password)"
+    export ZENML_ADMIN_USER="$(tofu output -raw zenml_admin_user)"
+    export ZENML_ADMIN_PASSWORD="$(tofu output -raw zenml_admin_password)"
+    export ZENML_STORE_API_KEY="$(tofu output -raw zenml_store_api_key)"
+    cd ..
     helmfile -e dok8s apply
 
 _post-deploy-dok8s:
     #!/usr/bin/env bash
     set -euo pipefail
-    set -a; source dok8s/.env.helmfile; set +a
+    export FAIR_DOMAIN="$(cd dok8s && tofu output -raw fair_domain)"
+    export LETSENCRYPT_EMAIL="$(cd dok8s && tofu output -raw letsencrypt_email)"
     kubectl apply -f manifests/knative-serving.yaml
     kubectl apply -f manifests/s3-credentials.yaml
     just _wait-lb
@@ -44,7 +53,7 @@ _wait-lb:
 _set-dns:
     #!/usr/bin/env bash
     set -euo pipefail
-    set -a; source dok8s/.env.helmfile; set +a
+    FAIR_DOMAIN="$(cd dok8s && tofu output -raw fair_domain)"
     IP=$(cat dok8s/.lb-ip)
     ZONE=$(echo "$FAIR_DOMAIN" | awk -F. '{print $(NF-1)"."$NF}')
     NAME=$(echo "$FAIR_DOMAIN" | sed "s/\.$ZONE\$//")
@@ -59,65 +68,6 @@ _set-dns:
     fi
     echo "DNS *.$FAIR_DOMAIN -> $IP"
 
-_seed-dok8s:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    kubectl port-forward -n {{ ns }} svc/minio 9001:9000 >/dev/null 2>&1 &
-    PF_PID=$!
-    trap "kill $PF_PID 2>/dev/null || true" EXIT
-    for i in $(seq 1 20); do nc -z localhost 9001 2>/dev/null && break; sleep 1; done
-    AWS_ENDPOINT_URL=http://localhost:9001 \
-    AWS_ACCESS_KEY_ID=minioadmin \
-    AWS_SECRET_ACCESS_KEY=minioadmin \
-    S3_BUCKET=fair-data \
-        uv run --with boto3 python scripts/seed_data.py
-
-_stack-register-dok8s:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    set -a; source dok8s/.env.helmfile; set +a
-    export ZENML_URL="https://zenml.${FAIR_DOMAIN:?}"
-    TOKEN=$(scripts/zenml-token.sh --wait) || { echo "ERROR: failed to fetch ZenML token" >&2; exit 1; }
-    export ZENML_STORE_URL="$ZENML_URL"
-    export ZENML_STORE_API_TOKEN="$TOKEN"
-    export ZENML_STORE_VERIFY_SSL="true"
-    export DOKS_CONTEXT="$(cd dok8s && tofu output -raw doks_context)"
-    envsubst < ../stacks/dok8s.yaml > dok8s/.dok8s-stack-resolved.yaml
-    uv run zenml stack set default 2>/dev/null || true
-    echo y | uv run zenml stack delete dok8s 2>/dev/null || true
-    echo y | uv run zenml orchestrator delete doks_orchestrator 2>/dev/null || true
-    echo y | uv run zenml artifact-store delete s3_artifacts 2>/dev/null || true
-    echo y | uv run zenml experiment-tracker delete mlflow_tracker 2>/dev/null || true
-    echo y | uv run zenml container-registry delete ghcr 2>/dev/null || true
-    uv run zenml stack import dok8s -f dok8s/.dok8s-stack-resolved.yaml --ignore-version-mismatch
-    uv run zenml stack set dok8s
-    rm -f dok8s/.dok8s-stack-resolved.yaml
-
-_write-env-dok8s:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    set -a; source dok8s/.env.helmfile; set +a
-    DOKS_CONTEXT="$(cd dok8s && tofu output -raw doks_context)"
-    {
-        echo "export ZENML_STORE_URL=\"https://zenml.${FAIR_DOMAIN}\""
-        echo "export ZENML_STORE_VERIFY_SSL=\"true\""
-        echo "export FAIR_DSN=\"postgresql://postgres:postgres@localhost:15432/fair_models\""
-        echo "export FAIR_STAC_API_URL=\"https://stac.${FAIR_DOMAIN}/stac\""
-        echo "export FAIR_LABEL_DOMAIN=\"${FAIR_DOMAIN}\""
-        echo "export FAIR_DOMAIN=\"${FAIR_DOMAIN}\""
-        echo "export FAIR_USER_ID=\"krschap\""
-        echo "export FAIR_UPLOAD_ARTIFACTS=\"true\""
-        echo "export FAIR_FORCE_CPU=\"1\""
-        echo "export AWS_ENDPOINT_URL=\"https://s3.${FAIR_DOMAIN}\""
-        echo "export FAIR_S3_PUBLIC_URL=\"https://s3.${FAIR_DOMAIN}\""
-        echo "export AWS_ACCESS_KEY_ID=\"minioadmin\""
-        echo "export AWS_SECRET_ACCESS_KEY=\"minioadmin\""
-        echo "export AWS_REQUEST_CHECKSUM_CALCULATION=\"when_required\""
-        echo "export AWS_RESPONSE_CHECKSUM_VALIDATION=\"when_required\""
-        echo "export DOKS_CONTEXT=\"${DOKS_CONTEXT}\""
-    } > .env.dok8s
-    echo "Wrote .env.dok8s. Use: source infra/.env.dok8s before running examples locally."
-
 _down-dok8s:
     -helmfile -e dok8s destroy
 
@@ -130,31 +80,64 @@ _tear-dok8s:
 _urls-dok8s:
     #!/usr/bin/env bash
     set -euo pipefail
-    cd dok8s
-    set -a; source .env.helmfile 2>/dev/null || true; set +a
-    DOMAIN="${FAIR_DOMAIN:-$(tofu output -raw fair_domain 2>/dev/null || echo unknown)}"
+    DOMAIN="$(cd dok8s && tofu output -raw fair_domain 2>/dev/null || echo unknown)"
     echo "ZenML:   https://zenml.${DOMAIN}"
     echo "MLflow:  https://mlflow.${DOMAIN}"
     echo "STAC:    https://stac.${DOMAIN}/stac"
     echo "Predict: https://predict.${DOMAIN}"
+    echo "API:     https://api.${DOMAIN}/api/v1/health/"
 
-_example-dok8s:
+[doc('Deploy the fAIr Django backend to dok8s. Secrets are managed by terraform — run `tofu apply` in dok8s/ first.')]
+up-fair-api: _bootstrap-fair-db
     #!/usr/bin/env bash
     set -euo pipefail
-    [[ -f .env.dok8s ]] || { echo "ERROR: .env.dok8s missing - run 'just up dok8s' first"; exit 1; }
-    source .env.dok8s
-    set -a; source dok8s/.env.helmfile; set +a
-    PG_PORT=15432
-    kubectl port-forward -n {{ ns }} svc/postgres ${PG_PORT}:5432 >/tmp/pf-pg.log 2>&1 &
-    PG_PID=$!
-    trap "kill $PG_PID 2>/dev/null || true" EXIT
-    for i in $(seq 1 20); do nc -z localhost $PG_PORT 2>/dev/null && break; sleep 1; done
-    export FAIR_DSN="postgresql://postgres:postgres@localhost:${PG_PORT}/fair_models"
-    export ZENML_URL="$ZENML_STORE_URL"
-    TOKEN=$(scripts/zenml-token.sh --wait) || { echo "ERROR: failed to fetch ZenML token" >&2; exit 1; }
-    export ZENML_STORE_API_TOKEN="$TOKEN"
-    cd ..
-    for ex in segmentation classification detection; do
-        echo "=== $ex ==="
-        uv run --group example python "examples/$ex/run.py"
-    done
+    FAIR_DOMAIN="$(cd dok8s && tofu output -raw fair_domain)"
+    kubectl -n {{ ns }} get secret fair-backend-secrets >/dev/null 2>&1 \
+        || { echo "ERROR: fair-backend-secrets missing — run 'cd dok8s && tofu apply' first" >&2; exit 1; }
+    kubectl apply -f manifests/fair-backend.yaml
+    kubectl rollout status -n {{ ns }} deployment/fair-backend --timeout=300s
+    echo
+    echo "  https://api.${FAIR_DOMAIN}/api/v1/health/"
+
+[doc('Force a redeploy of fair-backend (after pushing a new :test image)')]
+rollout-fair-api:
+    kubectl rollout restart -n {{ ns }} deployment/fair-backend
+    kubectl rollout status -n {{ ns }} deployment/fair-backend --timeout=300s
+
+_bootstrap-fair-db:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    kubectl apply -f manifests/fair-db-bootstrap.yaml
+    kubectl wait --for=condition=complete -n {{ ns }} job/fair-db-bootstrap --timeout=120s
+
+[doc('Mint a scoped kubeconfig: cluster-wide read + postgres port-forward in fair. Usage: just kubeconfig [OUT] [DURATION]')]
+kubeconfig out="viewer.kubeconfig" duration="720h":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    kubectl apply -f manifests/viewer-rbac.yaml >/dev/null
+    CLUSTER_NAME="$(kubectl config view --minify -o jsonpath='{.clusters[0].name}')"
+    SERVER="$(kubectl config view --minify -o jsonpath='{.clusters[0].cluster.server}')"
+    CA_DATA="$(kubectl config view --minify --raw -o jsonpath='{.clusters[0].cluster.certificate-authority-data}')"
+    TOKEN="$(kubectl create token viewer -n {{ ns }} --duration={{ duration }})"
+    cat > "{{ out }}" <<EOF
+    apiVersion: v1
+    kind: Config
+    clusters:
+      - name: ${CLUSTER_NAME}
+        cluster:
+          server: ${SERVER}
+          certificate-authority-data: ${CA_DATA}
+    users:
+      - name: viewer
+        user:
+          token: ${TOKEN}
+    contexts:
+      - name: fair
+        context:
+          cluster: ${CLUSTER_NAME}
+          namespace: {{ ns }}
+          user: viewer
+    current-context: fair
+    EOF
+    chmod 600 "{{ out }}"
+    echo "Wrote {{ out }} (valid {{ duration }})"

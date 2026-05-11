@@ -521,6 +521,66 @@ def test_finetune_and_promote_error_paths(monkeypatch: pytest.MonkeyPatch, tmp_p
         client.promote("demo", base_model_id="base-model")
 
 
+def test_promote_resolves_version_by_pipeline_run_id(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """`pipeline_run_id` targets the matching ZenML version, not the latest."""
+    client = FairClient(config_dir=str(tmp_path))
+
+    v1 = SimpleNamespace(id="mv-uuid-1", number=1)
+    v2 = SimpleNamespace(id="mv-uuid-2", number=2)
+    v3 = SimpleNamespace(id="mv-uuid-3", number=3)
+
+    train_step = SimpleNamespace(
+        config=SimpleNamespace(parameters={"base_model_id": "base-model", "dataset_id": "dataset"})
+    )
+    run_for_v1 = SimpleNamespace(
+        id="run-for-v1",
+        steps={"train_model": train_step},
+        config=SimpleNamespace(parameters={}),
+    )
+    run_for_v3 = SimpleNamespace(
+        id="run-for-v3",
+        steps={"train_model": train_step},
+        config=SimpleNamespace(parameters={}),
+    )
+    links_by_version = {
+        "mv-uuid-1": SimpleNamespace(items=[SimpleNamespace(pipeline_run=run_for_v1)]),
+        "mv-uuid-2": SimpleNamespace(items=[]),
+        "mv-uuid-3": SimpleNamespace(items=[SimpleNamespace(pipeline_run=run_for_v3)]),
+    }
+    monkeypatch.setattr(
+        client_module,
+        "Client",
+        lambda: SimpleNamespace(
+            list_model_versions=lambda **kwargs: [v3, v2, v1],
+            list_model_version_pipeline_run_links=lambda **kwargs: links_by_version[kwargs["model_version_id"]],
+        ),
+    )
+
+    promoted_versions: list[int] = []
+    monkeypatch.setattr(
+        client_module,
+        "promote_model_version",
+        lambda model_name, version: promoted_versions.append(version),
+    )
+    monkeypatch.setattr(
+        client_module,
+        "publish_promoted_model",
+        lambda **kwargs: SimpleNamespace(id=f"item-v{kwargs['version']}"),
+    )
+
+    monkeypatch.setattr(client, "_get_backend", lambda: SimpleNamespace())
+
+    assert client.promote("demo", pipeline_run_id="run-for-v1") == "item-v1"
+    assert promoted_versions == [1]
+
+    promoted_versions.clear()
+    assert client.promote("demo") == "item-v3"
+    assert promoted_versions == [3]
+
+    with pytest.raises(FairClientError, match="No version of 'demo' was produced"):
+        client.promote("demo", pipeline_run_id="run-that-does-not-exist")
+
+
 def test_builder_helpers_cover_media_and_geojson(tmp_path: Path) -> None:
     assert _infer_source_code_media_type("model.py") == "text/x-python"
     assert _infer_source_code_media_type("widget.js") == "text/javascript"

@@ -1,0 +1,80 @@
+# Read-only kubeconfig handout: cluster-wide view + the single write verb
+# (pods/portforward in `fair`) required to tunnel postgres for DBeaver.
+# Mint a kubeconfig for it with `just kubeconfig`.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: viewer
+  namespace: fair
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: viewer-portforward
+  namespace: fair
+rules:
+  - apiGroups: [""]
+    resources: ["pods/portforward"]
+    verbs: ["create"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: viewer-portforward
+  namespace: fair
+subjects:
+  - kind: ServiceAccount
+    name: viewer
+    namespace: fair
+roleRef:
+  kind: Role
+  name: viewer-portforward
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: viewer
+subjects:
+  - kind: ServiceAccount
+    name: viewer
+    namespace: fair
+roleRef:
+  kind: ClusterRole
+  name: view
+  apiGroup: rbac.authorization.k8s.io
+---
+# Built-in `view` is namespace-scoped; cluster-scoped resources need their own grant.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: viewer-cluster-read
+rules:
+  - apiGroups: [""]
+    resources: ["nodes", "namespaces", "persistentvolumes"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["storage.k8s.io"]
+    resources: ["storageclasses", "volumeattachments", "csinodes", "csidrivers"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["ingressclasses"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["apiextensions.k8s.io"]
+    resources: ["customresourcedefinitions"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["metrics.k8s.io"]
+    resources: ["nodes", "pods"]
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: viewer-cluster-read
+subjects:
+  - kind: ServiceAccount
+    name: viewer
+    namespace: fair
+roleRef:
+  kind: ClusterRole
+  name: viewer-cluster-read
+  apiGroup: rbac.authorization.k8s.io

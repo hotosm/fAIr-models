@@ -192,6 +192,37 @@ class TestBuildDatasetItem:
         self_links = [lnk for lnk in item.links if lnk.rel == "self"]
         assert len(self_links) == 1
 
+    def test_geometry_type_stamped_when_provided(self, geojson_path):
+        item = build_dataset_item(
+            label_type="vector",
+            label_tasks=["object-detection"],
+            label_classes=[{"name": "highway", "classes": ["primary"]}],
+            keywords=["road"],
+            chips_href="c/",
+            labels_href=geojson_path,
+            title="T",
+            description="D",
+            user_id="u",
+            providers=_PROVIDERS,
+            geometry_type="line",
+        )
+        assert item.properties["fair:geometry_type"] == "line"
+
+    def test_geometry_type_absent_when_not_provided(self, geojson_path):
+        item = build_dataset_item(
+            label_type="vector",
+            label_tasks=["segmentation"],
+            label_classes=[],
+            keywords=["building"],
+            chips_href="c/",
+            labels_href=geojson_path,
+            title="T",
+            description="D",
+            user_id="u",
+            providers=_PROVIDERS,
+        )
+        assert "fair:geometry_type" not in item.properties
+
 
 class TestBuildBaseModelItem:
     def test_mlm_fields_and_assets(self):

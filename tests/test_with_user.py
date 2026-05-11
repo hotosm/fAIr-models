@@ -36,7 +36,7 @@ def test_proxy_register_dataset_stamps_user_id() -> None:
 
     proxy.register_dataset("path/to/item.json")
 
-    register_dataset.assert_called_once_with("path/to/item.json", user_id="alice")
+    register_dataset.assert_called_once_with("path/to/item.json", user_id="alice", paths=None)
 
 
 def test_proxy_submit_finetune_delegates() -> None:
@@ -89,7 +89,11 @@ def test_proxy_promote_stamps_user_id() -> None:
         base_model_id=None,
         dataset_id=None,
         description="Looks good",
+        title=None,
+        keywords=None,
         user_id="dave",
+        pipeline_run_id=None,
+        paths=None,
     )
 
 

@@ -35,11 +35,14 @@ def main() -> None:
     except ClientError:
         s3.create_bucket(Bucket=bucket)
 
+    acl = os.environ.get("FAIR_S3_UPLOAD_ACL", "").strip()
+    extra_args = {"ACL": acl} if acl else None
+
     files = [f for f in root.rglob("*") if f.is_file()]
     print(f"Uploading {len(files)} files to s3://{bucket}/{prefix}/")
     for f in files:
         key = f"{prefix}/{f.relative_to(root)}"
-        s3.upload_file(str(f), bucket, key)
+        s3.upload_file(str(f), bucket, key, ExtraArgs=extra_args)
     print("Done")
 
 

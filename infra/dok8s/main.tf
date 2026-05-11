@@ -5,15 +5,29 @@ terraform {
       source  = "digitalocean/digitalocean"
       version = "~> 2.46"
     }
-    local = {
-      source  = "hashicorp/local"
-      version = "~> 2.5"
+    kubernetes = {
+      source  = "hashicorp/kubernetes"
+      version = "~> 2.31"
+    }
+    random = {
+      source  = "hashicorp/random"
+      version = "~> 3.6"
     }
   }
 }
 
 provider "digitalocean" {
   token = var.do_token
+}
+
+provider "kubernetes" {
+  host                   = digitalocean_kubernetes_cluster.this.endpoint
+  cluster_ca_certificate = base64decode(digitalocean_kubernetes_cluster.this.kube_config[0].cluster_ca_certificate)
+  exec {
+    api_version = "client.authentication.k8s.io/v1beta1"
+    command     = "doctl"
+    args        = ["kubernetes", "cluster", "kubeconfig", "exec-credential", "--version=v1beta1", digitalocean_kubernetes_cluster.this.id]
+  }
 }
 
 data "digitalocean_kubernetes_versions" "this" {}
@@ -25,11 +39,12 @@ resource "digitalocean_kubernetes_cluster" "this" {
 
   node_pool {
     name       = "infra"
-    size       = var.infra_node_size
+    size       = "s-2vcpu-4gb"
     node_count = 1
-    labels = {
-      "fair/role" = "infra"
-    }
+  }
+
+  lifecycle {
+    ignore_changes = [node_pool]
   }
 }
 
@@ -47,15 +62,13 @@ resource "digitalocean_kubernetes_node_pool" "ml" {
   }
 }
 
-resource "local_file" "env_helmfile" {
-  filename        = "${path.module}/.env.helmfile"
-  file_permission = "0600"
-  content         = <<-EOT
-    export FAIR_DOMAIN=${var.domain}
-    export LETSENCRYPT_EMAIL=${var.letsencrypt_email}
-    export MLFLOW_ADMIN_USER=${var.mlflow_admin_user}
-    export MLFLOW_ADMIN_PASSWORD=${var.mlflow_admin_password}
-    export ZENML_ADMIN_USER=${var.zenml_admin_user}
-    export ZENML_ADMIN_PASSWORD=${var.zenml_admin_password}
-  EOT
+resource "digitalocean_kubernetes_node_pool" "system" {
+  cluster_id = digitalocean_kubernetes_cluster.this.id
+  name       = "infra-v2"
+  size       = var.system_node_size
+  node_count = 1
+  labels = {
+    "fair/role" = "infra"
+  }
 }
+

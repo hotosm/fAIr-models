@@ -374,6 +374,9 @@ def _ensure_predict_gateway(api: Any, namespace: str) -> None:
 
 
 def ensure_knative_service(item: pystac.Item, namespace: str = DEFAULT_NAMESPACE) -> None:
+    if not _knative_serving_installed():
+        print(f"skip knative: {KNATIVE_GROUP}/{KNATIVE_VERSION} not registered on cluster")
+        return
     manifest = build_knative_manifest(item, namespace=namespace)
     api = _custom_objects_api()
 
@@ -381,6 +384,21 @@ def ensure_knative_service(item: pystac.Item, namespace: str = DEFAULT_NAMESPACE
 
     if os.environ.get("FAIR_LABEL_DOMAIN"):
         _ensure_predict_gateway(api, namespace)
+
+
+def _knative_serving_installed() -> bool:
+    from kubernetes import client, config
+    from kubernetes.client.exceptions import ApiException
+
+    try:
+        try:
+            config.load_incluster_config()
+        except config.ConfigException:
+            config.load_kube_config()
+        groups = client.ApisApi().get_api_versions().groups
+    except (config.ConfigException, ApiException):
+        return False
+    return any(g.name == KNATIVE_GROUP for g in groups)
 
 
 def delete_knative_service(model_name: str, namespace: str = DEFAULT_NAMESPACE) -> None:

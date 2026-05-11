@@ -55,7 +55,7 @@ class PgStacBackend:
         item.properties["updated"] = datetime.now(UTC).isoformat()
         ensure_version_links(item, self.item_href(collection_id, item.id))
         normalize_version_link_hrefs(item, self.item_href, collection_id)
-        item_dict = item.to_dict()
+        item_dict = item.to_dict(transform_hrefs=False)
         item_dict["collection"] = collection_id
         with self._get_db() as db:
             loader = Loader(db)
@@ -86,6 +86,16 @@ class PgStacBackend:
         resp.raise_for_status()
         features = resp.json().get("features", [])
         return [pystac.Item.from_dict(f) for f in features]
+
+    def patch_item(self, collection_id: str, item_id: str, patch: dict) -> pystac.Item:
+        # pgstac's loader has no native PATCH; do a get + merge + upsert
+        item = self.get_item(collection_id, item_id)
+        for key, value in patch.items():
+            if key == "properties" and isinstance(value, dict):
+                item.properties.update(value)
+            else:
+                setattr(item, key, value)
+        return self.publish_item(collection_id, item)
 
     def deprecate_item(self, collection_id: str, item_id: str) -> pystac.Item:
         item = self.get_item(collection_id, item_id)

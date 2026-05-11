@@ -1,0 +1,192 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: fair-backend-env
+  namespace: fair
+data:
+  DEBUG: "False"
+  AUTH_PROVIDER: "dev"
+  HOSTNAME: "api.fair.krschap.tech"
+  API_BASE_URL: "https://api.fair.krschap.tech/api/v1"
+  FRONTEND_URL: "https://fair.krschap.tech"
+  ALLOWED_HOSTS: "api.fair.krschap.tech"
+  CSRF_TRUSTED_ORIGINS: "https://api.fair.krschap.tech,https://fair.krschap.tech"
+  CORS_ALLOWED_ORIGINS: "https://fair.krschap.tech"
+  SECURE_SSL_REDIRECT: "False"
+  DATABASE_SSL_MODE: "disable"
+  FAIR_ZENML_STORE_URL: "https://zenml.fair.krschap.tech"
+  ZENML_STORE_URL: "https://zenml.fair.krschap.tech"
+  ZENML_STORE_VERIFY_SSL: "true"
+  ZENML_CONFIG_PATH: "/tmp/zenml"
+  ZENML_ACTIVE_STACK_ID: "38858ba6-c10b-4efa-8cd3-e2b5599e81a3"
+  HOME: "/tmp"
+  # fair.zenml.config._workload_selector reads this to build pipeline-pod
+  # nodeSelectors. Must match the live label-domain on the ml node-pool
+  # (see dok8s/main.tf labels)
+  FAIR_LABEL_DOMAIN: "fair.krschap.tech"
+  FAIR_STAC_API_URL: "https://stac.fair.krschap.tech/stac"
+  BUCKET_NAME: "fair-data"
+  PARENT_BUCKET_FOLDER: "backend"
+  AWS_REGION: "us-east-1"
+  AWS_ENDPOINT_URL: "https://s3.fair.krschap.tech"
+  LOG_PATH: "/tmp/fair-logs"
+  RAW_DATA_API_URL: "https://api-prod.raw-data.hotosm.org/v1"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fair-backend
+  namespace: fair
+  labels:
+    app: fair-backend
+spec:
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: fair-backend
+  template:
+    metadata:
+      labels:
+        app: fair-backend
+    spec:
+      nodeSelector:
+        fair/role: infra
+      serviceAccountName: fair-backend
+      initContainers:
+        - name: migrate
+          image: ghcr.io/hotosm/fair-api:test
+          imagePullPolicy: Always
+          command: ["python", "manage.py", "migrate", "--noinput"]
+          envFrom:
+            - configMapRef:
+                name: fair-backend-env
+            - secretRef:
+                name: fair-backend-secrets
+      containers:
+        - name: api
+          image: ghcr.io/hotosm/fair-api:test
+          imagePullPolicy: Always
+          command:
+            - gunicorn
+            - config.wsgi:application
+            - --bind=0.0.0.0:8000
+            - --workers=1
+            - --threads=4
+            - --timeout=120
+            - --access-logfile=-
+          ports:
+            - name: http
+              containerPort: 8000
+          envFrom:
+            - configMapRef:
+                name: fair-backend-env
+            - secretRef:
+                name: fair-backend-secrets
+          readinessProbe:
+            httpGet:
+              path: /api/v1/health/
+              port: http
+              httpHeaders:
+                - name: Host
+                  value: api.fair.krschap.tech
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /api/v1/health/
+              port: http
+              httpHeaders:
+                - name: Host
+                  value: api.fair.krschap.tech
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 5
+          resources:
+            requests: { cpu: 50m, memory: 192Mi }
+            limits:   { cpu: 500m, memory: 512Mi }
+        - name: worker
+          image: ghcr.io/hotosm/fair-api:test
+          imagePullPolicy: Always
+          command: ["python", "manage.py", "db_worker"]
+          envFrom:
+            - configMapRef:
+                name: fair-backend-env
+            - secretRef:
+                name: fair-backend-secrets
+          resources:
+            requests: { cpu: 50m, memory: 512Mi }
+            limits:   { cpu: 1500m, memory: 2Gi }
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: fair-backend
+  namespace: fair
+---
+# ZenML's k8s orchestrator creates a per-pipeline ServiceAccount + RoleBinding
+# that grants a wide "edit"-style permission set to pipeline pods (pods/exec,
+# services, deployments, statefulsets, knative, cert-manager, etc). 
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: fair-backend-admin
+  namespace: fair
+subjects:
+  - kind: ServiceAccount
+    name: fair-backend
+    namespace: fair
+roleRef:
+  kind: ClusterRole
+  name: admin
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: fair-backend
+  namespace: fair
+  labels:
+    app: fair-backend
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8000
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    app: fair-backend
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: fair-backend
+  namespace: fair
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt
+    nginx.ingress.kubernetes.io/proxy-body-size: "200m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "300"
+spec:
+  ingressClassName: nginx
+  tls:
+    - secretName: fair-api-tls
+      hosts:
+        - api.fair.krschap.tech
+  rules:
+    - host: api.fair.krschap.tech
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: fair-backend
+                port:
+                  number: 8000

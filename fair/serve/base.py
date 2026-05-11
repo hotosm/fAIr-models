@@ -53,13 +53,13 @@ def load_session(model_uri: str) -> Any:
 
     Cached so repeated requests for the same URI reuse the session.
     """
-    import onnxruntime as ort
+    from onnxruntime import InferenceSession
     from upath import UPath
 
     source = UPath(model_uri)
     local_path = Path(tempfile.mkdtemp()) / (source.name or "model.onnx")
     local_path.write_bytes(source.read_bytes())
-    return ort.InferenceSession(str(local_path), providers=["CPUExecutionProvider"])
+    return InferenceSession(str(local_path), providers=["CPUExecutionProvider"])
 
 
 def _load_pipeline() -> Any:

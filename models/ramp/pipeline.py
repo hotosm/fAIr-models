@@ -258,6 +258,7 @@ def preprocess(
 
 def postprocess(prediction_masks_dir: str, output_dir: str) -> dict[str, Any]:
     """Merge prediction TIFF tiles into a building-footprint GeoJSON (EPSG:4326)."""
+    import rasterio
     from geomltoolkits.geometry.validate import validate_polygon_geometries
     from geomltoolkits.raster.merge import merge_rasters
     from geomltoolkits.raster.morphology import morphological_cleaning
@@ -276,6 +277,11 @@ def postprocess(prediction_masks_dir: str, output_dir: str) -> dict[str, Any]:
 
     merge_rasters(str(pred_dir), str(merged_mask_path))
     morphological_cleaning(str(merged_mask_path))
+
+    with rasterio.open(merged_mask_path) as src:
+        if src.crs is None:
+            raise ValueError(f"Merged prediction raster is missing CRS: {merged_mask_path}")
+
     gdf = vectorize_mask(
         input_tiff=str(merged_mask_path),
         output_geojson=str(merged_geojson_path),
@@ -291,21 +297,6 @@ def postprocess(prediction_masks_dir: str, output_dir: str) -> dict[str, Any]:
         if not merged_geojson_path.is_file():
             merged_geojson_path.write_text(json.dumps(geojson_dict), encoding="utf-8")
         return geojson_dict
-
-    if gdf.crs and gdf.crs != "EPSG:4326":
-        gdf = gdf.to_crs("EPSG:4326")
-    elif not gdf.crs:
-        gdf.set_crs("EPSG:3857", inplace=True)
-        gdf = gdf.to_crs("EPSG:4326")
-
-    import pandas as pd
-
-    for col in gdf.columns:
-        if col == "geometry":
-            continue
-        if pd.api.types.is_extension_array_dtype(gdf[col].dtype):
-            gdf[col] = gdf[col].astype(object).where(gdf[col].notna(), None)
-    gdf.to_file(merged_geojson_path, driver="GeoJSON")
 
     validated_geojson = validate_polygon_geometries(
         geojson_dict,
@@ -330,17 +321,12 @@ def _prepare_training_split(
     """Preprocess + split chips/labels into RAMP train/val layout; return split_info."""
     from hot_fair_utilities.training.ramp.prepare_data import split_training_2_validation
 
-    val_fraction = float(
-        hyperparameters.get(
-            "training.val_ratio",
-            hyperparameters.get("val_fraction", hyperparameters.get("val_ratio", 0.15)),
-        )
-    )
+    val_fraction = float(hyperparameters.get("training.val_ratio", 0.15))
     if not 0.0 < val_fraction < 1.0:
         raise ValueError("val_fraction must be in (0.0, 1.0)")
-    boundary_width = int(hyperparameters.get("training.boundary_width", hyperparameters.get("boundary_width", 3)))
-    contact_spacing = int(hyperparameters.get("training.contact_spacing", hyperparameters.get("contact_spacing", 8)))
-    seed = int(hyperparameters.get("training.split_seed", hyperparameters.get("split_seed", 42)))
+    boundary_width = int(hyperparameters.get("training.boundary_width", 3))
+    contact_spacing = int(hyperparameters.get("training.contact_spacing", 8))
+    seed = int(hyperparameters.get("training.split_seed", 42))
 
     work_dir = Path(tempfile.mkdtemp(prefix="ramp_training_"))
     preprocessed_dir = work_dir / "preprocessed"
@@ -451,30 +437,6 @@ def _restore_checkpoint(trained_model: Any) -> Path:
             return p
         return Path(resolve_model_href(str(p)))
     raise TypeError(f"Cannot restore RAMP checkpoint from {type(trained_model).__name__}")
-
-
-def _convert_savedmodel_to_onnx_bytes(saved_model_dir: Path, opset: int = 13) -> bytes:
-    """Convert a TF SavedModel directory to ONNX bytes via tf2onnx."""
-    import tensorflow as tf
-    import tf2onnx
-
-    with tempfile.TemporaryDirectory() as tmp:
-        onnx_path = Path(tmp) / "model.onnx"
-        from_saved_model = getattr(tf2onnx.convert, "from_saved_model", None)
-        if callable(from_saved_model):
-            from_saved_model(
-                str(saved_model_dir),
-                output_path=str(onnx_path),
-                opset=opset,
-            )
-        else:
-            model = tf.keras.models.load_model(str(saved_model_dir), compile=False)
-            tf2onnx.convert.from_keras(
-                model,
-                opset=opset,
-                output_path=str(onnx_path),
-            )
-        return onnx_path.read_bytes()
 
 
 def _build_feature_collection(features: list[dict[str, Any]]) -> dict[str, Any]:

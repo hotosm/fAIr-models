@@ -1,47 +1,29 @@
 stack_name: k8s
 zenml_version: 0.93.3
+
+_pod_defaults: &pod_defaults
+  env:
+    - name: ZENML_STORE_URL
+      value: "http://zenml.fair.svc:80"
+    - name: AWS_ENDPOINT_URL
+      value: "http://minio.fair.svc:9000"
+    - name: AWS_ACCESS_KEY_ID
+      value: minioadmin
+    - name: AWS_SECRET_ACCESS_KEY
+      value: minioadmin
+  node_selectors:
+    fair/workload: ml
+
 components:
   orchestrator:
     name: k8s_orchestrator
     flavor: kubernetes
     type: orchestrator
     configuration:
-      kubernetes_context: kind-local-dev-fair
+      kubernetes_context: kind-fair
       kubernetes_namespace: fair
-      pod_settings:
-        env:
-          - name: ZENML_STORE_URL
-            value: "http://zenml.fair.svc:80"
-          - name: AWS_ENDPOINT_URL
-            value: "http://minio.fair.svc:9000"
-          - name: AWS_ACCESS_KEY_ID
-            value: minioadmin
-          - name: AWS_SECRET_ACCESS_KEY
-            value: minioadmin
-        node_selectors:
-          fair.dev/workload: ml
-        tolerations:
-          - key: fair.dev/workload
-            operator: Equal
-            value: ml
-            effect: NoSchedule
-      orchestrator_pod_settings:
-        env:
-          - name: ZENML_STORE_URL
-            value: "http://zenml.fair.svc:80"
-          - name: AWS_ENDPOINT_URL
-            value: "http://minio.fair.svc:9000"
-          - name: AWS_ACCESS_KEY_ID
-            value: minioadmin
-          - name: AWS_SECRET_ACCESS_KEY
-            value: minioadmin
-        node_selectors:
-          fair.dev/workload: ml
-        tolerations:
-          - key: fair.dev/workload
-            operator: Equal
-            value: ml
-            effect: NoSchedule
+      pod_settings: *pod_defaults
+      orchestrator_pod_settings: *pod_defaults
   artifact_store:
     name: s3_artifacts
     flavor: s3
@@ -50,6 +32,8 @@ components:
       path: s3://zenml
       key: minioadmin
       secret: minioadmin
+      client_kwargs:
+        endpoint_url: "http://minio.fair.svc:9000"
   container_registry:
     name: ghcr
     flavor: default

@@ -1,0 +1,43 @@
+set shell := ["bash", "-euo", "pipefail", "-c"]
+set positional-arguments
+
+ns := "fair"
+kind_cluster := "fair"
+cli_image := "fair-dev-cli:latest"
+pf_container := "fair-dev-cli-pf"
+
+import 'recipes/dev.just'
+import 'recipes/dok8s.just'
+import 'recipes/examples.just'
+
+[doc('Deploy the full stack (default kind, pass `dok8s` for DigitalOcean)')]
+up env="dev":
+    @just _up-{{ env }}
+
+[doc('Stop port-forwards / scale down stack (kind cluster preserved)')]
+down env="dev":
+    @just _down-{{ env }}
+
+[doc('Destroy everything (kind cluster or dok8s tofu state)')]
+tear env="dev":
+    @just _tear-{{ env }}
+
+[doc('Show service URLs')]
+urls env="dev":
+    @just _urls-{{ env }}
+
+[doc('Show cluster + pod health')]
+status:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    kubectl get nodes -o wide --no-headers 2>/dev/null | sed 's/^/  /' || echo "no context"
+    echo
+    echo "Pods ({{ ns }}):"
+    kubectl get pods -n {{ ns }} --no-headers 2>/dev/null | sed 's/^/  /'
+
+_apply-postgres:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    kubectl create ns {{ ns }} --dry-run=client -o yaml | kubectl apply -f -
+    kubectl apply -f manifests/postgres.yaml
+    kubectl rollout status -n {{ ns }} statefulset/postgres --timeout=180s

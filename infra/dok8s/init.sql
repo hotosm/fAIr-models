@@ -1,4 +1,0 @@
-CREATE DATABASE zenml;
-CREATE DATABASE fair_models;
-CREATE DATABASE mlflow;
-CREATE DATABASE mlflow_auth;

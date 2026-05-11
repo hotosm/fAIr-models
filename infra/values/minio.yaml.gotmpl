@@ -1,0 +1,23 @@
+rootUser: minioadmin
+rootPassword: minioadmin
+mode: standalone
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi
+persistence:
+  size: 10Gi
+buckets:
+  - name: fair-data
+    policy: download
+  - name: mlflow
+    policy: none
+  - name: zenml
+    policy: download
+{{- with .Values.infraNodeSelector }}
+nodeSelector:
+{{ toYaml . | indent 2 }}
+{{- end }}

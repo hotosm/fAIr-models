@@ -243,7 +243,13 @@ def generate_inference_config(
         ],
     }
 
-    runtime = model_item.assets.get("mlm:inference")
+    # Batch inference runs through ZenML (orchestrator pod + step pods on k8s),
+    # which needs zenml + kubernetes + the model's runtime deps. The mlm:inference
+    # asset (a distroless serving image for Knative live-serving) intentionally
+    # omits ZenML/kubernetes. So the batch pipeline uses mlm:training, which has
+    # the full toolchain. mlm:inference stays for the Knative live path only.
+    # TODO: May be in future we separate out the docker images
+    runtime = model_item.assets.get("mlm:training") or model_item.assets.get("mlm:inference")
     if runtime and runtime.media_type == OCI_IMAGE_INDEX_TYPE:
         docker_cfg: dict[str, Any] = {
             "parent_image": _normalize_container_href(runtime.href),

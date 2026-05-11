@@ -32,14 +32,24 @@ def _predict(
     *,
     base_url: str,
     model_uri: str,
-    input_images: str,
+    image_uri: str,
+    bbox: list[float],
+    zoom: int,
     confidence_threshold: float,
+    iou_threshold: float,
+    min_class_value: int,
     timeout_seconds: float,
 ) -> dict[str, Any]:
     payload = {
         "model_uri": model_uri,
-        "input_images": input_images,
-        "params": {"confidence_threshold": confidence_threshold},
+        "image_uri": image_uri,
+        "bbox": bbox,
+        "zoom": zoom,
+        "params": {
+            "confidence_threshold": confidence_threshold,
+            "iou_threshold": iou_threshold,
+            "min_class_value": min_class_value,
+        },
     }
     data = json.dumps(payload).encode("utf-8")
     req = request.Request(
@@ -80,12 +90,20 @@ def main() -> int:
     parser.add_argument("--image", required=True)
     parser.add_argument("--model-module", required=True)
     parser.add_argument("--model-uri", required=True)
-    parser.add_argument("--input-images", required=True)
+    parser.add_argument("--image-uri", required=True, help="TMS/XYZ/WMS/WMTS template URL")
+    parser.add_argument(
+        "--bbox",
+        required=True,
+        help="Comma-separated west,south,east,north in EPSG:4326",
+    )
+    parser.add_argument("--zoom", type=int, required=True)
     parser.add_argument("--workspace", default=".")
     parser.add_argument("--port", type=int, default=18080)
     parser.add_argument("--health-timeout", type=float, default=60.0)
     parser.add_argument("--predict-timeout", type=float, default=120.0)
     parser.add_argument("--confidence-threshold", type=float, default=0.5)
+    parser.add_argument("--iou-threshold", type=float, default=0.45)
+    parser.add_argument("--min-class-value", type=int, default=1)
     parser.add_argument("--container-name", default="")
     args = parser.parse_args()
 
@@ -98,14 +116,13 @@ def main() -> int:
             [
                 "docker",
                 "run",
-                "--rm",
                 "-d",
                 "--name",
                 container_name,
                 "-e",
                 f"MODEL_MODULE={args.model_module}",
                 "-v",
-                f"{workspace}:/workspace",
+                f"{workspace}:/workspace:ro",
                 "-w",
                 "/workspace",
                 "-p",
@@ -117,11 +134,18 @@ def main() -> int:
 
         base_url = f"http://127.0.0.1:{args.port}"
         _wait_for_health(base_url, args.health_timeout)
+        bbox = [float(v) for v in args.bbox.split(",")]
+        if len(bbox) != 4:
+            raise ValueError("--bbox must have 4 comma-separated numbers")
         result = _predict(
             base_url=base_url,
             model_uri=args.model_uri,
-            input_images=args.input_images,
+            image_uri=args.image_uri,
+            bbox=bbox,
+            zoom=args.zoom,
             confidence_threshold=args.confidence_threshold,
+            iou_threshold=args.iou_threshold,
+            min_class_value=args.min_class_value,
             timeout_seconds=args.predict_timeout,
         )
         print(json.dumps({"status": "ok", "feature_count": len(result["features"])}))

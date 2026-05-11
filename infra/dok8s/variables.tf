@@ -14,12 +14,14 @@ variable "region" {
 }
 
 variable "domain" {
-  type = string
+  type        = string
+  description = "Wildcard base domain, e.g. fair.example.com"
 }
 
-variable "infra_node_size" {
-  type    = string
-  default = "s-2vcpu-4gb"
+variable "system_node_size" {
+  type        = string
+  default     = "s-4vcpu-8gb"
+  description = "Always-on pool that hosts every long-running cluster workload (postgres, mlflow, zenml, minio, stac, ingress-nginx, cert-manager, knative control plane, fair-backend)."
 }
 
 variable "ml_node_size" {
@@ -27,22 +29,18 @@ variable "ml_node_size" {
   default = "s-4vcpu-8gb"
 }
 
-variable "spaces_bucket" {
+variable "ml_max_nodes" {
+  type    = number
+  default = 5
+}
+
+variable "letsencrypt_email" {
   type = string
-}
-
-variable "spaces_access_key" {
-  type      = string
-  sensitive = true
-}
-
-variable "spaces_secret_key" {
-  type      = string
-  sensitive = true
 }
 
 variable "mlflow_admin_user" {
-  type = string
+  type    = string
+  default = "admin"
 }
 
 variable "mlflow_admin_password" {
@@ -51,7 +49,8 @@ variable "mlflow_admin_password" {
 }
 
 variable "zenml_admin_user" {
-  type = string
+  type    = string
+  default = "default"
 }
 
 variable "zenml_admin_password" {
@@ -59,16 +58,9 @@ variable "zenml_admin_password" {
   sensitive = true
 }
 
-variable "letsencrypt_email" {
-  type = string
-}
-
-variable "insecure_ssl" {
-  type    = bool
-  default = false
-}
-
-variable "public_read" {
-  type    = bool
-  default = false
+variable "zenml_store_api_key" {
+  type        = string
+  sensitive   = true
+  description = "ZenML service-account API key consumed by the fAIr backend"
+  default     = ""
 }

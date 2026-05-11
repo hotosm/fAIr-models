@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 import json
+from typing import ClassVar
 from unittest.mock import patch
 
 import pystac
@@ -203,6 +204,12 @@ def _valid_base_model():
         "seed": 42,
         "description": "Random split for testing",
     }
+    item.properties["fair:hyperparameters_spec"] = [
+        {"key": "epochs", "type": "int", "default": 10, "description": "Training epochs"},
+        {"key": "batch_size", "type": "int", "default": 4, "description": "Training batch size"},
+        {"key": "learning_rate", "type": "float", "default": 0.001, "description": "Optimizer learning rate"},
+        {"key": "confidence_threshold", "type": "float", "default": 0.5, "description": "Confidence threshold"},
+    ]
     item.assets["checkpoint"].extra_fields["raster:bands"] = [
         {"name": "red"},
         {"name": "green"},
@@ -644,3 +651,75 @@ class TestValidateHyperparameters:
         assert validate_hyperparameters({"epochs": 500}, m) == []
         assert validate_hyperparameters({"learning_rate": 1e-7}, m) == []
         assert validate_hyperparameters({"learning_rate": 1.0}, m) == []
+
+
+class TestHyperparametersSpecCoverage:
+    _FULL_SPEC: ClassVar[list[dict]] = [
+        {"key": "epochs", "type": "int", "default": 10, "description": "Number of training epochs"},
+        {"key": "batch_size", "type": "int", "default": 4, "description": "Samples per batch"},
+        {"key": "learning_rate", "type": "float", "default": 0.001, "description": "Optimizer LR"},
+        {"key": "confidence_threshold", "type": "float", "default": 0.5, "description": "Inference threshold"},
+    ]
+
+    def _item_with_full_spec(self) -> pystac.Item:
+        item = _valid_base_model()
+        item.properties["fair:hyperparameters_spec"] = copy.deepcopy(self._FULL_SPEC)
+        return item
+
+    def test_valid_coverage_passes(self):
+        item = self._item_with_full_spec()
+        errors = validate_item(item)
+        assert not any("has no matching entry in fair:hyperparameters_spec" in e for e in errors)
+        assert not any("missing required fields" in e for e in errors)
+
+    def test_training_key_missing_from_spec(self):
+        item = self._item_with_full_spec()
+        item.properties["mlm:hyperparameters"]["training.custom_param"] = 99
+        errors = validate_item(item)
+        assert any("training.custom_param" in e and "has no matching entry" in e for e in errors)
+
+    def test_inference_key_missing_from_spec(self):
+        item = self._item_with_full_spec()
+        item.properties["mlm:hyperparameters"]["inference.new_param"] = 0.9
+        errors = validate_item(item)
+        assert any("inference.new_param" in e and "has no matching entry" in e for e in errors)
+
+    def test_spec_entry_missing_type(self):
+        item = self._item_with_full_spec()
+        del item.properties["fair:hyperparameters_spec"][0]["type"]
+        errors = validate_item(item)
+        assert any("missing required fields" in e and "type" in e for e in errors)
+
+    def test_spec_entry_missing_default(self):
+        item = self._item_with_full_spec()
+        del item.properties["fair:hyperparameters_spec"][0]["default"]
+        errors = validate_item(item)
+        assert any("missing required fields" in e and "default" in e for e in errors)
+
+    def test_spec_entry_missing_description(self):
+        item = self._item_with_full_spec()
+        del item.properties["fair:hyperparameters_spec"][0]["description"]
+        errors = validate_item(item)
+        assert any("missing required fields" in e and "description" in e for e in errors)
+
+    def test_no_spec_skips_coverage_check(self):
+        item = _valid_base_model()
+        item.properties.pop("fair:hyperparameters_spec", None)
+        errors = validate_item(item)
+        assert not any("has no matching entry in fair:hyperparameters_spec" in e for e in errors)
+
+
+class TestRegisterFairSchemas:
+    def test_returns_early_when_validator_is_not_jsonschema(self, monkeypatch) -> None:
+        from pystac.validation import RegisteredValidator
+
+        from fair.schemas import register_fair_schemas
+
+        class _NonJsonValidator:
+            def __init__(self) -> None:
+                self.schema_cache: dict[str, object] = {}
+
+        instance = _NonJsonValidator()
+        monkeypatch.setattr(RegisteredValidator, "get_validator", staticmethod(lambda: instance))
+        register_fair_schemas()
+        assert instance.schema_cache == {}

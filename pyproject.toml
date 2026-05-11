@@ -56,6 +56,8 @@ k8s = [
     "zenml[connectors-aws,connectors-kubernetes,s3fs]==0.93.3",
 ]
 serve = [
+    "geomltoolkits>=2.0.2",
+    "s3fs>=2025.3.0",
     "starlette>=0.40,<0.46",
     "uvicorn[standard]>=0.34",
 ]
@@ -71,10 +73,26 @@ Changelog = "https://github.com/hotosm/fAIr-models/blob/master/CHANGELOG.md"
 source = "vcs"
 
 [tool.hatch.build.targets.sdist]
-include = ["fair/", "fair_zenml_patch.pth", "LICENSE", "README.md"]
+include = ["fair/", "models/", "fair_zenml_patch.pth", "LICENSE", "README.md"]
+exclude = [
+    "models/**/tests/",
+    "models/**/conftest.py",
+    "models/conftest.py",
+    "models/test_integration.py",
+    "models/**/Dockerfile",
+    "models/**/Dockerfile.dockerignore",
+]
 
 [tool.hatch.build.targets.wheel]
-packages = ["fair"]
+packages = ["fair", "models"]
+exclude = [
+    "models/**/tests/",
+    "models/**/conftest.py",
+    "models/conftest.py",
+    "models/test_integration.py",
+    "models/**/Dockerfile",
+    "models/**/Dockerfile.dockerignore",
+]
 
 [tool.hatch.build.targets.wheel.force-include]
 "fair_zenml_patch.pth" = "fair_zenml_patch.pth"

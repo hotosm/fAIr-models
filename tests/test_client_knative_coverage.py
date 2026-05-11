@@ -254,12 +254,18 @@ def test_mirror_asset_to_artifact_store_updates_asset_href(monkeypatch) -> None:
             "https://example.com/checkpoint.pt": b"weights",
         }
 
-        def __init__(self, path: str) -> None:
+        def __init__(self, path: str, **_kwargs: object) -> None:
             self.path = path
 
         @property
         def name(self) -> str:
             return Path(self.path).name
+
+        def is_file(self) -> bool:
+            return self.path in self.storage
+
+        def is_dir(self) -> bool:
+            return False
 
         def read_bytes(self) -> bytes:
             return self.storage[self.path]
@@ -267,9 +273,8 @@ def test_mirror_asset_to_artifact_store_updates_asset_href(monkeypatch) -> None:
         def write_bytes(self, data: bytes) -> None:
             self.storage[self.path] = data
 
-    import upath
-
-    monkeypatch.setattr(upath, "UPath", DummyUPath)
+    monkeypatch.setattr(client_module, "UPath", DummyUPath)
+    monkeypatch.setattr("fair.utils.data.UPath", DummyUPath)
     monkeypatch.setattr(
         client_module,
         "s3_uri_to_http_url",
@@ -318,6 +323,10 @@ def test_setup_register_base_model_and_register_dataset_paths(monkeypatch, tmp_p
     assert client.register_base_model("base.json") == "resnet18-classification"
     assert item.properties["version"] == "2"
     assert archived == ["done"]
+    assert ensured == [], "local mode (no stac_api_url) must not provision a KNative service"
+
+    client._stac_api_url = "https://stac.example.com"
+    assert client.register_base_model("base.json") == "resnet18-classification"
     assert ensured == ["resnet18-classification"]
 
     monkeypatch.setattr(
@@ -325,7 +334,9 @@ def test_setup_register_base_model_and_register_dataset_paths(monkeypatch, tmp_p
         "ensure_knative_service",
         lambda published: (_ for _ in ()).throw(RuntimeError("boom")),
     )
-    assert client.register_base_model("base.json") == "resnet18-classification"
+    with pytest.raises(RuntimeError, match="boom"):
+        client.register_base_model("base.json")
+    client._stac_api_url = None
 
     source_labels = tmp_path / "labels.geojson"
     source_labels.write_text("{}")
@@ -342,8 +353,9 @@ def test_setup_register_base_model_and_register_dataset_paths(monkeypatch, tmp_p
     monkeypatch.setattr(client_module, "build_dataset_item", lambda **kwargs: published_dataset)
     monkeypatch.setattr(client_module, "validate_item", lambda _: [])
 
-    assert client._register_dataset_from_item("dataset.json") == "published-dataset"
+    assert client._register_dataset_from_item("dataset.json", user_id="anonymous") == "published-dataset"
     assert client.register_dataset("dataset.json") == "published-dataset"
+    assert client.register_dataset("dataset.json", user_id="other-user") == "published-dataset"
 
     monkeypatch.setattr(
         client_module,
@@ -362,7 +374,7 @@ def test_setup_register_base_model_and_register_dataset_paths(monkeypatch, tmp_p
         user_id="tester",
         providers=[{"name": "provider"}],
     )
-    assert client._register_dataset_from_params(params) == "params-dataset"
+    assert client._register_dataset_from_params(params, user_id="anonymous") == "params-dataset"
     assert client.register_dataset(params) == "params-dataset"
 
 
@@ -478,13 +490,6 @@ def test_predict_live_error_paths_and_success(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(client, "_get_backend", lambda: backend)
     monkeypatch.setattr(client, "_artifact_store_prefix", lambda: "s3://bucket")
 
-    upload_calls: list[tuple[str, str]] = []
-    monkeypatch.setattr(
-        client_module,
-        "upload_local_directory",
-        lambda path, remote: upload_calls.append((str(path), remote)),
-    )
-
     captured: dict[str, Any] = {}
 
     def fake_post(url: str, **kwargs: Any) -> DummyResponse:
@@ -495,27 +500,50 @@ def test_predict_live_error_paths_and_success(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(httpx, "post", fake_post)
     monkeypatch.setenv("FAIR_PREDICT_VERIFY_SSL", "no")
 
+    image_uri = "https://tiles.example.com/{z}/{x}/{y}"
+    bbox = [85.5, 27.6, 85.52, 27.63]
+    zoom = 18
+    predict_base_url = "https://predict.example.com"
+
     result = client.predict_live(
         local_model.id,
-        str(tmp_path),
+        image_uri=image_uri,
+        bbox=bbox,
+        zoom=zoom,
+        predict_base_url=predict_base_url,
         collection=LOCAL_MODELS_COLLECTION,
-        predict_base_url="https://predict.example.com",
     )
     assert result == {"ok": True}
-    assert upload_calls[-1][1] == f"s3://bucket/predict/{local_model.id}/input"
     assert captured["url"] == "https://predict.example.com/resnet18-classification/predict"
     assert captured["kwargs"]["verify"] is False
+    sent = captured["kwargs"]["json"]
+    assert sent["image_uri"] == image_uri
+    assert sent["bbox"] == bbox
+    assert sent["zoom"] == zoom
+    assert "input_images" not in sent
 
     missing_model_backend = DummyBackend()
     monkeypatch.setattr(client, "_get_backend", lambda: missing_model_backend)
     with pytest.raises(FairClientError):
-        client.predict_live("missing", str(tmp_path), predict_base_url="https://predict.example.com")
+        client.predict_live(
+            "missing",
+            image_uri=image_uri,
+            bbox=bbox,
+            zoom=zoom,
+            predict_base_url=predict_base_url,
+        )
 
     no_asset_item = _build_item("no-asset")
     no_asset_backend = DummyBackend({(LOCAL_MODELS_COLLECTION, no_asset_item.id): no_asset_item})
     monkeypatch.setattr(client, "_get_backend", lambda: no_asset_backend)
     with pytest.raises(FairClientError):
-        client.predict_live(no_asset_item.id, str(tmp_path), predict_base_url="https://predict.example.com")
+        client.predict_live(
+            no_asset_item.id,
+            image_uri=image_uri,
+            bbox=bbox,
+            zoom=zoom,
+            predict_base_url=predict_base_url,
+        )
 
 
 def test_knative_helpers_and_gateway_management(monkeypatch) -> None:
@@ -644,6 +672,7 @@ def test_knative_helpers_and_gateway_management(monkeypatch) -> None:
     gateway_calls: list[str] = []
     monkeypatch.setattr(knative_module, "_upsert_knative_service", lambda *args: upserted.append("service"))
     monkeypatch.setattr(knative_module, "_ensure_predict_gateway", lambda *args: gateway_calls.append("gateway"))
+    monkeypatch.setattr(knative_module, "_knative_serving_installed", lambda: True)
 
     monkeypatch.delenv("FAIR_LABEL_DOMAIN", raising=False)
     knative_module.ensure_knative_service(_build_base_model_item())
@@ -652,6 +681,10 @@ def test_knative_helpers_and_gateway_management(monkeypatch) -> None:
     assert upserted == ["service", "service"]
     assert gateway_calls == ["gateway"]
 
+    monkeypatch.setattr(knative_module, "_knative_serving_installed", lambda: False)
+    knative_module.ensure_knative_service(_build_base_model_item())
+    assert upserted == ["service", "service"]
+
     delete_api = DummyCustomObjectsApi()
     monkeypatch.setattr(knative_module, "_custom_objects_api", lambda: delete_api)
     knative_module.delete_knative_service("missing-service")
@@ -659,3 +692,32 @@ def test_knative_helpers_and_gateway_management(monkeypatch) -> None:
     assert delete_api.deleted == ["good-service"]
     with pytest.raises(DummyApiException):
         knative_module.delete_knative_service("broken-service")
+
+
+def test_knative_serving_installed_discovery(monkeypatch: pytest.MonkeyPatch) -> None:
+    from kubernetes import client, config
+
+    monkeypatch.setattr(config, "load_incluster_config", lambda: None)
+
+    monkeypatch.setattr(
+        client,
+        "ApisApi",
+        lambda: SimpleNamespace(
+            get_api_versions=lambda: SimpleNamespace(groups=[SimpleNamespace(name=knative_module.KNATIVE_GROUP)])
+        ),
+    )
+    assert knative_module._knative_serving_installed() is True
+
+    monkeypatch.setattr(
+        client,
+        "ApisApi",
+        lambda: SimpleNamespace(get_api_versions=lambda: SimpleNamespace(groups=[SimpleNamespace(name="other.io")])),
+    )
+    assert knative_module._knative_serving_installed() is False
+
+    def _raise_config(*_: Any, **__: Any) -> None:
+        raise config.ConfigException("no kubeconfig")
+
+    monkeypatch.setattr(config, "load_incluster_config", _raise_config)
+    monkeypatch.setattr(config, "load_kube_config", _raise_config)
+    assert knative_module._knative_serving_installed() is False

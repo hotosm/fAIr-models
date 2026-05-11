@@ -78,6 +78,21 @@ class StacCatalogManager:
         items = list(self._get_collection(collection_id).get_items())
         return items[:limit] if limit is not None else items
 
+    def patch_item(self, collection_id: str, item_id: str, patch: dict) -> pystac.Item:
+        # JSON Merge Patch over the on-disk item. `properties`
+        # is the only common patch target today; deep-merge it so callers
+        # can update one key without messing up the rest.
+        item = self.get_item(collection_id, item_id)
+        for key, value in patch.items():
+            if key == "properties" and isinstance(value, dict):
+                item.properties.update(value)
+            else:
+                setattr(item, key, value)
+        item.properties["updated"] = datetime.now(UTC).isoformat()
+        self._save()
+        log.info("Patched %s/%s", collection_id, item_id)
+        return item
+
     def deprecate_item(self, collection_id: str, item_id: str) -> pystac.Item:
         item = self.get_item(collection_id, item_id)
         item.properties["deprecated"] = True

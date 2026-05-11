@@ -13,7 +13,7 @@ from fair.stac.collections import (
     create_datasets_collection,
     create_local_models_collection,
 )
-from fair.stac.versioning import ensure_version_links
+from fair.stac.versioning import ensure_version_links, normalize_version_link_hrefs
 
 log = logging.getLogger(__name__)
 
@@ -53,34 +53,15 @@ class PgStacBackend:
     def publish_item(self, collection_id: str, item: pystac.Item) -> pystac.Item:
         item.properties.setdefault("version", "1")
         item.properties["updated"] = datetime.now(UTC).isoformat()
-        self._ensure_version_links(collection_id, item)
-        self._normalize_version_link_hrefs(collection_id, item)
-        item_dict = item.to_dict()
+        ensure_version_links(item, self.item_href(collection_id, item.id))
+        normalize_version_link_hrefs(item, self.item_href, collection_id)
+        item_dict = item.to_dict(transform_hrefs=False)
         item_dict["collection"] = collection_id
         with self._get_db() as db:
             loader = Loader(db)
             loader.load_items(iter([item_dict]), insert_mode=Methods.upsert)
         log.info("Published %s/%s v%s", collection_id, item.id, item.properties.get("version"))
         return item
-
-    def _normalize_version_link_hrefs(self, collection_id: str, item: pystac.Item) -> None:
-        _VERSION_RELS = {"predecessor-version", "successor-version", "latest-version"}
-        for link in item.links:
-            if link.rel not in _VERSION_RELS:
-                continue
-            href = link.get_href() or ""
-            if href.startswith(("http://", "https://")):
-                continue
-            # Relative local-catalog hrefs like ../../{coll}/{id}/{id}.json
-            parts = href.replace("\\", "/").split("/")
-            json_parts = [p for p in parts if p.endswith(".json")]
-            if json_parts:
-                target_item_id = json_parts[-1].removesuffix(".json")
-                target_coll = parts[-3] if len(parts) >= 3 else collection_id
-                link.target = self.item_href(target_coll, target_item_id)
-
-    def _ensure_version_links(self, collection_id: str, item: pystac.Item) -> None:
-        ensure_version_links(item, self.item_href(collection_id, item.id))
 
     def get_item(self, collection_id: str, item_id: str) -> pystac.Item:
         url = f"{self._stac_api_url}/collections/{collection_id}/items/{item_id}"
@@ -105,6 +86,16 @@ class PgStacBackend:
         resp.raise_for_status()
         features = resp.json().get("features", [])
         return [pystac.Item.from_dict(f) for f in features]
+
+    def patch_item(self, collection_id: str, item_id: str, patch: dict) -> pystac.Item:
+        # pgstac's loader has no native PATCH; do a get + merge + upsert
+        item = self.get_item(collection_id, item_id)
+        for key, value in patch.items():
+            if key == "properties" and isinstance(value, dict):
+                item.properties.update(value)
+            else:
+                setattr(item, key, value)
+        return self.publish_item(collection_id, item)
 
     def deprecate_item(self, collection_id: str, item_id: str) -> pystac.Item:
         item = self.get_item(collection_id, item_id)

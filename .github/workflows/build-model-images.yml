@@ -77,7 +77,7 @@ jobs:
             type=raw,value=latest,enable={{is_default_branch}}
 
       - name: Build test image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: ${{ matrix.path }}/Dockerfile
@@ -95,7 +95,7 @@ jobs:
             "${{ matrix.name }}:test" \
             python -m pytest -o addopts='' models/${{ matrix.name }}/tests/ -v --tb=short --model-dir=models/${{ matrix.name }}
 
-      - name: Run integration test (exports fresh ONNX for smoke test)
+      - name: Run integration test
         run: |
           mkdir -p "$PWD/ci-artifacts"
           docker run --rm --entrypoint "" \
@@ -107,17 +107,25 @@ jobs:
             python -m pytest -o addopts='' models/test_integration.py -v --tb=short -m slow --model-dir=models/${{ matrix.name }}
           test -s "$PWD/ci-artifacts/${{ matrix.name }}.onnx"
 
-      - name: Push image
-        uses: docker/build-push-action@v6
+      - name: Build runtime image
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: ${{ matrix.path }}/Dockerfile
           target: runtime
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
+          load: true
+          tags: ${{ matrix.name }}:runtime
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha,scope=${{ matrix.name }}
           cache-to: type=gha,mode=max,scope=${{ matrix.name }}
+
+      - name: Push runtime image
+        run: |
+          while IFS= read -r tag; do
+            [[ -n "$tag" ]] || continue
+            docker tag "${{ matrix.name }}:runtime" "$tag"
+            docker push "$tag"
+          done <<< "${{ steps.meta.outputs.tags }}"
 
       - uses: docker/metadata-action@v5
         id: inference-meta
@@ -130,32 +138,32 @@ jobs:
             type=raw,value=latest-inference,enable={{is_default_branch}}
 
       - name: Build inference image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: ${{ matrix.path }}/Dockerfile
           target: inference
           load: true
           tags: ${{ matrix.name }}:inference
+          labels: ${{ steps.inference-meta.outputs.labels }}
           cache-from: type=gha,scope=${{ matrix.name }}-inference
+          cache-to: type=gha,mode=max,scope=${{ matrix.name }}-inference
 
-      - name: Smoke test inference image (with fresh ONNX from integration)
+      - name: Smoke test inference image
         run: |
           python3 scripts/smoke_test_inference_image.py \
             --image "${{ matrix.name }}:inference" \
             --model-module "models.${{ matrix.name }}.pipeline" \
             --model-uri "/workspace/ci-artifacts/${{ matrix.name }}.onnx" \
-            --input-images "/workspace/data/sample/predict/oam" \
+            --image-uri "https://tiles.openaerialmap.org/62d85d11d8499800053796c1/0/62d85d11d8499800053796c2/{z}/{x}/{y}" \
+            --bbox "85.51678033745037,27.6313353660439,85.52323021107895,27.637438390948745" \
+            --zoom 18 \
             --container-name "${{ matrix.name }}-smoke"
 
       - name: Push inference image
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: ${{ matrix.path }}/Dockerfile
-          target: inference
-          push: true
-          tags: ${{ steps.inference-meta.outputs.tags }}
-          labels: ${{ steps.inference-meta.outputs.labels }}
-          cache-from: type=gha,scope=${{ matrix.name }}-inference
-          cache-to: type=gha,mode=max,scope=${{ matrix.name }}-inference
+        run: |
+          while IFS= read -r tag; do
+            [[ -n "$tag" ]] || continue
+            docker tag "${{ matrix.name }}:inference" "$tag"
+            docker push "$tag"
+          done <<< "${{ steps.inference-meta.outputs.tags }}"

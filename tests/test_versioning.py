@@ -7,7 +7,12 @@ from fair.stac.builders import build_dataset_item
 from fair.stac.catalog_manager import StacCatalogManager
 from fair.stac.collections import initialize_catalog
 from fair.stac.constants import DATASETS_COLLECTION
-from fair.stac.versioning import add_version_links, deprecate_and_link_successor, find_previous_active_item
+from fair.stac.versioning import (
+    add_version_links,
+    deprecate_and_link_successor,
+    find_previous_active_item,
+    normalize_version_link_hrefs,
+)
 
 _GEOM = {
     "type": "Polygon",
@@ -94,6 +99,55 @@ class TestAddVersionLinks:
         self_links = [lnk for lnk in item.links if lnk.rel == "self"]
         assert len(latest) == 0
         assert len(self_links) == 0
+
+
+class TestNormalizeVersionLinkHrefs:
+    def _bare_item(self, item_id: str) -> pystac.Item:
+        from datetime import UTC, datetime
+
+        return pystac.Item(item_id, _GEOM, _BBOX, datetime(2024, 1, 1, tzinfo=UTC), {})
+
+    def test_rewrites_relative_path_to_absolute_api_url(self) -> None:
+        item = self._bare_item("ds-2")
+        item.add_link(pystac.Link(rel="predecessor-version", target="../../datasets/ds-1/ds-1.json"))
+
+        def factory(coll: str, item_id: str) -> str:
+            return f"https://api/collections/{coll}/items/{item_id}"
+
+        normalize_version_link_hrefs(item, factory, "fallback")
+        rewritten = next(lnk for lnk in item.links if lnk.rel == "predecessor-version")
+        assert rewritten.target == "https://api/collections/datasets/items/ds-1"
+
+    def test_falls_back_to_default_collection_when_path_too_short(self) -> None:
+        item = self._bare_item("ds-2")
+        item.add_link(pystac.Link(rel="predecessor-version", target="ds-1.json"))
+
+        normalize_version_link_hrefs(
+            item,
+            lambda coll, item_id: f"https://api/{coll}/{item_id}",
+            "fallback-coll",
+        )
+        rewritten = next(lnk for lnk in item.links if lnk.rel == "predecessor-version")
+        assert rewritten.target == "https://api/fallback-coll/ds-1"
+
+    def test_skips_links_without_json_segment(self) -> None:
+        item = self._bare_item("ds-2")
+        item.add_link(pystac.Link(rel="predecessor-version", target="../../datasets/ds-1/"))
+
+        normalize_version_link_hrefs(item, lambda _coll, _item_id: "ignored", "fallback")
+        link = next(lnk for lnk in item.links if lnk.rel == "predecessor-version")
+        assert link.target == "../../datasets/ds-1/"
+
+    def test_skips_absolute_urls_and_unrelated_rels(self) -> None:
+        item = self._bare_item("ds-2")
+        item.add_link(pystac.Link(rel="predecessor-version", target="https://api/already-absolute/x.json"))
+        item.add_link(pystac.Link(rel="related", target="../../datasets/ds-2/ds-2.json"))
+
+        normalize_version_link_hrefs(item, lambda _coll, _item_id: "REWRITTEN", "fallback")
+        absolute = next(lnk for lnk in item.links if lnk.rel == "predecessor-version")
+        related = next(lnk for lnk in item.links if lnk.rel == "related")
+        assert absolute.target == "https://api/already-absolute/x.json"
+        assert related.target == "../../datasets/ds-2/ds-2.json"
 
 
 class TestDeprecateAndLinkSuccessor:

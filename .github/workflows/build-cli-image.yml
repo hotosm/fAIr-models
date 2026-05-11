@@ -1,0 +1,90 @@
+name: Build CLI Image
+
+on:
+  pull_request:
+    paths:
+      - "infra/cli/**"
+      - ".github/workflows/build-cli-image.yml"
+  push:
+    branches: [ master ]
+    paths:
+      - "infra/cli/**"
+      - ".github/workflows/build-cli-image.yml"
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: fair-dev-cli
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/metadata-action@v5
+        id: meta
+        with:
+          images: ${{ env.REGISTRY }}/${{ github.repository_owner }}/fair-models/${{ env.IMAGE_NAME }}
+          tags: |
+            type=ref,event=pr,prefix=pr-
+            type=sha,format=short,enable={{is_default_branch}}
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build image
+        uses: docker/build-push-action@v7
+        with:
+          context: infra/cli
+          load: true
+          tags: ${{ env.IMAGE_NAME }}:test
+          cache-from: type=gha,scope=cli
+          cache-to: type=gha,mode=max,scope=cli
+
+      - name: Smoke test bundled tools
+        run: |
+          docker run --rm "${{ env.IMAGE_NAME }}:test" bash -c '
+            set -euo pipefail
+            kubectl version --client=true >/dev/null
+            kind --version >/dev/null
+            helm version --short >/dev/null
+            helmfile --version >/dev/null
+            mc --version >/dev/null
+            just --version >/dev/null
+            helm diff version >/dev/null
+            docker --version >/dev/null
+            command -v bash >/dev/null
+            command -v nc >/dev/null
+            echo "all tools ok"
+          '
+
+      - name: Report image size
+        run: |
+          size=$(docker image inspect "${{ env.IMAGE_NAME }}:test" --format '{{.Size}}')
+          mb=$((size / 1024 / 1024))
+          echo "image size: ${mb}MB"
+          echo "## CLI image size: ${mb}MB" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Push image
+        if: github.event_name != 'pull_request'
+        run: |
+          while IFS= read -r tag; do
+            [[ -n "$tag" ]] || continue
+            docker tag "${{ env.IMAGE_NAME }}:test" "$tag"
+            docker push "$tag"
+          done <<< "${{ steps.meta.outputs.tags }}"

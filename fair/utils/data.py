@@ -39,7 +39,7 @@ def s3_uri_to_http_url(s3_uri: str) -> str:
         return s3_uri
     bucket = parsed.netloc
     key = parsed.path.lstrip("/")
-    endpoint = os.environ.get("AWS_ENDPOINT_URL", "").rstrip("/")
+    endpoint = os.environ.get("FAIR_S3_PUBLIC_URL", os.environ.get("AWS_ENDPOINT_URL", "")).rstrip("/")
     if endpoint:
         return f"{endpoint}/{bucket}/{key}"
     region = os.environ.get("AWS_REGION", os.environ.get("AWS_DEFAULT_REGION", "us-east-1"))
@@ -50,8 +50,10 @@ def http_url_to_s3_uri(url: str) -> str:
     parsed = urlparse(url)
     if parsed.scheme not in ("http", "https"):
         return url
-    endpoint = os.environ.get("AWS_ENDPOINT_URL", "").rstrip("/")
-    if endpoint:
+    for env_var in ("FAIR_S3_PUBLIC_URL", "AWS_ENDPOINT_URL"):
+        endpoint = os.environ.get(env_var, "").rstrip("/")
+        if not endpoint:
+            continue
         endpoint_parsed = urlparse(endpoint)
         if parsed.hostname == endpoint_parsed.hostname:
             path_parts = parsed.path.lstrip("/").split("/", 1)
@@ -173,6 +175,53 @@ def create_dataset_archive(
     return str(out)
 
 
+def upload_storage_options() -> dict:
+    """fsspec/s3fs storage options applied to upload writes.
+
+    FAIR_S3_UPLOAD_ACL: canned S3 ACL (e.g. "public-read"). When set, passed
+    via s3_additional_kwargs so every put/open call on the filesystem
+    inherits it. Unset means no ACL header is sent (bucket default applies).
+
+    Pass to UPath at construction time: UPath(uri, **upload_storage_options()).
+    Children created via `/` inherit storage_options.
+    """
+    acl = os.environ.get("FAIR_S3_UPLOAD_ACL", "").strip()
+    if not acl:
+        return {}
+    return {"s3_additional_kwargs": {"ACL": acl}}
+
+
+def mirror(src: str | Path, dest: str | Path) -> None:
+    """Copy a file or directory tree from src to dest.
+
+    src and dest may each be local paths or remote URIs (s3://, https://, etc).
+    If src is a directory, dest is treated as a directory prefix and the tree
+    is copied recursively. If src is a file, dest is treated as the target file path.
+
+    Upload options from upload_storage_options() (e.g. ACL) are applied at the
+    destination. Remote-to-remote copies stream through the local process.
+    """
+    src_path = UPath(str(src))
+    dest_str = str(dest)
+
+    if src_path.is_dir():
+        dest_path = UPath(dest_str, **upload_storage_options())
+        for f in sorted(src_path.rglob("*")):
+            if f.is_file():
+                target = dest_path / f.relative_to(src_path)
+                target.write_bytes(f.read_bytes())
+                logger.info("Mirrored %s -> %s", f, target)
+        return
+
+    if src_path.is_file():
+        dest_path = UPath(dest_str, **upload_storage_options())
+        dest_path.write_bytes(src_path.read_bytes())
+        logger.info("Mirrored %s -> %s", src_path, dest_path)
+        return
+
+    raise FileNotFoundError(f"mirror source not found: {src}")
+
+
 def upload_item_assets(
     item: pystac.Item,
     data_prefix: str,
@@ -194,12 +243,11 @@ def upload_item_assets(
         local = Path(asset.href)
 
         if local.is_dir():
-            upload_local_directory(local, remote_base)
+            mirror(local, remote_base)
             asset.href = s3_uri_to_http_url(remote_base)
         elif local.is_file():
             remote_path = f"{remote_base}/{local.name}"
-            UPath(remote_path).write_bytes(local.read_bytes())
-            logger.info("Uploaded %s -> %s", local, remote_path)
+            mirror(local, remote_path)
             asset.href = s3_uri_to_http_url(remote_path)
         else:
             logger.warning("Asset '%s' href not found locally: %s", key, asset.href)
@@ -208,8 +256,5 @@ def upload_item_assets(
 
 
 def upload_local_directory(local_dir: Path, remote_prefix: str) -> None:
-    for f in sorted(local_dir.rglob("*")):
-        if f.is_file():
-            dest = UPath(remote_prefix) / f.relative_to(local_dir)
-            dest.write_bytes(f.read_bytes())
-            logger.info("Uploaded %s -> %s", f, dest)
+    """Recursively upload a local directory to a remote prefix. Thin wrapper over mirror()."""
+    mirror(local_dir, remote_prefix)

@@ -302,6 +302,14 @@
                 "min": 0.0,
                 "max": 1.0,
                 "description": "Minimum per-pixel softmax probability to retain a predicted class at inference"
+            },
+            {
+                "key": "min_class_value",
+                "type": "int",
+                "default": 1,
+                "min": 0,
+                "max": 255,
+                "description": "Minimum class index value to retain as a foreground prediction at inference"
             }
         ]
     },

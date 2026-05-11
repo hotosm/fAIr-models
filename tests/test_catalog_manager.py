@@ -64,6 +64,22 @@ def test_deprecate_persists(cm):
     assert fresh.get_item("local-models", "lm").properties["deprecated"] is True
 
 
+def test_patch_item_merges_properties(cm):
+    cm.publish_item("local-models", _item("pm"))
+    cm.patch_item("local-models", "pm", {"properties": {"fair:pinned": True}})
+
+    fresh = StacCatalogManager(cm.catalog.self_href)
+    item = fresh.get_item("local-models", "pm")
+    assert item.properties["fair:pinned"] is True
+    # Other properties are preserved (merge, not replace).
+    assert item.properties.get("version") is not None
+
+
+def test_patch_item_missing_raises(cm):
+    with pytest.raises(KeyError, match="not found"):
+        cm.patch_item("local-models", "ghost", {"properties": {"x": 1}})
+
+
 def test_delete(cm):
     cm.publish_item("base-models", _item("del"))
     cm.delete_item("base-models", "del")

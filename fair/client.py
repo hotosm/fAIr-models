@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Any
 
 import pystac
 import yaml
+from upath import UPath
 from zenml.client import Client
 from zenml.enums import StackComponentType
 
@@ -28,19 +29,30 @@ from fair.stac.versioning import archive_previous_version, find_previous_active_
 from fair.utils.data import (
     count_chips,
     create_dataset_archive,
+    mirror,
     s3_uri_to_http_url,
     upload_item_assets,
     upload_local_directory,
 )
+from fair.utils.storage import DatasetStoragePaths, LocalModelStoragePaths
 from fair.zenml.config import generate_inference_config, generate_training_config
 from fair.zenml.promotion import promote_model_version, publish_promoted_model
 
 if TYPE_CHECKING:
+    from fair.stac.api_backend import StacApiBackend
     from fair.stac.pgstac_backend import PgStacBackend
 
 logger = logging.getLogger(__name__)
 
 _DEFAULT_CATALOG_PATH = "stac_catalog/catalog.json"
+
+_LABEL_FILE_SUFFIXES = (".json", ".geojson", ".csv")
+
+
+def _labels_dir_from_href(labels_href: str) -> str:
+    if labels_href.lower().endswith(_LABEL_FILE_SUFFIXES):
+        return str(UPath(labels_href).parent)
+    return labels_href
 
 
 class FairClientError(Exception):
@@ -53,6 +65,7 @@ class FairClient:
         *,
         zenml_store_url: str | None = None,
         stac_api_url: str | None = None,
+        stac_api_key: str | None = None,
         dsn: str | None = None,
         catalog_path: str = _DEFAULT_CATALOG_PATH,
         user_id: str = "anonymous",
@@ -61,28 +74,43 @@ class FairClient:
     ) -> None:
         self._zenml_store_url = zenml_store_url
         self._stac_api_url = stac_api_url
+        self._stac_api_key = stac_api_key
         self._dsn = dsn
         self._catalog_path = catalog_path
         self.user_id = user_id
         self._config_dir = Path(config_dir)
         self._upload_artifacts = upload_artifacts
+        self._cached_backend: StacCatalogManager | PgStacBackend | StacApiBackend | None = None
+
+    def with_user(self, user_id: str) -> UserScopedFairClient:
+        """Return a lightweight per-request view that stamps user_id on every call.
+
+        The underlying client (and its cached STAC backend, ZenML connection, config_dir)
+        is shared. Use this in long-running processes (Django requests, Celery workers
+        etc.) to avoid reconstructing the heavy state on every call.
+        """
+        return UserScopedFairClient(self, user_id)
 
     def _artifact_store_prefix(self) -> str | None:
-        try:
-            artifact_store = Client().active_stack.artifact_store
-            path = artifact_store.path
-            if "://" in path:
-                return path.rstrip("/")
-        except Exception:
-            pass
+        artifact_store = Client().active_stack.artifact_store
+        if artifact_store is None:
+            return None
+        path = artifact_store.path
+        if "://" in path:
+            return path.rstrip("/")
         return None
 
     def _upload_assets_if_remote(self, item: pystac.Item, collection_id: str) -> None:
         if not self._upload_artifacts:
             return
         prefix = self._artifact_store_prefix()
-        if prefix:
-            upload_item_assets(item, prefix, collection_id)
+        if prefix is None:
+            raise FairClientError(
+                "upload_artifacts=True but the active ZenML stack has no remote "
+                "artifact store. Configure an S3/MinIO artifact store before calling "
+                "register/promote, or pass upload_artifacts=False."
+            )
+        upload_item_assets(item, prefix, collection_id)
 
     def _dataset_providers_from_properties(self, props: dict[str, Any], item_id: str) -> list[dict[str, Any]]:
         raw_providers = props.get("providers")
@@ -97,14 +125,21 @@ class FairClient:
 
         return providers
 
-    def _get_backend(self) -> StacCatalogManager | PgStacBackend:
+    def _get_backend(self) -> StacCatalogManager | PgStacBackend | StacApiBackend:
+        if self._cached_backend is not None:
+            return self._cached_backend
         if self._stac_api_url:
-            from fair.stac.pgstac_backend import PgStacBackend
+            if self._dsn:
+                from fair.stac.pgstac_backend import PgStacBackend
 
-            if not self._dsn:
-                raise FairClientError("dsn is required when stac_api_url is set")
-            return PgStacBackend(dsn=self._dsn, stac_api_url=self._stac_api_url)
-        return StacCatalogManager(self._catalog_path)
+                self._cached_backend = PgStacBackend(dsn=self._dsn, stac_api_url=self._stac_api_url)
+                return self._cached_backend
+            from fair.stac.api_backend import StacApiBackend
+
+            self._cached_backend = StacApiBackend(self._stac_api_url, api_key=self._stac_api_key)
+            return self._cached_backend
+        self._cached_backend = StacCatalogManager(self._catalog_path)
+        return self._cached_backend
 
     def _pipeline_module_from_item(self, item: pystac.Item) -> str:
         src = item.assets.get("source-code")
@@ -122,8 +157,6 @@ class FairClient:
         asset_key: str,
         collection_id: str,
     ) -> None:
-        from upath import UPath
-
         asset = item.assets.get(asset_key)
         if asset is None:
             return
@@ -137,8 +170,7 @@ class FairClient:
         filename = UPath(source_url).name or f"{asset_key}.bin"
         remote_path = f"{prefix}/{collection_id}/{item.id}/{asset_key}/{filename}"
 
-        logger.info("Mirroring %s -> %s", source_url, remote_path)
-        UPath(remote_path).write_bytes(UPath(source_url).read_bytes())
+        mirror(source_url, remote_path)
         asset.href = s3_uri_to_http_url(remote_path)
 
     def setup(self) -> None:
@@ -180,17 +212,16 @@ class FairClient:
 
         published = cat.publish_item(BASE_MODELS_COLLECTION, item)
 
-        try:
+        if self._stac_api_url:
             from fair.infra.knative import ensure_knative_service
 
             ensure_knative_service(published)
-            print(f"register: base-model {published.id} v{published.properties['version']} (knative ok)")
-        except Exception as exc:
-            logger.warning("register_base_model: KNative service not ensured (%s)", exc)
-            print(f"register: base-model {published.id} v{published.properties['version']}")
+        print(f"register: base-model {published.id} v{published.properties['version']}")
         return published.id
 
-    def _register_dataset_from_item(self, stac_item_path: str) -> str:
+    def _register_dataset_from_item(
+        self, stac_item_path: str, *, user_id: str, paths: type[DatasetStoragePaths] | None = None
+    ) -> str:
         cat = self._get_backend()
         item = pystac.Item.from_file(stac_item_path)
         item.make_asset_hrefs_absolute()
@@ -224,8 +255,7 @@ class FairClient:
 
         Path("artifacts").mkdir(exist_ok=True)
         archive_path = Path("artifacts") / f"{title}-v{version}.zip"
-        labels_path = Path(labels_href)
-        labels_dir_str = str(labels_path.parent) if labels_path.is_file() else labels_href
+        labels_dir_str = _labels_dir_from_href(labels_href)
         create_dataset_archive(chips_dir=chips_href, labels_dir=labels_dir_str, output_path=str(archive_path))
 
         dataset_item = build_dataset_item(
@@ -237,7 +267,7 @@ class FairClient:
             labels_href=labels_href,
             title=title,
             description=description,
-            user_id=self.user_id,
+            user_id=user_id,
             item_id=item.id,
             chip_count=chip_count if chip_count > 0 else None,
             geometry=item.geometry,
@@ -256,7 +286,8 @@ class FairClient:
         if errs := validate_item(dataset_item):
             raise FairClientError(f"Schema validation failed: {errs}")
 
-        self._upload_assets_if_remote(dataset_item, DATASETS_COLLECTION)
+        collection_root = paths.ROOT if paths is not None else DATASETS_COLLECTION
+        self._upload_assets_if_remote(dataset_item, collection_root)
 
         if prev:
             successor_href = cat.item_href(DATASETS_COLLECTION, dataset_item.id)
@@ -266,7 +297,9 @@ class FairClient:
         print(f"register: dataset {published.id} v{published.properties['version']}")
         return published.id
 
-    def _register_dataset_from_params(self, params: DatasetItemParams) -> str:
+    def _register_dataset_from_params(
+        self, params: DatasetItemParams, *, user_id: str, paths: type[DatasetStoragePaths] | None = None
+    ) -> str:
         cat = self._get_backend()
         title = params.title
         chips_href = params.chips_href
@@ -279,13 +312,12 @@ class FairClient:
 
         Path("artifacts").mkdir(exist_ok=True)
         archive_path = Path("artifacts") / f"{title}-v{version}.zip"
-        labels_path = Path(labels_href)
-        labels_dir_str = str(labels_path.parent) if labels_path.is_file() else labels_href
+        labels_dir_str = _labels_dir_from_href(labels_href)
         create_dataset_archive(chips_dir=chips_href, labels_dir=labels_dir_str, output_path=str(archive_path))
 
         fields = dataclasses.asdict(params)
         fields.update(
-            user_id=self.user_id,
+            user_id=user_id,
             chip_count=chip_count if chip_count > 0 else None,
             version=version,
             predecessor_version_href=predecessor_href,
@@ -296,7 +328,8 @@ class FairClient:
         if errs := validate_item(dataset_item):
             raise FairClientError(f"Schema validation failed: {errs}")
 
-        self._upload_assets_if_remote(dataset_item, DATASETS_COLLECTION)
+        collection_root = paths.ROOT if paths is not None else DATASETS_COLLECTION
+        self._upload_assets_if_remote(dataset_item, collection_root)
 
         if prev:
             successor_href = cat.item_href(DATASETS_COLLECTION, dataset_item.id)
@@ -306,19 +339,27 @@ class FairClient:
         print(f"register: dataset {published.id} v{published.properties['version']}")
         return published.id
 
-    def register_dataset(self, dataset: str | DatasetItemParams) -> str:
+    def register_dataset(
+        self,
+        dataset: str | DatasetItemParams,
+        *,
+        user_id: str | None = None,
+        paths: type[DatasetStoragePaths] | None = None,
+    ) -> str:
+        effective_user_id = user_id or self.user_id
         if isinstance(dataset, str):
-            return self._register_dataset_from_item(dataset)
-        return self._register_dataset_from_params(dataset)
+            return self._register_dataset_from_item(dataset, user_id=effective_user_id, paths=paths)
+        return self._register_dataset_from_params(dataset, user_id=effective_user_id, paths=paths)
 
-    def finetune(
+    def _prepare_training_pipeline(
         self,
         *,
         base_model_id: str,
         dataset_id: str,
         model_name: str,
-        overrides: dict[str, Any] | None = None,
-    ) -> str:
+        overrides: dict[str, Any] | None,
+        config_dir: Path | str | None = None,
+    ) -> tuple[Any, Path]:
         cat = self._get_backend()
         base = cat.get_item(BASE_MODELS_COLLECTION, base_model_id)
         try:
@@ -330,16 +371,31 @@ class FairClient:
             raise FairClientError(f"Incompatible: {errs}")
 
         pipeline_module = self._pipeline_module_from_item(base)
-
         trackers = Client().active_stack_model.components.get(StackComponentType.EXPERIMENT_TRACKER, [])
         tracker_name = trackers[0].name if trackers else None
 
         cfg_data = generate_training_config(base, ds, model_name, overrides, experiment_tracker=tracker_name)
-        self._config_dir.mkdir(parents=True, exist_ok=True)
-        train_cfg = self._config_dir / f"train_{model_name}.yaml"
+        cfg_dir = Path(config_dir) if config_dir else self._config_dir
+        cfg_dir.mkdir(parents=True, exist_ok=True)
+        train_cfg = cfg_dir / f"train_{model_name}.yaml"
         train_cfg.write_text(yaml.dump(cfg_data, sort_keys=False))
 
-        mod = importlib.import_module(pipeline_module)
+        return importlib.import_module(pipeline_module), train_cfg
+
+    def finetune(
+        self,
+        *,
+        base_model_id: str,
+        dataset_id: str,
+        model_name: str,
+        overrides: dict[str, Any] | None = None,
+    ) -> str:
+        mod, train_cfg = self._prepare_training_pipeline(
+            base_model_id=base_model_id,
+            dataset_id=dataset_id,
+            model_name=model_name,
+            overrides=overrides,
+        )
         run = mod.training_pipeline.with_options(config_path=str(train_cfg), enable_cache=False)()
         if run is None:
             raise RuntimeError("Training pipeline returned no run")
@@ -353,20 +409,41 @@ class FairClient:
         base_model_id: str | None = None,
         dataset_id: str | None = None,
         description: str = "",
+        title: str | None = None,
+        keywords: list[str] | None = None,
+        user_id: str | None = None,
+        pipeline_run_id: str | None = None,
+        paths: type[LocalModelStoragePaths] | None = None,
     ) -> str:
+        """Promote a finetuned model version to STAC's local-models collection.s"""
+        effective_user_id = user_id or self.user_id
         model_name = finetuned_model_id
 
         client = Client()
         versions = client.list_model_versions(model=model_name, sort_by="desc:created")
         if not versions:
             raise FairClientError(f"No versions for '{model_name}'. Run finetune first.")
-        latest = versions[0]
-        version_number = latest.number
+
+        if pipeline_run_id is None:
+            target_version = versions[0]
+        else:
+            target_version = None
+            for candidate in versions:
+                links = client.list_model_version_pipeline_run_links(model_version_id=candidate.id)
+                for link in links.items:
+                    if str(link.pipeline_run.id) == pipeline_run_id:
+                        target_version = candidate
+                        break
+                if target_version is not None:
+                    break
+            if target_version is None:
+                raise FairClientError(f"No version of '{model_name}' was produced by pipeline run {pipeline_run_id}")
+        version_number = target_version.number
 
         resolved_base_id = base_model_id
         resolved_dataset_id = dataset_id
         if resolved_base_id is None or resolved_dataset_id is None:
-            run_links = client.list_model_version_pipeline_run_links(model_version_id=latest.id)
+            run_links = client.list_model_version_pipeline_run_links(model_version_id=target_version.id)
             if run_links.items:
                 run = run_links.items[0].pipeline_run
                 step = run.steps.get("train_model")
@@ -390,9 +467,12 @@ class FairClient:
             catalog_manager=cat,
             base_model_item_id=resolved_base_id,
             dataset_item_id=resolved_dataset_id,
-            user_id=self.user_id,
+            user_id=effective_user_id,
             description=description or f"{model_name} finetuned on {resolved_dataset_id}",
+            title=title,
+            keywords=keywords,
             artifact_store_prefix=self._artifact_store_prefix() if self._upload_artifacts else None,
+            paths=paths,
         )
         print(f"promote: {item.id}")
         return item.id
@@ -400,8 +480,10 @@ class FairClient:
     def predict_live(
         self,
         model_id: str,
-        image_path: str,
         *,
+        image_uri: str,
+        bbox: list[float],
+        zoom: int,
         predict_base_url: str | None = None,
         collection: str = LOCAL_MODELS_COLLECTION,
         timeout: float = 120.0,
@@ -420,15 +502,11 @@ class FairClient:
 
         service_name = self._base_model_name_for_live_service(model_item, collection)
 
-        prefix = self._artifact_store_prefix()
-        if self._upload_artifacts and prefix and "://" not in image_path:
-            remote_path = f"{prefix}/predict/{model_id}/input"
-            upload_local_directory(Path(image_path), remote_path)
-            image_path = remote_path
-
         payload = {
             "model_uri": model_asset.href,
-            "input_images": image_path,
+            "image_uri": image_uri,
+            "bbox": bbox,
+            "zoom": zoom,
             "params": inference_params(model_item.properties.get("mlm:hyperparameters", {})),
         }
 
@@ -481,7 +559,39 @@ class FairClient:
             return True
         return str(value).strip().lower() not in {"0", "false", "no"}
 
-    def predict(self, local_model_id: str, image_path: str) -> dict[str, Any]:
+    def submit_finetune(
+        self,
+        *,
+        base_model_id: str,
+        dataset_id: str,
+        model_name: str,
+        overrides: dict[str, Any] | None = None,
+        config_dir: Path | str | None = None,
+    ) -> str:
+        """Non-blocking variant of finetune. Returns the ZenML pipeline run id immediately."""
+        mod, train_cfg = self._prepare_training_pipeline(
+            base_model_id=base_model_id,
+            dataset_id=dataset_id,
+            model_name=model_name,
+            overrides=overrides,
+            config_dir=config_dir,
+        )
+        run = mod.training_pipeline.with_options(
+            config_path=str(train_cfg),
+            enable_cache=False,
+            settings={"orchestrator": {"synchronous": False}},
+        )()
+        if run is None:
+            raise RuntimeError("Training pipeline returned no run reference")
+        return str(run.id)
+
+    def _prepare_inference_pipeline(
+        self,
+        *,
+        local_model_id: str,
+        image_path: str,
+        config_dir: Path | str | None = None,
+    ) -> tuple[Any, Path]:
         cat = self._get_backend()
         try:
             model_item = cat.get_item(LOCAL_MODELS_COLLECTION, local_model_id)
@@ -497,14 +607,160 @@ class FairClient:
             image_path = remote_path
 
         cfg_data = generate_inference_config(model_item, image_path)
-        self._config_dir.mkdir(parents=True, exist_ok=True)
-        inf_cfg = self._config_dir / f"inference_{local_model_id[:8]}.yaml"
+        cfg_dir = Path(config_dir) if config_dir else self._config_dir
+        cfg_dir.mkdir(parents=True, exist_ok=True)
+        inf_cfg = cfg_dir / f"inference_{local_model_id[:8]}.yaml"
         inf_cfg.write_text(yaml.dump(cfg_data, sort_keys=False))
 
-        mod = importlib.import_module(pipeline_module)
+        return importlib.import_module(pipeline_module), inf_cfg
+
+    def submit_predict(
+        self,
+        *,
+        local_model_id: str,
+        image_path: str,
+        config_dir: Path | str | None = None,
+    ) -> str:
+        """Non-blocking variant of predict. Returns the ZenML pipeline run id immediately."""
+        mod, inf_cfg = self._prepare_inference_pipeline(
+            local_model_id=local_model_id,
+            image_path=image_path,
+            config_dir=config_dir,
+        )
+        run = mod.inference_pipeline.with_options(
+            config_path=str(inf_cfg),
+            enable_cache=False,
+            settings={"orchestrator": {"synchronous": False}},
+        )()
+        if run is None:
+            raise RuntimeError("Inference pipeline returned no run reference")
+        return str(run.id)
+
+    def predict(self, local_model_id: str, image_path: str) -> dict[str, Any]:
+        mod, inf_cfg = self._prepare_inference_pipeline(local_model_id=local_model_id, image_path=image_path)
         run = mod.inference_pipeline.with_options(config_path=str(inf_cfg), enable_cache=False)()
         if run is None:
             raise RuntimeError("Inference pipeline returned no run")
         print(f"predict: {run.id} ({run.status})")
         last_step = list(run.steps.values())[-1]
         return last_step.outputs["predictions"][0].load()
+
+
+class UserScopedFairClient:
+    """Per-request proxy stamping a fixed user_id on every call.
+
+    Wraps a long-lived FairClient. All STAC reads, ZenML submissions, and
+    promotions go through the wrapped client, but mutating calls receive
+    the proxy's user_id rather than the wrapped client's default.
+    """
+
+    __slots__ = ("_client", "_user_id")
+
+    def __init__(self, client: FairClient, user_id: str) -> None:
+        self._client = client
+        self._user_id = user_id
+
+    @property
+    def user_id(self) -> str:
+        return self._user_id
+
+    def setup(self) -> None:
+        self._client.setup()
+
+    def register_base_model(self, stac_item: str | BaseModelItemParams) -> str:
+        return self._client.register_base_model(stac_item)
+
+    def register_dataset(
+        self,
+        dataset: str | DatasetItemParams,
+        *,
+        paths: type[DatasetStoragePaths] | None = None,
+    ) -> str:
+        return self._client.register_dataset(dataset, user_id=self._user_id, paths=paths)
+
+    def submit_finetune(
+        self,
+        *,
+        base_model_id: str,
+        dataset_id: str,
+        model_name: str,
+        overrides: dict[str, Any] | None = None,
+        config_dir: Path | str | None = None,
+    ) -> str:
+        return self._client.submit_finetune(
+            base_model_id=base_model_id,
+            dataset_id=dataset_id,
+            model_name=model_name,
+            overrides=overrides,
+            config_dir=config_dir,
+        )
+
+    def submit_predict(
+        self,
+        *,
+        local_model_id: str,
+        image_path: str,
+        config_dir: Path | str | None = None,
+    ) -> str:
+        return self._client.submit_predict(
+            local_model_id=local_model_id,
+            image_path=image_path,
+            config_dir=config_dir,
+        )
+
+    def promote(
+        self,
+        finetuned_model_id: str,
+        *,
+        base_model_id: str | None = None,
+        dataset_id: str | None = None,
+        description: str = "",
+        title: str | None = None,
+        keywords: list[str] | None = None,
+        pipeline_run_id: str | None = None,
+        paths: type[LocalModelStoragePaths] | None = None,
+    ) -> str:
+        return self._client.promote(
+            finetuned_model_id,
+            base_model_id=base_model_id,
+            dataset_id=dataset_id,
+            description=description,
+            title=title,
+            keywords=keywords,
+            user_id=self._user_id,
+            pipeline_run_id=pipeline_run_id,
+            paths=paths,
+        )
+
+    def predict(self, local_model_id: str, image_path: str) -> dict[str, Any]:
+        return self._client.predict(local_model_id, image_path)
+
+    def predict_live(
+        self,
+        model_id: str,
+        *,
+        image_uri: str,
+        bbox: list[float],
+        zoom: int,
+        predict_base_url: str | None = None,
+        collection: str = LOCAL_MODELS_COLLECTION,
+        timeout: float = 120.0,
+    ) -> dict[str, Any]:
+        return self._client.predict_live(
+            model_id,
+            image_uri=image_uri,
+            bbox=bbox,
+            zoom=zoom,
+            predict_base_url=predict_base_url,
+            collection=collection,
+            timeout=timeout,
+        )
+
+    def get_item(self, collection_id: str, item_id: str) -> pystac.Item:
+        return self._client._get_backend().get_item(collection_id, item_id)
+
+    def list_items(self, collection_id: str, *, limit: int | None = None) -> list[pystac.Item]:
+        return self._client._get_backend().list_items(collection_id, limit=limit)
+
+    def deprecate_item(self, collection_id: str, item_id: str) -> pystac.Item:
+        return self._client._get_backend().deprecate_item(collection_id, item_id)

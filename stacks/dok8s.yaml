@@ -6,11 +6,19 @@ _pod_defaults: &pod_defaults
     - name: ZENML_STORE_URL
       value: "http://zenml.fair.svc:80"
     - name: AWS_ENDPOINT_URL
-      value: "${SPACES_ENDPOINT}"
+      value: "https://s3.${FAIR_DOMAIN}"
     - name: AWS_ACCESS_KEY_ID
-      value: "${SPACES_ACCESS_KEY}"
+      value: minioadmin
     - name: AWS_SECRET_ACCESS_KEY
-      value: "${SPACES_SECRET_KEY}"
+      value: minioadmin
+    - name: FAIR_S3_PUBLIC_URL
+      value: "https://s3.${FAIR_DOMAIN}"
+    - name: AWS_REQUEST_CHECKSUM_CALCULATION
+      value: "when_required"
+    - name: AWS_RESPONSE_CHECKSUM_VALIDATION
+      value: "when_required"
+  node_selectors:
+    fair/workload: ml
 
 components:
   orchestrator:
@@ -23,13 +31,15 @@ components:
       pod_settings: *pod_defaults
       orchestrator_pod_settings: *pod_defaults
   artifact_store:
-    name: spaces_artifacts
+    name: s3_artifacts
     flavor: s3
     type: artifact_store
     configuration:
-      path: s3://${SPACES_BUCKET}/zenml
-      key: "${SPACES_ACCESS_KEY}"
-      secret: "${SPACES_SECRET_KEY}"
+      path: s3://zenml
+      key: minioadmin
+      secret: minioadmin
+      client_kwargs:
+        endpoint_url: "https://s3.${FAIR_DOMAIN}"
   container_registry:
     name: ghcr
     flavor: default
@@ -37,10 +47,10 @@ components:
     configuration:
       uri: ghcr.io/hotosm
   experiment_tracker:
-    name: mlflow_doks
+    name: mlflow_tracker
     flavor: mlflow
     type: experiment_tracker
     configuration:
       tracking_uri: "http://mlflow.fair.svc:80"
-      tracking_username: "${MLFLOW_ADMIN_USER}"
-      tracking_password: "${MLFLOW_ADMIN_PASSWORD}"
+      tracking_username: ${MLFLOW_ADMIN_USER}
+      tracking_password: ${MLFLOW_ADMIN_PASSWORD}

@@ -245,6 +245,8 @@ infra/dev/.pf-logs/
 # dok8s infra
 infra/dok8s/.env
 infra/dok8s/.dok8s-stack-resolved.yaml
+infra/*.kubeconfig
+infra/.env.dok8s
 soul.md
 .fair-mode
 mlflow.db
@@ -252,3 +254,4 @@ mlflow.db
 # mkdocs build output
 site/
 docs/schemas/
+runs

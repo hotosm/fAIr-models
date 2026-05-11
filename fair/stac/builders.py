@@ -47,6 +47,7 @@ class DatasetItemParams:
     source_imagery_href: str | None = None
     self_href: str | None = None
     predecessor_version_href: str | None = None
+    geometry_type: Literal["point", "line", "polygon"] | None = None
 
 
 CheckpointArtifactType = Literal[
@@ -258,6 +259,7 @@ def build_dataset_item(
     source_imagery_href: str | None = None,
     self_href: str | None = None,
     predecessor_version_href: str | None = None,
+    geometry_type: Literal["point", "line", "polygon"] | None = None,
 ) -> pystac.Item:
     _validate_providers(providers)
 
@@ -292,6 +294,8 @@ def build_dataset_item(
         properties["fair:chip_count"] = chip_count
     if source_imagery is not None:
         properties["fair:source_imagery"] = source_imagery
+    if geometry_type is not None:
+        properties["fair:geometry_type"] = geometry_type
     if license_id is not None:
         properties["license"] = license_id
     properties["label:description"] = label_description if label_description is not None else description
@@ -561,7 +565,13 @@ def build_local_model_item(
         properties["fair:dataset_id"] = dataset_id
 
     # Copy fields from base model that apply to the finetuned variant
-    for field in ("license", "mlm:accelerator", "mlm:accelerator_count", "fair:metrics_spec"):
+    for field in (
+        "license",
+        "mlm:accelerator",
+        "mlm:accelerator_count",
+        "fair:metrics_spec",
+        "fair:hyperparameters_spec",
+    ):
         if field in base_props:
             properties[field] = base_props[field]
 

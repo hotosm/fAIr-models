@@ -1,0 +1,25 @@
+version: 0.171.0
+dependencies:
+- name: cert-manager
+  repository: https://charts.jetstack.io
+  version: v1.20.1
+- name: eoapi
+  repository: https://devseed.com/eoapi-k8s/
+  version: 0.12.2
+- name: ingress-nginx
+  repository: https://kubernetes.github.io/ingress-nginx
+  version: 4.15.1
+- name: knative-operator
+  repository: https://knative.github.io/operator
+  version: v1.17.8
+- name: minio
+  repository: https://charts.min.io/
+  version: 5.4.0
+- name: mlflow
+  repository: https://community-charts.github.io/helm-charts
+  version: 1.8.1
+- name: zenml
+  repository: oci://public.ecr.aws/zenml
+  version: 0.93.3
+digest: sha256:4a6a78f75bd96d714981fac0114905c4824ec8af11164ba9dd818158c92729e6
+generated: "2026-05-05T22:51:08.421149122Z"

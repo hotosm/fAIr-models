@@ -68,10 +68,12 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 COPY models/resnet18_classification/pipeline.py /app/models/resnet18_classification/pipeline.py
 
 # Inference stage: distroless runtime for live serving
-FROM gcr.io/distroless/cc-debian12:nonroot AS inference
+FROM gcr.io/distroless/python3-debian12:nonroot AS inference
+WORKDIR /app
 COPY --from=inference-builder /python /python
 COPY --from=inference-builder /app/.venv /app/.venv
 COPY --from=inference-builder /app/models /app/models
 ENV PATH="/app/.venv/bin:$PATH" PYTHONPATH=/app
 EXPOSE 8080
-CMD ["uvicorn", "fair.serve.base:create_app", "--factory", "--host", "0.0.0.0", "--port", "8080"]
+ENTRYPOINT ["/app/.venv/bin/python", "-m", "uvicorn"]
+CMD ["fair.serve.base:create_app", "--factory", "--host", "0.0.0.0", "--port", "8080"]

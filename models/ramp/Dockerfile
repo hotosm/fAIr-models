@@ -1,11 +1,13 @@
 # syntax=docker/dockerfile:1.7
 
-# Base image: ghcr.io/hotosm/fair-utilities-ramp:cpu-latest (or :gpu-latest via BASE_IMAGE build arg).
+# Base image: ghcr.io/hotosm/fair-utilities-ramp:gpu-latest (override BASE_IMAGE for CPU builds).
 # Build from the fAIr-models repo root:
 #   docker build -f models/ramp/Dockerfile --target test -t ramp:test .
+#   docker build -f models/ramp/Dockerfile --build-arg BASE_IMAGE=ghcr.io/hotosm/fair-utilities-ramp:gpu-latest --target test -t ramp:test .
+#   docker build -f models/ramp/Dockerfile --build-arg BASE_IMAGE=ghcr.io/hotosm/fair-utilities-ramp:cpu-latest --target test -t ramp:test .
 #   docker build -f models/ramp/Dockerfile --target runtime -t ramp:runtime .
 #   docker build -f models/ramp/Dockerfile --target inference -t ramp:inference .
-ARG BASE_IMAGE=ghcr.io/hotosm/fair-utilities-ramp:cpu-latest
+ARG BASE_IMAGE=ghcr.io/hotosm/fair-utilities-ramp:gpu-latest
 
 # ---------------------------------------------------------------------------
 # Builder stage: install model-pack deps into the base image venv
@@ -47,7 +49,9 @@ ENV PATH="/app/.venv/bin:$PATH" \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     RAMP_HOME=/app \
-    SM_FRAMEWORK=tf.keras
+    SM_FRAMEWORK=tf.keras \
+    NVIDIA_VISIBLE_DEVICES=all \
+    NVIDIA_DRIVER_CAPABILITIES=compute,utility
 
 COPY --from=builder /app/.venv /app/.venv
 

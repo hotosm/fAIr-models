@@ -1,29 +1,27 @@
-"""Step tests for the RAMP pipeline.
+"""Step tests for RAMP building segmentation.
 
-Each test calls ``step.entrypoint(...)`` directly. Heavy RAMP/TF operations
-(``train_ramp_model``, SavedModel loading, tf2onnx conversion) are patched so
-tests run quickly and do not require GPU resources.
+Each test runs real @step entrypoints against the toy OAM chips/labels fixture.
+No pipeline-internal mocks; telemetry sinks are already no-ops via
+models/conftest.py::mock_instrumentation.
 """
 
 from __future__ import annotations
 
-from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
-from unittest.mock import patch
+
+import pytest
+
+_PRETRAINED_URL = "https://huggingface.co/hotosm/ramp/resolve/74daea54694f2e4924f1222520c614c7f5c029fe/v1-baseline.zip"
 
 
-@contextmanager
-def _noop_mlflow_ctx(*_args: Any, **_kwargs: Any):
-    yield
+@pytest.fixture(scope="session")
+def pretrained_weights(tmp_path_factory: pytest.TempPathFactory) -> str:
+    from upath import UPath
 
-
-class _FakeKerasModel:
-    def __init__(self, payload: bytes):
-        self._payload = payload
-
-    def save(self, path: str) -> None:
-        Path(path).write_bytes(self._payload)
+    cache = tmp_path_factory.mktemp("ramp_weights") / "baseline.zip"
+    cache.write_bytes(UPath(_PRETRAINED_URL).read_bytes())
+    return str(cache)
 
 
 def test_split_dataset(toy_chips: Path, toy_labels: Path, base_hyperparameters: dict[str, Any]) -> None:
@@ -34,19 +32,18 @@ def test_split_dataset(toy_chips: Path, toy_labels: Path, base_hyperparameters: 
         {
             "epochs": 1,
             "batch_size": 1,
-            "val_fraction": 0.25,
-            "split_seed": 42,
-            "boundary_width": 1,
-            "contact_spacing": 2,
+            "training.val_ratio": 0.25,
+            "training.split_seed": 42,
+            "training.boundary_width": 1,
+            "training.contact_spacing": 2,
         }
     )
 
-    with patch("models.ramp.pipeline.log_metadata"):
-        result = split_dataset.entrypoint(
-            dataset_chips=str(toy_chips),
-            dataset_labels=str(toy_labels),
-            hyperparameters=hyperparameters,
-        )
+    result = split_dataset.entrypoint(
+        dataset_chips=str(toy_chips),
+        dataset_labels=str(toy_labels),
+        hyperparameters=hyperparameters,
+    )
 
     assert result["strategy"] == "random"
     assert result["train_count"] > 0
@@ -59,125 +56,128 @@ def test_split_dataset(toy_chips: Path, toy_labels: Path, base_hyperparameters: 
     assert (ramp_dir / "val-chips").is_dir()
 
 
-def test_train_model(toy_chips: Path, toy_labels: Path, base_hyperparameters: dict[str, Any], tmp_path: Path) -> None:
-    import tensorflow as tf
+def test_train_model(
+    toy_chips: Path,
+    toy_labels: Path,
+    base_hyperparameters: dict[str, Any],
+    pretrained_weights: str,
+) -> None:
+    from models.ramp.pipeline import split_dataset, train_model
 
-    from models.ramp.pipeline import train_model
-
-    ramp_train_dir = tmp_path / "ramp_training_work"
-    (ramp_train_dir / "chips").mkdir(parents=True)
-    (ramp_train_dir / "val-chips").mkdir(parents=True)
-
-    split_info = {
-        "_work_dir": str(tmp_path),
-        "_preprocessed_dir": str(tmp_path / "preprocessed"),
-        "_ramp_train_dir": str(ramp_train_dir),
-        "strategy": "random",
-        "val_ratio": 0.25,
-        "seed": 42,
-        "train_count": 3,
-        "val_count": 1,
-        "description": "test split",
-    }
     hyperparameters = dict(base_hyperparameters)
-    hyperparameters.update({"epochs": 1, "batch_size": 1})
+    hyperparameters.update(
+        {
+            "epochs": 1,
+            "batch_size": 1,
+            "training.val_ratio": 0.25,
+            "training.split_seed": 42,
+            "training.boundary_width": 1,
+            "training.contact_spacing": 2,
+        }
+    )
 
-    expected = b"fake-keras-bytes"
-    fake_model_path = tmp_path / "best_model.keras"
-    fake_model_path.write_bytes(b"stub")
-
-    with (
-        patch("models.ramp.pipeline.mlflow_training_context", _noop_mlflow_ctx, create=True),
-        patch("models.ramp.pipeline.train_ramp_model", return_value=fake_model_path),
-        patch.object(tf.keras.models, "load_model", return_value=_FakeKerasModel(expected)),
-        patch("models.ramp.pipeline.log_metadata"),
-    ):
-        model_bytes = train_model.entrypoint(
-            dataset_chips=str(toy_chips),
-            dataset_labels=str(toy_labels),
-            base_model_weights="https://example.com/baseline.zip",
-            hyperparameters=hyperparameters,
-            split_info=split_info,
-            num_classes=4,
-        )
+    split_info = split_dataset.entrypoint(
+        dataset_chips=str(toy_chips),
+        dataset_labels=str(toy_labels),
+        hyperparameters=hyperparameters,
+    )
+    model_bytes = train_model.entrypoint(
+        dataset_chips=str(toy_chips),
+        dataset_labels=str(toy_labels),
+        base_model_weights=pretrained_weights,
+        hyperparameters=hyperparameters,
+        split_info=split_info,
+        num_classes=4,
+    )
 
     assert isinstance(model_bytes, bytes)
-    assert model_bytes == expected
+    assert len(model_bytes) > 0
 
 
 def test_evaluate_model(
-    toy_chips: Path, toy_labels: Path, base_hyperparameters: dict[str, Any], tmp_path: Path
+    toy_chips: Path,
+    toy_labels: Path,
+    base_hyperparameters: dict[str, Any],
+    pretrained_weights: str,
 ) -> None:
-    from models.ramp.pipeline import evaluate_model
+    from models.ramp.pipeline import evaluate_model, split_dataset, train_model
 
-    ramp_train_dir = tmp_path / "ramp_training_work"
-    (ramp_train_dir / "chips").mkdir(parents=True)
-    (ramp_train_dir / "val-chips").mkdir(parents=True)
-    (ramp_train_dir / "val-multimasks").mkdir(parents=True)
+    hyperparameters = dict(base_hyperparameters)
+    hyperparameters.update(
+        {
+            "epochs": 1,
+            "batch_size": 1,
+            "training.val_ratio": 0.25,
+            "training.split_seed": 42,
+            "training.boundary_width": 1,
+            "training.contact_spacing": 2,
+        }
+    )
 
-    split_info = {
-        "_work_dir": str(tmp_path),
-        "_preprocessed_dir": str(tmp_path / "preprocessed"),
-        "_ramp_train_dir": str(ramp_train_dir),
-        "strategy": "random",
-        "val_ratio": 0.25,
-        "seed": 42,
-        "train_count": 3,
-        "val_count": 1,
-        "description": "test split",
-    }
-
-    fake_saved_model_dir = tmp_path / "saved_model"
-    fake_saved_model_dir.mkdir()
-    (fake_saved_model_dir / "saved_model.pb").write_bytes(b"\x08\x01")
-
-    with (
-        patch("models.ramp.pipeline.mlflow_training_context", _noop_mlflow_ctx, create=True),
-        patch("models.ramp.pipeline._restore_checkpoint", return_value=fake_saved_model_dir),
-        patch("models.ramp.pipeline.log_metadata"),
-    ):
-        metrics = evaluate_model.entrypoint(
-            trained_model=b"fake",
-            dataset_chips=str(toy_chips),
-            dataset_labels=str(toy_labels),
-            hyperparameters=base_hyperparameters,
-            split_info=split_info,
-        )
+    split_info = split_dataset.entrypoint(
+        dataset_chips=str(toy_chips),
+        dataset_labels=str(toy_labels),
+        hyperparameters=hyperparameters,
+    )
+    model_bytes = train_model.entrypoint(
+        dataset_chips=str(toy_chips),
+        dataset_labels=str(toy_labels),
+        base_model_weights=pretrained_weights,
+        hyperparameters=hyperparameters,
+        split_info=split_info,
+        num_classes=4,
+    )
+    metrics = evaluate_model.entrypoint(
+        trained_model=model_bytes,
+        dataset_chips=str(toy_chips),
+        dataset_labels=str(toy_labels),
+        hyperparameters=hyperparameters,
+        split_info=split_info,
+    )
 
     expected = {"fair:accuracy", "fair:mean_iou", "fair:precision", "fair:recall"}
     assert set(metrics.keys()) == expected
-    for key in expected:
-        assert isinstance(metrics[key], float)
+    for value in metrics.values():
+        assert isinstance(value, float)
+        assert 0.0 <= value <= 1.0
 
 
-def test_export_onnx(tmp_path: Path) -> None:
+def test_export_onnx(
+    toy_chips: Path,
+    toy_labels: Path,
+    base_hyperparameters: dict[str, Any],
+    pretrained_weights: str,
+) -> None:
     import onnx
-    import tensorflow as tf
-    from onnx import TensorProto, helper
 
-    from models.ramp.pipeline import export_onnx
+    from models.ramp.pipeline import export_onnx, split_dataset, train_model
 
-    # Build a toy ONNX model and capture its bytes.
-    x = helper.make_tensor_value_info("input", TensorProto.FLOAT, [1, 1])
-    y = helper.make_tensor_value_info("output", TensorProto.FLOAT, [1, 1])
-    node = helper.make_node("Identity", ["input"], ["output"])
-    graph = helper.make_graph([node], "toy", [x], [y])
-    toy_model = helper.make_model(graph, producer_name="test")
-    toy_bytes = toy_model.SerializeToString()
+    hyperparameters = dict(base_hyperparameters)
+    hyperparameters.update(
+        {
+            "epochs": 1,
+            "batch_size": 1,
+            "training.val_ratio": 0.25,
+            "training.split_seed": 42,
+            "training.boundary_width": 1,
+            "training.contact_spacing": 2,
+        }
+    )
 
-    fake_keras_path = tmp_path / "model.keras"
-    fake_keras_path.write_bytes(b"stub")
-
-    with (
-        patch("models.ramp.pipeline._restore_checkpoint", return_value=fake_keras_path),
-        patch.object(tf.keras.models, "load_model", return_value=_FakeKerasModel(b"ignored")),
-        patch(
-            "tf2onnx.convert.from_keras",
-            side_effect=lambda _m, opset, output_path: Path(output_path).write_bytes(toy_bytes),
-        ),
-        patch("models.ramp.pipeline.log_metadata"),
-    ):
-        exported = export_onnx.entrypoint(trained_model=b"fake")
+    split_info = split_dataset.entrypoint(
+        dataset_chips=str(toy_chips),
+        dataset_labels=str(toy_labels),
+        hyperparameters=hyperparameters,
+    )
+    model_bytes = train_model.entrypoint(
+        dataset_chips=str(toy_chips),
+        dataset_labels=str(toy_labels),
+        base_model_weights=pretrained_weights,
+        hyperparameters=hyperparameters,
+        split_info=split_info,
+        num_classes=4,
+    )
+    exported = export_onnx.entrypoint(trained_model=model_bytes)
 
     assert isinstance(exported, bytes)
     loaded = onnx.load_from_string(exported)

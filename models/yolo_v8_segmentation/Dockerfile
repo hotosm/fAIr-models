@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.7
 
-ARG BASE_IMAGE=ghcr.io/hotosm/fair-utilities-yolo:cpu-latest
+ARG BASE_IMAGE=ghcr.io/hotosm/fair-utilities-yolo:gpu-latest
 
 # ---------------------------------------------------------------------------
 # Builder stage: install model-pack deps into the base image venv
@@ -9,7 +9,7 @@ FROM ${BASE_IMAGE} AS builder
 
 ENV UV_LINK_MODE=copy
 
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /usr/local/bin/
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/
 
 WORKDIR /workspace
 
@@ -68,17 +68,36 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     uv pip install --python /app/.venv/bin/python /tmp/fair-src[test]
 
 # ---------------------------------------------------------------------------
-# Inference stage: runtime + serving deps for smoke/live API
+# Inference builder: minimal venv for distroless (ONNX + predict() only)
 # ---------------------------------------------------------------------------
-FROM runtime AS inference
-
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
-COPY --from=builder /tmp/fair-src /tmp/fair-src
-
+FROM ghcr.io/astral-sh/uv:bookworm-slim AS inference-builder
+ENV UV_PYTHON_INSTALL_DIR=/python UV_PYTHON_PREFERENCE=only-managed
+RUN uv python install 3.13
+WORKDIR /app
+COPY pyproject.toml README.md fair_zenml_patch.pth /tmp/fair-src/
+COPY fair /tmp/fair-src/fair
 RUN --mount=type=cache,target=/root/.cache/uv \
-    SETUPTOOLS_SCM_PRETEND_VERSION=0.0.0 \
-    uv pip install --python /app/.venv/bin/python /tmp/fair-src[serve]
+    export SETUPTOOLS_SCM_PRETEND_VERSION=0.0.0 && \
+    uv venv && uv pip install \
+    /tmp/fair-src[serve] \
+    rasterio \
+    pyproj \
+    numpy \
+    Pillow \
+    "fairpredictor>=0.5.1"
+COPY models/yolo_v8_segmentation/pipeline.py /app/models/yolo_v8_segmentation/pipeline.py
 
-ENV PYTHONPATH=/workspace
+# ---------------------------------------------------------------------------
+# Inference stage: distroless for read-only / smoke-safe serving
+# ---------------------------------------------------------------------------
+FROM gcr.io/distroless/python3-debian12:nonroot AS inference
+WORKDIR /app
+COPY --from=inference-builder /python /python
+COPY --from=inference-builder /app/.venv /app/.venv
+COPY --from=inference-builder /app/models /app/models
+ENV PATH="/app/.venv/bin:$PATH" \
+    PYTHONPATH=/app \
+    ZENML_CONFIG_PATH=/tmp/zenml
 EXPOSE 8080
-CMD ["/app/.venv/bin/uvicorn", "fair.serve.base:create_app", "--factory", "--host", "0.0.0.0", "--port", "8080"]
+ENTRYPOINT ["/app/.venv/bin/python", "-m", "uvicorn"]
+CMD ["fair.serve.base:create_app", "--factory", "--host", "0.0.0.0", "--port", "8080"]

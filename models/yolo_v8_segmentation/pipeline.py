@@ -1,7 +1,6 @@
 """ZenML pipeline for YOLOv8 building instance segmentation."""
 
 import gc
-import hashlib
 import json
 import shutil
 import tempfile
@@ -11,6 +10,7 @@ from urllib.request import urlretrieve
 
 from zenml import log_metadata, pipeline, step
 
+from fair.zenml.materializers import CheckpointBytesMaterializer, ONNXMaterializer
 from fair.zenml.steps import load_model
 
 _DEFAULT_WEIGHTS_CACHE = Path("/workspace/.yolo_weights_cache")
@@ -233,55 +233,45 @@ def preprocess(input_path: str, output_path: str, p_val: float = 0.05) -> str:
 
 def postprocess(prediction_path: str, output_geojson: str) -> dict[str, Any]:
     """Merge predicted-mask GeoTIFF tiles into a building-footprint GeoJSON."""
+    import numpy as np
+    import rasterio
     from hot_fair_utilities import polygonize
 
-    try:
-        polygonize(
-            input_path=prediction_path,
-            output_path=output_geojson,
-            remove_inputs=False,
-        )
-    except Exception as exc:
-        # Zero detections can bubble up from geomltoolkits/rtree as an empty STR bulk-load stream.
-        # In that case, treat inference output as a valid empty FeatureCollection.
-        if "Empty data stream given" not in str(exc):
-            raise
+    prediction_dir = Path(prediction_path)
+    raster_paths = sorted(p for ext in ("*.tif", "*.tiff", "*.png") for p in prediction_dir.glob(ext))
+    if not raster_paths:
         empty = {"type": "FeatureCollection", "features": []}
         Path(output_geojson).write_text(json.dumps(empty), encoding="utf-8")
         return empty
+
+    has_positive_pixels = False
+    for raster_path in raster_paths:
+        with rasterio.open(raster_path) as src:
+            mask = src.read(1)
+        if np.any(mask > 0):
+            has_positive_pixels = True
+            break
+
+    if not has_positive_pixels:
+        empty = {"type": "FeatureCollection", "features": []}
+        Path(output_geojson).write_text(json.dumps(empty), encoding="utf-8")
+        return empty
+
+    polygonize(
+        input_path=prediction_path,
+        output_path=output_geojson,
+        remove_inputs=False,
+    )
 
     with open(output_geojson, encoding="utf-8") as f:
         return json.load(f)
 
 
-def _select_or_merge_labels(labels_path: Path, destination: Path) -> None:
-    """Materialize a single labels.geojson for hot_fair_utilities preprocess."""
-    if labels_path.is_file():
-        shutil.copy2(labels_path, destination)
-        return
-
-    if not labels_path.is_dir():
-        raise FileNotFoundError(f"dataset_labels path not found: {labels_path}")
-
-    geojson_files = sorted(labels_path.glob("*.geojson"))
-    if not geojson_files:
-        raise FileNotFoundError(f"No .geojson files found in labels directory: {labels_path}")
-    if len(geojson_files) == 1:
-        shutil.copy2(geojson_files[0], destination)
-        return
-
-    import geopandas as gpd
-    import pandas as pd
-
-    gdfs = [gpd.read_file(p) for p in geojson_files]
-    crs = gdfs[0].crs or "EPSG:4326"
-    merged = gpd.GeoDataFrame(pd.concat([g.to_crs(crs) for g in gdfs], ignore_index=True), crs=crs)
-    for col in merged.columns:
-        if col == "geometry":
-            continue
-        if pd.api.types.is_extension_array_dtype(merged[col].dtype):
-            merged[col] = merged[col].astype(object).where(merged[col].notna(), None)
-    merged.to_file(destination, driver="GeoJSON")
+def _copy_labels_geojson(labels_path: Path, destination: Path) -> None:
+    """Copy the dataset labels file to `labels.geojson` under the preprocess input folder."""
+    if not labels_path.is_file():
+        raise FileNotFoundError(f"dataset_labels must be a single GeoJSON file path, got: {labels_path}")
+    shutil.copy2(labels_path, destination)
 
 
 def _materialize_training_input(dataset_chips: str, dataset_labels: str, work_dir: Path) -> Path:
@@ -318,13 +308,8 @@ def _materialize_training_input(dataset_chips: str, dataset_labels: str, work_di
     if not list(input_dir.glob("*.png")):
         raise FileNotFoundError(f"No train chips (.tif/.tiff/.png) found in {chips_dir}")
 
-    _select_or_merge_labels(labels_path, input_dir / "labels.geojson")
+    _copy_labels_geojson(labels_path, input_dir / "labels.geojson")
     return input_dir
-
-
-def _training_cache_dir(dataset_chips: str, dataset_labels: str) -> Path:
-    cache_key = hashlib.sha256(f"{dataset_chips}|{dataset_labels}".encode()).hexdigest()[:16]
-    return Path(tempfile.gettempdir()) / f"yolo_v8_segmentation_{cache_key}"
 
 
 def _prepare_training_split(
@@ -332,6 +317,7 @@ def _prepare_training_split(
     dataset_labels: str,
     hyperparameters: dict[str, Any],
     force_rebuild: bool = False,
+    reuse_work_dir: str | None = None,
 ) -> dict[str, Any]:
     from hot_fair_utilities.preprocessing.yolo_v8 import yolo_format
 
@@ -345,12 +331,16 @@ def _prepare_training_split(
     if not 0.0 < p_val < 1.0:
         raise ValueError("p_val/val_ratio must be in (0.0, 1.0)")
 
-    work_dir = _training_cache_dir(dataset_chips, dataset_labels)
+    if force_rebuild and reuse_work_dir:
+        work_dir = Path(reuse_work_dir)
+        if work_dir.exists():
+            shutil.rmtree(work_dir)
+        work_dir.mkdir(parents=True, exist_ok=True)
+    else:
+        work_dir = Path(tempfile.mkdtemp(prefix="yolo_v8_seg_dataset_"))
+
     yolo_dir = work_dir / "yolo"
     dataset_yaml = yolo_dir / "yolo_dataset.yaml"
-
-    if force_rebuild and work_dir.exists():
-        shutil.rmtree(work_dir)
 
     if not dataset_yaml.exists():
         work_dir.mkdir(parents=True, exist_ok=True)
@@ -657,7 +647,7 @@ def run_preprocessing(input_path: str, output_path: str, p_val: float = 0.05) ->
     return preprocess(input_path, output_path, p_val)
 
 
-@step
+@step(output_materializers={"trained_model": CheckpointBytesMaterializer})
 def train_model(
     dataset_chips: str,
     dataset_labels: str,
@@ -676,7 +666,13 @@ def train_model(
 
     yolo_dir = Path(split_info["_yolo_dir"])
     if not (yolo_dir / "yolo_dataset.yaml").exists():
-        split_info = _prepare_training_split(dataset_chips, dataset_labels, hyperparameters, force_rebuild=True)
+        split_info = _prepare_training_split(
+            dataset_chips,
+            dataset_labels,
+            hyperparameters,
+            force_rebuild=True,
+            reuse_work_dir=split_info["_work_dir"],
+        )
         yolo_dir = Path(split_info["_yolo_dir"])
 
     weights_path = resolve_model_href(base_model_weights)
@@ -711,7 +707,13 @@ def evaluate_model(
 
     dataset_yaml = Path(split_info["_dataset_yaml"])
     if not dataset_yaml.exists():
-        split_info = _prepare_training_split(dataset_chips, dataset_labels, hyperparameters, force_rebuild=True)
+        split_info = _prepare_training_split(
+            dataset_chips,
+            dataset_labels,
+            hyperparameters,
+            force_rebuild=True,
+            reuse_work_dir=split_info["_work_dir"],
+        )
         dataset_yaml = Path(split_info["_dataset_yaml"])
 
     model = _restore_checkpoint(trained_model)
@@ -730,7 +732,7 @@ def evaluate_model(
     return metrics_dict
 
 
-@step
+@step(output_materializers={"onnx_model": ONNXMaterializer})
 def export_onnx(trained_model: Any) -> Annotated[bytes, "onnx_model"]:
     import onnx
 

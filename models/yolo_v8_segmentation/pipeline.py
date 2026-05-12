@@ -589,47 +589,6 @@ def predict(session: Any, input_images: str, params: dict[str, Any]) -> dict[str
     return _build_feature_collection(features)
 
 
-def infer_yolo_model(
-    model_uri: str | Path | Any,
-    input_path: str,
-    prediction_path: str,
-    output_dir: str,
-    confidence: float = 0.5,
-    model_cache_dir: str | None = None,
-) -> dict[str, Any]:
-    """Run YOLO instance-segmentation inference and return final GeoJSON content."""
-    import ultralytics
-    from hot_fair_utilities import predict
-
-    cache = Path(model_cache_dir) if model_cache_dir else None
-
-    if isinstance(model_uri, (str, Path)):
-        checkpoint_path = resolve_model_href(str(model_uri), cache_dir=cache)
-    elif isinstance(model_uri, bytes):
-        checkpoint_file = Path(tempfile.mkdtemp()) / "finetuned.pt"
-        checkpoint_file.write_bytes(model_uri)
-        checkpoint_path = str(checkpoint_file)
-    elif isinstance(model_uri, ultralytics.YOLO):
-        with tempfile.NamedTemporaryFile(suffix=".pt", delete=False) as tmp:
-            checkpoint_path = tmp.name
-            model_uri.save(checkpoint_path)
-    else:
-        raise TypeError("model_uri must be a str, Path, bytes, or an ultralytics.YOLO model.")
-
-    local_input = _resolve_input_directory(input_path, "input_path")
-    predict(
-        checkpoint_path=checkpoint_path,
-        input_path=str(local_input),
-        prediction_path=prediction_path,
-        confidence=confidence,
-    )
-
-    out_dir_path = Path(output_dir)
-    out_dir_path.mkdir(parents=True, exist_ok=True)
-    output_geojson = str(out_dir_path / "prediction.geojson")
-    return postprocess(prediction_path, output_geojson)
-
-
 @step
 def split_dataset(
     dataset_chips: str,
@@ -747,22 +706,14 @@ def export_onnx(trained_model: Any) -> Annotated[bytes, "onnx_model"]:
 
 @step
 def run_inference(
-    model_uri: str | Path | Any,
+    model_uri: str,
     input_images: str,
-    prediction_path: str,
-    output_dir: str,
-    confidence: float = 0.5,
-    model_cache_dir: str | None = None,
+    inference_params: dict[str, Any],
 ) -> Annotated[dict[str, Any], "predictions"]:
-    """Inference wrapper preserving existing predict -> polygonize flow."""
-    return infer_yolo_model(
-        model_uri=model_uri,
-        input_path=input_images,
-        prediction_path=prediction_path,
-        output_dir=output_dir,
-        confidence=confidence,
-        model_cache_dir=model_cache_dir,
-    )
+    from fair.serve.base import load_session
+
+    session = load_session(model_uri)
+    return predict(session, input_images, inference_params)
 
 
 @step
@@ -806,27 +757,25 @@ def training_pipeline(
 def inference_pipeline(
     model_uri: str,
     input_images: str,
-    inference_params: dict[str, Any] | None = None,
-    output_dir: str = "",
-    chip_size: int = 256,
-    num_classes: int = 1,
-    confidence: float = 0.5,
+    inference_params: dict[str, Any],
     zenml_artifact_version_id: str = "",
-    prediction_path: str = "",
 ) -> dict[str, Any]:
-    _ = (chip_size, num_classes)
-    resolved_output_dir = output_dir or str(Path(tempfile.mkdtemp(prefix="yolo_v8_seg_inference_")))
-    resolved_confidence = float((inference_params or {}).get("confidence_threshold", confidence))
-    prediction_dir = prediction_path or str(Path(resolved_output_dir) / "predictions")
     model = (
         load_model(model_uri=model_uri, zenml_artifact_version_id=zenml_artifact_version_id)
         if zenml_artifact_version_id
         else model_uri
     )
+    if isinstance(model, bytes):
+        onnx_path = Path(tempfile.mkdtemp(prefix="yolo_v8_seg_onnx_")) / "model.onnx"
+        onnx_path.write_bytes(model)
+        model = str(onnx_path)
+    elif isinstance(model, Path):
+        model = str(model)
+    elif not isinstance(model, str):
+        raise TypeError("inference_pipeline expects model_uri to resolve to an ONNX URI/path string")
+
     return run_inference(
         model_uri=model,
         input_images=input_images,
-        prediction_path=prediction_dir,
-        output_dir=resolved_output_dir,
-        confidence=resolved_confidence,
+        inference_params=inference_params,
     )

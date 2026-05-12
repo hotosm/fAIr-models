@@ -77,8 +77,8 @@ def create_toy_data(root: Path) -> dict[str, Path]:
     labels_geojson.write_text(json.dumps({"type": "FeatureCollection", "features": features}))
 
     stac_path = root / "dataset-stac-item.json"
-    stac_path.write_text(json.dumps(_build_dataset_stac_item(chips_dir, labels_dir), indent=2))
-    return {"chips": chips_dir, "labels": labels_dir, "dataset_stac_item": stac_path}
+    stac_path.write_text(json.dumps(_build_dataset_stac_item(chips_dir, labels_geojson), indent=2))
+    return {"chips": chips_dir, "labels": labels_geojson, "dataset_stac_item": stac_path}
 
 
 @pytest.fixture(scope="session")
@@ -86,7 +86,7 @@ def generate_toy_dataset(tmp_path_factory: pytest.TempPathFactory) -> dict[str, 
     return create_toy_data(tmp_path_factory.mktemp("toy_yolo_v8_segmentation"))
 
 
-def _build_dataset_stac_item(chips_dir: Path, labels_dir: Path) -> dict[str, Any]:
+def _build_dataset_stac_item(chips_dir: Path, labels_geojson: Path) -> dict[str, Any]:
     return {
         "type": "Feature",
         "stac_version": "1.1.0",
@@ -119,7 +119,7 @@ def _build_dataset_stac_item(chips_dir: Path, labels_dir: Path) -> dict[str, Any
         },
         "assets": {
             "chips": {"href": str(chips_dir), "type": "image/tiff", "roles": ["data"]},
-            "labels": {"href": str(labels_dir), "type": "application/geo+json", "roles": ["labels"]},
+            "labels": {"href": str(labels_geojson), "type": "application/geo+json", "roles": ["labels"]},
         },
         "links": [],
     }

@@ -23,14 +23,7 @@ def pretrained_weights(tmp_path_factory: pytest.TempPathFactory) -> str:
     return str(cache)
 
 
-@pytest.fixture(scope="session")
-def toy_labels_geojson(toy_labels: Path) -> Path:
-    labels_geojson = toy_labels / "labels.geojson"
-    assert labels_geojson.is_file()
-    return labels_geojson
-
-
-def test_split_dataset(toy_chips: Path, toy_labels_geojson: Path, base_hyperparameters: dict[str, Any]) -> None:
+def test_split_dataset(toy_chips: Path, toy_labels: Path, base_hyperparameters: dict[str, Any]) -> None:
     from models.yolo_v8_segmentation.pipeline import split_dataset
 
     hyperparameters = dict(base_hyperparameters)
@@ -44,7 +37,7 @@ def test_split_dataset(toy_chips: Path, toy_labels_geojson: Path, base_hyperpara
     )
     result = split_dataset.entrypoint(
         dataset_chips=str(toy_chips),
-        dataset_labels=str(toy_labels_geojson),
+        dataset_labels=str(toy_labels),
         hyperparameters=hyperparameters,
     )
 
@@ -60,7 +53,7 @@ def test_split_dataset(toy_chips: Path, toy_labels_geojson: Path, base_hyperpara
 
 def test_train_model(
     toy_chips: Path,
-    toy_labels_geojson: Path,
+    toy_labels: Path,
     base_hyperparameters: dict[str, Any],
     pretrained_weights: str,
 ) -> None:
@@ -77,12 +70,12 @@ def test_train_model(
     )
     split_info = split_dataset.entrypoint(
         dataset_chips=str(toy_chips),
-        dataset_labels=str(toy_labels_geojson),
+        dataset_labels=str(toy_labels),
         hyperparameters=hyperparameters,
     )
     model_bytes = train_model.entrypoint(
         dataset_chips=str(toy_chips),
-        dataset_labels=str(toy_labels_geojson),
+        dataset_labels=str(toy_labels),
         base_model_weights=pretrained_weights,
         hyperparameters=hyperparameters,
         split_info=split_info,
@@ -95,7 +88,7 @@ def test_train_model(
 
 def test_evaluate_model(
     toy_chips: Path,
-    toy_labels_geojson: Path,
+    toy_labels: Path,
     base_hyperparameters: dict[str, Any],
     pretrained_weights: str,
 ) -> None:
@@ -113,12 +106,12 @@ def test_evaluate_model(
     )
     split_info = split_dataset.entrypoint(
         dataset_chips=str(toy_chips),
-        dataset_labels=str(toy_labels_geojson),
+        dataset_labels=str(toy_labels),
         hyperparameters=hyperparameters,
     )
     model_bytes = train_model.entrypoint(
         dataset_chips=str(toy_chips),
-        dataset_labels=str(toy_labels_geojson),
+        dataset_labels=str(toy_labels),
         base_model_weights=pretrained_weights,
         hyperparameters=hyperparameters,
         split_info=split_info,
@@ -127,7 +120,7 @@ def test_evaluate_model(
     metrics = evaluate_model.entrypoint(
         trained_model=model_bytes,
         dataset_chips=str(toy_chips),
-        dataset_labels=str(toy_labels_geojson),
+        dataset_labels=str(toy_labels),
         hyperparameters=hyperparameters,
         split_info=split_info,
     )
@@ -138,7 +131,7 @@ def test_evaluate_model(
 
 def test_export_onnx(
     toy_chips: Path,
-    toy_labels_geojson: Path,
+    toy_labels: Path,
     base_hyperparameters: dict[str, Any],
     pretrained_weights: str,
 ) -> None:
@@ -157,12 +150,12 @@ def test_export_onnx(
     )
     split_info = split_dataset.entrypoint(
         dataset_chips=str(toy_chips),
-        dataset_labels=str(toy_labels_geojson),
+        dataset_labels=str(toy_labels),
         hyperparameters=hyperparameters,
     )
     model_bytes = train_model.entrypoint(
         dataset_chips=str(toy_chips),
-        dataset_labels=str(toy_labels_geojson),
+        dataset_labels=str(toy_labels),
         base_model_weights=pretrained_weights,
         hyperparameters=hyperparameters,
         split_info=split_info,

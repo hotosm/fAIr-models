@@ -3,16 +3,18 @@ set positional-arguments
 
 ns := "fair"
 kind_cluster := "fair"
-pid_file := ".port-forward.pids"
+cli_image := "fair-dev-cli:latest"
+pf_container := "fair-dev-cli-pf"
 
 import 'recipes/dev.just'
 import 'recipes/dok8s.just'
+import 'recipes/examples.just'
 
 [doc('Deploy the full stack (default kind, pass `dok8s` for DigitalOcean)')]
 up env="dev":
     @just _up-{{ env }}
 
-[doc('Stop the stack (port-forwards for kind, helm uninstall for dok8s)')]
+[doc('Stop port-forwards / scale down stack (kind cluster preserved)')]
 down env="dev":
     @just _down-{{ env }}
 
@@ -24,10 +26,6 @@ tear env="dev":
 urls env="dev":
     @just _urls-{{ env }}
 
-[doc('Run all 3 example pipelines (segmentation, classification, detection)')]
-example env="dev":
-    @just _example-{{ env }}
-
 [doc('Show cluster + pod health')]
 status:
     #!/usr/bin/env bash
@@ -36,17 +34,6 @@ status:
     echo
     echo "Pods ({{ ns }}):"
     kubectl get pods -n {{ ns }} --no-headers 2>/dev/null | sed 's/^/  /'
-
-[doc('Smoke-test live KNative predict services (dok8s only)')]
-predict:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    source .env.dok8s
-    for svc in unet-segmentation resnet18-classification yolo11n-detection; do
-        url="https://predict.${FAIR_DOMAIN}/${svc}/health"
-        printf "%-30s " "$svc"
-        if curl -sfk --max-time 30 "$url" >/dev/null; then echo "ok"; else echo "fail ($url)"; fi
-    done
 
 _apply-postgres:
     #!/usr/bin/env bash

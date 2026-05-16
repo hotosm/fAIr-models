@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 from datetime import UTC, datetime
 
@@ -74,6 +75,18 @@ class StacApiBackend:
         resp.raise_for_status()
         log.info("Published %s/%s v%s", collection_id, item.id, item.properties.get("version"))
         return item
+
+    def patch_item(self, collection_id: str, item_id: str, patch: dict) -> pystac.Item:
+        url = f"{self._stac_api_url}/collections/{collection_id}/items/{item_id}"
+        resp = self._http.patch(
+            url,
+            content=json.dumps(patch),
+            headers={"Content-Type": "application/merge-patch+json"},
+        )
+        if resp.status_code == 404:
+            raise KeyError(f"Item '{item_id}' not found in collection '{collection_id}'")
+        resp.raise_for_status()
+        return pystac.Item.from_dict(resp.json())
 
     def get_item(self, collection_id: str, item_id: str) -> pystac.Item:
         url = f"{self._stac_api_url}/collections/{collection_id}/items/{item_id}"

@@ -1,5 +1,6 @@
+# yaml-language-server: $schema=
 stack_name: dok8s
-zenml_version: 0.93.3
+zenml_version: 0.94.2
 
 _pod_defaults: &pod_defaults
   env:

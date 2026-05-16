@@ -64,7 +64,7 @@ def _item(item_id: str = "item", *, keywords: list[str] | None = None) -> pystac
 
 
 def _base_model() -> pystac.Item:
-    return build_base_model_item(
+    item = build_base_model_item(
         item_id="example-model",
         geometry={"type": "Polygon", "coordinates": [[[0, 0], [1, 0], [1, 1], [0, 1], [0, 0]]]},
         mlm_name="example-model",
@@ -75,6 +75,13 @@ def _base_model() -> pystac.Item:
         mlm_input=[],
         mlm_output=[
             {
+                "name": "segmentation",
+                "tasks": ["semantic-segmentation"],
+                "result": {
+                    "shape": [-1, 2, 256, 256],
+                    "dim_order": ["batch", "class", "height", "width"],
+                    "data_type": "float32",
+                },
                 "classification:classes": [{"name": "background"}, {"name": "building"}],
             }
         ],
@@ -98,6 +105,12 @@ def _base_model() -> pystac.Item:
         fair_metrics_spec=[{"name": "accuracy", "description": "Accuracy", "higher_is_better": True}],
         providers=[{"name": "HOTOSM", "roles": ["producer"]}],
     )
+    item.properties["fair:hyperparameters_spec"] = [
+        {"key": "epochs", "type": "int", "default": 10, "description": "Training epochs"},
+        {"key": "batch_size", "type": "int", "default": 2, "description": "Batch size"},
+        {"key": "confidence_threshold", "type": "float", "default": 0.5, "description": "Confidence threshold"},
+    ]
+    return item
 
 
 def _dataset_item(tmp_path: Path) -> pystac.Item:
@@ -240,14 +253,36 @@ def test_data_helpers_cover_conversions_counts_and_uploads(monkeypatch: pytest.M
     class DummyRemotePath:
         storage: ClassVar[dict[str, bytes]] = {}
 
-        def __init__(self, path: str) -> None:
-            self.path = path
+        def __init__(self, path: object, **_kwargs: object) -> None:
+            self.path = str(path)
+            self._local = Path(self.path) if "://" not in self.path else None
 
-        def __truediv__(self, other: Path) -> DummyRemotePath:
-            return DummyRemotePath(f"{self.path.rstrip('/')}/{other.as_posix()}")
+        def is_dir(self) -> bool:
+            return self._local.is_dir() if self._local else False
+
+        def is_file(self) -> bool:
+            return self._local.is_file() if self._local else self.path in self.storage
+
+        def rglob(self, pattern: str) -> list[DummyRemotePath]:
+            if not self._local:
+                return []
+            return [DummyRemotePath(str(p)) for p in self._local.rglob(pattern)]
+
+        def relative_to(self, other: DummyRemotePath) -> Path:
+            return self._local.relative_to(other._local)  # type: ignore[union-attr]
+
+        def read_bytes(self) -> bytes:
+            return self._local.read_bytes() if self._local else self.storage[self.path]
 
         def write_bytes(self, data: bytes) -> None:
             self.storage[self.path] = data
+
+        def __truediv__(self, other: object) -> DummyRemotePath:
+            suffix = other.as_posix() if isinstance(other, Path) else str(other)
+            return DummyRemotePath(f"{self.path.rstrip('/')}/{suffix}")
+
+        def __lt__(self, other: DummyRemotePath) -> bool:
+            return self.path < other.path
 
     monkeypatch.setattr("fair.utils.data.UPath", DummyRemotePath)
     upload_local_directory(source_dir, "s3://bucket/prefix")
@@ -445,7 +480,9 @@ def test_upload_model_artifacts_uses_uri_not_load(tmp_path: Path) -> None:
     onnx_art.uri = str(onnx_src)
     onnx_art.load.side_effect = AssertionError("must NOT call .load()")
 
-    checkpoint_path, onnx_path = _upload_model_artifacts(weights_art, onnx_art, "demo", None)
+    from fair.utils.storage import LocalModelStoragePaths
+
+    checkpoint_path, onnx_path = _upload_model_artifacts(weights_art, onnx_art, "demo", None, LocalModelStoragePaths)
     assert Path(checkpoint_path).read_bytes() == b"weights-bytes"
     assert Path(onnx_path).read_bytes() == b"onnx-bytes"
 
@@ -463,11 +500,17 @@ def test_upload_training_metrics_local_and_remote(monkeypatch: pytest.MonkeyPatc
     monkeypatch.setattr("upath.UPath", DummyRemotePath)
     monkeypatch.setattr("fair.zenml.promotion.s3_uri_to_http_url", lambda path: f"https://cdn.example/{path[5:]}")
 
-    local_metrics = _upload_training_metrics({"train_loss": [1.0], "val_loss": [2.0]}, "demo", None)
+    from fair.utils.storage import LocalModelStoragePaths
+
+    local_metrics = _upload_training_metrics(
+        {"train_loss": [1.0], "val_loss": [2.0]}, "demo", None, LocalModelStoragePaths
+    )
     assert local_metrics is not None and Path(local_metrics).exists()
     assert json.loads(Path(local_metrics).read_text())["epochs"] == [1]
 
-    remote_metrics = _upload_training_metrics({"train_loss": [1.0], "val_loss": [2.0]}, "demo", "s3://bucket")
+    remote_metrics = _upload_training_metrics(
+        {"train_loss": [1.0], "val_loss": [2.0]}, "demo", "s3://bucket", LocalModelStoragePaths
+    )
     assert remote_metrics == "https://cdn.example/bucket/local-models/demo/training-metrics/demo.json"
 
 
@@ -536,6 +579,7 @@ def test_publish_promoted_model_covers_missing_onnx_and_local_store(
     )
     assert item.id == "mv-2"
 
+    monkeypatch.setattr("fair.zenml.promotion.validate_item", lambda *_args, **_kwargs: [])
     monkeypatch.setattr("fair.zenml.promotion.validate_model_asset_urls", lambda *_args, **_kwargs: ["bad"])
     monkeypatch.setattr(
         "fair.zenml.promotion._upload_model_artifacts",

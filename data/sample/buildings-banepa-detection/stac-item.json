@@ -46,7 +46,7 @@
         "created": "2024-01-01T00:00:00Z",
         "updated": "2024-01-01T00:00:00Z",
         "title": "buildings-banepa-detection",
-        "description": "COCO-format building detection labels derived from the Banepa OAM+OSM segmentation dataset.",
+        "description": "OpenAerialMap chips with OSM building footprints (GeoJSON) for object detection in Banepa, Nepal.",
         "label:type": "vector",
         "label:tasks": [
             "object-detection"
@@ -60,11 +60,11 @@
             }
         ],
         "label:properties": [
-            "category_id"
+            "building"
         ],
-        "label:description": "Building detection labels in COCO format derived from segmentation masks",
+        "label:description": "Building footprints (GeoJSON polygons) used as object detection labels",
         "label:methods": [
-            "automated"
+            "manual"
         ],
         "keywords": [
             "building",
@@ -96,12 +96,12 @@
             "title": "Training chips"
         },
         "labels": {
-            "href": "../train/detection_labels.json",
-            "type": "application/json",
+            "href": "../train/osm",
+            "type": "application/geo+json",
             "roles": [
                 "labels"
             ],
-            "title": "COCO building detection labels"
+            "title": "OSM building footprints (GeoJSON)"
         }
     },
     "links": [

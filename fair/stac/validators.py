@@ -240,7 +240,10 @@ def _validate_hyperparameters_spec_coverage(item: pystac.Item) -> list[str]:
     errors: list[str] = []
     hyperparameters: dict = item.properties.get("mlm:hyperparameters", {})
     spec: list[dict] = item.properties.get("fair:hyperparameters_spec", [])
-    if not hyperparameters or not spec:
+    if not hyperparameters:
+        return errors
+    if not spec:
+        errors.append("mlm:hyperparameters set but fair:hyperparameters_spec is missing or empty")
         return errors
 
     for entry in spec:

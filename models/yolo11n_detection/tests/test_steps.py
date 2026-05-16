@@ -1,9 +1,9 @@
 """Step tests for YOLOv11n building detection.
 
 Each test runs the real @step entrypoint against toy OAM chips (256x256)
-and COCO labels; YOLO's trainer handles internal resize to imgsz. No
-pipeline-internal mocks. Telemetry sinks (zenml/mlflow) are no-ops via
-models/conftest.py::mock_instrumentation.
+and a GeoJSON labels directory; YOLO's trainer handles internal resize
+to imgsz. No pipeline-internal mocks. Telemetry sinks (zenml/mlflow) are
+no-ops via models/conftest.py::mock_instrumentation.
 """
 
 from __future__ import annotations
@@ -41,6 +41,41 @@ def test_split_dataset(toy_chips: Path, toy_labels: Path, base_hyperparameters: 
     assert (yolo_dir / "data.yaml").exists()
     assert (yolo_dir / "images" / "train").is_dir()
     assert (yolo_dir / "images" / "val").is_dir()
+
+
+def test_split_dataset_accepts_coco_json_labels(
+    toy_chips: Path, base_hyperparameters: dict[str, Any], tmp_path: Path
+) -> None:
+    import json
+
+    from models.yolo11n_detection.pipeline import split_dataset
+
+    chip_files = sorted(toy_chips.glob("*.tif"))
+    images = [{"id": i + 1, "file_name": p.name, "width": 256, "height": 256} for i, p in enumerate(chip_files)]
+    annotations = [
+        {
+            "id": i + 1,
+            "image_id": i + 1,
+            "category_id": 0,
+            "bbox": [10.0, 10.0, 50.0, 50.0],
+            "area": 2500.0,
+            "iscrowd": 0,
+        }
+        for i in range(len(chip_files))
+    ]
+    coco_path = tmp_path / "labels.json"
+    coco_path.write_text(
+        json.dumps({"images": images, "annotations": annotations, "categories": [{"id": 0, "name": "building"}]})
+    )
+
+    info = split_dataset.entrypoint(
+        dataset_chips=str(toy_chips),
+        dataset_labels=str(coco_path),
+        hyperparameters=base_hyperparameters,
+    )
+    assert info["train_count"] + info["val_count"] > 0
+    yolo_dir = Path(info["_yolo_dir"])
+    assert (yolo_dir / "data.yaml").exists()
 
 
 def test_train_model(

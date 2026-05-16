@@ -264,28 +264,106 @@ def predict(session: Any, input_images: str, params: dict[str, Any]) -> dict[str
     return _build_feature_collection(features)
 
 
-def _dataset_cache_dir(chips_path: str, coco_json_path: str) -> Path:
-    key = hashlib.sha256(f"{chips_path}|{coco_json_path}".encode()).hexdigest()[:16]
+def _dataset_cache_dir(chips_path: str, labels_path: str) -> Path:
+    key = hashlib.sha256(f"{chips_path}|{labels_path}".encode()).hexdigest()[:16]
     return Path(tempfile.gettempdir()) / f"yolo_dataset_{key}"
+
+
+def _coco_from_geojson_and_chips(chips_dir: Path, geojson_path: Path) -> dict[str, Any]:
+    """Build COCO-style detection labels from a GeoJSON polygon FeatureCollection."""
+    import rasterio
+    from rasterio.transform import rowcol
+    from shapely.geometry import box, shape
+
+    with open(geojson_path, encoding="utf-8") as f:
+        data = json.load(f)
+    polygons = [shape(feat["geometry"]) for feat in data.get("features", [])]
+
+    chips = sorted(chips_dir.rglob("*.tif"))
+    if not chips:
+        msg = f"No .tif chips found under {chips_dir}"
+        raise FileNotFoundError(msg)
+
+    images: list[dict[str, Any]] = []
+    annotations: list[dict[str, Any]] = []
+    annotation_id = 1
+    for image_id, chip in enumerate(chips, start=1):
+        with rasterio.open(chip) as src:
+            chip_box = box(*src.bounds)
+            transform = src.transform
+            width, height = src.width, src.height
+        images.append({"id": image_id, "file_name": chip.name, "width": width, "height": height})
+        for poly in polygons:
+            if not poly.intersects(chip_box):
+                continue
+            clipped = poly.intersection(chip_box)
+            if clipped.is_empty:
+                continue
+            minx, miny, maxx, maxy = clipped.bounds
+            row_min, col_min = rowcol(transform, minx, maxy)
+            row_max, col_max = rowcol(transform, maxx, miny)
+            x = max(0, int(col_min))
+            y = max(0, int(row_min))
+            x2 = min(width, int(col_max))
+            y2 = min(height, int(row_max))
+            w = x2 - x
+            h = y2 - y
+            if w <= 0 or h <= 0:
+                continue
+            annotations.append(
+                {
+                    "id": annotation_id,
+                    "image_id": image_id,
+                    "category_id": 0,
+                    "bbox": [float(x), float(y), float(w), float(h)],
+                    "area": float(w * h),
+                    "iscrowd": 0,
+                }
+            )
+            annotation_id += 1
+    return {
+        "images": images,
+        "annotations": annotations,
+        "categories": [{"id": 0, "name": "building"}],
+    }
+
+
+def _resolve_coco_labels(labels_path: str, chips_dir: Path) -> Path:
+    """Resolve the dataset's labels asset into a local COCO JSON file path."""
+    from fair.utils.data import resolve_directory, resolve_path
+
+    if labels_path.endswith(".json"):
+        return resolve_path(labels_path)
+
+    local_labels_dir = resolve_directory(labels_path, "*.geojson")
+    geojson_files = sorted(local_labels_dir.rglob("*.geojson"))
+    if not geojson_files:
+        msg = f"No .geojson files found under {labels_path}"
+        raise FileNotFoundError(msg)
+
+    coco = _coco_from_geojson_and_chips(chips_dir, geojson_files[0])
+    coco_path = local_labels_dir / "_yolo_detection_labels.json"
+    coco_path.write_text(json.dumps(coco))
+    return coco_path
 
 
 def _prepare_yolo_dataset(
     chips_path: str,
-    coco_json_path: str,
+    labels_path: str,
     chip_size: int,
     val_ratio: float = 0.2,
     seed: int = 42,
 ) -> tuple[Path, int, int]:
-    from fair.utils.data import resolve_directory, resolve_path
+    from fair.utils.data import resolve_directory
 
-    yolo_dir = _dataset_cache_dir(chips_path, coco_json_path)
+    yolo_dir = _dataset_cache_dir(chips_path, labels_path)
     if (yolo_dir / "data.yaml").exists():
         train_count = len(list((yolo_dir / "images" / "train").iterdir()))
         val_count = len(list((yolo_dir / "images" / "val").iterdir()))
         return yolo_dir, train_count, val_count
 
     local_chips = resolve_directory(chips_path)
-    local_json = resolve_path(coco_json_path)
+    local_json = _resolve_coco_labels(labels_path, local_chips)
 
     with open(local_json, encoding="utf-8") as f:
         coco = json.load(f)

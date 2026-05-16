@@ -1,4 +1,4 @@
-_up-dev: _ensure-kind _apply-postgres _helmfile-dev _port-forward _seed-dev _stack-register-dev
+_up-dev: _ensure-kind _apply-postgres _helmfile-dev _port-forward-daemon _wait-services _seed-minio
     @just _urls-dev
 
 _ensure-kind:
@@ -11,58 +11,54 @@ _ensure-kind:
 _helmfile-dev:
     helmfile -e dev apply
 
-_port-forward:
+_port-forward-daemon:
     #!/usr/bin/env bash
     set -euo pipefail
-    if [[ -f {{ pid_file }} ]] && kill -0 "$(head -1 {{ pid_file }})" 2>/dev/null; then exit 0; fi
-    just _kill-port-forward
-    mkdir -p .pf-logs
+    docker rm -f {{ pf_container }} 2>/dev/null || true
+    PORTS_CONFIG=$(cat ports.conf)
+    HOST_KUBE="${HOST_HOME:-$HOME}/.kube"
+    docker run -d --name {{ pf_container }} \
+        --network host \
+        -v "$HOST_KUBE":/root/.kube \
+        -e PORTS_CONFIG="$PORTS_CONFIG" \
+        --restart unless-stopped \
+        {{ cli_image }} \
+        bash -c '
+            trap "kill 0" EXIT
+            while read -r svc ports; do
+                [ -z "$svc" ] && continue
+                ( while true; do
+                    kubectl port-forward -n {{ ns }} "svc/$svc" "$ports" >/dev/null 2>&1 || true
+                    sleep 2
+                done ) &
+            done <<< "$PORTS_CONFIG"
+            wait
+        '
+
+_wait-services:
+    #!/usr/bin/env bash
+    set -euo pipefail
     while read -r svc ports; do
-        ( while true; do
-            kubectl port-forward -n {{ ns }} "svc/$svc" "$ports" >>.pf-logs/"$svc".log 2>&1 || true
-            sleep 2
-        done ) & echo $! >> {{ pid_file }}
-    done < ports.conf
-    while read -r svc ports; do
-        for i in $(seq 1 30); do nc -z localhost "${ports%%:*}" 2>/dev/null && break; sleep 1; done
+        port="${ports%%:*}"
+        for i in $(seq 1 60); do
+            nc -z localhost "$port" 2>/dev/null && break
+            sleep 1
+        done
     done < ports.conf
 
-_kill-port-forward:
+_seed-minio:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    mc alias set --quiet fair http://localhost:9000 minioadmin minioadmin
+    mc mb --ignore-existing fair/fair-data
+    mc cp --quiet --recursive ../data/sample/ fair/fair-data/sample/
+
+_down-dev:
     #!/usr/bin/env bash
     set -uo pipefail
-    if [[ -f {{ pid_file }} ]]; then
-        while read -r pid; do
-            kill -- "-$pid" 2>/dev/null || kill "$pid" 2>/dev/null || true
-        done < {{ pid_file }}
-        rm -f {{ pid_file }}
-    fi
-    rm -rf .pf-logs
+    docker rm -f {{ pf_container }} 2>/dev/null || true
 
-_seed-dev:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    AWS_ENDPOINT_URL=http://localhost:9000 \
-    AWS_ACCESS_KEY_ID=minioadmin \
-    AWS_SECRET_ACCESS_KEY=minioadmin \
-    S3_BUCKET=fair-data \
-        uv run --with boto3 python scripts/seed_data.py
-
-_stack-register-dev:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    export ZENML_URL="http://localhost:8080"
-    export ZENML_ADMIN_USER="default"
-    export ZENML_ADMIN_PASSWORD=""
-    export ZENML_STORE_URL="$ZENML_URL"
-    TOKEN=$(scripts/zenml-token.sh --wait) || { echo "ERROR: failed to fetch ZenML token" >&2; exit 1; }
-    export ZENML_STORE_API_TOKEN="$TOKEN"
-    uv run zenml stack import dev -f ../stacks/local.yaml --ignore-version-mismatch || true
-    uv run zenml stack import k8s -f ../stacks/k8s.yaml --ignore-version-mismatch || true
-    uv run zenml stack set k8s
-
-_down-dev: _kill-port-forward
-
-_tear-dev: _kill-port-forward
+_tear-dev: _down-dev
     -helmfile -e dev destroy
     -kubectl delete -f manifests/postgres.yaml --ignore-not-found
     -kind delete cluster --name {{ kind_cluster }}
@@ -72,15 +68,3 @@ _urls-dev:
     @echo "MLflow: http://localhost:5000"
     @echo "STAC:   http://localhost:8082"
     @echo "MinIO:  http://localhost:9001  (console)"
-
-_example-dev:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    cd ..
-    uv run zenml stack set k8s
-    for ex in segmentation classification detection; do
-        AWS_ENDPOINT_URL=http://localhost:9000 \
-        FAIR_STAC_API_URL=http://localhost:8082 \
-        FAIR_DSN=postgresql://postgres:postgres@localhost:5432/fair_models \
-            uv run --group example python "examples/$ex/run.py"
-    done

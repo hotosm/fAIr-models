@@ -25,9 +25,10 @@ _BBOX = [_WEST, _SOUTH, _EAST, _NORTH]
 def create_toy_data(root: Path) -> dict[str, Path]:
     chips_dir = root / "chips"
     chips_dir.mkdir()
+    labels_dir = root / "labels"
+    labels_dir.mkdir()
 
-    images = []
-    annotations = []
+    features: list[dict[str, Any]] = []
     for i in range(CHIP_COUNT):
         lon = BASE_LON + (i % 3) * STEP
         lat = BASE_LAT + (i // 3) * STEP
@@ -45,27 +46,34 @@ def create_toy_data(root: Path) -> dict[str, Path]:
             transform=transform,
         ) as dst:
             dst.write(np.random.randint(0, 255, (3, CHIP_SIZE, CHIP_SIZE), dtype=np.uint8))
-        images.append({"id": i + 1, "file_name": name, "width": CHIP_SIZE, "height": CHIP_SIZE})
-        box = CHIP_SIZE // 3
-        annotations.append(
+
+        cx, cy = lon + STEP / 2, lat + STEP / 2
+        half = STEP / 6
+        features.append(
             {
-                "id": i + 1,
-                "image_id": i + 1,
-                "category_id": 0,
-                "bbox": [2, 2, box, box],
-                "area": box * box,
-                "iscrowd": 0,
+                "type": "Feature",
+                "properties": {"building": "yes"},
+                "geometry": {
+                    "type": "Polygon",
+                    "coordinates": [
+                        [
+                            [cx - half, cy - half],
+                            [cx + half, cy - half],
+                            [cx + half, cy + half],
+                            [cx - half, cy + half],
+                            [cx - half, cy - half],
+                        ]
+                    ],
+                },
             }
         )
 
-    labels_path = root / "labels.json"
-    labels_path.write_text(
-        json.dumps({"images": images, "annotations": annotations, "categories": [{"id": 0, "name": "building"}]})
-    )
+    labels_path = labels_dir / "labels.geojson"
+    labels_path.write_text(json.dumps({"type": "FeatureCollection", "features": features}))
 
     stac_path = root / "dataset-stac-item.json"
-    stac_path.write_text(json.dumps(_build_dataset_stac_item(chips_dir, labels_path), indent=2))
-    return {"chips": chips_dir, "labels": labels_path, "dataset_stac_item": stac_path}
+    stac_path.write_text(json.dumps(_build_dataset_stac_item(chips_dir, labels_dir), indent=2))
+    return {"chips": chips_dir, "labels": labels_dir, "dataset_stac_item": stac_path}
 
 
 @pytest.fixture(scope="session")
@@ -73,7 +81,7 @@ def generate_toy_dataset(tmp_path_factory: pytest.TempPathFactory) -> dict[str, 
     return create_toy_data(tmp_path_factory.mktemp("toy_detection"))
 
 
-def _build_dataset_stac_item(chips_dir: Path, labels_path: Path) -> dict[str, Any]:
+def _build_dataset_stac_item(chips_dir: Path, labels_dir: Path) -> dict[str, Any]:
     return {
         "type": "Feature",
         "stac_version": "1.1.0",
@@ -99,7 +107,7 @@ def _build_dataset_stac_item(chips_dir: Path, labels_path: Path) -> dict[str, An
         },
         "assets": {
             "chips": {"href": str(chips_dir), "type": "image/tiff", "roles": ["data"]},
-            "labels": {"href": str(labels_path), "type": "application/json", "roles": ["labels"]},
+            "labels": {"href": str(labels_dir), "type": "application/geo+json", "roles": ["labels"]},
         },
         "links": [],
     }

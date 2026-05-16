@@ -5,38 +5,33 @@ OAM imagery with binary building/no_building labels derived from OSM segmentatio
 
 ## Prerequisites
 
-- zenml
-- Sample data in `data/sample/` (OAM tiles + OSM labels, including pre-generated `classification_labels.csv`)
+- Docker, [uv](https://docs.astral.sh/uv/), [just](https://just.systems/).
+- Sample data in `data/sample/` (OAM tiles + OSM building polygons; per-chip binary labels are derived at runtime).
 
 ## Quick Start
 
 ```bash
-uv sync --group example --group local
-just setup
-uv run python examples/classification/run.py
+just setup                              # install deps + bring up the stack
+just build resnet18_classification      # build the model container
+just example classification             # run this pipeline only
 ```
 
 ## Workflow
 
-The script runs the full workflow in one execution:
+The script submits the pipeline to ZenML. Each step runs inside the model's
+docker image (`ghcr.io/hotosm/fair-models/resnet18_classification:latest`):
 
-1. Initialize ZenML and local STAC context
-2. Register the base model item
-3. Register the dataset item
-4. Finetune the model
-5. Promote the finetuned model
-6. Run prediction on sample imagery
-
-### CI Usage
-
-```bash
-FAIR_FORCE_CPU=1 uv run python examples/classification/run.py
-```
+1. Register the base model item with the STAC catalog
+2. Register the dataset item
+3. Finetune the model
+4. Promote the finetuned model
+5. Run prediction on sample imagery
 
 ## Output
 
 | Artifact | Location |
-|---|---|
-| STAC items | `stac_catalog/` |
-| Trained artifacts | `artifacts/` |
+| --- | --- |
+| STAC items | PgStAC API at <http://localhost:8082> |
+| Trained artifacts | `s3://zenml/` in MinIO at <http://localhost:9001> |
+| MLflow runs | <http://localhost:5000> |
 | Predictions | `data/sample/predict/predictions/*.csv` |

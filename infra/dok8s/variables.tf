@@ -18,9 +18,10 @@ variable "domain" {
   description = "Wildcard base domain, e.g. fair.example.com"
 }
 
-variable "infra_node_size" {
-  type    = string
-  default = "s-2vcpu-4gb"
+variable "system_node_size" {
+  type        = string
+  default     = "s-4vcpu-8gb"
+  description = "Always-on pool that hosts every long-running cluster workload (postgres, mlflow, zenml, minio, stac, ingress-nginx, cert-manager, knative control plane, fair-backend)."
 }
 
 variable "ml_node_size" {
@@ -55,4 +56,11 @@ variable "zenml_admin_user" {
 variable "zenml_admin_password" {
   type      = string
   sensitive = true
+}
+
+variable "zenml_store_api_key" {
+  type        = string
+  sensitive   = true
+  description = "ZenML service-account API key consumed by the fAIr backend"
+  default     = ""
 }

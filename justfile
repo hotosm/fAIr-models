@@ -1,83 +1,80 @@
 set shell := ["bash", "-euo", "pipefail", "-c"]
 
-mode_file := ".fair-mode"
-mode := `cat .fair-mode 2>/dev/null || echo local`
-[private]
-_sync := if mode == "k8s" { "--group dev --group local --group docs --group example --extra k8s" } else { "--group dev --group local --group docs --group example" }
+compose := "docker compose -f infra/compose/docker-compose.yml"
+stac := "python3 scripts/stac_asset.py"
 
-[doc('Show current mode and available recipes')]
-default:
-    @echo "mode: {{ mode }}"
-    @echo ""
-    @just --list --unsorted
-
-[doc('Switch to local mode')]
-local:
-    @echo local > {{ mode_file }} && echo "mode: local"
-
-[doc('Switch to k8s mode')]
-k8s:
-    @echo k8s > {{ mode_file }} && echo "mode: k8s"
-
-[doc('Install dependencies and configure tools')]
+[doc('Install deps, bring up the stack, register the ZenML stack')]
 setup:
+    uv sync --group dev --group docs --extra k8s
+    uv run pre-commit install --hook-type commit-msg --hook-type pre-commit
+    {{ compose }} up -d --wait
+    uv run zenml init >/dev/null
+    infra/compose/register-stack.sh
+    @echo
+    @echo "Stack up. ZenML :8080  MLflow :5000  STAC :8082  MinIO :9001"
+    @echo "Next: 'just build' to build model images, then 'just example'."
+
+[doc('Build model image(s). No arg = all (e.g. `just build unet_segmentation`)')]
+build model="":
     #!/usr/bin/env bash
     set -euo pipefail
-    uv sync {{ _sync }}
-    if [[ "$(cat {{ mode_file }} 2>/dev/null || echo local)" == "k8s" ]]; then
-        missing=""
-        for cmd in kind kubectl helm helmfile mc; do
-            command -v "$cmd" >/dev/null 2>&1 || missing="$missing $cmd"
-        done
-        [[ -z "$missing" ]] || { echo "Missing:$missing"; exit 1; }
-    fi
-    uv run pre-commit install --hook-type commit-msg --hook-type pre-commit
-    uv run zenml init
-    OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES uv run zenml login --local
+    for d in $([ -n "{{ model }}" ] && echo "models/{{ model }}" || echo models/*); do
+        [[ -f "$d/Dockerfile" ]] || continue
+        href=$({{ stac }} "$d/stac-item.json" mlm:training)
+        echo "==> building $(basename "$d") -> $href"
+        docker build -f "$d/Dockerfile" --target runtime -t "$href" .
+    done
+
+[doc('Run example pipeline(s). No arg = all (e.g. `just example segmentation`)')]
+example name="":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    export AWS_ENDPOINT_URL=http://localhost:9000
+    export AWS_ACCESS_KEY_ID=minioadmin
+    export AWS_SECRET_ACCESS_KEY=minioadmin
+    export FAIR_STAC_API_URL=http://localhost:8082
+    export FAIR_DSN=postgresql://postgres:postgres@localhost:5432/fair_models
+    export FAIR_UPLOAD_ARTIFACTS=true
+    for ex in $([ -n "{{ name }}" ] && echo "{{ name }}" || echo "segmentation classification detection"); do
+        uv run python "examples/$ex/run.py"
+    done
+
+[doc('Serve a model inference container on http://localhost:8090 (Ctrl-C to stop)')]
+serve model:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    href=$({{ stac }} "models/{{ model }}/stac-item.json" mlm:inference)
+    docker build -f "models/{{ model }}/Dockerfile" --target inference -t "$href" .
+    docker run --rm -it --network host \
+        -e MODEL_MODULE=models.{{ model }}.pipeline \
+        "$href" \
+        fair.serve.base:create_app --factory --host 0.0.0.0 --port 8090
+
+[doc('End-to-end test: trained ONNX + OAM TMS -> POST /predict (needs prior `just example`)')]
+test-serve model:
+    uv run python scripts/test_serve.py {{ model }}
+
+[doc('Stop the stack (containers stopped, state preserved)')]
+down:
+    {{ compose }} stop
+
+[doc('Bring the stack back up after `just down`')]
+up:
+    {{ compose }} start
+
+[doc('Destroy the stack: containers + volumes + local ZenML state + artifacts')]
+tear:
+    -{{ compose }} down -v
+    -uv run zenml clean -y
+    rm -rf .zen artifacts dist *.egg-info
 
 [doc('Lint and format')]
 lint:
     uv run ruff check --fix . && uv run ruff format . && uv run ty check
 
-[doc('Remove ZenML state and artifacts')]
-clean:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    if [[ "$(cat {{ mode_file }} 2>/dev/null || echo local)" == "k8s" ]]; then
-        just --justfile infra/dev/justfile tear
-    fi
-    uv run zenml clean -y
-    rm -rf .zen artifacts dist *.egg-info
-
 [doc('Run tests')]
 test:
     uv run pytest -v
-
-[doc('Run model tests inside Docker (requires built images)')]
-test-models model="":
-    #!/usr/bin/env bash
-    set -euo pipefail
-    if [[ -n "{{ model }}" ]]; then
-        dirs=("models/{{ model }}")
-    else
-        dirs=(models/*/tests)
-        dirs=("${dirs[@]%/tests}")
-    fi
-    for model_dir in "${dirs[@]}"; do
-        name=$(basename "$model_dir")
-        echo "=== Testing $name ==="
-        docker build -f "$model_dir/Dockerfile" -t "fair-models/$name:test" .
-        echo "Step tests :"
-        docker run --rm --entrypoint "" \
-            -e FAIR_FORCE_CPU=1 \
-            "fair-models/$name:test" \
-            bash -c "pip install pytest && python -m pytest models/$name/tests/ -v --tb=short"
-        echo "Integration test :"
-        docker run --rm --entrypoint "" \
-            -e FAIR_FORCE_CPU=1 \
-            "fair-models/$name:test" \
-            bash -c "pip install pytest 'zenml[server]' && python -m pytest models/test_integration.py -v --tb=short -m slow --model-dir=models/$name"
-    done
 
 [doc('Validate STAC items and model pipelines')]
 validate:
@@ -86,19 +83,6 @@ validate:
 [doc('Serve documentation locally')]
 docs:
     uv sync --group docs && uv run zensical serve
-
-[doc('Run all example pipelines')]
-example:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    if [[ "$(cat {{ mode_file }} 2>/dev/null || echo local)" == "k8s" ]]; then
-        just --justfile infra/dev/justfile run-example
-    else
-        for ex in segmentation classification detection; do
-            uv run python "examples/$ex/run.py" clean
-            uv run python "examples/$ex/run.py" all
-        done
-    fi
 
 [doc('Run pre-commit hooks and commitizen')]
 commit:

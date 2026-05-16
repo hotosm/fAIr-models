@@ -1,0 +1,130 @@
+name: fair
+
+services:
+  postgres:
+    image: imresamu/postgis:17-3.5
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./init-db.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U postgres -d fair_models"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+  pgstac-migrate:
+    image: ghcr.io/stac-utils/pgstac-pypgstac:v0.9.9
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGHOST: postgres
+      PGPORT: "5432"
+      PGDATABASE: fair_models
+    command: ["pypgstac", "migrate"]
+    restart: "no"
+
+  minio:
+    image: minio/minio:RELEASE.2025-09-07T16-13-09Z
+    command: ["server", "/data", "--console-address", ":9001"]
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    volumes:
+      - minio-data:/data
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+  minio-init:
+    image: minio/mc:RELEASE.2025-08-13T08-35-41Z
+    depends_on:
+      minio:
+        condition: service_healthy
+    volumes:
+      - ../../data/sample:/data/sample:ro
+    entrypoint:
+      - sh
+      - -c
+      - |
+        set -e
+        mc alias set --quiet fair http://minio:9000 minioadmin minioadmin
+        mc mb --ignore-existing fair/fair-data fair/mlflow fair/zenml
+        mc anonymous set download fair/fair-data fair/zenml
+        mc cp --quiet --recursive /data/sample/ fair/fair-data/sample/
+    restart: "no"
+
+  stac:
+    image: ghcr.io/stac-utils/stac-fastapi-pgstac:5.0.2
+    depends_on:
+      pgstac-migrate:
+        condition: service_completed_successfully
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASS: postgres
+      POSTGRES_HOST_READER: postgres
+      POSTGRES_HOST_WRITER: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_DBNAME: fair_models
+      APP_HOST: 0.0.0.0
+      APP_PORT: "8080"
+      ENVIRONMENT: local
+      WEB_CONCURRENCY: "2"
+      DB_MIN_CONN_SIZE: "1"
+      DB_MAX_CONN_SIZE: "3"
+      ENABLE_TRANSACTIONS_EXTENSIONS: "TRUE"
+      STAC_FASTAPI_TITLE: "fAIr STAC Catalog"
+      STAC_FASTAPI_DESCRIPTION: "fAIr model metadata catalog."
+    ports:
+      - "8082:8080"
+
+  mlflow:
+    image: burakince/mlflow:3.7.0
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+    environment:
+      MLFLOW_S3_ENDPOINT_URL: http://minio:9000
+      AWS_ACCESS_KEY_ID: minioadmin
+      AWS_SECRET_ACCESS_KEY: minioadmin
+    command:
+      - mlflow
+      - server
+      - --host=0.0.0.0
+      - --port=5000
+      - --backend-store-uri=postgresql://postgres:postgres@postgres:5432/mlflow
+      - --default-artifact-root=s3://mlflow/
+      - --serve-artifacts
+    ports:
+      - "5000:5000"
+
+  zenml:
+    image: ghcr.io/hotosm/zenml-postgres:0.94.2
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      ZENML_STORE_URL: postgresql://postgres:postgres@postgres:5432/zenml
+      ZENML_SERVER_AUTO_ACTIVATE: "1"
+      ZENML_ANALYTICS_OPT_IN: "false"
+      ZENML_DEBUG: "false"
+    ports:
+      - "8080:8080"
+
+volumes:
+  postgres-data:
+  minio-data:

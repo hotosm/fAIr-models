@@ -57,7 +57,7 @@ jobs:
           docker tag ghcr.io/hotosm/fair-models/fair-dev-cli:latest fair-dev-cli:latest
 
       - name: Install dependencies
-        run: uv sync --extra k8s --extra serve --group example
+        run: uv sync --extra k8s --extra serve
 
       - name: Deploy stack
         working-directory: infra

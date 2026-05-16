@@ -4,7 +4,11 @@ import time
 from contextlib import contextmanager
 from typing import Any
 
+from fair.utils.logging import quiet_third_party_loggers
 from fair.zenml.metrics import log_fair_metrics, log_training_wall_time
+
+# Every model pipeline imports this module, so quieting here covers step containers too.
+quiet_third_party_loggers()
 
 
 @contextmanager

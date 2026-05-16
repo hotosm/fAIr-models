@@ -34,6 +34,7 @@ from fair.utils.data import (
     upload_item_assets,
     upload_local_directory,
 )
+from fair.utils.logging import quiet_third_party_loggers
 from fair.utils.storage import DatasetStoragePaths, LocalModelStoragePaths
 from fair.zenml.config import generate_inference_config, generate_training_config
 from fair.zenml.promotion import promote_model_version, publish_promoted_model
@@ -174,6 +175,7 @@ class FairClient:
         asset.href = s3_uri_to_http_url(remote_path)
 
     def setup(self) -> None:
+        quiet_third_party_loggers()
         zenml_bin = Path(sys.executable).parent / "zenml"
         subprocess.run([str(zenml_bin), "init"], check=True, capture_output=True)
         Path("artifacts").mkdir(exist_ok=True)

@@ -8,35 +8,25 @@ icon: lucide/rocket
 
 !!! info "Required tools"
 
-    - :simple-python: Python 3.11+
-    - :simple-astral: [uv](https://docs.astral.sh/uv/) (package manager)
-    - :simple-docker: Docker (for model runtime containers)
+    - :simple-docker: Docker
+    - :simple-astral: [uv](https://docs.astral.sh/uv/)
+    - [just](https://just.systems/)
 
 ## Installation
 
-=== ":lucide-laptop: Local development"
+=== ":lucide-laptop: Develop fAIr-models"
 
-    ```bash title="Clone and set up the project"
+    ```bash title="Clone and bring up the stack"
     git clone https://github.com/hotosm/fAIr-models.git
     cd fAIr-models
     just setup
     ```
 
-=== ":lucide-container: Kubernetes dev stack"
+    `just setup` installs Python deps with `uv`, brings up Postgres, MinIO,
+    STAC, MLflow, and ZenML via Docker Compose, and registers the `compose`
+    ZenML stack as active.
 
-    ```bash title="Clone and set up with k8s extras"
-    git clone https://github.com/hotosm/fAIr-models.git
-    cd fAIr-models
-    just k8s
-    just setup
-    ```
-
-    `just k8s` switches to k8s mode (sticky, persists across sessions).
-    `just setup` then installs k8s extras and checks that
-    `kind`, `kubectl`, `helm`, `helmfile`, and `mc` are on `$PATH`.
-    Use `just local` to switch back. See [Kubernetes Dev Stack](development/k8s.md).
-
-=== ":lucide-package: As a library"
+=== ":lucide-package: Use as a library"
 
     ```bash title="Add to your project"
     uv add fair-py-ops
@@ -49,48 +39,40 @@ type: register a base model, finetune on sample data, promote the best version,
 and run inference.
 
 | Example | Task | Model |
-|---|---|---|
+| --- | --- | --- |
 | `examples/segmentation/` | Semantic segmentation | UNet (torchgeo) |
 | `examples/classification/` | Binary classification | ResNet18 (torchvision) |
 | `examples/detection/` | Object detection | YOLOv11n (ultralytics) |
 
-### Running All Pipelines
+### Run All Pipelines
 
-```bash title="Run all three pipelines"
+```bash
 just example
 ```
 
 ??? example "Running a single example"
 
     ```bash
-    uv run python examples/segmentation/run.py
-    uv run python examples/classification/run.py
-    uv run python examples/detection/run.py
+    AWS_ENDPOINT_URL=http://localhost:9000 \
+    AWS_ACCESS_KEY_ID=minioadmin \
+    AWS_SECRET_ACCESS_KEY=minioadmin \
+    FAIR_STAC_API_URL=http://localhost:8082 \
+    FAIR_DSN=postgresql://postgres:postgres@localhost:5432/fair_models \
+        uv run python examples/segmentation/run.py
     ```
-
-??? example "Kubernetes orchestrator run"
-
-    ```bash
-    just k8s
-    just setup
-    cd infra/dev
-    just up
-    just run-example-k8s
-    ```
-
-Current example scripts execute the full workflow in one run: setup, register
-base model, register dataset, finetune, promote, and predict.
 
 ### Verifying Results
 
 !!! success "After the pipeline completes"
 
-    | Artifact | Location |
+    | What | Where |
     | --- | --- |
-    | STAC catalog | `stac_catalog/` (3 collections) |
+    | ZenML pipelines, steps, artifacts | <http://localhost:8080> (login: `default` / empty) |
+    | STAC collections | <http://localhost:8082/collections> |
+    | MLflow runs | <http://localhost:5000> |
+    | MinIO objects | <http://localhost:9001> (login: `minioadmin` / `minioadmin`) |
     | Trained weights | `artifacts/` |
     | Predictions | `data/sample/predict/predictions/` |
-    | ZenML dashboard | <http://localhost:8080> |
 
 ## Project Structure
 
@@ -100,27 +82,26 @@ fair/                  # Core library (pip-installable as fair-py-ops)
   utils/               # Data helpers
   zenml/               # ZenML config generation, promotion, steps
 models/                # Base model contributions (one subdir per model)
-examples/              # CLI runners for local development
-infra/ci/              # Kind cluster config for CI integration tests
-infra/dev/             # Helmfile stack for local Kubernetes dev
-infra/dok8s/           # OpenTofu config for the DigitalOcean deployment
+examples/              # Example pipelines (segmentation, classification, detection)
+infra/                 # Production stack (Kubernetes via helmfile, DigitalOcean via OpenTofu)
+infra/compose/         # Local dev stack (this is what `just setup` uses)
+stacks/compose.yaml    # ZenML stack definition for the compose stack
 tests/                 # pytest suite
 ```
 
 ## Development Commands
 
-All targets adapt to the active mode (`local` by default). Switch with `just k8s` or `just local`.
-
 ```bash title="Available recipes"
-just local             # switch to local mode (default)
-just k8s               # switch to k8s mode (sticky)
-just setup             # install deps (k8s mode adds extras + tool checks)
-just lint              # ruff check + format + ty check
-just test              # pytest
-just validate          # validate STAC items + model pipelines
-just example           # run example pipeline (k8s mode delegates to infra/dev)
-just docs              # serve documentation locally
-just clean             # remove ZenML state + artifacts (k8s mode also tears down cluster)
+just setup     # install deps + bring up stack + register ZenML stack
+just example   # run all 3 example pipelines
+just down      # stop the stack (state preserved, fast restart)
+just up        # restart after `just down`
+just tear      # destroy stack + volumes + local ZenML state
+just lint      # ruff check + format + ty check
+just test      # pytest
+just validate  # validate STAC items + model pipelines
+just docs      # serve documentation locally
+just commit    # run pre-commit hooks + commitizen
 ```
 
 ## Next Steps
@@ -129,5 +110,4 @@ just clean             # remove ZenML state + artifacts (k8s mode also tears dow
 
     - :lucide-blocks: Read the [Architecture](architecture.md) overview to understand the system
     - :lucide-box: [Contribute a model](contributing/model.md) to fAIr
-    - :lucide-container: Set up the [Kubernetes dev stack](development/k8s.md) for production-like testing
-    - :lucide-book-open: Learn [Markdown authoring with Zensical](https://zensical.org/docs/authoring/markdown/) for writing documentation
+    - :lucide-container: Stand up the [Kubernetes dev stack](development/k8s.md) for production-parity testing

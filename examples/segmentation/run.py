@@ -26,7 +26,7 @@ if __name__ == "__main__":
         base_model_id=base_model_id,
         dataset_id=dataset_id,
         model_name="unet-segmentation-finetuned-banepa",
-        overrides={"learning_rate": 0.001, "samples_per_epoch": 200},
+        overrides={"learning_rate": 0.001, "epochs": 2, "samples_per_epoch": 30},
     )
 
     local_model_id = client.promote(

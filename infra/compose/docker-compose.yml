@@ -62,7 +62,7 @@ services:
         set -e
         mc alias set --quiet fair http://minio:9000 minioadmin minioadmin
         mc mb --ignore-existing fair/fair-data fair/mlflow fair/zenml
-        mc anonymous set download fair/fair-data fair/zenml
+        for b in fair-data zenml; do mc anonymous set download "fair/$$b"; done
         mc cp --quiet --recursive /data/sample/ fair/fair-data/sample/
     restart: "no"
 

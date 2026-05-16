@@ -25,8 +25,8 @@ build model="":
         docker build -f "$d/Dockerfile" --target runtime -t "$href" .
     done
 
-[doc('Run example pipeline(s). No arg = all (e.g. `just example segmentation`)')]
-example name="":
+[doc('Run example pipeline(s). No arg = all (e.g. `just example unet_segmentation`)')]
+example model="":
     #!/usr/bin/env bash
     set -euo pipefail
     export AWS_ENDPOINT_URL=http://localhost:9000
@@ -35,9 +35,7 @@ example name="":
     export FAIR_STAC_API_URL=http://localhost:8082
     export FAIR_DSN=postgresql://postgres:postgres@localhost:5432/fair_models
     export FAIR_UPLOAD_ARTIFACTS=true
-    for ex in $([ -n "{{ name }}" ] && echo "{{ name }}" || echo "segmentation classification detection"); do
-        uv run python "examples/$ex/run.py"
-    done
+    uv run python examples/run.py {{ model }}
 
 [doc('Serve a model inference container on http://localhost:8090 (Ctrl-C to stop)')]
 serve model:

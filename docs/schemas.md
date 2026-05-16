@@ -84,9 +84,9 @@ After registering a dataset three times:
 
 | Item ID | Version | Deprecated | Links |
 |---------|---------|------------|-------|
-| `buildings-banepa-segmentation-v1` | 1 | true | `successor-version` -> v2 |
-| `buildings-banepa-segmentation-v2` | 2 | true | `successor-version` -> v3 |
-| `buildings-banepa-segmentation` | 3 | false | `latest-version` -> self, `predecessor-version` -> v2 |
+| `buildings-banepa-semantic-segmentation-v1` | 1 | true | `successor-version` -> v2 |
+| `buildings-banepa-semantic-segmentation-v2` | 2 | true | `successor-version` -> v3 |
+| `buildings-banepa-semantic-segmentation` | 3 | false | `latest-version` -> self, `predecessor-version` -> v2 |
 
 ## Timestamps
 

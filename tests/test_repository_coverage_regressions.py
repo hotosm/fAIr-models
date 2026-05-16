@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 from datetime import UTC, datetime
 from pathlib import Path
-from types import SimpleNamespace
 from typing import ClassVar
 from unittest.mock import MagicMock
 
@@ -293,10 +292,9 @@ def test_data_helpers_cover_conversions_counts_and_uploads(monkeypatch: pytest.M
     upload_item_assets(missing_item, "s3://bucket/data", "datasets")
     assert missing_item.assets["missing"].href.endswith("does-not-exist.bin")
 
-    monkeypatch.setattr("fair.utils.data.list_files", lambda *_args, **_kwargs: ["s3://bucket/file.tif"])
-    monkeypatch.setattr("fair.utils.data.resolve_path", lambda *_args, **_kwargs: SimpleNamespace(parent=None))
-    with pytest.raises(ValueError, match="dest_dir is still None"):
-        resolve_directory("s3://bucket/path")
+    monkeypatch.setattr("fair.utils.data.list_files", lambda *_args, **_kwargs: [])
+    with pytest.raises(FileNotFoundError, match="No files matching"):
+        resolve_directory("s3://bucket/empty")
 
 
 def test_model_validator_covers_return_types_and_stac_branches(tmp_path: Path) -> None:

@@ -198,7 +198,6 @@ def generate_training_config(
         config.setdefault("steps", {}).setdefault("evaluate_model", {})["experiment_tracker"] = experiment_tracker
         config.setdefault("settings", {})["experiment_tracker.mlflow"] = {
             "experiment_name": model_name,
-            "run_name": f"train/{model_name}",
         }
 
     if train_step_params:

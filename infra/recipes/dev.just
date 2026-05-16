@@ -49,9 +49,12 @@ _wait-services:
 _seed-minio:
     #!/usr/bin/env bash
     set -euo pipefail
-    mc alias set --quiet fair http://localhost:9000 minioadmin minioadmin
-    mc mb --ignore-existing fair/fair-data
-    mc cp --quiet --recursive ../data/sample/ fair/fair-data/sample/
+    docker run --rm --network host -v "$PWD/..:/workspace:ro" --entrypoint sh \
+        minio/mc:RELEASE.2025-08-13T08-35-41Z -c '
+            mc alias set --quiet fair http://localhost:9000 minioadmin minioadmin
+            mc mb --ignore-existing fair/fair-data
+            mc cp --quiet --recursive /workspace/data/sample/ fair/fair-data/sample/
+        '
 
 _down-dev:
     #!/usr/bin/env bash

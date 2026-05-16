@@ -14,11 +14,14 @@ import os
 import re
 import tempfile
 import zipfile
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import TYPE_CHECKING
 from urllib.parse import urlparse
 
 from upath import UPath
+
+_PARALLEL_WORKERS = int(os.environ.get("FAIR_PARALLEL_IO_WORKERS", "8"))
 
 if TYPE_CHECKING:
     import pystac
@@ -129,17 +132,10 @@ def resolve_directory(href: str, pattern: str = "*", local_dir: Path | None = No
         raise FileNotFoundError(msg)
 
     cache = local_dir or _DEFAULT_CACHE
-    dest_dir: Path | None = None
 
-    for uri in uris:
-        local = resolve_path(uri, local_dir=cache)
-        if dest_dir is None:
-            dest_dir = local.parent
-
-    if dest_dir is None:
-        msg = f"resolve_directory downloaded files but dest_dir is still None for {href}"
-        raise ValueError(msg)
-    return dest_dir
+    with ThreadPoolExecutor(max_workers=_PARALLEL_WORKERS) as pool:
+        locals_ = list(pool.map(lambda u: resolve_path(u, local_dir=cache), uris))
+    return locals_[0].parent
 
 
 def create_dataset_archive(
@@ -206,11 +202,15 @@ def mirror(src: str | Path, dest: str | Path) -> None:
 
     if src_path.is_dir():
         dest_path = UPath(dest_str, **upload_storage_options())
-        for f in sorted(src_path.rglob("*")):
-            if f.is_file():
-                target = dest_path / f.relative_to(src_path)
-                target.write_bytes(f.read_bytes())
-                logger.info("Mirrored %s -> %s", f, target)
+        files = [f for f in sorted(src_path.rglob("*")) if f.is_file()]
+
+        def _copy(f: UPath) -> None:
+            target = dest_path / f.relative_to(src_path)
+            target.write_bytes(f.read_bytes())
+            logger.info("Mirrored %s -> %s", f, target)
+
+        with ThreadPoolExecutor(max_workers=_PARALLEL_WORKERS) as pool:
+            list(pool.map(_copy, files))
         return
 
     if src_path.is_file():

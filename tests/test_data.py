@@ -100,8 +100,13 @@ class TestResolveDirectory:
         f2.is_dir.return_value = False
         f2.read_bytes.return_value = b"tile2"
         listing.glob.return_value = [f1, f2]
-        # First UPath() is in list_files; subsequent UPath() calls are per-file in resolve_path.
-        mock_upath_cls.side_effect = [listing, f1, f2]
+
+        mocks = {
+            "s3://bucket/train/oam": listing,
+            "s3://bucket/train/oam/OAM-1-2-3.tif": f1,
+            "s3://bucket/train/oam/OAM-4-5-6.tif": f2,
+        }
+        mock_upath_cls.side_effect = lambda href: mocks[href]
 
         result = resolve_directory("s3://bucket/train/oam", pattern="OAM-*.tif", local_dir=tmp_path)
         assert result == tmp_path / "train" / "oam"
@@ -120,7 +125,7 @@ class TestResolveDirectory:
         cached.parent.mkdir(parents=True)
         cached.write_bytes(b"cached")
 
-        mock_upath_cls.side_effect = [listing]
+        mock_upath_cls.side_effect = lambda _href: listing
         resolve_directory("s3://bucket/d", local_dir=tmp_path)
         f1.read_bytes.assert_not_called()
 

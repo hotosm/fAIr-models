@@ -105,6 +105,7 @@ def main() -> int:
     parser.add_argument("--iou-threshold", type=float, default=0.45)
     parser.add_argument("--min-class-value", type=int, default=1)
     parser.add_argument("--container-name", default="")
+    parser.add_argument("--output", default="", help="Path to write the prediction GeoJSON (optional)")
     args = parser.parse_args()
 
     workspace = Path(args.workspace).resolve()
@@ -148,6 +149,8 @@ def main() -> int:
             min_class_value=args.min_class_value,
             timeout_seconds=args.predict_timeout,
         )
+        if args.output:
+            Path(args.output).write_text(json.dumps(result, indent=2))
         print(json.dumps({"status": "ok", "feature_count": len(result["features"])}))
         return 0
     except Exception:

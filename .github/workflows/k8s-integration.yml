@@ -59,12 +59,20 @@ jobs:
           docker tag ghcr.io/hotosm/fair-models/fair-dev-cli:latest fair-dev-cli:latest
 
       - name: Install dependencies
-        run: uv sync --extra k8s --extra serve --group example
+        run: uv sync --extra k8s --extra serve
 
       - name: Deploy stack
         working-directory: infra
         run: just up
 
+      - name: Alias cluster service names to localhost
+        run: |
+          echo "127.0.0.1 minio.fair.svc zenml.fair.svc mlflow.fair.svc stac.fair.svc" | sudo tee -a /etc/hosts
+
+      - name: Register k8s ZenML stack
+        run: |
+          uv run zenml init
+          infra/scripts/register-k8s-stack.sh
+
       - name: Run example pipelines
-        working-directory: infra
         run: just example

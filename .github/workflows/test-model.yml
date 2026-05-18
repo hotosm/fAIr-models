@@ -1,0 +1,100 @@
+name: Test Single Model
+
+on:
+  workflow_dispatch:
+    inputs:
+      model:
+        description: "Model dir under models/ (e.g. unet_segmentation)"
+        required: true
+        type: string
+      pr:
+        description: "PR number (leave empty to test the default branch)"
+        required: false
+        type: string
+  pull_request_target:
+    paths: ["models/**"]
+
+permissions:
+  contents: read
+  packages: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ inputs.model || github.event.pull_request.number }}
+  cancel-in-progress: true
+
+env:
+  PR_NUMBER: ${{ inputs.pr || github.event.pull_request.number }}
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.PR_NUMBER && format('refs/pull/{0}/merge', env.PR_NUMBER) || github.ref }}
+          fetch-depth: 0
+
+      - name: Resolve model
+        id: model
+        env:
+          INPUT_MODEL: ${{ inputs.model }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: python3 .github/scripts/resolve_model.py
+
+      - uses: astral-sh/setup-uv@v8.0.0
+        with:
+          python-version: "3.13"
+          enable-cache: true
+      - uses: extractions/setup-just@v2
+      - uses: helm/kind-action@v1
+        with:
+          cluster_name: fair
+          config: infra/kind-config.yaml
+      - uses: helmfile/helmfile-action@v2
+        with:
+          helmfile-args: version
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install deps + build image
+        env:
+          MODEL: ${{ steps.model.outputs.name }}
+        run: |
+          uv sync --extra k8s --extra serve
+          docker pull ghcr.io/hotosm/fair-models/fair-dev-cli:latest
+          docker tag ghcr.io/hotosm/fair-models/fair-dev-cli:latest fair-dev-cli:latest
+          just build "$MODEL"
+          kind load docker-image "$(python3 scripts/stac_asset.py "models/$MODEL/stac-item.json" mlm:training)" --name fair
+
+      - name: Deploy stack + register
+        run: |
+          (cd infra && just up)
+          echo "127.0.0.1 minio.fair.svc zenml.fair.svc mlflow.fair.svc stac.fair.svc" | sudo tee -a /etc/hosts
+          uv run zenml init
+          infra/scripts/register-k8s-stack.sh
+
+      - name: Run example
+        env:
+          MODEL: ${{ steps.model.outputs.name }}
+        run: just example "$MODEL"
+
+      - name: Smoke-test + save predictions
+        env:
+          MODEL: ${{ steps.model.outputs.name }}
+        run: |
+          mkdir -p ci-artifacts
+          uv run python scripts/test_serve.py "$MODEL" \
+            --output "ci-artifacts/$MODEL-predictions.geojson"
+
+      - name: Upload smoke predictions
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-predictions-${{ steps.model.outputs.name }}
+          path: ci-artifacts/${{ steps.model.outputs.name }}-predictions.geojson
+          if-no-files-found: ignore

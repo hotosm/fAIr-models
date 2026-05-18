@@ -4,74 +4,53 @@ icon: lucide/container
 
 # Kubernetes Dev Stack
 
-Local kind cluster mirroring the EKS deployment from `hotosm/k8s-infra`.
+Local kind cluster mirroring the EKS deployment from `hotosm/k8s-infra`. Use this when you want production parity (real ZenML Kubernetes orchestrator, helmfile-managed charts, in-cluster networking). For everyday development the Docker Compose stack from [Getting Started](../getting-started.md) is faster and lighter;
 
 ## Quickstart
 
 !!! info "Prerequisites"
 
-    [kind](https://kind.sigs.k8s.io/), kubectl, helm,
+    [kind](https://kind.sigs.k8s.io/), `kubectl`, `helm`,
     [helmfile](https://helmfile.readthedocs.io/),
-    [mc](https://min.io/docs/minio/linux/reference/minio-mc.html) (minio client),
-    [colima](https://github.com/abiosoft/colima) (macOS) or Docker Engine (Linux).
-    `just setup` in k8s mode checks all of these are on `$PATH` before proceeding.
-    For GPU support: [nvkind](https://github.com/NVIDIA/nvkind), NVIDIA driver,
-    [nvidia-container-toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html).
-    See [GPU Support](#gpu-support-optional) below.
+    [mc](https://min.io/docs/minio/linux/reference/minio-mc.html) (MinIO client),
+    Docker Engine (Linux) or [colima](https://github.com/abiosoft/colima) (macOS),
+    plus `uv` and `just` for the Python side.
 
-View source code of infra files for dev [infra/dev](https://github.com/hotosm/fAIr-models/tree/master/infra/dev)
+    For GPU support add: [nvkind](https://github.com/NVIDIA/nvkind), the NVIDIA driver,
+    and [nvidia-container-toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html). See [GPU Support](#gpu-support-optional) below.
 
-```bash title="Setup and cluster lifecycle"
-just k8s              # switch to k8s mode (sticky, one-time)
-just setup            # install deps + k8s extras + verify CLI tools
-cd infra/dev
-just up               # creates cluster if missing, deploys infra, starts port-forwards
-just status            # show cluster, pods, port-forward health
-just down              # stop port-forwards (cluster stays for fast restart)
-just tear              # destroy everything
+Source: [`infra/`](https://github.com/hotosm/fAIr-models/tree/master/infra)
+
+```bash title="Bring up the kind stack"
+just setup            # root: install Python deps (skip if already done)
+cd infra
+just up               # create cluster (if missing), helmfile apply, port-forwards
+just status           # cluster + pod health
+just down             # stop port-forwards (cluster stays)
+just tear             # destroy the cluster
 ```
 
-```bash title="Run pipelines"
-just example           # E2E with local orchestrator against k8s infra (from repo root)
-just run-example-k8s   # E2E with k8s orchestrator (from infra/dev)
+`just up` registers a `k8s` ZenML stack (Kubernetes orchestrator, in-cluster MinIO and MLflow) and sets it active. From the repo root you can then run any of the example pipelines against the cluster:
+
+```bash
+cd ..
+uv run --group example python examples/segmentation/run.py
 ```
 
 ### Verifying results
 
-!!! success "After `just example` or `just run-example-k8s` completes, inspect outputs at"
+!!! success "After the pipeline completes"
 
     | What | URL |
-    |------|-----|
+    | --- | --- |
     | ZenML dashboard (pipelines, steps, artifacts) | <http://localhost:8080> (login: `default` / empty password) |
     | STAC collections (registered & promoted models) | <http://localhost:8082/collections> |
     | MLflow experiments (training metrics, model registry) | <http://localhost:5000> |
     | MinIO browser (raw S3 objects) | <http://localhost:9001> (login: `minioadmin` / `minioadmin`) |
 
-### ZenML Stacks
-
-`just up` registers two stacks:
-
-=== ":lucide-laptop: dev (active)"
-
-    | | |
-    |---|---|
-    | **Orchestrator** | `default` (local process) |
-    | **S3 Endpoint** | `localhost:9000` |
-    | **MLflow** | `localhost:5000` |
-    | **Use** | Local runs via port-forward (`just example`) |
-
-=== ":lucide-container: k8s"
-
-    | | |
-    |---|---|
-    | **Orchestrator** | `k8s_orchestrator` |
-    | **S3 Endpoint** | `minio.fair.svc:9000` |
-    | **MLflow** | `mlflow.fair.svc:80` |
-    | **Use** | In-cluster jobs (`just run-example-k8s`) |
-
 ## Architecture
 
-All services run in namespace `fair` on a 3-node kind cluster (1 CP + 2 workers).
+All services run in namespace `fair` on a kind cluster.
 
 ```text title="Cluster topology (namespace: fair)"
 postgres (PG 17 + PostGIS)           zenml (ghcr.io/hotosm/zenml-postgres:0.93.3)
@@ -85,14 +64,14 @@ postgres (PG 17 + PostGIS)           zenml (ghcr.io/hotosm/zenml-postgres:0.93.3
 
 ??? note "Port-forwards (managed by `just up` / `just down`)"
 
-    | Service  | Local           | Cluster                     |
-    |----------|-----------------|-----------------------------|
-    | ZenML    | localhost:8080  | zenml.fair.svc:80           |
-    | STAC API | localhost:8082  | stac-stac.fair.svc:8080     |
-    | MinIO API | localhost:9000  | minio.fair.svc:9000         |
-    | MinIO Console | localhost:9001  | minio-console.fair.svc:9001 |
-    | MLflow   | localhost:5000  | mlflow.fair.svc:80          |
-    | Postgres | localhost:5432  | postgres.fair.svc:5432      |
+    | Service | Local | Cluster |
+    | --- | --- | --- |
+    | ZenML | localhost:8080 | zenml.fair.svc:80 |
+    | STAC API | localhost:8082 | stac-stac.fair.svc:8080 |
+    | MinIO API | localhost:9000 | minio.fair.svc:9000 |
+    | MinIO Console | localhost:9001 | minio-console.fair.svc:9001 |
+    | MLflow | localhost:5000 | mlflow.fair.svc:80 |
+    | Postgres | localhost:5432 | postgres.fair.svc:5432 |
 
 ## GPU Support (optional)
 
@@ -116,23 +95,15 @@ Follow the [nvkind prerequisites and setup guide](https://github.com/NVIDIA/nvki
 
 ### Label domain
 
-Node labels and taints use the `fair.dev` prefix (hardcoded in all dev/CI config files).
-For production (dok8s), the label domain comes from the `domain` OpenTofu variable in `infra/dok8s/terraform.tfvars` (exposed as the `fair_domain` output and consumed by the `infra/dok8s/justfile` recipes).
+Node labels and taints use the `fair.dev` prefix (hardcoded in the dev config files).
+For production (dok8s), the label domain comes from the `domain` OpenTofu variable in `infra/dok8s/terraform.tfvars` (exposed as the `fair_domain` output and consumed by the `infra/` justfile recipes).
 
 The runtime default in `fair/zenml/config.py` can be overridden via `FAIR_LABEL_DOMAIN` env var.
-
-??? info "Where the label domain appears"
-
-    - **`infra/dev/kind-config.yaml`** : node labels (`fair.dev/role`) and taints (`fair.dev/workload`)
-    - **`infra/ci/kind-config.yaml`** : same, single-node CI variant
-    - **`infra/dev/postgres/statefulset.yaml`** : nodeSelector `fair.dev/role: infra`
-    - **`stacks/k8s.yaml`** / **`stacks/ci-k8s.yaml`** : pod `node_selectors` and `tolerations`
-    - **`fair/zenml/config.py`** : reads `FAIR_LABEL_DOMAIN` at runtime (default `fair.dev`) for pipeline pod scheduling
 
 ??? abstract "Decisions"
 
     **kind over minikube/k3s** : `hotosm/k8s-infra` runs upstream K8s (EKS). kind runs
-    upstream K8s in Docker containers with guaranteed API compatibility. Lightweight, no VM. ( this can be revised in know that talos is recommended in our docs, it is mainly becuase of learning curve with talos..)
+    upstream K8s in Docker containers with guaranteed API compatibility. Lightweight, no VM.
 
     **Single PostgreSQL, three databases** : ZenML, pgstac, and MLflow all need Postgres.
     One StatefulSet with init SQL (`CREATE DATABASE zenml; fair_models; mlflow`). Mirrors
@@ -144,7 +115,7 @@ The runtime default in `fair/zenml/config.py` can be overridden via `FAIR_LABEL_
 
     **eoAPI for STAC** : Dev uses the upstream eoAPI chart from
     `https://devseed.com/eoapi-k8s/` (`eoapi/eoapi`, pinned to `0.12.2` in
-    `infra/dev/helmfile.yaml`) with `external-plaintext` DB.
+    `infra/helmfile.yaml.gotmpl`) with `external-plaintext` DB.
 
     **ZenML Postgres patch** : OSS ZenML only supports MySQL/SQLite. The patched server
     image at [`ghcr.io/hotosm/zenml-postgres`](https://github.com/hotosm/fAIr/tree/develop/infra/zenml)
@@ -186,6 +157,5 @@ The runtime default in `fair/zenml/config.py` can be overridden via `FAIR_LABEL_
     - [ZenML K8s Orchestrator](https://docs.zenml.io/stack-components/orchestrators/kubernetes)
     - [pypgstac](https://stac-utils.github.io/pgstac/pypgstac/)
     - [eoAPI-k8s](https://github.com/developmentseed/eoapi-k8s)
-
-- [community-charts/mlflow](https://github.com/community-charts/helm-charts/tree/main/charts/mlflow)
-- [kind](https://kind.sigs.k8s.io/)
+    - [community-charts/mlflow](https://github.com/community-charts/helm-charts/tree/main/charts/mlflow)
+    - [kind](https://kind.sigs.k8s.io/)

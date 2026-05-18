@@ -39,7 +39,7 @@ dependencies = [
     "onnxruntime>=1.24.4",
     "pystac[validation]>=1.14.3,<2",
     "universal-pathlib>=0.3.10",
-    "zenml==0.93.3",
+    "zenml==0.94.2",
 ]
 
 [project.optional-dependencies]
@@ -47,13 +47,13 @@ test = [
     "kubernetes",
     "pytest>=8.0",
     "pytest-cov>=6.0",
-    "zenml[server]==0.93.3",
+    "zenml[server]==0.94.2",
 ]
 k8s = [
     "opentelemetry-proto>=1.25.0",
     "pypgstac[psycopg]>=0.9",
     "pystac-client>=0.9,<1",
-    "zenml[connectors-aws,connectors-kubernetes,s3fs]==0.93.3",
+    "zenml[connectors-aws,connectors-kubernetes,s3fs,server]==0.94.2",
 ]
 serve = [
     "geomltoolkits>=2.0.2",
@@ -118,18 +118,6 @@ docs = [
     "mkdocs-git-revision-date-localized-plugin>=1.4",
     "mkdocs-git-authors-plugin>=0.9",
     "mkdocs-glightbox>=0.4",
-]
-local = [
-    "zenml[server]>=0.93.3",
-]
-example = [
-    "onnx>=1.21.0",
-    "onnxscript>=0.6.2",
-    "pyproj>=3.7",
-    "rasterio>=1.4",
-    "torch",
-    "torchgeo",
-    "ultralytics>=8.4.33",
 ]
 
 [tool.ruff]

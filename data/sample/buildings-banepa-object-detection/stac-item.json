@@ -7,7 +7,7 @@
     "https://stac-extensions.github.io/version/v1.2.0/schema.json",
     "https://hotosm.github.io/fAIr-models/schemas/v1.0.0/dataset/schema.json"
   ],
-  "id": "buildings-banepa-classification",
+  "id": "buildings-banepa-object-detection",
   "geometry": {
     "type": "Polygon",
     "coordinates": [
@@ -45,28 +45,30 @@
     "datetime": "2024-01-01T00:00:00Z",
     "created": "2024-01-01T00:00:00Z",
     "updated": "2024-01-01T00:00:00Z",
-    "title": "buildings-banepa-classification",
-    "description": "Binary classification labels (building/no_building) derived from the Banepa OAM+OSM segmentation dataset.",
-    "label:type": "raster",
+    "title": "buildings-banepa-object-detection",
+    "description": "OpenAerialMap chips with OSM building footprints (GeoJSON) for object detection in Banepa, Nepal.",
+    "label:type": "vector",
     "label:tasks": [
-      "classification"
+      "object-detection"
     ],
     "label:classes": [
       {
-        "name": null,
+        "name": "building",
         "classes": [
           "building"
         ]
       }
     ],
-    "label:properties": null,
-    "label:description": "Binary building labels derived from segmentation masks",
+    "label:properties": [
+      "building"
+    ],
+    "label:description": "Building footprints (GeoJSON polygons) used as object detection labels",
     "label:methods": [
-      "automated"
+      "manual"
     ],
     "keywords": [
       "building",
-      "classification",
+      "object-detection",
       "polygon"
     ],
     "fair:user_id": "anonymous",
@@ -99,7 +101,7 @@
       "roles": [
         "labels"
       ],
-      "title": "OSM building polygons (binary labels derived by chip intersection)"
+      "title": "OSM building footprints (GeoJSON)"
     }
   },
   "links": [

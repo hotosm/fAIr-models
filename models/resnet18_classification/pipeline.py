@@ -4,7 +4,7 @@ Entrypoints referenced by models/resnet18_classification/stac-item.json.
 Pretrained backbone: torchvision ResNet18 ImageNet.
 """
 
-import csv
+import json
 import random
 import tempfile
 from pathlib import Path
@@ -127,20 +127,32 @@ def predict(session: Any, input_images: str, params: dict[str, Any]) -> dict[str
     return _build_feature_collection(features)
 
 
-def _load_samples(chips_path: str, labels_csv_path: str) -> list[tuple[Path, int]]:
-    from fair.utils.data import resolve_directory, resolve_path
+def _load_samples(chips_path: str, labels_path: str) -> list[tuple[Path, int]]:
+    """Derive binary labels by intersecting each chip's geo-bounds with OSM polygons."""
+    import rasterio
+    from shapely.geometry import box, shape
+
+    from fair.utils.data import resolve_directory
 
     local_chips = resolve_directory(chips_path)
-    local_csv = resolve_path(labels_csv_path)
+    local_labels = resolve_directory(labels_path, "*.geojson")
+    geojson_files = sorted(local_labels.rglob("*.geojson"))
+    if not geojson_files:
+        msg = f"No .geojson files found under {labels_path}"
+        raise FileNotFoundError(msg)
+
+    polygons = []
+    for gj in geojson_files:
+        with open(gj, encoding="utf-8") as f:
+            features = json.load(f).get("features", [])
+        polygons.extend(shape(feat["geometry"]) for feat in features)
 
     samples: list[tuple[Path, int]] = []
-    with open(local_csv, encoding="utf-8") as f:
-        reader = csv.DictReader(f)
-        for row in reader:
-            img_path = local_chips / row["filename"]
-            label = 1 if row["class_name"] == "building" else 0
-            if img_path.exists():
-                samples.append((img_path, label))
+    for chip in sorted(local_chips.rglob("*.tif")):
+        with rasterio.open(chip) as src:
+            chip_box = box(*src.bounds)
+        label = 1 if any(p.intersects(chip_box) for p in polygons) else 0
+        samples.append((chip, label))
     return samples
 
 

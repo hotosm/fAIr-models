@@ -34,8 +34,8 @@ Catalog: fair-models
 +-- Collection: datasets
       Training data registered via fAIr UI/backend.
       |
-      +-- Item: buildings-banepa-segmentation    category: semantic-segmentation
-      +-- Item: buildings-banepa-detection       category: object-detection
+      +-- Item: buildings-banepa-semantic-segmentation    category: semantic-segmentation
+      +-- Item: buildings-banepa-object-detection         category: object-detection
 ```
 
 ??? note "What STAC Items Contain"
@@ -165,7 +165,7 @@ information to run inference: model weights, inference runtime, input/output spe
 | Base model | `unet-segmentation` | Not in ZenML MCP | Item in `base-models` |
 | Finetuned model | `unet-segmentation-finetuned-banepa` | ZenML Model (many versions) | Item(s) in `local-models` |
 | Specific version | `unet-segmentation-finetuned-banepa` v2 | ZenML Model Version 2 | Item `unet-segmentation-finetuned-banepa-v2` |
-| Dataset | `buildings-banepa-segmentation` | Not in ZenML MCP | Item in `datasets` |
+| Dataset | `buildings-banepa-semantic-segmentation` | Not in ZenML MCP | Item in `datasets` |
 
 ## Infrastructure
 

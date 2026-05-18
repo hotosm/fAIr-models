@@ -1,0 +1,42 @@
+name: version consistency
+on:
+  push:
+    branches: [ master ]
+    paths:
+      - "pyproject.toml"
+      - "stacks/**"
+      - "infra/compose/**"
+      - "infra/values/zenml.yaml.gotmpl"
+      - "scripts/check_zenml_version.py"
+      - ".github/workflows/check-versions.yml"
+  pull_request:
+    branches: [ master ]
+    paths:
+      - "pyproject.toml"
+      - "stacks/**"
+      - "infra/compose/**"
+      - "infra/values/zenml.yaml.gotmpl"
+      - "scripts/check_zenml_version.py"
+      - ".github/workflows/check-versions.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+defaults:
+  run:
+    shell: bash
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  zenml:
+    name: zenml version
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v8.0.0
+        with:
+          python-version: "3.13"
+          enable-cache: true
+      - name: Check ZenML version consistency
+        run: uv run --no-project --with httpx python scripts/check_zenml_version.py --remote

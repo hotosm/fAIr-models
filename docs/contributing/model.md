@@ -1146,12 +1146,20 @@ All checks must pass before the PR is reviewed.
 
 ## Local Development
 
+Once your model directory is in place (`models/<your_model>/{Dockerfile,pipeline.py,stac-item.json,README.md}`), drive the full contributor loop from the repo root:
+
 ```bash title="Local dev workflow"
-just setup                             # Install deps + ZenML init
-just validate                          # Validate STAC items + model pipelines
-just test                              # Run tests
-just example                           # Run full example pipeline
+just setup                             # install deps + bring up the compose stack + register ZenML stack
+just validate                          # validate STAC items + model pipelines (AST + schema)
+just test                              # unit tests (incl. fair core)
+just build <your_model>                # build your model's training image (--target runtime)
+just example <your_model>              # register, finetune, promote, predict (uses the docker orchestrator)
+just test-serve <your_model>           # spin up the inference container and POST /predict against OAM TMS
 ```
+
+If `just setup` reports the stack is already up from a previous session you can skip it. `just up` / `just down` start and stop the compose services without destroying volumes; `just tear` is the destructive reset.
+
+When all six commands return cleanly your model is ready to PR. CI re-runs the same `--target test` and `--target runtime` builds plus an inference smoke test against the same OAM TMS bbox (see `.github/workflows/build-model-images.yml` and the `K8s Integration Test` workflow for the parity check on a kind cluster).
 
 ## Reference
 

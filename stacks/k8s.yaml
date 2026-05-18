@@ -1,5 +1,6 @@
+# yaml-language-server: $schema=
 stack_name: k8s
-zenml_version: 0.93.3
+zenml_version: 0.94.2
 
 _pod_defaults: &pod_defaults
   env:
@@ -11,8 +12,6 @@ _pod_defaults: &pod_defaults
       value: minioadmin
     - name: AWS_SECRET_ACCESS_KEY
       value: minioadmin
-  node_selectors:
-    fair/workload: ml
 
 components:
   orchestrator:
@@ -22,10 +21,11 @@ components:
     configuration:
       kubernetes_context: kind-fair
       kubernetes_namespace: fair
+      synchronous: true
       pod_settings: *pod_defaults
       orchestrator_pod_settings: *pod_defaults
   artifact_store:
-    name: s3_artifacts
+    name: s3_k8s
     flavor: s3
     type: artifact_store
     configuration:
@@ -35,13 +35,13 @@ components:
       client_kwargs:
         endpoint_url: "http://minio.fair.svc:9000"
   container_registry:
-    name: ghcr
+    name: ghcr_k8s
     flavor: default
     type: container_registry
     configuration:
       uri: ghcr.io/hotosm
   experiment_tracker:
-    name: mlflow_tracker
+    name: mlflow_k8s
     flavor: mlflow
     type: experiment_tracker
     configuration:

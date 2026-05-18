@@ -40,13 +40,67 @@ def _resolve_input_directory(path_value: str, purpose: str) -> Path:
     return _to_local_path(path_value, purpose)
 
 
-def _resolve_input_file(path_value: str, purpose: str) -> Path:
-    """Resolve local/remote file paths to a local path."""
-    from fair.utils.data import resolve_path
+def _resolve_labels_geojson(dataset_labels: str) -> Path:
+    """Resolve labels input to exactly one GeoJSON/JSON file.
 
-    if "://" in str(path_value):
-        return resolve_path(path_value)
-    return _to_local_path(path_value, purpose)
+    Supports:
+    - direct file path/URI
+    - directory/prefix containing exactly one labels file
+    """
+    from fair.utils.data import resolve_directory, resolve_path
+
+    label_patterns = ("*.geojson", "*.json")
+    labels_value = str(dataset_labels)
+
+    # First attempt: resolve as a file path/URI.
+    try:
+        file_candidate = resolve_path(labels_value)
+    except Exception:  # pragma: no cover - fallback to directory/prefix resolution
+        file_candidate = None
+
+    if file_candidate and file_candidate.is_file():
+        if file_candidate.suffix.lower() not in (".geojson", ".json"):
+            raise ValueError(f"dataset_labels must point to a .geojson or .json file, got: {file_candidate}")
+        return file_candidate
+
+    def _pick_single_candidate(search_dir: Path) -> Path:
+        for pattern in label_patterns:
+            matches = sorted(p for p in search_dir.glob(pattern) if p.is_file())
+            if not matches:
+                continue
+            if len(matches) > 1:
+                listed = ", ".join(str(p) for p in matches)
+                raise ValueError(
+                    f"dataset_labels must resolve to exactly one labels file, found {len(matches)} "
+                    f"matching {pattern} in {search_dir}: {listed}"
+                )
+            return matches[0]
+        raise FileNotFoundError(
+            f"No labels file found in {search_dir}. Expected exactly one '*.geojson' or '*.json' file."
+        )
+
+    # Remote directory/prefix fallback.
+    if "://" in labels_value:
+        for pattern in label_patterns:
+            try:
+                local_dir = resolve_directory(labels_value, pattern=pattern)
+            except FileNotFoundError:
+                continue
+            return _pick_single_candidate(local_dir)
+        raise FileNotFoundError(
+            f"No labels file found at {labels_value}. Expected exactly one '*.geojson' or '*.json' file."
+        )
+
+    # Local directory/file fallback.
+    local_path = Path(labels_value)
+    if local_path.is_file():
+        if local_path.suffix.lower() not in (".geojson", ".json"):
+            raise ValueError(f"dataset_labels must be a .geojson or .json file, got: {local_path}")
+        return local_path
+    if local_path.is_dir():
+        return _pick_single_candidate(local_path)
+
+    raise FileNotFoundError(f"dataset_labels path not found: {local_path}. Provide a labels file or directory/prefix.")
 
 
 def _download_and_extract_zip(zip_url: str, dest_dir: Path) -> None:
@@ -190,7 +244,7 @@ def _materialize_training_input(dataset_chips: str, dataset_labels: str, work_di
     can parse tile ids.
     """
     chips_dir = _resolve_input_directory(dataset_chips, "dataset_chips")
-    labels_path = _resolve_input_file(dataset_labels, "dataset_labels")
+    labels_path = _resolve_labels_geojson(dataset_labels)
 
     input_dir = work_dir / "input"
     if input_dir.exists():
@@ -221,8 +275,6 @@ def _materialize_training_input(dataset_chips: str, dataset_labels: str, work_di
     if not list(input_dir.glob("*.png")):
         raise FileNotFoundError(f"No train chips (.tif/.tiff/.png) found in {chips_dir}")
 
-    if not labels_path.is_file():
-        raise FileNotFoundError(f"dataset_labels file not found: {labels_path}")
     shutil.copy2(labels_path, input_dir / "labels.geojson")
     return input_dir
 

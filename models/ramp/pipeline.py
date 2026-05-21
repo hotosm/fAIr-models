@@ -50,18 +50,8 @@ def _resolve_labels_geojson(dataset_labels: str) -> Path:
     from fair.utils.data import resolve_directory, resolve_path
 
     label_patterns = ("*.geojson", "*.json")
+    label_suffixes = (".geojson", ".json")
     labels_value = str(dataset_labels)
-
-    # First attempt: resolve as a file path/URI.
-    try:
-        file_candidate = resolve_path(labels_value)
-    except Exception:  # pragma: no cover - fallback to directory/prefix resolution
-        file_candidate = None
-
-    if file_candidate and file_candidate.is_file():
-        if file_candidate.suffix.lower() not in (".geojson", ".json"):
-            raise ValueError(f"dataset_labels must point to a .geojson or .json file, got: {file_candidate}")
-        return file_candidate
 
     def _pick_single_candidate(search_dir: Path) -> Path:
         for pattern in label_patterns:
@@ -79,8 +69,13 @@ def _resolve_labels_geojson(dataset_labels: str) -> Path:
             f"No labels file found in {search_dir}. Expected exactly one '*.geojson' or '*.json' file."
         )
 
-    # Remote directory/prefix fallback.
+    # Remote file or directory/prefix.
     if "://" in labels_value:
+        if labels_value.lower().endswith(label_suffixes):
+            file_candidate = resolve_path(labels_value)
+            if file_candidate.suffix.lower() not in label_suffixes:
+                raise ValueError(f"dataset_labels must point to a .geojson or .json file, got: {file_candidate}")
+            return file_candidate
         for pattern in label_patterns:
             try:
                 local_dir = resolve_directory(labels_value, pattern=pattern)
@@ -94,7 +89,7 @@ def _resolve_labels_geojson(dataset_labels: str) -> Path:
     # Local directory/file fallback.
     local_path = Path(labels_value)
     if local_path.is_file():
-        if local_path.suffix.lower() not in (".geojson", ".json"):
+        if local_path.suffix.lower() not in label_suffixes:
             raise ValueError(f"dataset_labels must be a .geojson or .json file, got: {local_path}")
         return local_path
     if local_path.is_dir():
@@ -120,6 +115,24 @@ def _extract_zip(zip_path: Path, dest_dir: Path) -> None:
         zf.extractall(dest_dir)
 
 
+def _resolve_model_file_path(model_uri: str, cache_dir: Path, default_name: str) -> Path:
+    """Resolve a local, HTTP(S), or remote (s3://) model file to a local Path."""
+    from fair.utils.data import resolve_path
+
+    clean_uri = model_uri.split("?", 1)[0]
+    if model_uri.startswith(("http://", "https://")):
+        dest = cache_dir / (Path(clean_uri).name or default_name)
+        if not dest.is_file():
+            urlretrieve(model_uri, dest)
+        return dest
+    if "://" in model_uri:
+        return resolve_path(model_uri, local_dir=cache_dir)
+    p = Path(model_uri).resolve()
+    if p.is_file():
+        return p
+    raise FileNotFoundError(f"Model file not found: {p}")
+
+
 def resolve_model_href(model_uri: str, cache_dir: Path | None = None) -> str:
     """Resolve .onnx, .keras, or .zip model URIs to local paths.
     - .onnx -> local .onnx file path
@@ -132,32 +145,14 @@ def resolve_model_href(model_uri: str, cache_dir: Path | None = None) -> str:
         raise TypeError("cache_dir must be a pathlib.Path or None")
     cache_dir = cache_dir or _DEFAULT_MODEL_CACHE
     cache_dir.mkdir(parents=True, exist_ok=True)
-    is_http = model_uri.startswith(("http://", "https://"))
     clean_uri = model_uri.split("?", 1)[0]
     suffix = Path(clean_uri).suffix.lower()
     # ONNX path
     if suffix == ".onnx":
-        if is_http:
-            dest = cache_dir / (Path(clean_uri).name or "model.onnx")
-            if not dest.is_file():
-                urlretrieve(model_uri, dest)
-            return str(dest)
-        # local onnx path
-        p = Path(model_uri).resolve()
-        if p.is_file():
-            return str(p)
-        raise FileNotFoundError(f"ONNX model not found: {p}")
+        return str(_resolve_model_file_path(model_uri, cache_dir, "model.onnx"))
     # Keras single-file checkpoint
     if suffix == ".keras":
-        if is_http:
-            dest = cache_dir / (Path(clean_uri).name or "model.keras")
-            if not dest.is_file():
-                urlretrieve(model_uri, dest)
-            return str(dest)
-        p = Path(model_uri).resolve()
-        if p.is_file():
-            return str(p)
-        raise FileNotFoundError(f"Keras model not found: {p}")
+        return str(_resolve_model_file_path(model_uri, cache_dir, "model.keras"))
 
     # ZIP path -> must contain saved_model.pb somewhere inside
     if suffix == ".zip":
@@ -166,14 +161,7 @@ def resolve_model_href(model_uri: str, cache_dir: Path | None = None) -> str:
         # cache hit
         for existing in dest_dir.rglob("saved_model.pb"):
             return str(existing.parent)
-        if is_http:
-            zip_path = cache_dir / (Path(clean_uri).name or "model.zip")
-            if not zip_path.is_file():
-                urlretrieve(model_uri, zip_path)
-        else:
-            zip_path = Path(model_uri).resolve()
-            if not zip_path.is_file():
-                raise FileNotFoundError(f"ZIP model not found: {zip_path}")
+        zip_path = _resolve_model_file_path(model_uri, cache_dir, "model.zip")
         dest_dir.mkdir(parents=True, exist_ok=True)
         import zipfile
 

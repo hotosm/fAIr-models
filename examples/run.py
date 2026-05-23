@@ -16,6 +16,12 @@ from fair.client import FairClient
 from fair.utils import install_s3_cleanup_handler
 
 OVERRIDES = ("epochs", "batch_size", "learning_rate", "samples_per_epoch", "chip_size")
+CI_OVERRIDES: dict[str, object] = {
+    "epochs": 5,
+    "batch_size": 2,
+    "sample_fraction": 0.1,
+    "samples_per_epoch": 12,
+}
 
 
 def run(model: str, overrides: dict[str, object]) -> None:
@@ -48,7 +54,7 @@ def run(model: str, overrides: dict[str, object]) -> None:
         finetuned_model_id,
         description=f"{base_id} finetuned on buildings-banepa-{task}",
     )
-    client.predict(local_model_id, image_path="data/sample/predict/oam")
+    client.predict(local_model_id, image_path="data/sample/test/oam")
 
 
 def main() -> int:
@@ -58,7 +64,7 @@ def main() -> int:
         parser.add_argument(f"--{name.replace('_', '-')}", dest=name, type=str, default=None)
     args = parser.parse_args()
 
-    overrides: dict[str, object] = {}
+    overrides: dict[str, object] = dict(CI_OVERRIDES) if os.environ.get("FAIR_CI") == "1" else {}
     for name in OVERRIDES:
         raw = getattr(args, name)
         if raw is None:

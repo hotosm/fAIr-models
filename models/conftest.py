@@ -112,6 +112,8 @@ def mock_instrumentation():
         except ImportError:
             continue
         patches.append(patch(f"{module_name}.log_metadata"))
+        patches.append(patch(f"{module_name}.mlflow_training_context", _noop_context))
+        patches.append(patch(f"{module_name}.log_evaluation_results"))
 
     with contextlib.ExitStack() as stack:
         for p in patches:

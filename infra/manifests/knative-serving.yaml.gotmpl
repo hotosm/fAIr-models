@@ -1,0 +1,37 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: knative-serving
+  labels:
+    # Mirrors the operator's namespace-installer output so apply is a no-op.
+    app.kubernetes.io/component: net-kourier
+    app.kubernetes.io/name: knative-serving
+    app.kubernetes.io/version: "1.17.0"
+    networking.knative.dev/ingress-provider: kourier
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: predict
+---
+apiVersion: operator.knative.dev/v1beta1
+kind: KnativeServing
+metadata:
+  name: knative-serving
+  namespace: knative-serving
+spec:
+  ingress:
+    kourier:
+      enabled: true
+  config:
+    domain:
+      # Empty value = default suffix for every Route without a label selector.
+      "predict.${FAIR_DOMAIN}": ""
+    network:
+      ingress-class: kourier.ingress.networking.knative.dev
+      # Collapses the default `{{.Namespace}}` segment because every ksvc
+      # lives in `predict`; otherwise URLs become `<svc>.predict.predict.<domain>`.
+      domain-template: "{{.Name}}.{{.Domain}}"
+    autoscaler:
+      enable-scale-to-zero: "true"
+      scale-to-zero-grace-period: 30s

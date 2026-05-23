@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from zenml import log_metadata
+from zenml import get_step_context, log_metadata
 
 _ZENML_PREFIX = "fair/"
 _STAC_PREFIX = "fair:"
@@ -46,6 +46,13 @@ def read_loss_history(run_metadata: dict[str, Any] | None) -> dict[str, list[flo
 
 def log_training_wall_time(seconds: float) -> None:
     log_metadata(metadata={_WALL_TIME_KEY: seconds}, infer_model=True)
+
+
+def log_run_metadata(metadata: dict[str, Any]) -> None:
+    log_metadata(
+        metadata=metadata,
+        run_id_name_or_prefix=get_step_context().pipeline_run.id,
+    )
 
 
 def read_training_wall_time(run_metadata: dict[str, Any] | None) -> float | None:

@@ -156,6 +156,13 @@ def _load_samples(chips_path: str, labels_path: str) -> list[tuple[Path, int]]:
     return samples
 
 
+def _stride_subset(samples: list[tuple[Path, int]], fraction: float) -> list[tuple[Path, int]]:
+    if fraction >= 1.0:
+        return samples
+    step = max(1, round(1 / fraction))
+    return samples[::step]
+
+
 def _split_samples(
     samples: list[tuple[Path, int]],
     val_ratio: float,
@@ -209,11 +216,12 @@ def split_dataset(
     dataset_chips: str,
     dataset_labels: str,
     hyperparameters: dict[str, Any],
-) -> Annotated[dict[str, Any], "split_info"]:
+) -> Annotated[dict[str, Any], "split_info_artifact"]:
     val_ratio = hyperparameters.get("val_ratio", 0.2)
     seed = hyperparameters.get("split_seed", 42)
 
-    all_samples = _load_samples(dataset_chips, dataset_labels)
+    fraction = hyperparameters.get("sample_fraction", 1.0)
+    all_samples = _stride_subset(_load_samples(dataset_chips, dataset_labels), fraction)
     train_samples, val_samples = _split_samples(all_samples, val_ratio, seed)
 
     split_info = {
@@ -239,7 +247,7 @@ def train_model(
     model_name: str | None = None,
     base_model_id: str | None = None,
     dataset_id: str | None = None,
-) -> Annotated[Any, "trained_model"]:
+) -> Annotated[Any, "trained_model_artifact"]:
     import torch
     import torch.nn as nn
     from torchvision.models import resnet18
@@ -267,7 +275,8 @@ def train_model(
         model.fc = nn.Linear(model.fc.in_features, 1)
         model.to(device)
 
-        all_samples = _load_samples(dataset_chips, dataset_labels)
+        fraction = hyperparameters.get("sample_fraction", 1.0)
+        all_samples = _stride_subset(_load_samples(dataset_chips, dataset_labels), fraction)
         train_samples, val_samples = _split_samples(all_samples, val_ratio, seed)
         train_loader = _build_classification_dataset(train_samples, chip_size, batch_size)
         val_loader = _build_classification_dataset(val_samples, chip_size, batch_size, shuffle=False)
@@ -349,7 +358,8 @@ def evaluate_model(
     model = trained_model.to(device)
     model.eval()
 
-    all_samples = _load_samples(dataset_chips, dataset_labels)
+    fraction = hyperparameters.get("sample_fraction", 1.0)
+    all_samples = _stride_subset(_load_samples(dataset_chips, dataset_labels), fraction)
     _, val_samples = _split_samples(all_samples, val_ratio, seed)
     loader = _build_classification_dataset(val_samples, chip_size, shuffle=False)
     tp = fp = tn = fn = 0

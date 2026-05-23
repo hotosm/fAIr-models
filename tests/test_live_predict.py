@@ -7,7 +7,7 @@ import httpx
 import pystac
 
 from fair.client import FairClient
-from fair.infra.knative import build_predict_gateway_config
+from fair.infra.knative import public_predict_url
 from fair.stac.constants import BASE_MODELS_COLLECTION
 
 
@@ -27,7 +27,7 @@ class _StubResponse:
         return {"status": "ok"}
 
 
-def _build_base_model_item() -> pystac.Item:
+def _build_base_model_item(*, with_endpoint: bool = True) -> pystac.Item:
     item = pystac.Item(
         id="resnet18-classification",
         geometry={
@@ -42,23 +42,29 @@ def _build_base_model_item() -> pystac.Item:
         },
     )
     item.add_asset("model", pystac.Asset(href="https://example.com/model.onnx"))
+    if with_endpoint:
+        item.add_asset(
+            "mlm:inference-endpoint",
+            pystac.Asset(
+                href="https://resnet18-classification.predict.fair.example.com/predict",
+                media_type="application/json",
+                roles=["mlm:inference-endpoint"],
+            ),
+        )
     return item
 
 
-def test_build_predict_gateway_config_routes_each_service() -> None:
-    config = build_predict_gateway_config(["resnet18-classification", "unet-segmentation"])
-
-    assert "location ~ ^/resnet18-classification(/|$)(.*)$" in config
-    assert "proxy_pass http://resnet18-classification.predict.svc.cluster.local;" in config
-    assert "location ~ ^/unet-segmentation(/|$)(.*)$" in config
-    assert "location = /health" in config
-    assert "location = /models" in config
-    assert "Available models" in config
-    assert "/resnet18-classification/health" in config
-    assert '"name": "resnet18-classification"' in config
+def test_public_predict_url_matches_cluster_routing_convention() -> None:
+    # Pins the URL shape served by infra/manifests/ingress.yaml.gotmpl +
+    # KnativeServing config-domain. Changing either side without the other
+    # will route predictions to a nonexistent host.
+    assert (
+        public_predict_url("resnet18-classification", "fair.example.com")
+        == "https://resnet18-classification.predict.fair.example.com/predict"
+    )
 
 
-def test_predict_live_routes_with_knative_host_header(monkeypatch) -> None:
+def test_predict_live_reads_endpoint_from_stac(monkeypatch) -> None:
     item = _build_base_model_item()
     client = FairClient(stac_api_url="https://stac.example.com", dsn="postgresql://example")
     monkeypatch.setattr(client, "_get_backend", lambda: _StubBackend(item))
@@ -78,13 +84,11 @@ def test_predict_live_routes_with_knative_host_header(monkeypatch) -> None:
         image_uri="https://tiles.openaerialmap.org/abc/{z}/{x}/{y}",
         bbox=[85.5, 27.6, 85.52, 27.63],
         zoom=18,
-        predict_base_url="https://predict.example.com",
         collection=BASE_MODELS_COLLECTION,
     )
 
     assert result == {"status": "ok"}
-    assert captured["url"] == "https://predict.example.com/resnet18-classification/predict"
-    assert "headers" not in captured["kwargs"]
+    assert captured["url"] == "https://resnet18-classification.predict.fair.example.com/predict"
     assert captured["kwargs"]["verify"] is False
     sent = captured["kwargs"]["json"]
     assert sent["params"] == {"confidence_threshold": 0.5}
@@ -92,33 +96,47 @@ def test_predict_live_routes_with_knative_host_header(monkeypatch) -> None:
     assert sent["bbox"] == [85.5, 27.6, 85.52, 27.63]
     assert sent["zoom"] == 18
     assert sent["model_uri"] == "https://example.com/model.onnx"
-    assert "input_images" not in sent
 
 
-def test_predict_live_uses_public_model_domain_when_configured(monkeypatch) -> None:
+def test_predict_live_explicit_override_wins_over_stac(monkeypatch) -> None:
     item = _build_base_model_item()
     client = FairClient(stac_api_url="https://stac.example.com", dsn="postgresql://example")
     monkeypatch.setattr(client, "_get_backend", lambda: _StubBackend(item))
-    monkeypatch.setenv("FAIR_LABEL_DOMAIN", "fair.example.com")
     monkeypatch.setenv("ZENML_STORE_VERIFY_SSL", "false")
 
     captured: dict[str, Any] = {}
 
     def fake_post(url: str, **kwargs: Any) -> _StubResponse:
         captured["url"] = url
-        captured["kwargs"] = kwargs
         return _StubResponse()
 
     monkeypatch.setattr(httpx, "post", fake_post)
 
-    result = client.predict_live(
+    client.predict_live(
         "resnet18-classification",
         image_uri="https://tiles.openaerialmap.org/abc/{z}/{x}/{y}",
         bbox=[85.5, 27.6, 85.52, 27.63],
         zoom=18,
+        predict_base_url="http://127.0.0.1:8080/predict",
         collection=BASE_MODELS_COLLECTION,
     )
+    assert captured["url"] == "http://127.0.0.1:8080/predict"
 
-    assert result == {"status": "ok"}
-    assert captured["url"] == "https://predict.fair.example.com/resnet18-classification/predict"
-    assert "headers" not in captured["kwargs"]
+
+def test_predict_live_missing_endpoint_asset_raises(monkeypatch) -> None:
+    import pytest
+
+    from fair.client import FairClientError
+
+    item = _build_base_model_item(with_endpoint=False)
+    client = FairClient(stac_api_url="https://stac.example.com", dsn="postgresql://example")
+    monkeypatch.setattr(client, "_get_backend", lambda: _StubBackend(item))
+
+    with pytest.raises(FairClientError, match="mlm:inference-endpoint"):
+        client.predict_live(
+            "resnet18-classification",
+            image_uri="https://tiles.openaerialmap.org/abc/{z}/{x}/{y}",
+            bbox=[85.5, 27.6, 85.52, 27.63],
+            zoom=18,
+            collection=BASE_MODELS_COLLECTION,
+        )

@@ -73,4 +73,6 @@ jobs:
           infra/scripts/register-k8s-stack.sh
 
       - name: Run example pipelines
+        env:
+          FAIR_CI: "1"
         run: just example

@@ -188,17 +188,6 @@ def test_client_helper_methods_cover_core_branches(monkeypatch) -> None:
     with pytest.raises(FairClientError):
         client._dataset_providers_from_properties({"providers": ["bad"]}, "item-1")
 
-    assert client._predict_base_url("https://predict.example.com") == "https://predict.example.com"
-    monkeypatch.delenv("FAIR_PREDICT_BASE_URL", raising=False)
-    monkeypatch.delenv("FAIR_LABEL_DOMAIN", raising=False)
-    with pytest.raises(FairClientError):
-        client._predict_base_url()
-    monkeypatch.setenv("FAIR_PREDICT_BASE_URL", "https://predict.env.example.com")
-    assert client._predict_base_url() == "https://predict.env.example.com"
-    monkeypatch.delenv("FAIR_PREDICT_BASE_URL", raising=False)
-    monkeypatch.setenv("FAIR_LABEL_DOMAIN", "fair.example.com")
-    assert client._predict_base_url() == "https://predict.fair.example.com"
-
     monkeypatch.delenv("FAIR_PREDICT_VERIFY_SSL", raising=False)
     monkeypatch.delenv("ZENML_STORE_VERIFY_SSL", raising=False)
     assert client._predict_verify_ssl() is True
@@ -226,6 +215,16 @@ def test_pipeline_module_and_base_model_resolution(monkeypatch) -> None:
     with pytest.raises(FairClientError):
         client._pipeline_module_from_item(empty_entrypoint)
 
+    # `_resolve_predict_url` reads `mlm:inference-endpoint` from the base-model
+    # item. LocalModel items go through `fair:base_model_id` to find their base.
+    base_item.add_asset(
+        "mlm:inference-endpoint",
+        pystac.Asset(
+            href="https://resnet18-classification.predict.fair.example.com/predict",
+            media_type="application/json",
+            roles=["mlm:inference-endpoint"],
+        ),
+    )
     local_model = _build_item("local-model", {"fair:base_model_id": base_item.id})
     backend = DummyBackend(
         {
@@ -235,12 +234,15 @@ def test_pipeline_module_and_base_model_resolution(monkeypatch) -> None:
     )
     monkeypatch.setattr(client, "_get_backend", lambda: backend)
 
-    assert client._base_model_name_for_live_service(base_item, BASE_MODELS_COLLECTION) == "resnet18-classification"
-    assert client._base_model_name_for_live_service(local_model, LOCAL_MODELS_COLLECTION) == "resnet18-classification"
+    expected = "https://resnet18-classification.predict.fair.example.com/predict"
+    assert client._resolve_predict_url(base_item, BASE_MODELS_COLLECTION, None) == expected
+    assert client._resolve_predict_url(local_model, LOCAL_MODELS_COLLECTION, None) == expected
+    # explicit override wins over the STAC asset
+    assert client._resolve_predict_url(base_item, BASE_MODELS_COLLECTION, "http://override") == "http://override"
 
     broken_local = _build_item("broken-local")
     with pytest.raises(FairClientError):
-        client._base_model_name_for_live_service(broken_local, LOCAL_MODELS_COLLECTION)
+        client._resolve_predict_url(broken_local, LOCAL_MODELS_COLLECTION, None)
 
 
 def test_mirror_asset_to_artifact_store_updates_asset_href(monkeypatch) -> None:
@@ -503,7 +505,10 @@ def test_predict_live_error_paths_and_success(monkeypatch, tmp_path) -> None:
     image_uri = "https://tiles.example.com/{z}/{x}/{y}"
     bbox = [85.5, 27.6, 85.52, 27.63]
     zoom = 18
-    predict_base_url = "https://predict.example.com"
+    # `predict_base_url` is now the full URL (not a host to which a service path
+    # gets appended), matching the behavior used by FairClient.predict_live
+    # callers that point at a specific port-forwarded ksvc during dev.
+    predict_base_url = "https://predict.example.com/predict"
 
     result = client.predict_live(
         local_model.id,
@@ -514,7 +519,7 @@ def test_predict_live_error_paths_and_success(monkeypatch, tmp_path) -> None:
         collection=LOCAL_MODELS_COLLECTION,
     )
     assert result == {"ok": True}
-    assert captured["url"] == "https://predict.example.com/resnet18-classification/predict"
+    assert captured["url"] == predict_base_url
     assert captured["kwargs"]["verify"] is False
     sent = captured["kwargs"]["json"]
     assert sent["image_uri"] == image_uri
@@ -546,15 +551,16 @@ def test_predict_live_error_paths_and_success(monkeypatch, tmp_path) -> None:
         )
 
 
-def test_knative_helpers_and_gateway_management(monkeypatch) -> None:
+def test_knative_helpers_and_service_upsert(monkeypatch) -> None:
     assert knative_module.knative_service_name("Model_Name") == "model-name"
     assert knative_module.knative_service_host("model-name") == "model-name.predict.svc.cluster.local"
+    assert (
+        knative_module.public_predict_url("Model_Name", "fair.example.com")
+        == "https://model-name.predict.fair.example.com/predict"
+    )
     assert knative_module._module_from_entrypoint("pkg.module:run") == "pkg.module"
     with pytest.raises(ValueError):
         knative_module._module_from_entrypoint("pkg.module")
-
-    empty_config = knative_module.build_predict_gateway_config([])
-    assert "No models are currently registered." in empty_config
 
     manifest = knative_module.build_knative_manifest(_build_base_model_item())
     assert manifest["metadata"]["name"] == "resnet18-classification"
@@ -597,93 +603,16 @@ def test_knative_helpers_and_gateway_management(monkeypatch) -> None:
     api.missing_names.clear()
     knative_module._upsert_knative_service(api, manifest, knative_module.DEFAULT_NAMESPACE)
     assert api.patched[-1]["metadata"]["name"] == "resnet18-classification"
-    assert knative_module._list_knative_service_names(
-        api,
-        knative_module.DEFAULT_NAMESPACE,
-    ) == ["resnet18-classification"]
 
-    class DummyNetworkingApi:
-        def __init__(self) -> None:
-            self.deleted: list[str] = []
-
-        def delete_namespaced_ingress(self, name: str, namespace: str) -> None:
-            if name == "missing-public":
-                raise DummyApiException(status=404)
-            self.deleted.append(f"{namespace}:{name}")
-
-    class DummyCoreApi:
-        def __init__(self) -> None:
-            self.created: list[str] = []
-            self.patched: list[str] = []
-
-        def read_namespaced_config_map(self, *args: Any) -> Any:
-            raise DummyApiException(status=404)
-
-        def create_namespaced_config_map(self, namespace: str, body: Any) -> None:
-            self.created.append(f"config:{namespace}:{body.metadata.name}")
-
-        def patch_namespaced_config_map(self, name: str, namespace: str, body: Any) -> None:
-            self.patched.append(f"config:{namespace}:{name}")
-
-        def read_namespaced_service(self, *args: Any) -> Any:
-            raise DummyApiException(status=404)
-
-        def create_namespaced_service(self, namespace: str, body: Any) -> None:
-            self.created.append(f"service:{namespace}:{body.metadata.name}")
-
-        def patch_namespaced_service(self, name: str, namespace: str, body: Any) -> None:
-            self.patched.append(f"service:{namespace}:{name}")
-
-    class DummyAppsApi:
-        def __init__(self) -> None:
-            self.created: list[str] = []
-
-        def read_namespaced_deployment(self, *args: Any) -> Any:
-            raise DummyApiException(status=404)
-
-        def create_namespaced_deployment(self, namespace: str, body: Any) -> None:
-            self.created.append(f"deployment:{namespace}:{body.metadata.name}")
-
-        def patch_namespaced_deployment(self, name: str, namespace: str, body: Any) -> None:
-            self.created.append(f"deployment-patch:{namespace}:{name}")
-
-    import kubernetes.client as kube_client
-
-    networking_api = DummyNetworkingApi()
-    core_api = DummyCoreApi()
-    apps_api = DummyAppsApi()
-    monkeypatch.setattr(kube_client, "NetworkingV1Api", lambda: networking_api)
-    monkeypatch.setattr(kube_client, "CoreV1Api", lambda: core_api)
-    monkeypatch.setattr(kube_client, "AppsV1Api", lambda: apps_api)
-
-    gateway_api = DummyCustomObjectsApi(
-        items=[
-            {"metadata": {"name": "resnet18-classification"}},
-            {"metadata": {"name": "missing"}},
-        ]
-    )
-    knative_module._ensure_predict_gateway(gateway_api, knative_module.DEFAULT_NAMESPACE)
-    assert any(entry.startswith("config:") for entry in core_api.created)
-    assert any(entry.startswith("deployment:") for entry in apps_api.created)
-    assert any(entry.startswith("service:") for entry in core_api.created)
-
-    monkeypatch.setattr(knative_module, "_custom_objects_api", lambda: gateway_api)
+    # ensure_knative_service: skip-when-not-installed branch + happy upsert
     upserted: list[str] = []
-    gateway_calls: list[str] = []
     monkeypatch.setattr(knative_module, "_upsert_knative_service", lambda *args: upserted.append("service"))
-    monkeypatch.setattr(knative_module, "_ensure_predict_gateway", lambda *args: gateway_calls.append("gateway"))
+    monkeypatch.setattr(knative_module, "_custom_objects_api", lambda: api)
     monkeypatch.setattr(knative_module, "_knative_serving_installed", lambda: True)
-
-    monkeypatch.delenv("FAIR_LABEL_DOMAIN", raising=False)
     knative_module.ensure_knative_service(_build_base_model_item())
-    monkeypatch.setenv("FAIR_LABEL_DOMAIN", "fair.example.com")
-    knative_module.ensure_knative_service(_build_base_model_item())
-    assert upserted == ["service", "service"]
-    assert gateway_calls == ["gateway"]
-
     monkeypatch.setattr(knative_module, "_knative_serving_installed", lambda: False)
     knative_module.ensure_knative_service(_build_base_model_item())
-    assert upserted == ["service", "service"]
+    assert upserted == ["service"]
 
     delete_api = DummyCustomObjectsApi()
     monkeypatch.setattr(knative_module, "_custom_objects_api", lambda: delete_api)

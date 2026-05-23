@@ -84,22 +84,35 @@ metadata:
   name: predict
   namespace: knative-serving
   annotations:
-    cert-manager.io/cluster-issuer: letsencrypt
+    # Kourier routes by Host. Without preserving the original Host upstream,
+    # it sees `kourier-internal.knative-serving.svc` and 404s.
+    nginx.ingress.kubernetes.io/upstream-vhost: $host
+    nginx.ingress.kubernetes.io/proxy-body-size: "0"
+    nginx.ingress.kubernetes.io/proxy-buffering: "off"
+    nginx.ingress.kubernetes.io/proxy-request-buffering: "off"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "300"
+    nginx.ingress.kubernetes.io/enable-cors: "true"
+    nginx.ingress.kubernetes.io/cors-allow-origin: "*"
+    nginx.ingress.kubernetes.io/cors-allow-methods: "GET, POST, OPTIONS"
+    nginx.ingress.kubernetes.io/cors-allow-headers: "Content-Type, Authorization"
+    nginx.ingress.kubernetes.io/cors-allow-credentials: "false"
+    nginx.ingress.kubernetes.io/cors-max-age: "600"
 spec:
   ingressClassName: nginx
   tls:
-    - secretName: predict-tls
+    - secretName: predict-wildcard-tls
       hosts:
-        - predict.${FAIR_DOMAIN}
+        - "*.predict.${FAIR_DOMAIN}"
   rules:
-    - host: predict.${FAIR_DOMAIN}
+    - host: "*.predict.${FAIR_DOMAIN}"
       http:
         paths:
           - path: /
             pathType: Prefix
             backend:
               service:
-                name: predict-gateway
+                name: kourier-internal
                 port: { number: 80 }
 ---
 apiVersion: networking.k8s.io/v1

@@ -3,6 +3,7 @@ from __future__ import annotations
 import dataclasses
 import importlib
 import logging
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -207,6 +208,22 @@ class FairClient:
             if errs := validate_model_asset_urls(item, required_keys=("checkpoint", "model"), optional_keys=()):
                 raise FairClientError(f"Mirrored asset URL validation failed: {errs}")
         self._upload_assets_if_remote(item, BASE_MODELS_COLLECTION)
+
+        # FAIR_LABEL_DOMAIN unset = local-dev path with no public k8s exposure,
+        # so there is no live `/predict` URL to advertise.
+        public_domain = os.environ.get("FAIR_LABEL_DOMAIN")
+        if public_domain:
+            from fair.infra.knative import public_predict_url
+
+            service_name = item.properties.get("mlm:name") or item.id
+            item.add_asset(
+                "mlm:inference-endpoint",
+                pystac.Asset(
+                    href=public_predict_url(service_name, public_domain),
+                    media_type="application/json",
+                    roles=["mlm:inference-endpoint"],
+                ),
+            )
 
         if prev:
             successor_href = cat.item_href(BASE_MODELS_COLLECTION, item.id)
@@ -502,7 +519,7 @@ class FairClient:
         if model_asset is None:
             raise FairClientError(f"Model '{model_id}' missing 'model' (ONNX) asset")
 
-        service_name = self._base_model_name_for_live_service(model_item, collection)
+        url = self._resolve_predict_url(model_item, collection, predict_base_url)
 
         payload = {
             "model_uri": model_asset.href,
@@ -512,8 +529,6 @@ class FairClient:
             "params": inference_params(model_item.properties.get("mlm:hyperparameters", {})),
         }
 
-        base = self._predict_base_url(predict_base_url)
-        url = f"{base.rstrip('/')}/{service_name}/predict"
         response = httpx.post(
             url,
             json=payload,
@@ -523,37 +538,34 @@ class FairClient:
         response.raise_for_status()
         return response.json()
 
-    def _base_model_name_for_live_service(self, model_item: pystac.Item, collection: str) -> str:
-        from fair.infra.knative import knative_service_name
-
-        if collection == BASE_MODELS_COLLECTION:
-            return knative_service_name(model_item.properties.get("mlm:name") or model_item.id)
-        base_id = model_item.properties.get("fair:base_model_id")
-        if not base_id:
-            raise FairClientError(f"Local model '{model_item.id}' missing 'fair:base_model_id'")
-        cat = self._get_backend()
-        base = cat.get_item(BASE_MODELS_COLLECTION, base_id)
-        return knative_service_name(base.properties.get("mlm:name") or base.id)
-
-    def _predict_base_url(self, predict_base_url: str | None = None) -> str:
-        import os
-
+    def _resolve_predict_url(
+        self,
+        model_item: pystac.Item,
+        collection: str,
+        predict_base_url: str | None,
+    ) -> str:
+        # `predict_base_url` override exists for dev (port-forwarded ksvc).
         if predict_base_url:
             return predict_base_url
 
-        url = os.environ.get("FAIR_PREDICT_BASE_URL")
-        if url:
-            return url
+        if collection == BASE_MODELS_COLLECTION:
+            base_item = model_item
+        else:
+            base_id = model_item.properties.get("fair:base_model_id")
+            if not base_id:
+                raise FairClientError(f"Local model '{model_item.id}' missing 'fair:base_model_id'")
+            base_item = self._get_backend().get_item(BASE_MODELS_COLLECTION, base_id)
 
-        public_domain = os.environ.get("FAIR_LABEL_DOMAIN")
-        if public_domain:
-            return f"https://predict.{public_domain}"
-
-        raise FairClientError("Set FAIR_PREDICT_BASE_URL, FAIR_LABEL_DOMAIN, or pass predict_base_url explicitly")
+        endpoint_asset = base_item.assets.get("mlm:inference-endpoint")
+        if endpoint_asset is None:
+            raise FairClientError(
+                f"Base model '{base_item.id}' has no 'mlm:inference-endpoint' asset. "
+                "Re-register the model with FAIR_LABEL_DOMAIN set so the public "
+                "predict URL is recorded in STAC."
+            )
+        return endpoint_asset.href
 
     def _predict_verify_ssl(self) -> bool:
-        import os
-
         value = os.environ.get("FAIR_PREDICT_VERIFY_SSL")
         if value is None:
             value = os.environ.get("ZENML_STORE_VERIFY_SSL")

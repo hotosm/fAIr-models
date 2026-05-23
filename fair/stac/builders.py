@@ -398,6 +398,7 @@ def build_base_model_item(
     providers: list[dict[str, Any]],
     onnx_href: str,
     readme_href: str = "",
+    predict_endpoint_href: str | None = None,
 ) -> pystac.Item:
     _validate_providers(providers)
     bbox = _bbox_from_geometry(geometry)
@@ -492,6 +493,15 @@ def build_base_model_item(
                 media_type="text/markdown",
                 roles=["metadata"],
                 title="Model README",
+            ),
+        )
+    if predict_endpoint_href:
+        item.add_asset(
+            "mlm:inference-endpoint",
+            pystac.Asset(
+                href=predict_endpoint_href,
+                media_type="application/json",
+                roles=["mlm:inference-endpoint"],
             ),
         )
 

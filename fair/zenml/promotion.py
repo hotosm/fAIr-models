@@ -205,9 +205,9 @@ def publish_promoted_model(
     loss_history = read_loss_history(raw_meta)
     split_info: dict[str, Any] | None = raw_meta.get("fair/split")
 
-    weights_art = mv.get_artifact("trained_model")
+    weights_art = mv.get_artifact("trained_model_artifact")
     if weights_art is None:
-        msg = f"No 'trained_model' artifact found for {model_name} v{version}"
+        msg = f"No 'trained_model_artifact' artifact found for {model_name} v{version}"
         raise RuntimeError(msg)
     onnx_art = mv.get_artifact("onnx_model")
     if onnx_art is None:

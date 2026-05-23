@@ -1,5 +1,6 @@
 """End-to-end test: build a model's inference container, load the latest trained
-ONNX from PgStac, POST /predict against OAM TMS over a Banepa bbox, print response.
+ONNX from PgStac, POST /predict against OAM TMS over the benchmark test AOI,
+print response.
 
 Usage: test_serve.py <model-dir-name>   (e.g. test_serve.py yolo11n_detection)
 """
@@ -14,8 +15,8 @@ from urllib.request import Request, urlopen
 STAC_API = "http://localhost:8082"
 PORT = 8090
 OAM_TMS = "https://tiles.openaerialmap.org/62d85d11d8499800053796c1/0/62d85d11d8499800053796c2/{z}/{x}/{y}"
-BANEPA_BBOX = [85.5217, 27.6300, 85.5224, 27.6336]
-ZOOM = 19
+BANEPA_BBOX = [85.5162048339844, 27.6312238466813, 85.5244445800781, 27.6385236142719]
+ZOOM = 18
 
 
 def latest_local_model(base_id: str) -> str:

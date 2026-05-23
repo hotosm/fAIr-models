@@ -72,3 +72,17 @@ resource "digitalocean_kubernetes_node_pool" "system" {
   }
 }
 
+resource "digitalocean_kubernetes_node_pool" "gpu" {
+  cluster_id = digitalocean_kubernetes_cluster.this.id
+  name       = "gpu"
+  size       = var.gpu_node_size
+  auto_scale = true
+  min_nodes  = 0
+  max_nodes  = var.gpu_max_nodes
+  labels = {
+    "fair/workload"           = "ml-gpu"
+    "${var.domain}/training"  = "true"
+    "${var.domain}/inference" = "true"
+  }
+}
+

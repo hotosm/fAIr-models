@@ -34,6 +34,17 @@ variable "ml_max_nodes" {
   default = 5
 }
 
+variable "gpu_node_size" {
+  type        = string
+  default     = "gpu-rtx4000-ada-1"
+  description = "DigitalOcean GPU droplet slug. RTX 4000 Ada is the cheapest at ~$0.76/hr. Bigger: gpu-l40sx1-48gb, gpu-h100x1-80gb."
+}
+
+variable "gpu_max_nodes" {
+  type    = number
+  default = 1
+}
+
 variable "letsencrypt_email" {
   type = string
 }

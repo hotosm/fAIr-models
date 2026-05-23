@@ -58,7 +58,7 @@
     "mlm:framework_version": "2.10.0",
     "mlm:pretrained": true,
     "mlm:pretrained_source": "https://docs.ultralytics.com/models/yolo11/",
-    "mlm:accelerator": "amd64",
+    "mlm:accelerator": "cuda",
     "mlm:accelerator_count": 1,
     "keywords": [
       "building",

@@ -31,9 +31,11 @@ from pathlib import Path
 from typing import Any
 
 from starlette.applications import Starlette
+from starlette.middleware.cors import CORSMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 from starlette.routing import Route
+from starlette.types import ASGIApp
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +43,13 @@ MODEL_MODULE_ENV = "MODEL_MODULE"
 _ONNX_CACHE_SIZE = 8
 _MIN_ZOOM = 14
 _MAX_ZOOM = 22
+
+
+def _cors_list(name: str, default: str = "*") -> list[str]:
+    raw = os.environ.get(name, default).strip()
+    if raw in ("*", ""):
+        return ["*"]
+    return [v.strip() for v in raw.split(",") if v.strip()]
 
 
 class ServeConfigError(RuntimeError):
@@ -148,16 +157,23 @@ async def _predict(request: Request, pipeline: Any) -> JSONResponse:
     return JSONResponse(result)
 
 
-def create_app() -> Starlette:
+def create_app() -> ASGIApp:
     pipeline = _load_pipeline()
 
     async def predict_route(request: Request) -> JSONResponse:
         return await _predict(request, pipeline)
 
-    return Starlette(
+    app: ASGIApp = Starlette(
         debug=False,
         routes=[
             Route("/health", _health, methods=["GET"]),
             Route("/predict", predict_route, methods=["POST"]),
         ],
+    )
+    # FAIR_KNATIVE_CORS_* envs are injected by fair.infra.knative.KnativeConfig.
+    return CORSMiddleware(
+        app,
+        allow_origins=_cors_list("FAIR_KNATIVE_CORS_ORIGINS"),
+        allow_methods=_cors_list("FAIR_KNATIVE_CORS_METHODS"),
+        allow_headers=_cors_list("FAIR_KNATIVE_CORS_HEADERS"),
     )

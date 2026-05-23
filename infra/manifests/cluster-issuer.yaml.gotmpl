@@ -12,3 +12,40 @@ spec:
       - http01:
           ingress:
             ingressClassName: nginx
+---
+# DNS01 is required because Let's Encrypt rejects HTTP01 for wildcard hosts.
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-dns
+spec:
+  acme:
+    server: https://acme-v02.api.letsencrypt.org/directory
+    email: ${LETSENCRYPT_EMAIL}
+    privateKeySecretRef:
+      name: letsencrypt-dns-account-key
+    solvers:
+      - dns01:
+          digitalocean:
+            tokenSecretRef:
+              name: digitalocean-dns
+              key: access-token
+---
+# One wildcard cert avoids per-svc HTTP01 churn against LE rate limits.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: predict-wildcard-tls
+  namespace: knative-serving
+  labels:
+    networking.knative.dev/wildcard-cert: "true"
+spec:
+  secretName: predict-wildcard-tls
+  secretTemplate:
+    labels:
+      networking.knative.dev/wildcard-cert: "true"
+  issuerRef:
+    name: letsencrypt-dns
+    kind: ClusterIssuer
+  dnsNames:
+    - "*.predict.${FAIR_DOMAIN}"

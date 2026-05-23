@@ -78,6 +78,12 @@ test:
 validate:
     uv run python scripts/validate_stac_items.py && uv run python scripts/validate_model.py
 
+[doc('End-to-end smoke test against a deployed fAIr API (~30-40 min)')]
+smoke *args:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    uv run python scripts/smoke_e2e.py {{ args }}
+
 [doc('Serve documentation locally')]
 docs:
     uv sync --group docs && uv run zensical serve

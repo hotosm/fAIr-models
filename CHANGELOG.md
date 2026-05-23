@@ -12,6 +12,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - add ZenML integration for model promotion and STAC catalog synchronization
 - implement STAC catalog management and builders for datasets and models
 
+## v0.3.0 (2026-05-18)
+
+### Feat
+
+- update zenml version to 0.94.2 in helmfile and values
+- update artifact naming and versioning across multiple files
+- **data**: add STAC item for buildings instance segmentation in Banepa
+- **ci**: add model resolution script for CI workflows
+- **probe**: add test probe on the models
+- add build and deployment scripts for CLI image and local stack setup
+
+### Fix
+
+- **ci**: add upload prediction
+- **ci**: predictions
+- **workflow**: add PR input to concurrency group in test-model workflow
+- **tests**: improve mock handling in TestResolveDirectory for s3 paths
+- **ci**: k8s
+- **ci**: test cases
+- **ci**: test cases add url path for the test cases
+- **ci**: k8s stack registration
+- **stac**: fix the stac item on the folders name
+- **labels**: fix the classification labels
+- **data**: fix stac datasets move the preprocessing to the pipeline
+- **installation**: get rid of kind and add simpler docker compose
+- **hotfix**: patch the artifacts materialization function
+- **hotfix**: add s3 acl extra args
+- **patch**: fix disable the patch report for codecov
+
+### Refactor
+
+- **mirror**: add single mirror function into data that is replicated everywhere
+
+### Perf
+
+- **chore**: added single runner for all the models with their support
+
 ## v0.2.0 (2026-05-05)
 
 ### Feat

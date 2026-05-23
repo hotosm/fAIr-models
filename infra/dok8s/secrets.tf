@@ -39,3 +39,27 @@ resource "kubernetes_secret" "fair_backend" {
     ]
   }
 }
+
+# Pre-created so the digitalocean_dns Secret below can land before helmfile
+# installs cert-manager. ClusterIssuer secret refs resolve to this namespace.
+resource "kubernetes_namespace" "cert_manager" {
+  metadata {
+    name = "cert-manager"
+  }
+  lifecycle {
+    ignore_changes = [metadata[0].labels, metadata[0].annotations]
+  }
+}
+
+resource "kubernetes_secret" "digitalocean_dns" {
+  metadata {
+    name      = "digitalocean-dns"
+    namespace = kubernetes_namespace.cert_manager.metadata[0].name
+  }
+
+  type = "Opaque"
+
+  data = {
+    access-token = var.do_token
+  }
+}

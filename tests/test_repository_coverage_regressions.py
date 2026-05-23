@@ -537,7 +537,7 @@ def test_publish_promoted_model_covers_missing_onnx_and_local_store(
     weights_art = MagicMock()
     weights_art.id = "weights-artifact"
     weights_art.uri = str(weights_dir)
-    mv.get_artifact.side_effect = lambda name: {"trained_model": weights_art}.get(name)
+    mv.get_artifact.side_effect = lambda name: {"trained_model_artifact": weights_art}.get(name)
 
     client = MagicMock()
     client.get_model_version.return_value = mv
@@ -559,7 +559,7 @@ def test_publish_promoted_model_covers_missing_onnx_and_local_store(
     onnx_art.id = "onnx-artifact"
     onnx_art.uri = str(onnx_dir)
     mv.id = "mv-2"
-    mv.get_artifact.side_effect = lambda name: {"trained_model": weights_art, "onnx_model": onnx_art}.get(name)
+    mv.get_artifact.side_effect = lambda name: {"trained_model_artifact": weights_art, "onnx_model": onnx_art}.get(name)
     monkeypatch.setattr(
         "fair.zenml.promotion.validate_model_asset_urls",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("should not run for local files")),

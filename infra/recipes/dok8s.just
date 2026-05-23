@@ -30,13 +30,13 @@ _post-deploy-dok8s:
     set -euo pipefail
     export FAIR_DOMAIN="$(cd dok8s && tofu output -raw fair_domain)"
     export LETSENCRYPT_EMAIL="$(cd dok8s && tofu output -raw letsencrypt_email)"
-    kubectl apply -f manifests/knative-serving.yaml
+    envsubst '${FAIR_DOMAIN} ${LETSENCRYPT_EMAIL}' < manifests/knative-serving.yaml.gotmpl | kubectl apply -f -
     kubectl apply -f manifests/s3-credentials.yaml
     just _wait-lb
     just _set-dns
     kubectl wait --for=condition=Available deployment/cert-manager-webhook -n cert-manager --timeout=180s
-    envsubst < manifests/cluster-issuer.yaml.gotmpl | kubectl apply -f -
-    envsubst < manifests/ingress.yaml.gotmpl | kubectl apply -f -
+    envsubst '${FAIR_DOMAIN} ${LETSENCRYPT_EMAIL}' < manifests/cluster-issuer.yaml.gotmpl | kubectl apply -f -
+    envsubst '${FAIR_DOMAIN} ${LETSENCRYPT_EMAIL}' < manifests/ingress.yaml.gotmpl | kubectl apply -f -
 
 _wait-lb:
     #!/usr/bin/env bash
@@ -57,16 +57,21 @@ _set-dns:
     IP=$(cat dok8s/.lb-ip)
     ZONE=$(echo "$FAIR_DOMAIN" | awk -F. '{print $(NF-1)"."$NF}')
     NAME=$(echo "$FAIR_DOMAIN" | sed "s/\.$ZONE\$//")
-    EXISTING=$(doctl compute domain records list "$ZONE" --format ID,Type,Name --no-header 2>/dev/null \
-        | awk -v t=A -v n="*.$NAME" '$2==t && $3==n {print $1}')
-    if [[ -n "$EXISTING" ]]; then
-        for id in $EXISTING; do
-            doctl compute domain records update "$ZONE" --record-id "$id" --record-data "$IP" >/dev/null
-        done
-    else
-        doctl compute domain records create "$ZONE" --record-type A --record-name "*.$NAME" --record-data "$IP" --record-ttl 300 >/dev/null
-    fi
-    echo "DNS *.$FAIR_DOMAIN -> $IP"
+    # `<svc>.predict.$FAIR_DOMAIN` is two labels deep; DNS wildcards do not
+    # span dots, so a second record is required.
+    RECORD_NAMES=("*.$NAME" "*.predict.$NAME")
+    EXISTING_RECORDS=$(doctl compute domain records list "$ZONE" --format ID,Type,Name --no-header)
+    for record_name in "${RECORD_NAMES[@]}"; do
+        existing=$(echo "$EXISTING_RECORDS" | awk -v t=A -v n="$record_name" '$2==t && $3==n {print $1}')
+        if [[ -n "$existing" ]]; then
+            for id in $existing; do
+                doctl compute domain records update "$ZONE" --record-id "$id" --record-data "$IP" >/dev/null
+            done
+        else
+            doctl compute domain records create "$ZONE" --record-type A --record-name "$record_name" --record-data "$IP" --record-ttl 300 >/dev/null
+        fi
+        echo "DNS $record_name.$ZONE -> $IP"
+    done
 
 _down-dok8s:
     -helmfile -e dok8s destroy

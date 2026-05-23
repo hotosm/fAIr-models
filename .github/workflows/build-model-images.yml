@@ -149,24 +149,39 @@ jobs:
           cache-from: type=gha,scope=${{ matrix.name }}-inference
           cache-to: type=gha,mode=max,scope=${{ matrix.name }}-inference
 
-      - name: Smoke test inference image
+      - name: Smoke test inference image (baseline ONNX, one-shot)
+        if: hashFiles(format('models/{0}/artifacts/{0}.onnx', matrix.name)) != ''
+        run: |
+          python3 scripts/smoke_test_inference_image.py \
+            --image "${{ matrix.name }}:inference" \
+            --model-module "models.${{ matrix.name }}.pipeline" \
+            --model-uri "/workspace/models/${{ matrix.name }}/artifacts/${{ matrix.name }}.onnx" \
+            --image-uri "https://tiles.openaerialmap.org/62d85d11d8499800053796c1/0/62d85d11d8499800053796c2/{z}/{x}/{y}" \
+            --bbox "85.5162048339844,27.6312238466813,85.5244445800781,27.6385236142719" \
+            --zoom 18 \
+            --container-name "${{ matrix.name }}-smoke-base" \
+            --output "$PWD/ci-artifacts/${{ matrix.name }}-predictions-base.geojson"
+
+      - name: Smoke test inference image (finetuned ONNX)
         run: |
           python3 scripts/smoke_test_inference_image.py \
             --image "${{ matrix.name }}:inference" \
             --model-module "models.${{ matrix.name }}.pipeline" \
             --model-uri "/workspace/ci-artifacts/${{ matrix.name }}.onnx" \
             --image-uri "https://tiles.openaerialmap.org/62d85d11d8499800053796c1/0/62d85d11d8499800053796c2/{z}/{x}/{y}" \
-            --bbox "85.51678033745037,27.6313353660439,85.52323021107895,27.637438390948745" \
+            --bbox "85.5162048339844,27.6312238466813,85.5244445800781,27.6385236142719" \
             --zoom 18 \
-            --container-name "${{ matrix.name }}-smoke" \
-            --output "$PWD/ci-artifacts/${{ matrix.name }}-predictions.geojson"
+            --container-name "${{ matrix.name }}-smoke-finetuned" \
+            --output "$PWD/ci-artifacts/${{ matrix.name }}-predictions-finetuned.geojson"
 
-      - name: Upload smoke predictions
+      - name: Upload smoke predictions (base + finetuned)
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: smoke-predictions-${{ matrix.name }}
-          path: ci-artifacts/${{ matrix.name }}-predictions.geojson
+          path: |
+            ci-artifacts/${{ matrix.name }}-predictions-base.geojson
+            ci-artifacts/${{ matrix.name }}-predictions-finetuned.geojson
           if-no-files-found: ignore
 
       - name: Push inference image

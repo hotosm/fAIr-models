@@ -18,6 +18,7 @@ class TestMlflowTrainingContext:
         with (
             patch.dict("sys.modules", {"mlflow": mock_mlflow}),
             patch("fair.zenml.instrumentation.log_training_wall_time") as mock_wall,
+            patch("fair.zenml.instrumentation.log_run_metadata") as mock_run_meta,
         ):
             from fair.zenml.instrumentation import mlflow_training_context
 
@@ -32,12 +33,17 @@ class TestMlflowTrainingContext:
             assert tags["fair.model_name"] == "test-model"
             mock_wall.assert_called_once()
             assert mock_wall.call_args[0][0] > 0
+            run_meta = mock_run_meta.call_args[0][0]
+            assert run_meta["fair/epochs"] == 10
+            assert run_meta["fair/learning_rate"] == 0.001
+            assert run_meta["fair/model_name"] == "test-model"
 
     def test_filters_non_scalar_params(self) -> None:
         mock_mlflow = _mock_mlflow()
         with (
             patch.dict("sys.modules", {"mlflow": mock_mlflow}),
             patch("fair.zenml.instrumentation.log_training_wall_time"),
+            patch("fair.zenml.instrumentation.log_run_metadata") as mock_run_meta,
         ):
             from fair.zenml.instrumentation import mlflow_training_context
 
@@ -49,12 +55,16 @@ class TestMlflowTrainingContext:
             assert "epochs" in logged
             assert "nested" not in logged
             assert "tags" not in logged
+            run_meta = mock_run_meta.call_args[0][0]
+            assert "fair/nested" not in run_meta
+            assert "fair/tags" not in run_meta
 
     def test_sets_all_tags(self) -> None:
         mock_mlflow = _mock_mlflow()
         with (
             patch.dict("sys.modules", {"mlflow": mock_mlflow}),
             patch("fair.zenml.instrumentation.log_training_wall_time"),
+            patch("fair.zenml.instrumentation.log_run_metadata") as mock_run_meta,
         ):
             from fair.zenml.instrumentation import mlflow_training_context
 
@@ -67,12 +77,19 @@ class TestMlflowTrainingContext:
                 "fair.base_model": "b",
                 "fair.dataset": "d",
             }
+            run_meta = mock_run_meta.call_args[0][0]
+            assert run_meta == {
+                "fair/model_name": "m",
+                "fair/base_model_id": "b",
+                "fair/dataset_id": "d",
+            }
 
     def test_no_tags_when_none_provided(self) -> None:
         mock_mlflow = _mock_mlflow()
         with (
             patch.dict("sys.modules", {"mlflow": mock_mlflow}),
             patch("fair.zenml.instrumentation.log_training_wall_time"),
+            patch("fair.zenml.instrumentation.log_run_metadata") as mock_run_meta,
         ):
             from fair.zenml.instrumentation import mlflow_training_context
 
@@ -80,6 +97,7 @@ class TestMlflowTrainingContext:
                 pass
 
             mock_mlflow.set_tags.assert_not_called()
+            mock_run_meta.assert_not_called()
 
 
 class TestLogEvaluationResults:

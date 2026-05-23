@@ -171,7 +171,24 @@ def generate_training_config(
     if class_names is not None:
         eval_step_params["class_names"] = class_names
 
+    epochs = hyperparams.get("epochs")
+    batch_size = hyperparams.get("batch_size")
+    run_suffix = "_".join(
+        part
+        for part in (
+            f"e{epochs}" if epochs is not None else None,
+            f"b{batch_size}" if batch_size is not None else None,
+        )
+        if part
+    )
+    run_name_parts = [model_name, dataset_item.id]
+    if run_suffix:
+        run_name_parts.append(run_suffix)
+    run_name_parts.extend(("{date}", "{time}"))
+    run_name = "__".join(run_name_parts)
+
     config: dict[str, Any] = {
+        "run_name": run_name,
         "model": {"name": model_name},
         "parameters": parameters,
         "tags": list(

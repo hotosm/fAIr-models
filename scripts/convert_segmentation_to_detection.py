@@ -113,7 +113,7 @@ def main() -> None:
     logging.basicConfig(level=logging.INFO)
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--chips-dir", type=Path, default=Path("data/sample/train/oam"))
-    geojson_default = "data/sample/train/osm/osm_features_ac7e343eb1faacd2.geojson"
+    geojson_default = "data/sample/train/osm/labels.geojson"
     parser.add_argument("--geojson", type=Path, default=Path(geojson_default))
     parser.add_argument(
         "--output",

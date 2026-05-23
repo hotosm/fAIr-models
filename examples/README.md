@@ -37,7 +37,7 @@ uv run python examples/run.py unet_segmentation --epochs 1 --samples-per-epoch 1
 2. Picks the matching dataset at `data/sample/buildings-banepa-<task>/stac-item.json`.
 3. Calls `FairClient.setup → register_base_model → register_dataset →
    finetune → promote → predict`.
-4. Predicts on `data/sample/predict/oam/`.
+4. Predicts on `data/sample/test/oam/`.
 
 Each step runs inside the model's docker image (via ZenML's docker
 orchestrator). Same image dok8s deploys via KNative — see
@@ -51,7 +51,7 @@ orchestrator). Same image dok8s deploys via KNative — see
 | <http://localhost:5000> | MLflow runs and metrics |
 | <http://localhost:8082/collections> | STAC items for registered models and datasets |
 | <http://localhost:9001> | MinIO browser (login: `minioadmin` / `minioadmin`) |
-| `data/sample/predict/predictions/` | Per-task predictions on disk |
+| `data/sample/test/predictions/` | Per-task predictions on disk |
 
 ## Adding a new model
 

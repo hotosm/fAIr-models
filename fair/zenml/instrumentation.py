@@ -5,7 +5,7 @@ from contextlib import contextmanager
 from typing import Any
 
 from fair.utils.logging import quiet_third_party_loggers
-from fair.zenml.metrics import log_fair_metrics, log_training_wall_time
+from fair.zenml.metrics import log_fair_metrics, log_run_metadata, log_training_wall_time
 
 # Every model pipeline imports this module, so quieting here covers step containers too.
 quiet_third_party_loggers()
@@ -39,6 +39,16 @@ def mlflow_training_context(
         tags["fair.dataset"] = dataset_id
     if tags:
         mlflow.set_tags(tags)  # ty: ignore[possibly-missing-attribute]
+
+    run_meta: dict[str, Any] = {f"fair/{k}": v for k, v in hyperparameters.items() if not isinstance(v, (dict, list))}
+    if model_name:
+        run_meta["fair/model_name"] = model_name
+    if base_model_id:
+        run_meta["fair/base_model_id"] = base_model_id
+    if dataset_id:
+        run_meta["fair/dataset_id"] = dataset_id
+    if run_meta:
+        log_run_metadata(run_meta)
 
     wall_start = time.perf_counter()
     yield

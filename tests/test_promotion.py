@@ -125,7 +125,9 @@ def _mock_mv(params: dict[str, Any] | None = None, *, weights_found: bool = True
         onnx_art = MagicMock()
         onnx_art.uri = "s3://artifact-store/model/output/abc123-onnx"
         onnx_art.id = "artifact-version-uuid-002"
-        mv.get_artifact.side_effect = lambda name: {"trained_model": weights_art, "onnx_model": onnx_art}.get(name)
+        mv.get_artifact.side_effect = lambda name: {"trained_model_artifact": weights_art, "onnx_model": onnx_art}.get(
+            name
+        )
     else:
         mv.get_artifact.return_value = None
     return mv, client
@@ -395,7 +397,7 @@ def test_missing_weights_raises(mock_cls, cm):
     mv, client = _mock_mv(weights_found=False)
     mock_cls.return_value = client
     client.get_model_version.return_value = mv
-    with pytest.raises(RuntimeError, match="No 'trained_model' artifact"):
+    with pytest.raises(RuntimeError, match="No 'trained_model_artifact' artifact"):
         _publish(cm)
 
 

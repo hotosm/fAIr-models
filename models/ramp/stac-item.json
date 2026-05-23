@@ -107,17 +107,17 @@
             {
                 "key": "epochs",
                 "type": "int",
-                "default": 20,
+                "default": 5,
                 "min": 1,
-                "max": 20,
+                "max": 16,
                 "description": "Number of training epochs"
             },
             {
                 "key": "batch_size",
                 "type": "int",
-                "default": 8,
+                "default": 1,
                 "min": 1,
-                "max": 16,
+                "max": 8,
                 "description": "Samples per training batch"
             },
             {

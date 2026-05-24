@@ -5,5 +5,3 @@ nodes:
     labels:
       fair/role: infra
       fair/workload: ml
-      fair.dev/training: "true"
-      fair.dev/inference: "true"

@@ -272,8 +272,8 @@
         ],
         "mlm:hyperparameters": {
             "training.backbone": "efficientnetb0",
-            "training.epochs": 20,
-            "training.batch_size": 8,
+            "training.epochs": 1,
+            "training.batch_size": 1,
             "training.learning_rate": 0.0003,
             "training.val_ratio": 0.15,
             "training.split_seed": 42,

@@ -55,19 +55,24 @@ def _resolve_labels_geojson(dataset_labels: str) -> Path:
     labels_value = str(dataset_labels)
 
     def _pick_single_candidate(search_dir: Path) -> Path:
+        for name in ("labels.geojson", "labels.json", "label.geojson", "label.json"):
+            candidate = search_dir / name
+            if candidate.is_file():
+                return candidate
+
         for pattern in label_patterns:
             matches = sorted(p for p in search_dir.glob(pattern) if p.is_file())
-            if not matches:
-                continue
+            if len(matches) == 1:
+                return matches[0]
             if len(matches) > 1:
                 listed = ", ".join(str(p) for p in matches)
                 raise ValueError(
                     f"dataset_labels must resolve to exactly one labels file, found {len(matches)} "
-                    f"matching {pattern} in {search_dir}: {listed}"
+                    f"matching {pattern} in {search_dir}: {listed}. "
+                    "Rename your labels file to labels.geojson (or pass an explicit file path)."
                 )
-            return matches[0]
         raise FileNotFoundError(
-            f"No labels file found in {search_dir}. Expected exactly one '*.geojson' or '*.json' file."
+            f"No labels file found in {search_dir}. Expected labels.geojson or exactly one '*.geojson' file."
         )
 
     # Remote file or directory/prefix.
@@ -461,22 +466,69 @@ def train_ramp_model(
     return Path(final_model_path)
 
 
-def _materialize_keras_bytes(blob: bytes) -> Path:
-    """Write Keras `.keras` bytes to a temp file and return its path."""
-    dest = Path(tempfile.mkdtemp(prefix="ramp_keras_")) / "model.keras"
+def _load_ramp_keras_model(model_path: str | Path) -> Any:
+    """Load a RAMP Keras checkpoint with segmentation_models custom layers registered."""
+    import tensorflow as tf
+
+    os.environ.setdefault("SM_FRAMEWORK", "tf.keras")
+    import segmentation_models as sm
+
+    sm.set_framework("tf.keras")
+    custom_objects: dict[str, Any] = {}
+    try:
+        from segmentation_models.utils import get_custom_objects
+
+        custom_objects.update(get_custom_objects())
+    except ImportError:
+        pass
+    try:
+        from efficientnet.tfkeras import FixedDropout
+
+        custom_objects.setdefault("FixedDropout", FixedDropout)
+    except ImportError:
+        pass
+
+    return tf.keras.models.load_model(
+        str(model_path),
+        compile=False,
+        custom_objects=custom_objects or None,
+        safe_mode=False,
+    )
+
+
+def _materialize_h5_bytes(blob: bytes) -> Path:
+    """Write Keras `.h5` bytes to a temp file and return its path."""
+    dest = Path(tempfile.mkdtemp(prefix="ramp_h5_")) / "model.h5"
     dest.write_bytes(blob)
     return dest
 
 
+def _resolve_h5_checkpoint_path(model_path: Path) -> Path:
+    """Resolve a RAMP training output path to a loadable `.h5` file."""
+    if model_path.is_file() and (model_path.suffix.lower() == ".h5" or model_path.name.endswith(".h5")):
+        return model_path
+    h5_sibling = Path(f"{model_path}.h5") if not str(model_path).endswith(".h5") else model_path
+    if h5_sibling.is_file():
+        return h5_sibling
+    if model_path.parent.is_dir():
+        matches = sorted(model_path.parent.glob("*.h5"))
+        if len(matches) == 1:
+            return matches[0]
+    return model_path
+
+
 def _restore_checkpoint(trained_model: Any) -> Path:
-    """Restore a trained RAMP Keras checkpoint as a local `.keras` file path."""
+    """Restore a trained RAMP checkpoint as a local `.h5` file path."""
     if isinstance(trained_model, bytes):
-        return _materialize_keras_bytes(trained_model)
+        return _materialize_h5_bytes(trained_model)
     if isinstance(trained_model, (str, Path)):
         p = Path(str(trained_model))
+        if p.is_file() and (p.suffix.lower() == ".h5" or p.name.endswith(".h5")):
+            return p
         if p.is_file() and p.suffix.lower() == ".keras":
             return p
-        return Path(resolve_model_href(str(p)))
+        resolved = Path(resolve_model_href(str(p)))
+        return _resolve_h5_checkpoint_path(resolved)
     raise TypeError(f"Cannot restore RAMP checkpoint from {type(trained_model).__name__}")
 
 
@@ -643,7 +695,7 @@ def train_model(
     base_model_id: str | None = None,
     dataset_id: str | None = None,
 ) -> Annotated[bytes, "trained_model_artifact"]:
-    """Fine-tune RAMP EfficientNetB0 U-Net; return the best model as `.keras` bytes."""
+    """Fine-tune RAMP EfficientNetB0 U-Net; return the best model as `.h5` bytes."""
     _ = num_classes
 
     ramp_train_dir = Path(split_info["_ramp_train_dir"])
@@ -659,13 +711,13 @@ def train_model(
             hyperparameters=hyperparameters,
             data_base_path=work_dir,
         )
-        import tensorflow as tf
-
-        model = tf.keras.models.load_model(str(final_model_path), compile=False)
-        exported_path = Path(tempfile.mkdtemp(prefix="ramp_keras_export_")) / "model.keras"
-        model.save(str(exported_path))
-        blob = exported_path.read_bytes()
-        log_metadata(metadata={"keras_path": str(exported_path), "checkpoint_bytes": len(blob)})
+        h5_path = _resolve_h5_checkpoint_path(Path(final_model_path))
+        if not h5_path.is_file():
+            model = _load_ramp_keras_model(final_model_path)
+            h5_path = Path(tempfile.mkdtemp(prefix="ramp_h5_export_")) / "model.h5"
+            model.save(str(h5_path), save_format="h5")
+        blob = h5_path.read_bytes()
+        log_metadata(metadata={"h5_path": str(h5_path), "checkpoint_bytes": len(blob)})
     return blob
 
 
@@ -700,21 +752,16 @@ def evaluate_model(
     restored = _restore_checkpoint(trained_model)
 
     if not pairs:
-        # No val data to evaluate against (e.g. CI mocks); return zeroed metrics with the
-        # required fair:* keys so downstream validation still sees the expected schema.
         zero_metrics: dict[str, Any] = {
-            "fair:accuracy": 0.0,
-            "fair:mean_iou": 0.0,
-            "fair:precision": 0.0,
-            "fair:recall": 0.0,
+            "accuracy": 0.0,
+            "mean_iou": 0.0,
+            "precision": 0.0,
+            "recall": 0.0,
         }
         log_evaluation_results(zero_metrics)
-        log_metadata(metadata=zero_metrics)
         return zero_metrics
 
-    import tensorflow as tf
-
-    model = tf.keras.models.load_model(str(restored), compile=False)
+    model = _load_ramp_keras_model(restored)
 
     tp = fp = fn = 0
     correct = total = 0
@@ -747,13 +794,12 @@ def evaluate_model(
     accuracy = correct / total if total > 0 else 0.0
 
     metrics_dict: dict[str, Any] = {
-        "fair:accuracy": float(accuracy),
-        "fair:mean_iou": float(iou),
-        "fair:precision": float(precision),
-        "fair:recall": float(recall),
+        "accuracy": float(accuracy),
+        "mean_iou": float(iou),
+        "precision": float(precision),
+        "recall": float(recall),
     }
     log_evaluation_results(metrics_dict)
-    log_metadata(metadata=metrics_dict)
     return metrics_dict
 
 
@@ -765,7 +811,7 @@ def export_onnx(trained_model: Any) -> Annotated[bytes, "onnx_model"]:
     import tf2onnx
 
     restored = _restore_checkpoint(trained_model)
-    model = tf.keras.models.load_model(str(restored), compile=False)
+    model = _load_ramp_keras_model(restored)
     with tempfile.TemporaryDirectory() as tmp:
         onnx_path = Path(tmp) / "model.onnx"
         tf2onnx.convert.from_keras(model, opset=13, output_path=str(onnx_path))

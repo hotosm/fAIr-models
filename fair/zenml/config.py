@@ -230,6 +230,7 @@ def generate_training_config(
     if k8s:
         config.setdefault("steps", {}).setdefault("train_model", {}).setdefault("settings", {}).update(k8s)
         config.setdefault("steps", {}).setdefault("evaluate_model", {}).setdefault("settings", {}).update(k8s)
+        config.setdefault("steps", {}).setdefault("export_onnx", {}).setdefault("settings", {}).update(k8s)
 
     return config
 

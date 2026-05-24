@@ -135,8 +135,7 @@ def test_evaluate_model(
         split_info=split_info,
     )
 
-    expected = {"fair:accuracy", "fair:mean_iou", "fair:precision", "fair:recall"}
-    assert set(metrics.keys()) == expected
+    assert set(metrics) == {"accuracy", "mean_iou", "precision", "recall"}
     for value in metrics.values():
         assert isinstance(value, float)
         assert 0.0 <= value <= 1.0

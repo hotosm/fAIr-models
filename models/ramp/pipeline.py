@@ -631,7 +631,7 @@ def split_dataset(
     return split_info
 
 
-@step(output_materializers={"trained_model": CheckpointBytesMaterializer})
+@step(output_materializers={"trained_model_artifact": CheckpointBytesMaterializer})
 def train_model(
     dataset_chips: str,
     dataset_labels: str,
@@ -642,7 +642,7 @@ def train_model(
     model_name: str | None = None,
     base_model_id: str | None = None,
     dataset_id: str | None = None,
-) -> Annotated[bytes, "trained_model"]:
+) -> Annotated[bytes, "trained_model_artifact"]:
     """Fine-tune RAMP EfficientNetB0 U-Net; return the best model as `.keras` bytes."""
     _ = num_classes
 

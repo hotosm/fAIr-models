@@ -8,7 +8,6 @@ import tempfile
 import zipfile
 from pathlib import Path
 from typing import Annotated, Any
-from urllib.request import urlretrieve
 
 from zenml import log_metadata, pipeline, step
 
@@ -19,26 +18,25 @@ _DEFAULT_MODEL_CACHE = Path("/workspace/.ramp_model_cache")
 _QUBVEL_EFFICIENTNET_RELEASE = "https://github.com/qubvel/efficientnet/releases/download/v0.0.1/"
 
 
-def _to_local_path(path_value: str, purpose: str) -> Path:
-    """Resolve a path with UPath and ensure local filesystem semantics."""
-    from upath import UPath
-
-    upath_obj = UPath(path_value)
-    protocol = getattr(upath_obj, "protocol", "") or ""
-    if protocol not in ("", "file"):
+def _require_local_path(path_value: str, purpose: str) -> Path:
+    """Ensure path_value is local and return a Path object."""
+    if "://" in path_value and not path_value.startswith("file://"):
+        protocol = path_value.split("://", 1)[0]
         raise NotImplementedError(
             f"{purpose} requires a local filesystem path. Received protocol={protocol!r} for {path_value!r}."
         )
-    return Path(str(upath_obj))
+    if path_value.startswith("file://"):
+        return Path(path_value.removeprefix("file://"))
+    return Path(path_value)
 
 
-def _resolve_input_directory(path_value: str, purpose: str) -> Path:
+def _resolve_input(path_value: str, purpose: str) -> Path:
     """Resolve local/remote dataset directories to a local path."""
     from fair.utils.data import resolve_directory
 
     if "://" in str(path_value):
         return resolve_directory(path_value, pattern="*")
-    return _to_local_path(path_value, purpose)
+    return _require_local_path(path_value, purpose)
 
 
 def _resolve_labels_geojson(dataset_labels: str) -> Path:
@@ -104,79 +102,36 @@ def _resolve_labels_geojson(dataset_labels: str) -> Path:
     raise FileNotFoundError(f"dataset_labels path not found: {local_path}. Provide a labels file or directory/prefix.")
 
 
-def _download_and_extract_zip(zip_url: str, dest_dir: Path) -> None:
-    """Download a ZIP URL and extract in dest_dir."""
-    dest_dir.mkdir(parents=True, exist_ok=True)
-    zip_name = Path(zip_url.split("/")[-1]).name or "ramp_v1.zip"
-    zip_path = dest_dir / zip_name
-    urlretrieve(zip_url, zip_path)
-    with zipfile.ZipFile(zip_path, "r") as zf:
-        zf.extractall(dest_dir)
-    zip_path.unlink(missing_ok=True)
-
-
-def _extract_zip(zip_path: Path, dest_dir: Path) -> None:
-    dest_dir.mkdir(parents=True, exist_ok=True)
-    with zipfile.ZipFile(zip_path, "r") as zf:
-        zf.extractall(dest_dir)
-
-
-def _resolve_model_file_path(model_uri: str, cache_dir: Path, default_name: str) -> Path:
-    """Resolve a local, HTTP(S), or remote (s3://) model file to a local Path."""
+def _resolve_savedmodel_dir_from_zip(model_uri: str, cache_dir: Path) -> Path:
+    """Resolve a local/remote ZIP model URI to an extracted SavedModel directory."""
     from fair.utils.data import resolve_path
 
-    clean_uri = model_uri.split("?", 1)[0]
-    if model_uri.startswith(("http://", "https://")):
-        dest = cache_dir / (Path(clean_uri).name or default_name)
-        if not dest.is_file():
-            urlretrieve(model_uri, dest)
-        return dest
-    if "://" in model_uri:
-        return resolve_path(model_uri, local_dir=cache_dir)
-    p = Path(model_uri).resolve()
-    if p.is_file():
-        return p
-    raise FileNotFoundError(f"Model file not found: {p}")
-
-
-def resolve_model_href(model_uri: str, cache_dir: Path | None = None) -> str:
-    """Resolve .onnx, .keras, or .zip model URIs to local paths.
-    - .onnx -> local .onnx file path
-    - .keras -> local .keras file path
-    - .zip  -> extracted SavedModel directory path (folder containing saved_model.pb)
-    """
     if not isinstance(model_uri, str):
         raise TypeError("model_uri must be a string")
-    if cache_dir is not None and not isinstance(cache_dir, Path):
-        raise TypeError("cache_dir must be a pathlib.Path or None")
-    cache_dir = cache_dir or _DEFAULT_MODEL_CACHE
+    if not isinstance(cache_dir, Path):
+        raise TypeError("cache_dir must be a pathlib.Path")
     cache_dir.mkdir(parents=True, exist_ok=True)
+
     clean_uri = model_uri.split("?", 1)[0]
     suffix = Path(clean_uri).suffix.lower()
-    # ONNX path
-    if suffix == ".onnx":
-        return str(_resolve_model_file_path(model_uri, cache_dir, "model.onnx"))
-    # Keras single-file checkpoint
-    if suffix == ".keras":
-        return str(_resolve_model_file_path(model_uri, cache_dir, "model.keras"))
+    if suffix != ".zip":
+        raise ValueError(f"Unsupported model format for {model_uri!r}. Only .zip is accepted for RAMP baselines.")
 
-    # ZIP path -> must contain saved_model.pb somewhere inside
-    if suffix == ".zip":
-        stem = Path(clean_uri).stem or "ramp_model"
-        dest_dir = cache_dir / stem
-        # cache hit
-        for existing in dest_dir.rglob("saved_model.pb"):
-            return str(existing.parent)
-        zip_path = _resolve_model_file_path(model_uri, cache_dir, "model.zip")
-        dest_dir.mkdir(parents=True, exist_ok=True)
-        import zipfile
+    stem = Path(clean_uri).stem or "ramp_model"
+    dest_dir = cache_dir / stem
+    for existing in dest_dir.rglob("saved_model.pb"):
+        return existing.parent
 
-        with zipfile.ZipFile(zip_path, "r") as zf:
-            zf.extractall(dest_dir)
-        for existing in dest_dir.rglob("saved_model.pb"):
-            return str(existing.parent)
-        raise RuntimeError(f"Zip from {model_uri} did not contain a valid SavedModel")
-    raise ValueError(f"Unsupported model format for {model_uri!r}. Only .onnx, .keras and .zip are accepted.")
+    zip_path = resolve_path(model_uri, local_dir=cache_dir) if "://" in model_uri else Path(model_uri).resolve()
+    if not zip_path.is_file():
+        raise FileNotFoundError(f"Model zip not found: {zip_path}")
+
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(zip_path, "r") as zf:
+        zf.extractall(dest_dir)
+    for existing in dest_dir.rglob("saved_model.pb"):
+        return existing.parent
+    raise RuntimeError(f"Zip from {model_uri} did not contain a valid SavedModel")
 
 
 def _ensure_ramp_baseline(base_model_weights: str, data_base_path: str | Path) -> Path:
@@ -195,7 +150,7 @@ def _ensure_ramp_baseline(base_model_weights: str, data_base_path: str | Path) -
     if not base_model_weights:
         raise ValueError("RAMP baseline weights are required but were not provided. ")
 
-    return Path(resolve_model_href(base_model_weights, cache_dir=Path(data_base_path) / ".baseline_cache"))
+    return _resolve_savedmodel_dir_from_zip(base_model_weights, cache_dir=Path(data_base_path) / ".baseline_cache")
 
 
 def _patch_keras_get_file_for_efficientnet_weights() -> None:
@@ -237,7 +192,7 @@ def _materialize_training_input(dataset_chips: str, dataset_labels: str, work_di
     preserving filename stem (e.g. OAM-{x}-{y}-{z}.png) so hot_fair_utilities label clipping
     can parse tile ids.
     """
-    chips_dir = _resolve_input_directory(dataset_chips, "dataset_chips")
+    chips_dir = _resolve_input(dataset_chips, "dataset_chips")
     labels_path = _resolve_labels_geojson(dataset_labels)
 
     input_dir = work_dir / "input"
@@ -288,7 +243,7 @@ def preprocess(
     """
     from hot_fair_utilities import preprocess as _preprocess
 
-    local_input = _resolve_input_directory(input_path, "input_path")
+    local_input = _resolve_input(input_path, "input_path")
     _preprocess(
         input_path=str(local_input),
         output_path=output_path,
@@ -310,8 +265,8 @@ def postprocess(prediction_masks_dir: str, output_dir: str) -> dict[str, Any]:
     from geomltoolkits.raster.morphology import morphological_cleaning
     from geomltoolkits.raster.vectorize import vectorize_mask
 
-    pred_dir = _to_local_path(prediction_masks_dir, "prediction_masks_dir")
-    out_dir = _to_local_path(output_dir, "output_dir")
+    pred_dir = _require_local_path(prediction_masks_dir, "prediction_masks_dir")
+    out_dir = _require_local_path(output_dir, "output_dir")
     out_dir.mkdir(parents=True, exist_ok=True)
 
     pred_tifs = sorted(pred_dir.glob("*.tif"))
@@ -527,8 +482,9 @@ def _restore_checkpoint(trained_model: Any) -> Path:
             return p
         if p.is_file() and p.suffix.lower() == ".keras":
             return p
-        resolved = Path(resolve_model_href(str(p)))
-        return _resolve_h5_checkpoint_path(resolved)
+        if p.exists():
+            return _resolve_h5_checkpoint_path(p)
+        raise FileNotFoundError(f"Checkpoint path not found: {p}")
     raise TypeError(f"Cannot restore RAMP checkpoint from {type(trained_model).__name__}")
 
 
@@ -807,7 +763,6 @@ def evaluate_model(
 def export_onnx(trained_model: Any) -> Annotated[bytes, "onnx_model"]:
     """Convert the trained RAMP Keras checkpoint to ONNX bytes and validate."""
     import onnx
-    import tensorflow as tf
     import tf2onnx
 
     restored = _restore_checkpoint(trained_model)

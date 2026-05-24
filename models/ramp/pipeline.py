@@ -12,6 +12,7 @@ from urllib.request import urlretrieve
 
 from zenml import log_metadata, pipeline, step
 
+from fair.zenml.instrumentation import log_evaluation_results, mlflow_training_context
 from fair.zenml.materializers import CheckpointBytesMaterializer, ONNXMaterializer
 
 _DEFAULT_MODEL_CACHE = Path("/workspace/.ramp_model_cache")
@@ -643,7 +644,7 @@ def train_model(
     dataset_id: str | None = None,
 ) -> Annotated[bytes, "trained_model"]:
     """Fine-tune RAMP EfficientNetB0 U-Net; return the best model as `.keras` bytes."""
-    _ = (num_classes, model_name, base_model_id, dataset_id)
+    _ = num_classes
 
     ramp_train_dir = Path(split_info["_ramp_train_dir"])
     if not ramp_train_dir.exists():
@@ -651,19 +652,20 @@ def train_model(
         ramp_train_dir = Path(split_info["_ramp_train_dir"])
 
     work_dir = split_info.get("_work_dir") or str(ramp_train_dir.parent)
-    final_model_path = train_ramp_model(
-        ramp_train_dir=str(ramp_train_dir),
-        base_model_weights=base_model_weights,
-        hyperparameters=hyperparameters,
-        data_base_path=work_dir,
-    )
-    import tensorflow as tf
+    with mlflow_training_context(hyperparameters, model_name, base_model_id, dataset_id):
+        final_model_path = train_ramp_model(
+            ramp_train_dir=str(ramp_train_dir),
+            base_model_weights=base_model_weights,
+            hyperparameters=hyperparameters,
+            data_base_path=work_dir,
+        )
+        import tensorflow as tf
 
-    model = tf.keras.models.load_model(str(final_model_path), compile=False)
-    exported_path = Path(tempfile.mkdtemp(prefix="ramp_keras_export_")) / "model.keras"
-    model.save(str(exported_path))
-    blob = exported_path.read_bytes()
-    log_metadata(metadata={"keras_path": str(exported_path), "checkpoint_bytes": len(blob)})
+        model = tf.keras.models.load_model(str(final_model_path), compile=False)
+        exported_path = Path(tempfile.mkdtemp(prefix="ramp_keras_export_")) / "model.keras"
+        model.save(str(exported_path))
+        blob = exported_path.read_bytes()
+        log_metadata(metadata={"keras_path": str(exported_path), "checkpoint_bytes": len(blob)})
     return blob
 
 
@@ -706,6 +708,7 @@ def evaluate_model(
             "fair:precision": 0.0,
             "fair:recall": 0.0,
         }
+        log_evaluation_results(zero_metrics)
         log_metadata(metadata=zero_metrics)
         return zero_metrics
 
@@ -749,6 +752,7 @@ def evaluate_model(
         "fair:precision": float(precision),
         "fair:recall": float(recall),
     }
+    log_evaluation_results(metrics_dict)
     log_metadata(metadata=metrics_dict)
     return metrics_dict
 

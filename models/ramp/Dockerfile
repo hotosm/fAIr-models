@@ -53,6 +53,11 @@ ENV PATH="/app/.venv/bin:$PATH" \
     NVIDIA_VISIBLE_DEVICES=all \
     NVIDIA_DRIVER_CAPABILITIES=compute,utility
 
+# The k8s ZenML orchestrator entrypoint needs to read the in-cluster service
+# account token. Some base images run as a non-root user which can cause the
+# k8s Python client to fall back to anonymous auth (403 on pod reads) in CI.
+USER root
+
 COPY --from=builder /app/.venv /app/.venv
 
 COPY models/ramp models/ramp

@@ -44,12 +44,13 @@ dependencies = [
 
 [project.optional-dependencies]
 test = [
-    "kubernetes",
+    "kubernetes==35.0.0",
     "pytest>=8.0",
     "pytest-cov>=6.0",
     "zenml[server]==0.94.2",
 ]
 k8s = [
+    "kubernetes==35.0.0",
     "opentelemetry-proto>=1.25.0",
     "pypgstac[psycopg]>=0.9",
     "pystac-client>=0.9,<1",
@@ -102,7 +103,7 @@ exclude = [
 dev = [
     "ty",
     "ruff",
-    "kubernetes",
+    "kubernetes==35.0.0",
     "pytest>=8.0",
     "pytest-cov>=6.0",
     "commitizen>=4.1",

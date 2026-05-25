@@ -958,6 +958,7 @@ dependencies = [
 
 [package.optional-dependencies]
 k8s = [
+    { name = "kubernetes" },
     { name = "opentelemetry-proto" },
     { name = "pypgstac", extra = ["psycopg"] },
     { name = "pystac-client" },
@@ -1008,7 +1009,8 @@ docs = [
 requires-dist = [
     { name = "geomltoolkits", marker = "extra == 'serve'", specifier = ">=2.0.2" },
     { name = "httpx", specifier = ">=0.28.1" },
-    { name = "kubernetes", marker = "extra == 'test'" },
+    { name = "kubernetes", marker = "extra == 'k8s'", specifier = "==35.0.0" },
+    { name = "kubernetes", marker = "extra == 'test'", specifier = "==35.0.0" },
     { name = "mlflow", specifier = ">=2.1.1,<4" },
     { name = "onnxruntime", specifier = ">=1.24.4" },
     { name = "opentelemetry-proto", marker = "extra == 'k8s'", specifier = ">=1.25.0" },
@@ -1030,7 +1032,7 @@ provides-extras = ["k8s", "serve", "test"]
 [package.metadata.requires-dev]
 ci = [
     { name = "commitizen", specifier = ">=4.1" },
-    { name = "kubernetes" },
+    { name = "kubernetes", specifier = "==35.0.0" },
     { name = "pre-commit", specifier = ">=4.0" },
     { name = "pytest", specifier = ">=8.0" },
     { name = "pytest-cov", specifier = ">=6.0" },
@@ -1039,7 +1041,7 @@ ci = [
 ]
 dev = [
     { name = "commitizen", specifier = ">=4.1" },
-    { name = "kubernetes" },
+    { name = "kubernetes", specifier = "==35.0.0" },
     { name = "pre-commit", specifier = ">=4.0" },
     { name = "pytest", specifier = ">=8.0" },
     { name = "pytest-cov", specifier = ">=6.0" },

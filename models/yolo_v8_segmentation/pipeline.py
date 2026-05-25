@@ -60,6 +60,17 @@ def resolve_model_href(
 
     cache_dir = cache_dir or _DEFAULT_WEIGHTS_CACHE
 
+    # Support both HTTP(S) URLs and fsspec-compatible URIs (e.g. s3:// in-cluster MinIO).
+    # The training config may convert MinIO HTTP URLs to s3://... via http_url_to_s3_uri.
+    if "://" in model_uri and not (model_uri.startswith("http://") or model_uri.startswith("https://")):
+        from fair.utils.data import resolve_path
+
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        resolved = resolve_path(model_uri, local_dir=cache_dir)
+        if not resolved.is_file():
+            raise FileNotFoundError(f"Resolved checkpoint is not a file: {resolved}")
+        return str(resolved)
+
     if not (model_uri.startswith("http://") or model_uri.startswith("https://")):
         resolved = _to_local_path(model_uri, "model_uri").resolve()
         if resolved.exists():
@@ -79,6 +90,69 @@ def resolve_model_href(
     if not dest.is_file():
         raise RuntimeError(f"Download failed for {model_uri}")
     return str(dest)
+
+
+def _resolve_labels_geojson(dataset_labels: str) -> Path:
+    """Resolve dataset_labels to exactly one GeoJSON/JSON file.
+
+    Supports:
+    - direct file path/URI
+    - directory/prefix containing exactly one labels file
+    """
+    from fair.utils.data import resolve_directory, resolve_path
+
+    label_patterns = ("*.geojson", "*.json")
+    label_suffixes = (".geojson", ".json")
+    labels_value = str(dataset_labels)
+
+    def _pick_single_candidate(search_dir: Path) -> Path:
+        for name in ("labels.geojson", "labels.json", "label.geojson", "label.json"):
+            candidate = search_dir / name
+            if candidate.is_file():
+                return candidate
+
+        for pattern in label_patterns:
+            matches = sorted(p for p in search_dir.glob(pattern) if p.is_file())
+            if len(matches) == 1:
+                return matches[0]
+            if len(matches) > 1:
+                listed = ", ".join(str(p) for p in matches)
+                raise ValueError(
+                    f"dataset_labels must resolve to exactly one labels file, found {len(matches)} "
+                    f"matching {pattern} in {search_dir}: {listed}. "
+                    "Rename your labels file to labels.geojson (or pass an explicit file path)."
+                )
+        raise FileNotFoundError(
+            f"No labels file found in {search_dir}. Expected labels.geojson or exactly one '*.geojson' file."
+        )
+
+    # Remote file or directory/prefix.
+    if "://" in labels_value:
+        if labels_value.lower().endswith(label_suffixes):
+            file_candidate = resolve_path(labels_value)
+            if file_candidate.suffix.lower() not in label_suffixes:
+                raise ValueError(f"dataset_labels must point to a .geojson or .json file, got: {file_candidate}")
+            return file_candidate
+        for pattern in label_patterns:
+            try:
+                local_dir = resolve_directory(labels_value, pattern=pattern)
+            except FileNotFoundError:
+                continue
+            return _pick_single_candidate(local_dir)
+        raise FileNotFoundError(
+            f"No labels file found at {labels_value}. Expected exactly one '*.geojson' or '*.json' file."
+        )
+
+    # Local directory/file fallback.
+    local_path = Path(labels_value)
+    if local_path.is_file():
+        if local_path.suffix.lower() not in label_suffixes:
+            raise ValueError(f"dataset_labels must be a .geojson or .json file, got: {local_path}")
+        return local_path
+    if local_path.is_dir():
+        return _pick_single_candidate(local_path)
+
+    raise FileNotFoundError(f"dataset_labels path not found: {local_path}. Provide a labels file or directory/prefix.")
 
 
 def _ensure_labels_epsg4326(labels_dir: Path) -> None:
@@ -185,7 +259,7 @@ def _copy_labels_geojson(labels_path: Path, destination: Path) -> None:
 def _materialize_training_input(dataset_chips: str, dataset_labels: str, work_dir: Path) -> Path:
     """Create preprocess input folder with chip PNGs and labels.geojson."""
     chips_dir = _resolve_input_directory(dataset_chips, "dataset_chips")
-    labels_path = _resolve_input_file(dataset_labels, "dataset_labels")
+    labels_path = _resolve_labels_geojson(dataset_labels)
 
     input_dir = work_dir / "input"
     if input_dir.exists():

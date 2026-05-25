@@ -156,68 +156,58 @@ def _resolve_labels_geojson(dataset_labels: str) -> Path:
 
 
 def _ensure_labels_epsg4326(labels_dir: Path) -> None:
-    """Ensure per-chip label GeoJSON coordinates are EPSG:4326 (lon/lat degrees).
-
-    hot_fair_utilities' YOLO label writer normalizes polygon coordinates against
-    chip bounds in EPSG:4326. If preprocessing produced labels in EPSG:3857
-    (meters), coordinates can collapse to 0/1 after clamping.
-    """
+    """Ensure all per-chip label GeoJSONs are EPSG:4326 and JSON-serializable."""
     if not labels_dir.is_dir():
         return
 
     import geopandas as gpd
     import pandas as pd
 
-    def _looks_like_lonlat(bounds: tuple[float, float, float, float]) -> bool:
+    def is_lonlat(bounds: tuple[float, float, float, float]) -> bool:
         minx, miny, maxx, maxy = bounds
-        return -180.0 <= minx <= 180.0 and -90.0 <= miny <= 90.0 and -180.0 <= maxx <= 180.0 and -90.0 <= maxy <= 90.0
+        return -180 <= minx <= 180 and -90 <= miny <= 90 and -180 <= maxx <= 180 and -90 <= maxy <= 90
 
-    def _coerce_jsonable_properties(gdf: Any) -> Any:
-        """Convert non-JSON-serializable property values (e.g. pandas Timestamp) to strings."""
-        geom_name = getattr(getattr(gdf, "geometry", None), "name", "geometry")
-        for col in list(getattr(gdf, "columns", [])):
+    def jsonable(value: Any) -> Any:
+        if value is None or pd.isna(value):
+            return None
+        if isinstance(value, pd.Timestamp):
+            return value.isoformat()
+        return value
+
+    def make_jsonable(gdf: Any) -> Any:
+        geom_name = gdf.geometry.name
+        for col in gdf.columns:
             if col == geom_name:
                 continue
-            s = gdf[col]
-            if pd.api.types.is_datetime64_any_dtype(s):
-                iso = s.dt.strftime("%Y-%m-%dT%H:%M:%S%z")
-                gdf[col] = iso.where(~s.isna(), None)
-                continue
-            if getattr(s, "dtype", None) == "object":
-                gdf[col] = s.apply(
-                    lambda v: (
-                        None
-                        if v is None
-                        or (isinstance(v, float) and pd.isna(v))
-                        or (isinstance(v, pd.Timestamp) and pd.isna(v))
-                        else (v.isoformat() if isinstance(v, pd.Timestamp) else v)
-                    )
-                )
+
+            series = gdf[col]
+            if pd.api.types.is_datetime64_any_dtype(series):
+                gdf[col] = series.dt.strftime("%Y-%m-%dT%H:%M:%S%z").where(~series.isna(), None)
+            elif getattr(series, "dtype", None) == "object":
+                gdf[col] = series.map(jsonable)
         return gdf
 
     for path in sorted(labels_dir.glob("*.geojson")):
         try:
             gdf = gpd.read_file(path)
-        except Exception:
+        except Exception as e:
+            raise RuntimeError(f"Failed to read label GeoJSON {path}") from e
+
+        if gdf.empty:
             continue
 
-        if getattr(gdf, "empty", True):
-            continue
+        try:
+            if gdf.crs is None:
+                inferred = "EPSG:4326" if is_lonlat(tuple(gdf.total_bounds)) else "EPSG:3857"
+                gdf = gdf.set_crs(inferred)
 
-        crs = getattr(gdf, "crs", None)
-        if crs is None:
-            # GeoJSON often omits CRS — infer from coordinate magnitudes.
-            if _looks_like_lonlat(tuple(gdf.total_bounds)):
-                gdf = gdf.set_crs("EPSG:4326", allow_override=True)
-            else:
-                gdf = gdf.set_crs("EPSG:3857", allow_override=True).to_crs("EPSG:4326")
-        else:
-            epsg = crs.to_epsg() if hasattr(crs, "to_epsg") else None
+            epsg = gdf.crs.to_epsg()
             if epsg != 4326:
                 gdf = gdf.to_crs("EPSG:4326")
 
-        gdf = _coerce_jsonable_properties(gdf)
-        path.write_text(gdf.to_json(), encoding="utf-8")
+            path.write_text(make_jsonable(gdf).to_json(), encoding="utf-8")
+        except Exception as e:
+            raise RuntimeError(f"Failed to normalize labels to EPSG:4326 for {path}") from e
 
 
 def preprocess(input_path: str, output_path: str, p_val: float = 0.05) -> str:

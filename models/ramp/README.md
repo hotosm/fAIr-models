@@ -1,60 +1,83 @@
 # RAMP EfficientNetB0 + U-Net Building Segmentation
 
-Semantic segmentation model for building footprint extraction from RGB aerial imagery, derived from the RAMP (Replicable AI for Microplanning) project.
+## Overview
+
+RAMP is a semantic-segmentation model that extracts **building footprints** from **RGB very-high-resolution aerial/satellite imagery**. In this repository it is packaged as a **global** base model (worldwide STAC footprint) intended for **fine-tuning on a target area** and for **ONNX-based inference** within the fAIr pipeline.
 
 ## Architecture
 
-- **Model**: EfficientNetB0 encoder + U-Net decoder (`EffUnet`)
-- **Framework**: TensorFlow 2.15 / `tf.keras` (via `segmentation_models` with `SM_FRAMEWORK=tf.keras`)
-- **Task**: Semantic segmentation (sparse categorical crossentropy)
-- **Input**: RGB chips (256x256, float32, channels-last)
-- **Classes**: 4 (background=0, building=1, boundary=2, contact=3)
+- **Model**: `EffUnet` (EfficientNetB0 encoder + U-Net decoder)
+- **Task**: semantic segmentation
+- **Input**: \([-1, 256, 256, 3]\) float32 RGB chips (channels-last)
+- **Output**: \([-1, 256, 256, 4]\) float32 per-class scores for 4 classes
+  - **0**: background
+  - **1**: building
+  - **2**: boundary (helps separate adjacent buildings)
+  - **3**: contact (helps separate close neighbouring buildings)
 
 The boundary (class 2) and contact (class 3) channels help the model cleanly separate adjacent buildings at inference time, even when they share a wall. The `predict()` helper collapses the 4-class softmax to a binary building mask before vectorization.
 
 ## Pretrained Source
 
-Baseline RAMP weights (TensorFlow SavedModel) hosted by HOTOSM:
+Pretrained artifacts for this model pack are declared in `models/ramp/stac-item.json`:
 
-- Checkpoint: `https://api-prod.fair.hotosm.org/api/v1/workspace/download/ramp/baseline.zip`
-- ONNX model: `https://api-prod.fair.hotosm.org/api/v1/workspace/download/ramp/ramp-v1.onnx`
+- **Checkpoint (zipped TF SavedModel)**: `https://huggingface.co/hotosm/ramp/resolve/74daea54694f2e4924f1222520c614c7f5c029fe/v1-baseline.zip`
+- **ONNX model**: `https://huggingface.co/hotosm/ramp/resolve/83c77a7e5feb3af62e3604d7bb96c6c6e9ff1a96/ramp-v1.onnx`
 
-## Pipeline
+Upstream RAMP resources:
 
-Training pipeline steps (ZenML) defined in `pipeline.py`:
+- **Project documentation**: `https://rampml.global/`
+- **Upstream codebase**: `https://github.com/devglobalpartners/ramp-code`
+- **Training data**: RAMP datasets on Radiant MLHub (see `https://rampml.global/training-data/`). Per upstream docs, labels are **manually annotated** building footprints; the published RAMP training datasets are released under **CC BY-NC 4.0**.
 
-- `split_dataset` - preprocesses chips + labels into 4-class multimasks and produces a seeded random train/validation split via `hot_fair_utilities.split_training_2_validation`
-- `train_model` - fine-tunes RAMP on the split, returning the best SavedModel serialized as a zipped byte stream
-- `evaluate_model` - computes `fair:accuracy`, `fair:mean_iou` (building IoU), `fair:precision`, and `fair:recall` on the validation split
-- `export_onnx` - converts the trained SavedModel to an ONNX byte stream via `tf2onnx`
+Published paper reference: none is included in this repository; cite the upstream project documentation/repository.
 
-Inference is served through `fair.serve.base`, which calls the module-level `predict(session, input_images, params) -> FeatureCollection`: each chip is preprocessed, run through an `onnxruntime` session, decoded to a binary building mask, and vectorized to georeferenced polygons.
+## Limitations
 
-## Base Image
+- **Domain shift**: performance may degrade on imagery with different sensors, resolutions, or preprocessing than the training distribution.
+- **Challenging imagery**: haze, blur, strong color casts, or off-nadir views can reduce quality.
+- **Dense/attached roofs**: polygonization may still merge neighbouring buildings in dense urban areas.
 
-Training, test, and inference Docker stages all build on
-`ghcr.io/hotosm/fair-utilities-ramp:cpu-latest` (or `:gpu-latest` via the
-`BASE_IMAGE` build arg), which provides TensorFlow, GDAL, `hot_fair_utilities`
-RAMP extras, and the RAMP runtime under `/app/.venv`.
+## Usage
+
+### Inference (Docker)
 
 ```bash
-# Build targets
-docker build -f models/ramp/Dockerfile --target runtime   -t ramp:runtime   .
-docker build -f models/ramp/Dockerfile --target test      -t ramp:test      .
 docker build -f models/ramp/Dockerfile --target inference -t ramp:inference .
+docker run --rm -p 8080:8080 -e MODEL_MODULE=models.ramp.pipeline ramp:inference
+
+curl -s http://localhost:8080/health
 ```
 
-## Limitations and Bias
+Example request (server downloads tiles into chips, runs ONNX, returns GeoJSON FeatureCollection):
 
-- Training data and baseline weights are derived from the RAMP corpus (primarily humanitarian-mapping contexts); performance on dense urban scenes with complex roof structures may be lower than on sparser rural settlements.
-- The model is sensitive to imagery with strong color casts, motion blur, or significant off-nadir angle; preprocess inputs to approximately nadir RGB at the target zoom before inference.
-- Binary building output from `predict()` discards the boundary/contact auxiliary classes after decoding; downstream polygonization may still merge neighbouring buildings that share a footprint edge.
+```bash
+curl -s http://localhost:8080/predict \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model_uri": "https://huggingface.co/hotosm/ramp/resolve/83c77a7e5feb3af62e3604d7bb96c6c6e9ff1a96/ramp-v1.onnx",
+    "image_uri": "https://example.com/tiles/{z}/{x}/{y}.png",
+    "bbox": [0.0, 0.0, 0.01, 0.01],
+    "zoom": 18,
+    "params": { "confidence_threshold": 0.5, "min_class_value": 1 }
+  }'
+```
+
+### Fine-tuning (Python)
+
+Fine-tuning is implemented as a ZenML pipeline in `models/ramp/pipeline.py` and is exercised end-to-end in `models/test_integration.py` via `fair.client.FairClient` (register → finetune → promote → predict).
 
 ## Citation
 
-RAMP - Replicable AI for Microplanning. Upstream source: https://github.com/radiantearth/ramp-code
+```bibtex
+@misc{ramp_docs,
+  title        = {Replicable AI for Microplanning (ramp)},
+  author       = {{DevGlobal Partners}},
+  howpublished = {\\url{https://rampml.global/}},
+  note         = {Accessed 2026-05-25}
+}
+```
 
 ## License
 
-- Model weights and code: Apache-2.0
-- Training data: ODbL-1.0 (OpenStreetMap-derived labels)
+Apache-2.0

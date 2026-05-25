@@ -166,10 +166,34 @@ def _ensure_labels_epsg4326(labels_dir: Path) -> None:
         return
 
     import geopandas as gpd
+    import pandas as pd
 
     def _looks_like_lonlat(bounds: tuple[float, float, float, float]) -> bool:
         minx, miny, maxx, maxy = bounds
         return -180.0 <= minx <= 180.0 and -90.0 <= miny <= 90.0 and -180.0 <= maxx <= 180.0 and -90.0 <= maxy <= 90.0
+
+    def _coerce_jsonable_properties(gdf: Any) -> Any:
+        """Convert non-JSON-serializable property values (e.g. pandas Timestamp) to strings."""
+        geom_name = getattr(getattr(gdf, "geometry", None), "name", "geometry")
+        for col in list(getattr(gdf, "columns", [])):
+            if col == geom_name:
+                continue
+            s = gdf[col]
+            if pd.api.types.is_datetime64_any_dtype(s):
+                iso = s.dt.strftime("%Y-%m-%dT%H:%M:%S%z")
+                gdf[col] = iso.where(~s.isna(), None)
+                continue
+            if getattr(s, "dtype", None) == "object":
+                gdf[col] = s.apply(
+                    lambda v: (
+                        None
+                        if v is None
+                        or (isinstance(v, float) and pd.isna(v))
+                        or (isinstance(v, pd.Timestamp) and pd.isna(v))
+                        else (v.isoformat() if isinstance(v, pd.Timestamp) else v)
+                    )
+                )
+        return gdf
 
     for path in sorted(labels_dir.glob("*.geojson")):
         try:
@@ -192,6 +216,7 @@ def _ensure_labels_epsg4326(labels_dir: Path) -> None:
             if epsg != 4326:
                 gdf = gdf.to_crs("EPSG:4326")
 
+        gdf = _coerce_jsonable_properties(gdf)
         path.write_text(gdf.to_json(), encoding="utf-8")
 
 

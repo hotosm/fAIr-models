@@ -514,7 +514,7 @@ def run_preprocessing(input_path: str, output_path: str, p_val: float = 0.05) ->
     return preprocess(input_path, output_path, p_val)
 
 
-@step(output_materializers={"trained_model": CheckpointBytesMaterializer})
+@step(output_materializers={"trained_model_artifact": CheckpointBytesMaterializer})
 def train_model(
     dataset_chips: str,
     dataset_labels: str,
@@ -525,7 +525,7 @@ def train_model(
     model_name: str | None = None,
     base_model_id: str | None = None,
     dataset_id: str | None = None,
-) -> Annotated[bytes, "trained_model"]:
+) -> Annotated[bytes, "trained_model_artifact"]:
     _ = num_classes
     epochs = int(hyperparameters.get("training.epochs", hyperparameters.get("epochs", 20)))
     batch_size = int(hyperparameters.get("training.batch_size", hyperparameters.get("batch_size", 16)))

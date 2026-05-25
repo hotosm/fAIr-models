@@ -10,6 +10,7 @@ from urllib.request import urlretrieve
 
 from zenml import log_metadata, pipeline, step
 
+from fair.zenml.instrumentation import log_evaluation_results, mlflow_training_context
 from fair.zenml.materializers import CheckpointBytesMaterializer, ONNXMaterializer
 from fair.zenml.steps import load_model
 
@@ -80,138 +81,44 @@ def resolve_model_href(
     return str(dest)
 
 
-def _patch_yolo_write_yolo_file_with_affine() -> None:
-    """Patch hot_fair_utilities label conversion with affine world->pixel mapping.
+def _ensure_labels_epsg4326(labels_dir: Path) -> None:
+    """Ensure per-chip label GeoJSON coordinates are EPSG:4326 (lon/lat degrees).
 
-    Why this patch exists:
-    The upstream implementation can mix CRS-dependent bounds math and then clamp values,
-    which may collapse polygon labels to corners (0/1) and produce zero usable instances.
-    This replacement uses rasterio's inverse affine transform directly, which is CRS-safe.
+    hot_fair_utilities' YOLO label writer normalizes polygon coordinates against
+    chip bounds in EPSG:4326. If preprocessing produced labels in EPSG:3857
+    (meters), coordinates can collapse to 0/1 after clamping.
     """
-    import importlib
-
-    import hot_fair_utilities.preprocessing.yolo_v8.utils as yolo_utils
-    import rasterio
-    from pyproj import Transformer
-
-    if getattr(yolo_utils, "_fair_models_affine_patch_applied", False):
+    if not labels_dir.is_dir():
         return
 
-    def _infer_label_crs_from_coords(x: float, y: float) -> str:
-        """Best-effort CRS inference for label GeoJSON coordinates.
+    import geopandas as gpd
 
-        hot_fair_utilities.preprocess defaults to EPSG:3857 and clips labels in meters.
-        The smoke tests start from EPSG:4326 OSM labels, but the per-chip GeoJSONs are
-        typically EPSG:3857 after preprocessing. GeoJSON itself usually omits CRS.
-        """
-        if -180.0 <= x <= 180.0 and -90.0 <= y <= 90.0:
-            return "EPSG:4326"
-        return "EPSG:3857"
+    def _looks_like_lonlat(bounds: tuple[float, float, float, float]) -> bool:
+        minx, miny, maxx, maxy = bounds
+        return -180.0 <= minx <= 180.0 and -90.0 <= miny <= 90.0 and -180.0 <= maxx <= 180.0 and -90.0 <= maxy <= 90.0
 
-    def _patched_write_yolo_file(iwp, folder, output_path, class_index=0):
-        """Write YOLO polygon labels using affine pixel normalization."""
-        lwp = iwp.replace(".tif", ".geojson").replace("chips", "labels")
-        ywp = str(Path(output_path) / "labels" / folder / Path(iwp).name.replace(".tif", ".txt"))
-        Path(ywp).parent.mkdir(parents=True, exist_ok=True)
-        if Path(ywp).exists():
-            Path(ywp).unlink()
+    for path in sorted(labels_dir.glob("*.geojson")):
+        try:
+            gdf = gpd.read_file(path)
+        except Exception:
+            continue
 
-        with open(lwp, encoding="utf-8") as file:
-            data = json.load(file)
+        if getattr(gdf, "empty", True):
+            continue
 
-        with rasterio.open(iwp) as src:
-            if src.crs is None:
-                raise ValueError(f"No CRS found in chip: {iwp}")
+        crs = getattr(gdf, "crs", None)
+        if crs is None:
+            # GeoJSON often omits CRS — infer from coordinate magnitudes.
+            if _looks_like_lonlat(tuple(gdf.total_bounds)):
+                gdf = gdf.set_crs("EPSG:4326", allow_override=True)
+            else:
+                gdf = gdf.set_crs("EPSG:3857", allow_override=True).to_crs("EPSG:4326")
+        else:
+            epsg = crs.to_epsg() if hasattr(crs, "to_epsg") else None
+            if epsg != 4326:
+                gdf = gdf.to_crs("EPSG:4326")
 
-            inv_transform = ~src.transform
-            width = float(src.width)
-            height = float(src.height)
-
-            # Determine label CRS from coordinate magnitudes (GeoJSON usually omits CRS).
-            label_crs = None
-            for feature in data.get("features", []):
-                geometry = feature.get("geometry") or {}
-                coords = geometry.get("coordinates") or []
-                if (
-                    geometry.get("type") == "Polygon"
-                    and coords
-                    and coords[0]
-                    and coords[0][0]
-                    and len(coords[0][0]) >= 2
-                ):
-                    x0, y0 = float(coords[0][0][0]), float(coords[0][0][1])
-                    label_crs = _infer_label_crs_from_coords(x0, y0)
-                    break
-            label_crs = label_crs or "EPSG:3857"
-
-            transformer = None
-            if str(src.crs).upper() != label_crs.upper():
-                transformer = Transformer.from_crs(label_crs, src.crs, always_xy=True)
-
-            lines = []
-            for feature in data.get("features", []):
-                geometry = feature.get("geometry") or {}
-                geometry_type = geometry.get("type")
-                if geometry_type == "MultiPolygon":
-                    polygons = geometry.get("coordinates", [])
-                elif geometry_type == "Polygon":
-                    polygons = [geometry.get("coordinates", [])]
-                else:
-                    continue
-
-                for poly in polygons:
-                    if not poly:
-                        continue
-
-                    # Use outer ring only (holes are not represented in YOLO polygon labels).
-                    ring = poly[0] if poly and isinstance(poly[0], list) else []
-                    if len(ring) < 4:
-                        continue
-
-                    # Drop closing coordinate if it repeats the first point.
-                    if (
-                        ring
-                        and ring[0]
-                        and ring[-1]
-                        and len(ring[0]) >= 2
-                        and len(ring[-1]) >= 2
-                        and ring[0][0] == ring[-1][0]
-                        and ring[0][1] == ring[-1][1]
-                    ):
-                        ring = ring[:-1]
-
-                    points = []
-                    for coord in ring:
-                        if not coord or len(coord) < 2:
-                            continue
-                        x_world, y_world = float(coord[0]), float(coord[1])
-                        if transformer is not None:
-                            x_world, y_world = transformer.transform(x_world, y_world)
-
-                        col, row = inv_transform * (x_world, y_world)
-                        x_norm = max(0.0, min(1.0, col / width))
-                        y_norm = max(0.0, min(1.0, row / height))
-                        points.append((round(x_norm, 6), round(y_norm, 6)))
-
-                    # Require at least 3 distinct vertices.
-                    if len({p for p in points}) < 3:
-                        continue
-
-                    flattened = [str(v) for p in points for v in p]
-                    if len(flattened) >= 6:
-                        lines.append(f"{class_index} " + " ".join(flattened))
-
-        Path(ywp).write_text("\n".join(lines), encoding="utf-8")
-
-    # yolo_format binds write_yolo_file at module import time, so patch:
-    # - the source symbol in utils
-    # - the already-imported global in the yolo_format module
-    yolo_utils.write_yolo_file = _patched_write_yolo_file
-    yolo_format_module = importlib.import_module("hot_fair_utilities.preprocessing.yolo_v8.yolo_format")
-    from typing import cast
-
-    cast(Any, yolo_format_module).write_yolo_file = _patched_write_yolo_file
-    yolo_utils._fair_models_affine_patch_applied = True
+        path.write_text(gdf.to_json(), encoding="utf-8")
 
 
 def preprocess(input_path: str, output_path: str, p_val: float = 0.05) -> str:
@@ -227,6 +134,7 @@ def preprocess(input_path: str, output_path: str, p_val: float = 0.05) -> str:
         rasterize_options=["binary"],
         georeference_images=True,
         multimasks=False,
+        epsg=4326,
     )
     return preprocessed_path
 
@@ -346,7 +254,7 @@ def _prepare_training_split(
         work_dir.mkdir(parents=True, exist_ok=True)
         input_dir = _materialize_training_input(dataset_chips, dataset_labels, work_dir)
         preprocessed_dir = Path(preprocess(str(input_dir), str(work_dir), p_val=p_val))
-        _patch_yolo_write_yolo_file_with_affine()
+        _ensure_labels_epsg4326(preprocessed_dir / "labels")
         yolo_format(
             input_path=str(preprocessed_dir),
             output_path=str(yolo_dir),
@@ -618,7 +526,7 @@ def train_model(
     base_model_id: str | None = None,
     dataset_id: str | None = None,
 ) -> Annotated[bytes, "trained_model"]:
-    _ = (num_classes, model_name, base_model_id, dataset_id)
+    _ = num_classes
     epochs = int(hyperparameters.get("training.epochs", hyperparameters.get("epochs", 20)))
     batch_size = int(hyperparameters.get("training.batch_size", hyperparameters.get("batch_size", 16)))
     pc = float(hyperparameters.get("training.pc", hyperparameters.get("pc", 2.0)))
@@ -635,15 +543,23 @@ def train_model(
         yolo_dir = Path(split_info["_yolo_dir"])
 
     weights_path = resolve_model_href(base_model_weights)
-    model_path, iou_accuracy = train_yolo_model(
-        data_base_path=split_info["_work_dir"],
-        yolo_data_dir=str(yolo_dir),
-        weights_path=weights_path,
-        epochs=epochs,
-        batch_size=batch_size,
-        pc=pc,
-    )
-    log_metadata(metadata={"iou_accuracy_pct": float(iou_accuracy), "checkpoint": model_path})
+
+    with mlflow_training_context(
+        hyperparameters,
+        model_name,
+        base_model_id,
+        dataset_id,
+    ):
+        model_path, iou_accuracy = train_yolo_model(
+            data_base_path=split_info["_work_dir"],
+            yolo_data_dir=str(yolo_dir),
+            weights_path=weights_path,
+            epochs=epochs,
+            batch_size=batch_size,
+            pc=pc,
+        )
+        log_metadata(metadata={"iou_accuracy_pct": float(iou_accuracy), "checkpoint": model_path})
+
     return Path(model_path).read_bytes()
 
 
@@ -682,12 +598,12 @@ def evaluate_model(
         raise RuntimeError("YOLO validation produced no results")
 
     metrics_dict: dict[str, Any] = {
-        "fair:accuracy": float(metrics.get("metrics/mAP50(M)", 0.0)),
-        "fair:mean_iou": float(metrics.get("metrics/mAP50-95(M)", 0.0)),
-        "fair:precision": float(metrics.get("metrics/precision(M)", 0.0)),
-        "fair:recall": float(metrics.get("metrics/recall(M)", 0.0)),
+        "accuracy": float(metrics.get("metrics/mAP50(M)", 0.0)),
+        "mean_iou": float(metrics.get("metrics/mAP50-95(M)", 0.0)),
+        "precision": float(metrics.get("metrics/precision(M)", 0.0)),
+        "recall": float(metrics.get("metrics/recall(M)", 0.0)),
     }
-    log_metadata(metadata=metrics_dict)
+    log_evaluation_results(metrics_dict)
     return metrics_dict
 
 

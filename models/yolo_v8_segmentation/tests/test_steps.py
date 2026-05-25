@@ -125,8 +125,7 @@ def test_evaluate_model(
         split_info=split_info,
     )
 
-    expected = {"fair:accuracy", "fair:mean_iou", "fair:precision", "fair:recall"}
-    assert set(metrics.keys()) == expected
+    assert set(metrics) == {"accuracy", "mean_iou", "precision", "recall"}
 
 
 def test_export_onnx(

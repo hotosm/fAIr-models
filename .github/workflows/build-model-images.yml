@@ -7,7 +7,7 @@ on:
       - ".github/workflows/build-model-images.yml"
       - ".github/scripts/detect_models.py"
   push:
-    branches: [ master ]
+    branches: [master]
     paths:
       - "models/**"
       - ".github/workflows/build-model-images.yml"
@@ -51,7 +51,7 @@ jobs:
     needs: detect
     if: needs.detect.outputs.matrix != '{"include":[]}'
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
     permissions:
       contents: read
       packages: write
@@ -69,7 +69,8 @@ jobs:
       - uses: docker/metadata-action@v5
         id: meta
         with:
-          images: ${{ env.REGISTRY }}/${{ github.repository_owner }}/fair-models/${{
+          images:
+            ${{ env.REGISTRY }}/${{ github.repository_owner }}/fair-models/${{
             matrix.name }}
           tags: |
             type=ref,event=pr,prefix=pr-
@@ -130,7 +131,8 @@ jobs:
       - uses: docker/metadata-action@v5
         id: inference-meta
         with:
-          images: ${{ env.REGISTRY }}/${{ github.repository_owner }}/fair-models/${{
+          images:
+            ${{ env.REGISTRY }}/${{ github.repository_owner }}/fair-models/${{
             matrix.name }}
           tags: |
             type=ref,event=pr,prefix=pr-,suffix=-inference

@@ -719,6 +719,35 @@ copies those values to the promoted local model STAC item. Class IoU keys use th
 `classification:classes` names, e.g. `iou_background`, `iou_building` (not numeric
 indices like `iou_class_0`).
 
+!!! tip "Polygon outputs: also report object-level (cartographic) quality"
+
+    For models whose `keywords` include `polygon` (segmentation and detection
+    that emit building/road footprints), pixel IoU and box mAP alone do not
+    capture cartographic quality. fAIr cares about how usable the predicted
+    polygons are as map features: shape fidelity, boundary alignment, and
+    one-to-one object matching against ground truth.
+
+    Run [`polymetrics`](https://pypi.org/project/polymetrics/) on the
+    prediction GeoJSON against a held-out reference and include the results
+    in your PR:
+
+    ```bash
+    uvx polymetrics truth.geojson pred.geojson
+    ```
+
+    Use one of these reference datasets so results are comparable across
+    contributions:
+
+    - The **test split** of [`hotosm/vhr-building-segmentation`](https://huggingface.co/datasets/hotosm/vhr-building-segmentation)
+      on Hugging Face (recommended for building models). Run inference over
+      the test fraction only and score against its labels.
+    - The Banepa test AOI shipped in this repo: ground-truth labels under
+      `data/sample/buildings-banepa-*/` and matching imagery under
+      `data/sample/test/oam/`. Generate predictions with
+      `just example <your_model>` followed by `just test-serve <your_model>`,
+      then compare the output GeoJSON against the relevant
+      `buildings-banepa-*` labels.
+
 ### fair:split_spec
 
 The `fair:split_spec` property declares how your model expects training data

@@ -127,7 +127,7 @@ def predict(session: Any, input_images: str, params: dict[str, Any]) -> dict[str
     return _build_feature_collection(features)
 
 
-def _load_samples(chips_path: str, labels_path: str) -> list[tuple[Path, int]]:
+def _load_samples(chips_path: str, labels_path: str, fraction: float = 1.0) -> list[tuple[Path, int]]:
     """Derive binary labels by intersecting each chip's geo-bounds with OSM polygons."""
     import rasterio
     from shapely.geometry import box, shape
@@ -147,8 +147,12 @@ def _load_samples(chips_path: str, labels_path: str) -> list[tuple[Path, int]]:
             features = json.load(f).get("features", [])
         polygons.extend(shape(feat["geometry"]) for feat in features)
 
+    chips = sorted(local_chips.rglob("*.tif"))
+    if fraction < 1.0:
+        chips = chips[:: max(1, round(1 / fraction))]
+
     samples: list[tuple[Path, int]] = []
-    for chip in sorted(local_chips.rglob("*.tif")):
+    for chip in chips:
         with rasterio.open(chip) as src:
             chip_box = box(*src.bounds)
         label = 1 if any(p.intersects(chip_box) for p in polygons) else 0
@@ -221,7 +225,7 @@ def split_dataset(
     seed = hyperparameters.get("split_seed", 42)
 
     fraction = hyperparameters.get("sample_fraction", 1.0)
-    all_samples = _stride_subset(_load_samples(dataset_chips, dataset_labels), fraction)
+    all_samples = _load_samples(dataset_chips, dataset_labels, fraction)
     train_samples, val_samples = _split_samples(all_samples, val_ratio, seed)
 
     split_info = {
@@ -276,7 +280,7 @@ def train_model(
         model.to(device)
 
         fraction = hyperparameters.get("sample_fraction", 1.0)
-        all_samples = _stride_subset(_load_samples(dataset_chips, dataset_labels), fraction)
+        all_samples = _load_samples(dataset_chips, dataset_labels, fraction)
         train_samples, val_samples = _split_samples(all_samples, val_ratio, seed)
         train_loader = _build_classification_dataset(train_samples, chip_size, batch_size)
         val_loader = _build_classification_dataset(val_samples, chip_size, batch_size, shuffle=False)
@@ -331,6 +335,8 @@ def train_model(
             mlflow.log_metric("train_loss", avg_train_loss, step=epoch)  # ty: ignore[possibly-missing-attribute]
             mlflow.log_metric("val_loss", avg_val_loss, step=epoch)  # ty: ignore[possibly-missing-attribute]
             log_metadata(metadata={"loss": avg_train_loss, "epoch": epoch + 1})
+            msg = f"epoch {epoch + 1}/{epochs}  train_loss={avg_train_loss:.4f}  val_loss={avg_val_loss:.4f}"
+            print(msg, flush=True)
 
         from fair.zenml.metrics import log_loss_history
 
@@ -359,7 +365,7 @@ def evaluate_model(
     model.eval()
 
     fraction = hyperparameters.get("sample_fraction", 1.0)
-    all_samples = _stride_subset(_load_samples(dataset_chips, dataset_labels), fraction)
+    all_samples = _load_samples(dataset_chips, dataset_labels, fraction)
     _, val_samples = _split_samples(all_samples, val_ratio, seed)
     loader = _build_classification_dataset(val_samples, chip_size, shuffle=False)
     tp = fp = tn = fn = 0

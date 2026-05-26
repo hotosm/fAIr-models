@@ -78,10 +78,22 @@ jobs:
           uv run zenml init
           infra/scripts/register-k8s-stack.sh
 
+      - name: Install stern
+        run: |
+          curl -fsSL https://github.com/stern/stern/releases/download/v1.32.0/stern_1.32.0_linux_amd64.tar.gz \
+            | sudo tar -xz -C /usr/local/bin stern
+          stern --version
+
       - name: Run example
         env:
           MODEL: ${{ steps.model.outputs.name }}
-        run: just example "$MODEL"
+          FAIR_CI: "1"
+          FAIR_FORCE_CPU: "1"
+          FAIR_LABEL_DOMAIN: fair
+        run: |
+          stern -n fair --selector run_id --tail=0 --timestamps=short --color=always &
+          trap "kill $! 2>/dev/null || true" EXIT
+          just example "$MODEL"
 
       - name: Smoke-test + save predictions
         env:

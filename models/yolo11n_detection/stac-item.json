@@ -255,6 +255,14 @@
         "min": 64,
         "max": 1280,
         "description": "Image chip size for training and inference"
+      },
+      {
+        "key": "sample_fraction",
+        "type": "float",
+        "default": 1.0,
+        "min": 0.001,
+        "max": 1.0,
+        "description": "Fraction of chip files used during training (stride-sampled; <1.0 enables fast smoke / CI runs)"
       }
     ]
   },
@@ -281,7 +289,7 @@
       ]
     },
     "model": {
-      "href": "https://raw.githubusercontent.com/hotosm/fAIr-models/refs/heads/master/models/yolo11n_detection/artifacts/yolo11n_detection.onnx",
+      "href": "https://huggingface.co/hotosm/fair-ci-models/resolve/bf3692ffeadc18b52af5821798f8ab21bbc3cade/yolo11n_detection.onnx",
       "title": "Portable ONNX inference model",
       "type": "application/octet-stream; framework=onnx",
       "roles": [

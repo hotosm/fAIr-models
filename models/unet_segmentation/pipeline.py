@@ -16,6 +16,21 @@ from fair.zenml.materializers import ONNXMaterializer
 MODEL_INPUT_SIZE = 256
 
 
+def _subset_chips_dir(chips_path: str, fraction: float) -> str:
+    if fraction >= 1.0:
+        return chips_path
+    from fair.utils.data import resolve_directory
+
+    chips = sorted(resolve_directory(chips_path).rglob("OAM-*.tif"))
+    step = max(1, round(1 / fraction))
+    subset = Path(tempfile.mkdtemp(prefix="unet_chips_subset_"))
+    for chip in chips[::step]:
+        (subset / chip.name).symlink_to(chip)
+        sidecar = chip.with_name(chip.name + ".aux.xml")
+        (subset / sidecar.name).symlink_to(sidecar)
+    return str(subset)
+
+
 def _get_device() -> str:
     import torch
 
@@ -139,6 +154,7 @@ def _build_dataset(
     batch_size: int = 4,
     split: str = "train",
     seed: int = 42,
+    sample_fraction: float = 1.0,
 ) -> Any:
     """Intersect OAM raster + GeoJSON vector GeoDatasets via torchgeo."""
     from pyproj import CRS
@@ -148,7 +164,7 @@ def _build_dataset(
 
     from fair.utils.data import resolve_directory
 
-    local_chips = str(resolve_directory(chips_path, "OAM-*"))
+    local_chips = _subset_chips_dir(str(resolve_directory(chips_path, "OAM-*")), sample_fraction)
     local_labels_dir = str(resolve_directory(labels_path, "*.geojson"))
 
     class _OAMDataset(RasterDataset):  # TODO: replace with OAM dataset after torchgeo release
@@ -254,6 +270,7 @@ def train_model(
     weight_decay = hyperparameters.get("weight_decay", 0.0001)
     chip_size = hyperparameters.get("chip_size", 256)
     samples_per_epoch = hyperparameters.get("samples_per_epoch", 50)
+    sample_fraction = hyperparameters.get("sample_fraction", 1.0)
     optimizer_name = hyperparameters.get("optimizer", "AdamW")
     loss_name = hyperparameters.get("loss", "CrossEntropyLoss")
     max_grad_norm = hyperparameters.get("max_grad_norm", 1.0)
@@ -283,6 +300,7 @@ def train_model(
             batch_size=batch_size,
             split="train",
             seed=seed,
+            sample_fraction=sample_fraction,
         )
         val_loader = _build_dataset(
             dataset_chips,
@@ -292,6 +310,7 @@ def train_model(
             batch_size=batch_size,
             split="val",
             seed=seed,
+            sample_fraction=sample_fraction,
         )
 
         losses = _get_losses()
@@ -336,6 +355,8 @@ def train_model(
             mlflow.log_metric("train_loss", avg_train_loss, step=epoch)  # ty: ignore[possibly-missing-attribute]
             mlflow.log_metric("val_loss", avg_val_loss, step=epoch)  # ty: ignore[possibly-missing-attribute]
             log_metadata(metadata={"loss": avg_train_loss, "epoch": epoch + 1})
+            msg = f"epoch {epoch + 1}/{epochs}  train_loss={avg_train_loss:.4f}  val_loss={avg_val_loss:.4f}"
+            print(msg, flush=True)
 
         from fair.zenml.metrics import log_loss_history
 
@@ -357,6 +378,7 @@ def evaluate_model(
     import torch
 
     chip_size = hyperparameters.get("chip_size", 256)
+    sample_fraction = hyperparameters.get("sample_fraction", 1.0)
 
     device = _get_device()
     model = trained_model.to(device)
@@ -369,6 +391,7 @@ def evaluate_model(
         length=0,
         split="val",
         seed=split_info["seed"],
+        sample_fraction=sample_fraction,
     )
     total_correct = total_pixels = 0
     intersection = [0] * num_classes

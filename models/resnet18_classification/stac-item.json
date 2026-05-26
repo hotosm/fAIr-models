@@ -293,6 +293,14 @@
         "min": 0.0,
         "max": 1.0,
         "description": "Minimum sigmoid probability to predict the positive class at inference"
+      },
+      {
+        "key": "sample_fraction",
+        "type": "float",
+        "default": 1.0,
+        "min": 0.001,
+        "max": 1.0,
+        "description": "Fraction of chip files used during training (stride-sampled; <1.0 enables fast smoke / CI runs)"
       }
     ]
   },
@@ -319,7 +327,7 @@
       ]
     },
     "model": {
-      "href": "https://raw.githubusercontent.com/hotosm/fAIr-models/refs/heads/master/models/resnet18_classification/artifacts/resnet18_classification.onnx",
+      "href": "https://huggingface.co/hotosm/fair-ci-models/resolve/bf3692ffeadc18b52af5821798f8ab21bbc3cade/resnet18_classification.onnx",
       "title": "Portable ONNX inference model",
       "type": "application/octet-stream; framework=onnx",
       "roles": [

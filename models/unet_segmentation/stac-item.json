@@ -310,6 +310,14 @@
         "min": 0,
         "max": 255,
         "description": "Minimum class index value to retain as a foreground prediction at inference"
+      },
+      {
+        "key": "sample_fraction",
+        "type": "float",
+        "default": 1.0,
+        "min": 0.001,
+        "max": 1.0,
+        "description": "Fraction of chip files used during training (stride-sampled; <1.0 enables fast smoke / CI runs)"
       }
     ]
   },
@@ -336,7 +344,7 @@
       ]
     },
     "model": {
-      "href": "https://raw.githubusercontent.com/hotosm/fAIr-models/refs/heads/master/models/unet_segmentation/artifacts/unet_segmentation.onnx",
+      "href": "https://huggingface.co/hotosm/fair-ci-models/resolve/bf3692ffeadc18b52af5821798f8ab21bbc3cade/unet_segmentation.onnx",
       "title": "Portable ONNX inference model",
       "type": "application/octet-stream; framework=onnx",
       "roles": [

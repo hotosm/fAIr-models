@@ -73,7 +73,15 @@ def _base_model(**overrides: Any):
         "providers": [{"name": "HOTOSM", "roles": ["producer"]}],
     }
     defaults.update(overrides)
-    return build_base_model_item(**defaults)
+    item = build_base_model_item(**defaults)
+    item.properties["fair:hyperparameters_spec"] = [
+        {"key": "epochs", "type": "int", "default": 15},
+        {"key": "batch_size", "type": "int", "default": 4},
+        {"key": "learning_rate", "type": "float", "default": 0.0001},
+        {"key": "confidence_threshold", "type": "float", "default": 0.5},
+        {"key": "min_class_value", "type": "int", "default": 1},
+    ]
+    return item
 
 
 def _dataset(tmp_path):

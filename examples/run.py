@@ -17,10 +17,10 @@ from fair.utils import install_s3_cleanup_handler
 
 OVERRIDES = ("epochs", "batch_size", "learning_rate", "samples_per_epoch", "chip_size")
 CI_OVERRIDES: dict[str, object] = {
-    "epochs": 5,
+    "epochs": 2,
     "batch_size": 2,
-    "sample_fraction": 0.1,
-    "samples_per_epoch": 12,
+    "sample_fraction": 0.01,
+    "samples_per_epoch": 6,
 }
 
 

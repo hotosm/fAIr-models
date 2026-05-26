@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 from typing import Any
 
@@ -8,6 +9,8 @@ import pystac
 from fair.params import inference_params, training_params
 from fair.stac.constants import CONTAINER_REGISTRIES, OCI_IMAGE_INDEX_TYPE
 from fair.utils.data import http_url_to_s3_uri
+
+logger = logging.getLogger(__name__)
 
 LABEL_DOMAIN = os.environ.get("FAIR_LABEL_DOMAIN", "fair.dev")
 
@@ -151,7 +154,15 @@ def generate_training_config(
         raise KeyError(msg)
 
     if overrides:
-        hyperparams.update(overrides)
+        spec_keys = {s["key"] for s in props.get("fair:hyperparameters_spec", []) if isinstance(s, dict)}
+        unknown = sorted(k for k in overrides if k not in spec_keys)
+        if unknown:
+            logger.warning(
+                "Dropping unrecognized hyperparameter override(s) for '%s' (not in fair:hyperparameters_spec): %s",
+                base_model_item.id,
+                ", ".join(unknown),
+            )
+        hyperparams.update({k: v for k, v in overrides.items() if k in spec_keys})
 
     parameters: dict[str, Any] = {
         "base_model_weights": http_url_to_s3_uri(checkpoint_asset.href),

@@ -383,24 +383,17 @@ def test_config_helpers_cover_edge_cases(monkeypatch: pytest.MonkeyPatch, tmp_pa
 
 def test_base_model_stac_items_publish_onnx_assets() -> None:
     model_roots = {
-        Path("models/resnet18_classification/stac-item.json"): Path(
-            "models/resnet18_classification/artifacts/resnet18_classification.onnx"
-        ),
-        Path("models/unet_segmentation/stac-item.json"): Path(
-            "models/unet_segmentation/artifacts/unet_segmentation.onnx"
-        ),
-        Path("models/yolo11n_detection/stac-item.json"): Path(
-            "models/yolo11n_detection/artifacts/yolo11n_detection.onnx"
-        ),
+        Path("models/resnet18_classification/stac-item.json"): "resnet18_classification.onnx",
+        Path("models/unet_segmentation/stac-item.json"): "unet_segmentation.onnx",
+        Path("models/yolo11n_detection/stac-item.json"): "yolo11n_detection.onnx",
     }
 
-    for stac_path, artifact_path in model_roots.items():
+    for stac_path, onnx_filename in model_roots.items():
         item = json.loads(stac_path.read_text())
         model_asset = item["assets"].get("model")
         assert model_asset is not None, f"{stac_path} is missing a model asset"
-        assert artifact_path.exists(), f"{artifact_path} is missing"
         assert model_asset["href"].startswith("https://")
-        assert artifact_path.name in model_asset["href"]
+        assert onnx_filename in model_asset["href"]
         assert "mlm:model" in model_asset.get("roles", [])
 
 

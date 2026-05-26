@@ -27,7 +27,7 @@ Optional second step: fine-tune the decoder on a small labelled subset of your o
 
 ## Where it works best
 
-- Very high resolution aerial imagery, around 30 cm GSD, sourced from OpenAerialMap.
+- Very high resolution sat+aerial imagery, ~ 30 - 50 cm GSD, sourced from OpenAerialMap.
 - Dense and rural settlement patterns from any continent represented in the HOT VHR training set.
 - 3-band RGB input at the native 256x256 tile size matching DINOv3-L's operating range.
 - Buildings with reasonably orthogonal footprints; the DP+MBR-safe vectorisation step squares up corners that the raw mask would otherwise leave jagged.

@@ -51,7 +51,7 @@ jobs:
     needs: detect
     if: needs.detect.outputs.matrix != '{"include":[]}'
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 180
     permissions:
       contents: read
       packages: write

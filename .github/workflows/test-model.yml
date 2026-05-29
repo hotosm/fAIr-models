@@ -11,8 +11,6 @@ on:
         description: "PR number (leave empty to test the default branch)"
         required: false
         type: string
-  pull_request_target:
-    paths: ["models/**"]
 
 permissions:
   contents: read

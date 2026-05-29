@@ -24,7 +24,7 @@ concurrency:
 jobs:
   detect:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    # timeout-minutes: 5
     outputs:
       matrix: ${{ steps.models.outputs.matrix }}
     steps:
@@ -51,7 +51,7 @@ jobs:
     needs: detect
     if: needs.detect.outputs.matrix != '{"include":[]}'
     runs-on: ubuntu-latest
-    timeout-minutes: 180
+    # timeout-minutes: 180
     permissions:
       contents: read
       packages: write

@@ -15,6 +15,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     --extra-index-url https://download.pytorch.org/whl/cpu \
     --index-strategy unsafe-best-match \
     "git+https://github.com/kshitijrajsharma/dinov3-hot-ablation@${DINOV3_HOT_REF}" \
+    polymetrics==0.1.0 \
     /tmp/fair-src[k8s,serve]
 
 # Runtime stage: minimal training/batch image.

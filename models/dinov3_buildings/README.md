@@ -70,6 +70,7 @@ Drop a directory of RGB OAM chips and a single `labels.geojson` of OSM building 
 | `regularize_area_threshold` | 0.55 | Minimum polygon-area / MBR-area ratio for the rectangle-substitution step |
 | `regularize_overlap_tol_m2` | 1.0 | Maximum new neighbour overlap allowed when substituting a polygon with its MBR |
 | `min_area_m2` | 1.0 | Polygons smaller than this area are dropped |
+| `seed_min_distance` | 4 | Minimum pixel distance between watershed seeds in the predicted distance map. Larger values merge adjacent instances; smaller values split touching buildings more aggressively. |
 
 ## Inputs and outputs
 
@@ -172,6 +173,12 @@ Default fine-tuning budget exposed by the pipeline:
 - Observed val/iou lift on the Banepa sample: 0 to 5 percentage points. The HF pretraining already covers dense-urban data well, so the per-area finetune delta is often small. Areas visually distinct from the HOT global mix show the largest lift.
 
 The full multi-task fine-tune recipe (boundary + distance + auxiliary head supervision) lives in the upstream `dinov3-hot finetune` CLI.
+
+### Per-area post-processing tuning
+
+After training, a small Optuna study (30 trials by default, TPE sampler seeded by `split_seed`) searches the six inference post-processing params on the val set and maximises `F1@0.5 + 0.3 * mean_iou` scored by [polymetrics](https://github.com/kshitijrajsharma/polymetrics). The recommended dict lands as `fair/recommended_inference_params` on the ZenML model and as `fair:recommended_inference_params` on the promoted local-model STAC item, so fAIr can default `/predict` to these values for this finetuned model. Per-request overrides still work.
+
+Cost: roughly 9 minutes added to a 50-minute finetune for a Banepa-scale val set. Configurable via `tune_postprocess_trials`: set to 0 to skip the search and fall back to the catalog defaults. Val sets with fewer than 8 chips also fall back to defaults to avoid overfitting; this is logged as `fair/tune_postprocess_skipped`.
 
 ## License
 

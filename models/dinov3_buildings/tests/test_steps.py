@@ -109,6 +109,31 @@ def test_evaluate_model(
     assert metrics["pred_avg_vertices"] >= 0.0
 
 
+def test_tune_postprocess_skips_on_small_val(
+    toy_chips: Path,
+    toy_labels: Path,
+    base_hyperparameters: dict[str, Any],
+) -> None:
+    """Toy fixture is 6 chips; the under-8 guard returns catalog defaults without touching the model."""
+    from models.dinov3_buildings.pipeline import split_dataset, tune_postprocess
+
+    info = split_dataset.entrypoint(
+        dataset_chips=str(toy_chips),
+        dataset_labels=str(toy_labels),
+        hyperparameters=base_hyperparameters,
+    )
+    recommended = tune_postprocess.entrypoint(
+        trained_model=None,
+        dataset_chips=str(toy_chips),
+        dataset_labels=str(toy_labels),
+        hyperparameters=base_hyperparameters,
+        split_info=info,
+    )
+    assert recommended["confidence_threshold"] == 0.5
+    assert recommended["seed_min_distance"] == 4
+    assert recommended["simplify_m"] == 1.0
+
+
 def test_export_onnx(base_hyperparameters: dict[str, Any]) -> None:
     import onnx
     from dinov3_hot.config import load_config

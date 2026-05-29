@@ -108,11 +108,13 @@
             "training.inner_val_frac": 0.1,
             "training.freeze_encoder": true,
             "training.norm_stats": "hot_global",
+            "training.tune_postprocess_trials": 30,
             "inference.confidence_threshold": 0.5,
             "inference.simplify_m": 1.0,
             "inference.regularize_area_threshold": 0.55,
             "inference.regularize_overlap_tol_m2": 1.0,
-            "inference.min_area_m2": 1.0
+            "inference.min_area_m2": 1.0,
+            "inference.seed_min_distance": 4
         },
         "fair:split_spec": {
             "strategy": "spatial",
@@ -136,7 +138,9 @@
             {"key": "simplify_m", "type": "float", "default": 1.0, "min": 0.0, "max": 10.0, "description": "Douglas-Peucker tolerance in metres (EPSG:3857). 0 disables simplification."},
             {"key": "regularize_area_threshold", "type": "float", "default": 0.55, "min": 0.0, "max": 1.0, "description": "Minimum polygon-area / MBR-area ratio for the rectangle-substitution step. Lower = more aggressive squaring of corners."},
             {"key": "regularize_overlap_tol_m2", "type": "float", "default": 1.0, "min": 0.0, "max": 100.0, "description": "Maximum new neighbour overlap (m^2) allowed when substituting a polygon with its MBR. Keeps adjacent buildings from being merged."},
-            {"key": "min_area_m2", "type": "float", "default": 1.0, "min": 0.0, "max": 1000.0, "description": "Drop polygons smaller than this area (m^2). Filters specks from sub-pixel artefacts."}
+            {"key": "min_area_m2", "type": "float", "default": 1.0, "min": 0.0, "max": 1000.0, "description": "Drop polygons smaller than this area (m^2). Filters specks from sub-pixel artefacts."},
+            {"key": "seed_min_distance", "type": "int", "default": 4, "min": 1, "max": 32, "description": "Minimum pixel distance between watershed seeds picked from the predicted distance map. Larger values merge adjacent instances into a single building; smaller values split touching buildings more aggressively."},
+            {"key": "tune_postprocess_trials", "type": "int", "default": 30, "min": 0, "max": 500, "description": "Optuna trials run after training to find inference post-processing params that maximise F1 + 0.3 * mean_iou on the val set. Set to 0 to skip and use the catalog defaults. Requires at least 8 val chips; smaller val sets fall back to defaults with a warning."}
         ]
     },
     "assets": {

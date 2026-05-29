@@ -15,10 +15,19 @@ from fair.zenml.metrics import log_loss_history
 MODEL_INPUT_SIZE = 256
 _SLIDING_STRIDE = 128
 _SEED_MIN_DISTANCE = 4
+_TUNE_MIN_VAL_CHIPS = 8
 _OAM_TILE_RE = re.compile(r"^OAM-(\d+)-(\d+)-\d+\.tiff?$")
 # Inlined so the distroless inference image stays torch-free (dinov3_hot.data pulls torch).
 _HOT_MEAN = [0.4296737853453577, 0.4001659668453235, 0.34333372802741474]
 _HOT_STD = [0.2056069389373208, 0.16738555558380538, 0.1598986422586595]
+_DEFAULT_INFERENCE_PARAMS: dict[str, Any] = {
+    "confidence_threshold": 0.5,
+    "seed_min_distance": _SEED_MIN_DISTANCE,
+    "simplify_m": 1.0,
+    "regularize_area_threshold": 0.55,
+    "regularize_overlap_tol_m2": 1.0,
+    "min_area_m2": 1.0,
+}
 
 
 def preprocess(batch: dict[str, Any]) -> tuple[Any, Any]:
@@ -168,11 +177,12 @@ def predict(session: Any, input_images: str, params: dict[str, Any]) -> dict[str
     area_threshold = float(params.get("regularize_area_threshold", 0.55))
     overlap_tol_m2 = float(params.get("regularize_overlap_tol_m2", 1.0))
     min_area_m2 = float(params.get("min_area_m2", 1.0))
+    seed_min_distance = int(params.get("seed_min_distance", _SEED_MIN_DISTANCE))
 
     input_dir = resolve_directory(input_images)
     image_hwc, transform, crs = _merge_chips_to_array(input_dir)
     mask_prob, _boundary, distance = _sliding_window_onnx(session, image_hwc, _HOT_MEAN, _HOT_STD)
-    labels = instance_separate(mask_prob, distance, mask_threshold=threshold, seed_min_distance=_SEED_MIN_DISTANCE)
+    labels = instance_separate(mask_prob, distance, mask_threshold=threshold, seed_min_distance=seed_min_distance)
     gdf = vectorize(
         labels,
         transform,
@@ -519,6 +529,162 @@ def evaluate_model(
     return metrics
 
 
+def _cache_val_forwards(
+    net: Any,
+    chips_dir: Path,
+    val_chip_names: list[str],
+    mean: list[float],
+    std: list[float],
+    device: str,
+) -> list[dict[str, Any]]:
+    """One model forward per val chip; caches the three head outputs + georeferencing for tuning."""
+    import numpy as np
+    import rasterio
+    import torch
+
+    mean_arr = np.asarray(mean, dtype=np.float32).reshape(3, 1, 1)
+    std_arr = np.asarray(std, dtype=np.float32).reshape(3, 1, 1)
+    model = net.to(device).eval()
+    cache: list[dict[str, Any]] = []
+    with torch.no_grad():
+        for name in val_chip_names:
+            with rasterio.open(chips_dir / name) as src:
+                img = src.read([1, 2, 3]).astype(np.float32) / 255.0
+                transform = src.transform
+                crs = src.crs
+            t = torch.from_numpy((img - mean_arr) / std_arr).unsqueeze(0).to(device)
+            main_logits, _ = model(t)
+            logits = main_logits[0].cpu().numpy()
+            cache.append(
+                {
+                    "name": name,
+                    "mask_prob": 1.0 / (1.0 + np.exp(-logits[0])),
+                    "boundary_prob": 1.0 / (1.0 + np.exp(-logits[1])),
+                    "distance": np.tanh(logits[2]),
+                    "transform": transform,
+                    "crs": crs,
+                }
+            )
+    return cache
+
+
+def _gt_clipped_to_val(labels_geojson: Path, cache: list[dict[str, Any]]) -> Any:
+    """Read ground-truth polygons and clip to the union of val chip extents in the val CRS."""
+    import geopandas as gpd
+    import rasterio
+    import shapely.geometry as sgeom
+    from shapely.ops import unary_union
+
+    boxes = [
+        sgeom.box(*rasterio.transform.array_bounds(*entry["mask_prob"].shape, entry["transform"])) for entry in cache
+    ]
+    val_union = unary_union(boxes)
+    gt = gpd.read_file(labels_geojson)
+    crs = cache[0]["crs"]
+    if gt.crs != crs:
+        gt = gt.to_crs(crs)
+    return gt[gt.intersects(val_union)].copy()
+
+
+def _trial_predictions(cache: list[dict[str, Any]], params: dict[str, Any]) -> Any:
+    """Run instance_separate + vectorize per cached chip with these params; return one merged gdf."""
+    import geopandas as gpd
+    import pandas as pd
+    from dinov3_hot.infer import instance_separate, vectorize
+
+    per_chip = []
+    for entry in cache:
+        labels = instance_separate(
+            entry["mask_prob"],
+            entry["distance"],
+            mask_threshold=params["confidence_threshold"],
+            seed_min_distance=params["seed_min_distance"],
+        )
+        gdf = vectorize(
+            labels,
+            entry["transform"],
+            entry["crs"],
+            min_area_m2=params["min_area_m2"],
+            simplify_m=params["simplify_m"],
+            regularize_area_threshold=params["regularize_area_threshold"],
+            regularize_overlap_tol_m2=params["regularize_overlap_tol_m2"],
+        )
+        if len(gdf):
+            per_chip.append(gdf)
+    if not per_chip:
+        return gpd.GeoDataFrame(geometry=[], crs=cache[0]["crs"])
+    return gpd.GeoDataFrame(pd.concat(per_chip, ignore_index=True), crs=per_chip[0].crs)
+
+
+@step
+def tune_postprocess(
+    trained_model: Any,
+    dataset_chips: str,
+    dataset_labels: str,
+    hyperparameters: dict[str, Any],
+    split_info: dict[str, Any],
+) -> Annotated[dict[str, Any], "recommended_inference_params"]:
+    """Optuna search over the six inference post-processing params, scored against the val set.
+    Returns current defaults if the search is disabled or the val set is below the chip-count guard."""
+    n_trials = int(hyperparameters.get("tune_postprocess_trials", 30))
+    val_chip_names = split_info["val_chip_names"]
+    if n_trials <= 0 or len(val_chip_names) < _TUNE_MIN_VAL_CHIPS:
+        skip_reason = "disabled" if n_trials <= 0 else "val_too_small"
+        log_metadata(metadata={"fair/tune_postprocess_skipped": skip_reason})
+        return dict(_DEFAULT_INFERENCE_PARAMS)
+
+    import optuna
+    import polymetrics
+    import torch
+
+    from fair.utils.data import resolve_directory
+
+    chips_dir = resolve_directory(dataset_chips, "*.tif")
+    labels_geojson = _resolve_labels_geojson(dataset_labels)
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+
+    cache = _cache_val_forwards(
+        trained_model,
+        chips_dir,
+        val_chip_names,
+        split_info["norm_mean"],
+        split_info["norm_std"],
+        device,
+    )
+    gt = _gt_clipped_to_val(labels_geojson, cache)
+
+    def objective(trial: Any) -> float:
+        params = {
+            "confidence_threshold": trial.suggest_float("confidence_threshold", 0.3, 0.7),
+            "seed_min_distance": trial.suggest_int("seed_min_distance", 2, 16),
+            "simplify_m": trial.suggest_float("simplify_m", 0.5, 3.0),
+            "regularize_area_threshold": trial.suggest_float("regularize_area_threshold", 0.4, 0.8),
+            "regularize_overlap_tol_m2": trial.suggest_float("regularize_overlap_tol_m2", 0.0, 5.0),
+            "min_area_m2": trial.suggest_float("min_area_m2", 0.0, 5.0),
+        }
+        pred = _trial_predictions(cache, params)
+        if not len(pred) or not len(gt):
+            return 0.0
+        r = polymetrics.evaluate(gt, pred, iou_threshold=0.5, compute_map=False)
+        return r.f1 + 0.3 * r.mean_iou
+
+    optuna.logging.set_verbosity(optuna.logging.WARNING)
+    study = optuna.create_study(
+        direction="maximize",
+        sampler=optuna.samplers.TPESampler(seed=split_info["seed"]),
+    )
+    study.optimize(objective, n_trials=n_trials, show_progress_bar=False)
+
+    recommended = dict(study.best_params)
+    log_metadata(
+        metadata={
+            "fair/recommended_inference_params": recommended,
+            "fair/tune_postprocess_best_score": float(study.best_value),
+        }
+    )
+    return recommended
+
+
 @step
 def run_inference(
     model_uri: str,
@@ -565,10 +731,14 @@ def export_onnx(
             dynamic_shapes={"x": {0: torch.export.Dim("batch")}},
             dynamo=True,
         )
+        # Dynamo writes weights to a sidecar .onnx.data that disappears with the temp dir;
+        # reload + save inline so the returned bytes are self-contained (~1.4 GB, under the 2 GB protobuf limit).
+        onnx.save(onnx.load(path), path, save_as_external_data=False)
         onnx.checker.check_model(path)
         return Path(path).read_bytes()
     finally:
         Path(path).unlink(missing_ok=True)
+        Path(f"{path}.data").unlink(missing_ok=True)
 
 
 @pipeline
@@ -597,6 +767,13 @@ def training_pipeline(
         hyperparameters=hyperparameters,
         split_info=split_info,
         num_classes=num_classes,
+    )
+    tune_postprocess(
+        trained_model=trained,
+        dataset_chips=dataset_chips,
+        dataset_labels=dataset_labels,
+        hyperparameters=hyperparameters,
+        split_info=split_info,
     )
     export_onnx(trained_model=trained, hyperparameters=hyperparameters, num_classes=num_classes)
 

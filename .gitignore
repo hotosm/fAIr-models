@@ -214,6 +214,7 @@ examples/*/config/*.yaml
 
 .zen
 artifacts
+ci-artifacts
 *.pkl
 
 examples/data

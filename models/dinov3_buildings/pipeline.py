@@ -586,6 +586,13 @@ def _gt_clipped_to_val(labels_geojson: Path, cache: list[dict[str, Any]]) -> Any
     return gt[gt.intersects(val_union)].copy()
 
 
+def _shape_quality(ratio: float, eps: float = 1e-6) -> float:
+    """exp(-|log(ratio)|): 1.0 at ratio=1.0, symmetric penalty for under/over (<1 or >1)."""
+    import math
+
+    return math.exp(-abs(math.log(max(ratio, eps))))
+
+
 def _trial_predictions(cache: list[dict[str, Any]], params: dict[str, Any]) -> Any:
     """Run instance_separate + vectorize per cached chip with these params; return one merged gdf."""
     import geopandas as gpd
@@ -653,11 +660,18 @@ def tune_postprocess(
     )
     gt = _gt_clipped_to_val(labels_geojson, cache)
 
+    from polymetrics.shape import (
+        compactness_delta,
+        orthogonality_delta,
+        polygon_count_ratio,
+        vertex_count_ratio,
+    )
+
     def objective(trial: Any) -> float:
         params = {
-            "confidence_threshold": trial.suggest_float("confidence_threshold", 0.3, 0.7),
+            "confidence_threshold": trial.suggest_float("confidence_threshold", 0.3, 0.8),
             "seed_min_distance": trial.suggest_int("seed_min_distance", 2, 16),
-            "simplify_m": trial.suggest_float("simplify_m", 0.5, 3.0),
+            "simplify_m": trial.suggest_float("simplify_m", 0.0, 3.0),
             "regularize_area_threshold": trial.suggest_float("regularize_area_threshold", 0.4, 0.8),
             "regularize_overlap_tol_m2": trial.suggest_float("regularize_overlap_tol_m2", 0.0, 5.0),
             "min_area_m2": trial.suggest_float("min_area_m2", 0.0, 5.0),
@@ -666,7 +680,14 @@ def tune_postprocess(
         if not len(pred) or not len(gt):
             return 0.0
         r = polymetrics.evaluate(gt, pred, iou_threshold=0.5, compute_map=False)
-        return r.f1 + 0.3 * r.mean_iou
+        return (
+            0.30 * r.f1
+            + 0.15 * r.mean_iou
+            + 0.20 * _shape_quality(polygon_count_ratio(pred, gt))
+            + 0.15 * _shape_quality(vertex_count_ratio(pred, gt))
+            + 0.10 * (1.0 - orthogonality_delta(pred, gt))
+            + 0.10 * (1.0 - compactness_delta(pred, gt))
+        )
 
     optuna.logging.set_verbosity(optuna.logging.WARNING)
     study = optuna.create_study(

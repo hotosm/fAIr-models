@@ -109,12 +109,12 @@
             "training.freeze_encoder": true,
             "training.norm_stats": "hot_global",
             "training.tune_postprocess_trials": 30,
-            "inference.confidence_threshold": 0.5,
+            "inference.confidence_threshold": 0.67,
             "inference.simplify_m": 1.0,
-            "inference.regularize_area_threshold": 0.55,
-            "inference.regularize_overlap_tol_m2": 1.0,
-            "inference.min_area_m2": 1.0,
-            "inference.seed_min_distance": 4
+            "inference.regularize_area_threshold": 0.51,
+            "inference.regularize_overlap_tol_m2": 3.4,
+            "inference.min_area_m2": 3.1,
+            "inference.seed_min_distance": 2
         },
         "fair:split_spec": {
             "strategy": "spatial",

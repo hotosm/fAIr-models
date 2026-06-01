@@ -5,7 +5,7 @@ import json
 import shutil
 import tempfile
 from pathlib import Path
-from typing import Annotated, Any
+from typing import Annotated, Any, cast
 from urllib.request import urlretrieve
 
 from zenml import log_metadata, pipeline, step
@@ -392,14 +392,14 @@ def train_yolo_model(
 
     import importlib
 
-    train_mod = importlib.import_module("hot_fair_utilities.training.yolo_v8.train")
+    train_mod = cast(Any, importlib.import_module("hot_fair_utilities.training.yolo_v8.train"))
 
     dataset_yaml = str(Path(yolo_data_dir) / "yolo_dataset.yaml")
     original_profile = dict(getattr(train_mod, "HYPERPARAM_CHANGES", {}))
     if train_overrides:
         # Runtime override of fAIr-utilities training profile so STAC controls
         # optimizer/LR without requiring an fAIr-utilities edit.
-        setattr(train_mod, "HYPERPARAM_CHANGES", {**original_profile, **train_overrides})
+        train_mod.HYPERPARAM_CHANGES = {**original_profile, **train_overrides}
     try:
         model_path, iou_accuracy = train_mod.train(
             data=data_base_path,
@@ -411,7 +411,7 @@ def train_yolo_model(
             dataset_yaml_path=dataset_yaml,
         )
     finally:
-        setattr(train_mod, "HYPERPARAM_CHANGES", original_profile)
+        train_mod.HYPERPARAM_CHANGES = original_profile
     return model_path, float(iou_accuracy)
 
 
@@ -462,7 +462,7 @@ def _extract_yolo_shapes(session: Any) -> tuple[str, int, int]:
     return input_name, input_width, input_height
 
 
-def _decode_yoloseg_instance_mask(
+def _decode_yoloseg_instances(
     box_output: Any,
     mask_output: Any,
     input_width: int,
@@ -472,20 +472,23 @@ def _decode_yoloseg_instance_mask(
     confidence_threshold: float,
     iou_threshold: float,
     num_masks: int = 32,
-) -> Any:
+) -> list[dict[str, Any]]:
     import numpy as np
     from PIL import Image
     from predictor.yoloseg.utils import nms, sigmoid, xywh2xyxy
 
     predictions = np.squeeze(np.asarray(box_output)).T
     num_classes = int(np.asarray(box_output).shape[1]) - num_masks - 4
-    scores = np.max(predictions[:, 4 : 4 + num_classes], axis=1)
+    class_scores = predictions[:, 4 : 4 + num_classes]
+    class_ids = class_scores.argmax(axis=1)
+    scores = class_scores.max(axis=1)
 
     keep = scores > confidence_threshold
     predictions = predictions[keep]
     scores = scores[keep]
+    class_ids = class_ids[keep]
     if len(scores) == 0:
-        return np.zeros((src_height, src_width), dtype=np.uint8)
+        return []
 
     box_predictions = predictions[..., : num_classes + 4]
     mask_predictions = predictions[..., num_classes + 4 :]
@@ -500,18 +503,20 @@ def _decode_yoloseg_instance_mask(
 
     indices = nms(boxes, scores, iou_threshold)
     if len(indices) == 0:
-        return np.zeros((src_height, src_width), dtype=np.uint8)
+        return []
     boxes = boxes[indices]
     mask_predictions = mask_predictions[indices]
+    scores = scores[indices]
+    class_ids = class_ids[indices]
 
     proto = np.squeeze(np.asarray(mask_output))
     num_mask, mask_h, mask_w = proto.shape
     masks = sigmoid(mask_predictions @ proto.reshape((num_mask, -1))).reshape((-1, mask_h, mask_w))
 
-    combined = np.zeros((src_height, src_width), dtype=np.uint8)
     scale_boxes = boxes / np.array([src_width, src_height, src_width, src_height], dtype=np.float32)
     scale_boxes *= np.array([mask_w, mask_h, mask_w, mask_h], dtype=np.float32)
 
+    instances: list[dict[str, Any]] = []
     for i in range(len(scale_boxes)):
         sx1, sy1 = int(np.floor(scale_boxes[i][0])), int(np.floor(scale_boxes[i][1]))
         sx2, sy2 = int(np.ceil(scale_boxes[i][2])), int(np.ceil(scale_boxes[i][3]))
@@ -528,12 +533,27 @@ def _decode_yoloseg_instance_mask(
             dtype=np.float32,
         )
         binary = (resized_crop > 0.5).astype(np.uint8)
-        combined[y1:y2, x1:x2] = np.maximum(combined[y1:y2, x1:x2], binary)
+        if not binary.any():
+            continue
 
-    return combined
+        instance_mask = np.zeros((src_height, src_width), dtype=np.uint8)
+        instance_mask[y1:y2, x1:x2] = binary
+        instances.append(
+            {
+                "confidence": float(scores[i]),
+                "class": int(class_ids[i]),
+                "mask": instance_mask,
+            }
+        )
+    return instances
 
 
-def _vectorize_binary_mask(mask: Any, transform: Any, crs: Any, confidence: float) -> list[dict[str, Any]]:
+def _vectorize_instance_mask(
+    mask: Any,
+    transform: Any,
+    crs: Any,
+    properties: dict[str, Any],
+) -> list[dict[str, Any]]:
     import numpy as np
     import rasterio.features
     from pyproj import Transformer
@@ -551,7 +571,7 @@ def _vectorize_binary_mask(mask: Any, transform: Any, crs: Any, confidence: floa
         features.append(
             {
                 "type": "Feature",
-                "properties": {"class": 0, "confidence": round(confidence, 4)},
+                "properties": properties,
                 "geometry": geom,
             }
         )
@@ -580,7 +600,7 @@ def predict(session: Any, input_images: str, params: dict[str, Any]) -> dict[str
         outputs = session.run(None, {input_name: batch})
         if len(outputs) < 2:
             continue
-        mask = _decode_yoloseg_instance_mask(
+        for instance in _decode_yoloseg_instances(
             outputs[0],
             outputs[1],
             input_width=input_width,
@@ -589,8 +609,15 @@ def predict(session: Any, input_images: str, params: dict[str, Any]) -> dict[str
             src_height=src_height,
             confidence_threshold=confidence_threshold,
             iou_threshold=iou_threshold,
-        )
-        features.extend(_vectorize_binary_mask(mask, transform, crs, confidence_threshold))
+        ):
+            properties = {
+                "confidence": round(instance["confidence"], 4),
+                "class": instance["class"],
+                "source": img_path.name,
+            }
+            features.extend(
+                _vectorize_instance_mask(instance["mask"], transform, crs, properties),
+            )
     return _build_feature_collection(features)
 
 

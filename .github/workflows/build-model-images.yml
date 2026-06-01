@@ -19,8 +19,7 @@ env:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  # Don't cancel long matrix builds mid-flight; queue the newer run instead.
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   detect:
@@ -154,11 +153,10 @@ jobs:
 
       - name: Smoke test inference image (baseline ONNX, one-shot)
         run: |
-          BASE_ONNX="$(python3 scripts/stac_asset.py "models/${{ matrix.name }}/stac-item.json" model)"
           python3 scripts/smoke_test_inference_image.py \
             --image "${{ matrix.name }}:inference" \
             --model-module "models.${{ matrix.name }}.pipeline" \
-            --model-uri "$BASE_ONNX" \
+            --model-uri "$(python3 scripts/stac_asset.py "models/${{ matrix.name }}/stac-item.json" model)" \
             --image-uri "https://tiles.openaerialmap.org/62d85d11d8499800053796c1/0/62d85d11d8499800053796c2/{z}/{x}/{y}" \
             --bbox "85.5162048339844,27.6312238466813,85.5244445800781,27.6385236142719" \
             --zoom 18 \

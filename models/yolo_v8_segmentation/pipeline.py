@@ -371,6 +371,7 @@ def train_yolo_model(
     epochs: int = 20,
     batch_size: int = 16,
     pc: float = 2.0,
+    train_overrides: dict[str, Any] | None = None,
 ) -> tuple[str, float]:
     """Fine-tune YOLOv8 segmentation and return (checkpoint_path, iou_accuracy_pct)."""
     import hot_fair_utilities.utils
@@ -389,18 +390,26 @@ def train_yolo_model(
 
     hot_fair_utilities.utils.get_yolo_iou_metrics = _safe_get_iou
 
-    from hot_fair_utilities.training.yolo_v8 import train as _train
+    import hot_fair_utilities.training.yolo_v8.train as train_mod
 
     dataset_yaml = str(Path(yolo_data_dir) / "yolo_dataset.yaml")
-    model_path, iou_accuracy = _train(
-        data=data_base_path,
-        weights=weights_path,
-        epochs=epochs,
-        batch_size=batch_size,
-        pc=pc,
-        output_path=yolo_data_dir,
-        dataset_yaml_path=dataset_yaml,
-    )
+    original_profile = dict(getattr(train_mod, "HYPERPARAM_CHANGES", {}))
+    if train_overrides:
+        # Runtime override of fAIr-utilities training profile so STAC controls
+        # optimizer/LR without requiring an fAIr-utilities edit.
+        train_mod.HYPERPARAM_CHANGES = {**original_profile, **train_overrides}
+    try:
+        model_path, iou_accuracy = train_mod.train(
+            data=data_base_path,
+            weights=weights_path,
+            epochs=epochs,
+            batch_size=batch_size,
+            pc=pc,
+            output_path=yolo_data_dir,
+            dataset_yaml_path=dataset_yaml,
+        )
+    finally:
+        train_mod.HYPERPARAM_CHANGES = original_profile
     return model_path, float(iou_accuracy)
 
 
@@ -550,7 +559,9 @@ def _vectorize_binary_mask(mask: Any, transform: Any, crs: Any, confidence: floa
 def predict(session: Any, input_images: str, params: dict[str, Any]) -> dict[str, Any]:
     from fair.utils.data import resolve_directory
 
-    confidence_threshold = float(params.get("confidence_threshold", 0.5))
+    if "confidence_threshold" not in params:
+        raise ValueError("params['confidence_threshold'] is required")
+    confidence_threshold = float(params["confidence_threshold"])
     iou_threshold = float(params.get("iou_threshold", 0.3))
     input_name, input_width, input_height = _extract_yolo_shapes(session)
 
@@ -614,6 +625,13 @@ def train_model(
     epochs = int(hyperparameters.get("epochs", 20))
     batch_size = int(hyperparameters.get("batch_size", 16))
     pc = float(hyperparameters.get("pc", 2.0))
+    optimizer = str(hyperparameters.get("optimizer", "AdamW"))
+    learning_rate = float(hyperparameters.get("learning_rate", 0.01))
+    train_overrides: dict[str, Any] = {
+        "optimizer": optimizer,
+        # Ultralytics uses lr0 as the base learning rate argument.
+        "lr0": learning_rate,
+    }
 
     yolo_dir = Path(split_info["_yolo_dir"])
     if not (yolo_dir / "yolo_dataset.yaml").exists():
@@ -641,6 +659,7 @@ def train_model(
             epochs=epochs,
             batch_size=batch_size,
             pc=pc,
+            train_overrides=train_overrides,
         )
         log_metadata(metadata={"iou_accuracy_pct": float(iou_accuracy), "checkpoint": model_path})
 

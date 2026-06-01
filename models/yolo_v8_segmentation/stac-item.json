@@ -179,6 +179,7 @@
         "mlm:hyperparameters": {
             "training.epochs": 20,
             "training.batch_size": 16,
+            "training.optimizer": "AdamW",
             "training.learning_rate": 0.01,
             "training.val_ratio": 0.2,
             "training.split_seed": 42,
@@ -211,12 +212,18 @@
                 "description": "Samples per training batch."
             },
             {
+                "key": "optimizer",
+                "type": "str",
+                "default": "AdamW",
+                "description": "Ultralytics optimizer name (e.g. AdamW, SGD, auto)."
+            },
+            {
                 "key": "learning_rate",
                 "type": "float",
-                "default": 1e-4,
-                "min": 1e-6,
-                "max": 1e-3,
-                "description": "Optimizer learning rate"
+                "default": 0.01,
+                "min": 1e-04,
+                "max": 0.1,
+                "description": "Optimizer base learning rate"
             },
             {
                 "key": "val_ratio",

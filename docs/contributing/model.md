@@ -572,11 +572,13 @@ for the full pattern.
 
 ## Testing
 
-Each model needs a `tests/` directory with three files:
+Each model needs a `tests/` directory with at least these two files:
 
-- `conftest.py` : a `generate_toy_dataset` fixture that creates toy chips + labels at test time
-- `test_steps.py` : four test functions : `test_split_dataset`, `test_train_model`, `test_evaluate_model`, `test_export_onnx`
-- `test_serve.py` : tests that call `predict(session, input_images, params)` against a mocked ONNX session and assert the output is a valid GeoJSON FeatureCollection
+- `conftest.py` : a `create_toy_data(root)` helper plus a session-scoped `generate_toy_dataset` fixture that wraps it. Both `tests/test_steps.py` and `models/test_integration.py` import `create_toy_data` to build toy chips + labels on demand.
+- `test_steps.py` : four test functions : `test_split_dataset`, `test_train_model`, `test_evaluate_model`, `test_export_onnx`. These are the functions enforced by `fair/utils/model_validator.py`.
+
+Reference models also ship `test_sampling.py` for split/sampling-specific
+checks. It is convention, not a requirement.
 
 The shared `models/conftest.py` provides common fixtures (`toy_chips`,
 `toy_labels`, `base_hyperparameters`, etc.) automatically. You only write
@@ -626,9 +628,10 @@ The shared `models/conftest.py` provides common fixtures (`toy_chips`,
 See `models/resnet18_classification/tests/`, `models/yolo11n_detection/tests/`,
 or `models/unet_segmentation/tests/` for complete working examples.
 
-```bash
-just test-models your-model   # Build Docker image + run tests
-```
+Run the tests locally with `just example <your_model>`, which exercises the
+full register → finetune → promote → predict path against the local compose
+stack. CI re-runs `tests/test_steps.py` and `models/test_integration.py`
+inside the model's Docker image (see [CI Checks](#ci-checks)).
 
 ## stac-item.json
 
@@ -718,6 +721,35 @@ When `evaluate_model` logs metrics via `log_metadata(infer_model=True)`, the pla
 copies those values to the promoted local model STAC item. Class IoU keys use the
 `classification:classes` names, e.g. `iou_background`, `iou_building` (not numeric
 indices like `iou_class_0`).
+
+!!! tip "Polygon outputs: also report object-level (cartographic) quality"
+
+    For models whose `keywords` include `polygon` (segmentation and detection
+    that emit building/road footprints), pixel IoU and box mAP alone do not
+    capture cartographic quality. fAIr cares about how usable the predicted
+    polygons are as map features: shape fidelity, boundary alignment, and
+    one-to-one object matching against ground truth.
+
+    Run [`polymetrics`](https://pypi.org/project/polymetrics/) on the
+    prediction GeoJSON against a held-out reference and include the results
+    in your PR:
+
+    ```bash
+    uvx polymetrics truth.geojson pred.geojson
+    ```
+
+    Use one of these reference datasets so results are comparable across
+    contributions:
+
+    - The **test split** of [`hotosm/vhr-building-segmentation`](https://huggingface.co/datasets/hotosm/vhr-building-segmentation)
+      on Hugging Face (recommended for building models). Run inference over
+      the test fraction only and score against its labels.
+    - The Banepa test AOI shipped in this repo: ground-truth labels under
+      `data/sample/buildings-banepa-*/` and matching imagery under
+      `data/sample/test/oam/`. Generate predictions with
+      `just example <your_model>` followed by `just test-serve <your_model>`,
+      then compare the output GeoJSON against the relevant
+      `buildings-banepa-*` labels.
 
 ### fair:split_spec
 
@@ -1100,18 +1132,17 @@ Before opening a PR, make sure:
 
 === "Docker"
 
-    - [ ] `Dockerfile` has four stages: `builder`, `runtime`, `test`, and `inference` (distroless)
+    - [ ] `Dockerfile` has five stages: `builder`, `runtime`, `test`, `inference-builder`, and `inference` (distroless)
     - [ ] `runtime` stage contains no test dependencies
     - [ ] `inference` stage installs only `fair-py-ops[serve]` + model-specific serving libs
     - [ ] `ENTRYPOINT` is `["/usr/local/bin/python"]` for runtime/test
-    - [ ] `CMD` for `inference` is `uvicorn fair.serve.base:create_app --factory --host 0.0.0.0 --port 8080`
+    - [ ] `inference` stage sets `ENTRYPOINT ["/app/.venv/bin/python", "-m", "uvicorn"]` and `CMD ["fair.serve.base:create_app", "--factory", "--host", "0.0.0.0", "--port", "8080"]`
 
 === "Tests"
 
-    - [ ] `tests/conftest.py` defines `generate_toy_dataset` fixture returning `{"chips", "labels", "dataset_stac_item"}`
+    - [ ] `tests/conftest.py` defines a `create_toy_data(root)` helper plus a `generate_toy_dataset` fixture returning `{"chips", "labels", "dataset_stac_item"}`
     - [ ] `tests/test_steps.py` defines `test_split_dataset`, `test_train_model`, `test_evaluate_model`, `test_export_onnx`
-    - [ ] `tests/test_serve.py` covers `predict(session, input_images, params)` against a mocked ONNX session
-    - [ ] `just test-models your_model` passes inside Docker
+    - [ ] `just example <your_model>` runs cleanly end-to-end against the local compose stack
 
 === "STAC"
 
@@ -1124,23 +1155,29 @@ The full requirements are described in the sections above, especially the STAC m
 
 ## CI Checks
 
+CI is split across multiple workflows. The relevant ones for a model PR:
+
 ```mermaid
 flowchart LR
-    A[PR opened] --> B[validate_model.py<br/>AST checks]
-    B --> C[validate_stac_items.py<br/>pystac + fAIr schema]
-    C --> D[docker build<br/>--target test]
-    D --> E[pytest models/name/tests/]
-    E --> F[docker build<br/>--target runtime]
-    F --> G[push to registry]
+    A[PR opened] --> B[style.yml<br/>ruff + ty + pytest fair/]
+    A --> C[validate-stac.yml<br/>just validate]
+    A --> D[build-model-images.yml]
+    A --> E[test-model.yml<br/>kind-cluster E2E]
+    D --> D1[docker build --target test]
+    D1 --> D2[pytest models/name/tests/]
+    D2 --> D3[pytest models/test_integration.py -m slow]
+    D3 --> D4[docker build --target runtime → push pr-N tag]
+    D4 --> D5[docker build --target inference]
+    D5 --> D6[smoke-test inference image<br/>base + finetuned ONNX]
+    D6 --> D7[push inference pr-N tag]
 ```
 
-On PR submission, CI will:
+On PR submission, the workflows above run:
 
-1. **Validate pipeline exports** : `scripts/validate_model.py` checks for `training_pipeline` and `inference_pipeline` (`@pipeline`), `split_dataset` (`@step`), and required test functions via AST parsing
-2. **Validate STAC item** : `scripts/validate_stac_items.py` runs `pystac` validation against the fAIr base model schema (requires `fair:metrics_spec`, `fair:split_spec`, all MLM fields, assets, keywords including a geometry type, and a supported license)
-3. **Build test Docker image** : builds `--target test` which includes pytest and zenml[server]
-4. **Run step tests** : `python -m pytest models/<name>/tests/` inside the test image validates all 4 pipeline steps with toy data
-5. **Push production image** : builds `--target runtime` (no test deps) and pushes to the container registry
+1. **Style and core tests** ([style.yml](https://github.com/hotosm/fAIr-models/blob/master/.github/workflows/style.yml)) : `ruff check`, `ruff format --diff`, `ty check`, and `pytest --cov-fail-under=95` on the `fair/` package.
+2. **STAC + model validation** ([validate-stac.yml](https://github.com/hotosm/fAIr-models/blob/master/.github/workflows/validate-stac.yml)) : runs `just validate`, which calls `scripts/validate_stac_items.py` (pystac + fAIr schema: `fair:metrics_spec`, `fair:split_spec`, MLM fields, assets, keywords including a geometry type, a supported license) and `scripts/validate_model.py` (AST checks for `training_pipeline`/`inference_pipeline` `@pipeline`, `split_dataset` `@step`, and the four required `tests/test_steps.py` functions).
+3. **Build + test in Docker** ([build-model-images.yml](https://github.com/hotosm/fAIr-models/blob/master/.github/workflows/build-model-images.yml)) : builds `--target test`, runs `pytest models/<name>/tests/`, then runs `pytest models/test_integration.py -m slow` (the same checks `just test-model` runs locally), builds `--target runtime`, pushes the runtime image as `pr-<num>` (production tags `:latest` and `:v<version>` are gated on default branch), builds `--target inference`, smoke-tests it against the Banepa OAM bbox with baseline + finetuned ONNX, and pushes the inference image as `pr-<num>-inference`.
+4. **kind-cluster E2E** ([test-model.yml](https://github.com/hotosm/fAIr-models/blob/master/.github/workflows/test-model.yml)) : spins up a kind cluster with the full helmfile stack (ZenML, MLflow, STAC, MinIO) and runs `just example <model>` + `scripts/test_serve.py` against the model. This is the per-PR parity check for `K8s Integration Test`, which only runs on `push: master`.
 
 All checks must pass before the PR is reviewed.
 
@@ -1151,7 +1188,7 @@ Once your model directory is in place (`models/<your_model>/{Dockerfile,pipeline
 ```bash title="Local dev workflow"
 just setup                             # install deps + bring up the compose stack + register ZenML stack
 just validate                          # validate STAC items + model pipelines (AST + schema)
-just test                              # unit tests (incl. fair core)
+just test                              # fair/ unit tests (project-wide)
 just build <your_model>                # build your model's training image (--target runtime)
 just example <your_model>              # register, finetune, promote, predict (uses the docker orchestrator)
 just test-serve <your_model>           # spin up the inference container and POST /predict against OAM TMS
@@ -1159,7 +1196,7 @@ just test-serve <your_model>           # spin up the inference container and POS
 
 If `just setup` reports the stack is already up from a previous session you can skip it. `just up` / `just down` start and stop the compose services without destroying volumes; `just tear` is the destructive reset.
 
-When all six commands return cleanly your model is ready to PR. CI re-runs the same `--target test` and `--target runtime` builds plus an inference smoke test against the same OAM TMS bbox (see `.github/workflows/build-model-images.yml` and the `K8s Integration Test` workflow for the parity check on a kind cluster).
+When all of these commands return cleanly your model is ready to PR. CI re-runs the same `--target test` and `--target runtime` builds plus the inference smoke test against the same OAM bbox (see [`.github/workflows/build-model-images.yml`](https://github.com/hotosm/fAIr-models/blob/master/.github/workflows/build-model-images.yml)), and runs the full kind-cluster parity check in [`.github/workflows/test-model.yml`](https://github.com/hotosm/fAIr-models/blob/master/.github/workflows/test-model.yml). The `K8s Integration Test` workflow ([`k8s-integration.yml`](https://github.com/hotosm/fAIr-models/blob/master/.github/workflows/k8s-integration.yml)) runs on `push: master` only, not on PRs.
 
 ## Reference
 

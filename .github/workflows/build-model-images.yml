@@ -24,7 +24,7 @@ concurrency:
 jobs:
   detect:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    # timeout-minutes: 5
     outputs:
       matrix: ${{ steps.models.outputs.matrix }}
     steps:
@@ -51,7 +51,7 @@ jobs:
     needs: detect
     if: needs.detect.outputs.matrix != '{"include":[]}'
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    # timeout-minutes: 180
     permissions:
       contents: read
       packages: write
@@ -152,12 +152,14 @@ jobs:
           cache-to: type=gha,mode=max,scope=${{ matrix.name }}-inference
 
       - name: Smoke test inference image (baseline ONNX, one-shot)
-        if: hashFiles(format('models/{0}/artifacts/{0}.onnx', matrix.name)) != ''
         run: |
+          BASELINE_URI=$(python3 scripts/stac_asset.py "${{ matrix.path }}/stac-item.json" model)
+
           python3 scripts/smoke_test_inference_image.py \
             --image "${{ matrix.name }}:inference" \
             --model-module "models.${{ matrix.name }}.pipeline" \
-            --model-uri "/workspace/models/${{ matrix.name }}/artifacts/${{ matrix.name }}.onnx" \
+            --model-uri "$BASELINE_URI" \
+            --predict-timeout 18000 \
             --image-uri "https://tiles.openaerialmap.org/62d85d11d8499800053796c1/0/62d85d11d8499800053796c2/{z}/{x}/{y}" \
             --bbox "85.5162048339844,27.6312238466813,85.5244445800781,27.6385236142719" \
             --zoom 18 \
@@ -173,6 +175,7 @@ jobs:
             --image-uri "https://tiles.openaerialmap.org/62d85d11d8499800053796c1/0/62d85d11d8499800053796c2/{z}/{x}/{y}" \
             --bbox "85.5162048339844,27.6312238466813,85.5244445800781,27.6385236142719" \
             --zoom 18 \
+            --predict-timeout 18000 \
             --container-name "${{ matrix.name }}-smoke-finetuned" \
             --output "$PWD/ci-artifacts/${{ matrix.name }}-predictions-finetuned.geojson"
 

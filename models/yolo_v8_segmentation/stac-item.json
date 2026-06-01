@@ -298,7 +298,7 @@
             ]
         },
         "model": {
-            "href": "https://huggingface.co/qualcomm/YOLOv8-Segmentation/resolve/2b1347cf7d0fa58cb021f68b54ebb327544aa83e/YOLOv8-Segmentation.onnx",
+            "href": "https://huggingface.co/hotosm/yolo/resolve/ff7f436c881a3fa02ce574f9e4cab6ac2f0a16da/yolov8s-seg.onnx",
             "title": "Portable ONNX inference model",
             "type": "application/octet-stream; framework=onnx",
             "roles": [

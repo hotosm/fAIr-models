@@ -71,3 +71,5 @@ just commit    # run pre-commit hooks + commitizen
 | **Local model** | Finetuned model produced by ZenML pipeline on user data |
 | **STAC catalog** | Model/dataset registry with [MLM](https://github.com/stac-extensions/mlm) and [Version](https://github.com/stac-extensions/version) extensions |
 | **ZenML pipeline** | Orchestrated training and inference workflows |
+
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/hotosm/fAIr-models)

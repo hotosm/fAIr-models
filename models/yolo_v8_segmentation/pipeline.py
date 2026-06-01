@@ -390,7 +390,9 @@ def train_yolo_model(
 
     hot_fair_utilities.utils.get_yolo_iou_metrics = _safe_get_iou
 
-    import hot_fair_utilities.training.yolo_v8.train as train_mod
+    import importlib
+
+    train_mod = importlib.import_module("hot_fair_utilities.training.yolo_v8.train")
 
     dataset_yaml = str(Path(yolo_data_dir) / "yolo_dataset.yaml")
     original_profile = dict(getattr(train_mod, "HYPERPARAM_CHANGES", {}))

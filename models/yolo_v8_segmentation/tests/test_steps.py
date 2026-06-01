@@ -26,15 +26,11 @@ def pretrained_weights(tmp_path_factory: pytest.TempPathFactory) -> str:
 def test_split_dataset(toy_chips: Path, toy_labels: Path, base_hyperparameters: dict[str, Any]) -> None:
     from models.yolo_v8_segmentation.pipeline import split_dataset
 
-    hyperparameters = dict(base_hyperparameters)
-    hyperparameters.update(
-        {
-            "training.epochs": 1,
-            "training.batch_size": 1,
-            "training.val_ratio": 0.25,
-            "training.split_seed": 42,
-        }
-    )
+    hyperparameters = {
+        **base_hyperparameters,
+        "val_ratio": 0.25,
+        "split_seed": 42,
+    }
     result = split_dataset.entrypoint(
         dataset_chips=str(toy_chips),
         dataset_labels=str(toy_labels),
@@ -59,15 +55,12 @@ def test_train_model(
 ) -> None:
     from models.yolo_v8_segmentation.pipeline import split_dataset, train_model
 
-    hyperparameters = dict(base_hyperparameters)
-    hyperparameters.update(
-        {
-            "training.epochs": 1,
-            "training.batch_size": 1,
-            "training.pc": 2.0,
-            "training.val_ratio": 0.25,
-        }
-    )
+    hyperparameters = {
+        **base_hyperparameters,
+        "batch_size": 1,
+        "pc": 2.0,
+        "val_ratio": 0.25,
+    }
     split_info = split_dataset.entrypoint(
         dataset_chips=str(toy_chips),
         dataset_labels=str(toy_labels),
@@ -94,16 +87,13 @@ def test_evaluate_model(
 ) -> None:
     from models.yolo_v8_segmentation.pipeline import evaluate_model, split_dataset, train_model
 
-    hyperparameters = dict(base_hyperparameters)
-    hyperparameters.update(
-        {
-            "training.epochs": 1,
-            "training.batch_size": 1,
-            "training.pc": 2.0,
-            "training.val_ratio": 0.25,
-            "training.imgsz": 256,
-        }
-    )
+    hyperparameters = {
+        **base_hyperparameters,
+        "batch_size": 1,
+        "pc": 2.0,
+        "val_ratio": 0.25,
+        "imgsz": 256,
+    }
     split_info = split_dataset.entrypoint(
         dataset_chips=str(toy_chips),
         dataset_labels=str(toy_labels),
@@ -138,15 +128,12 @@ def test_export_onnx(
 
     from models.yolo_v8_segmentation.pipeline import export_onnx, split_dataset, train_model
 
-    hyperparameters = dict(base_hyperparameters)
-    hyperparameters.update(
-        {
-            "training.epochs": 1,
-            "training.batch_size": 1,
-            "training.pc": 2.0,
-            "training.val_ratio": 0.25,
-        }
-    )
+    hyperparameters = {
+        **base_hyperparameters,
+        "batch_size": 1,
+        "pc": 2.0,
+        "val_ratio": 0.25,
+    }
     split_info = split_dataset.entrypoint(
         dataset_chips=str(toy_chips),
         dataset_labels=str(toy_labels),

@@ -318,13 +318,8 @@ def _prepare_training_split(
 ) -> dict[str, Any]:
     from hot_fair_utilities.preprocessing.yolo_v8 import yolo_format
 
-    p_val = float(
-        hyperparameters.get(
-            "training.val_ratio",
-            hyperparameters.get("p_val", hyperparameters.get("val_ratio", 0.2)),
-        )
-    )
-    seed = int(hyperparameters.get("training.split_seed", hyperparameters.get("split_seed", 42)))
+    p_val = float(hyperparameters.get("val_ratio", hyperparameters.get("p_val", 0.2)))
+    seed = int(hyperparameters.get("split_seed", 42))
     if not 0.0 < p_val < 1.0:
         raise ValueError("p_val/val_ratio must be in (0.0, 1.0)")
 
@@ -616,9 +611,9 @@ def train_model(
     dataset_id: str | None = None,
 ) -> Annotated[bytes, "trained_model_artifact"]:
     _ = num_classes
-    epochs = int(hyperparameters.get("training.epochs", hyperparameters.get("epochs", 20)))
-    batch_size = int(hyperparameters.get("training.batch_size", hyperparameters.get("batch_size", 16)))
-    pc = float(hyperparameters.get("training.pc", hyperparameters.get("pc", 2.0)))
+    epochs = int(hyperparameters.get("epochs", 20))
+    batch_size = int(hyperparameters.get("batch_size", 16))
+    pc = float(hyperparameters.get("pc", 2.0))
 
     yolo_dir = Path(split_info["_yolo_dir"])
     if not (yolo_dir / "yolo_dataset.yaml").exists():
@@ -662,12 +657,7 @@ def evaluate_model(
     class_names: list[str] | None = None,
 ) -> Annotated[dict[str, Any], "metrics"]:
     _ = class_names
-    imgsz = int(
-        hyperparameters.get(
-            "training.imgsz",
-            hyperparameters.get("imgsz", hyperparameters.get("chip_size", 256)),
-        )
-    )
+    imgsz = int(hyperparameters.get("imgsz", 256))
 
     dataset_yaml = Path(split_info["_dataset_yaml"])
     if not dataset_yaml.exists():

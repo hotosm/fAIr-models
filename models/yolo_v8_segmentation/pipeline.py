@@ -399,7 +399,7 @@ def train_yolo_model(
     if train_overrides:
         # Runtime override of fAIr-utilities training profile so STAC controls
         # optimizer/LR without requiring an fAIr-utilities edit.
-        train_mod.HYPERPARAM_CHANGES = {**original_profile, **train_overrides}
+        setattr(train_mod, "HYPERPARAM_CHANGES", {**original_profile, **train_overrides})
     try:
         model_path, iou_accuracy = train_mod.train(
             data=data_base_path,
@@ -411,7 +411,7 @@ def train_yolo_model(
             dataset_yaml_path=dataset_yaml,
         )
     finally:
-        train_mod.HYPERPARAM_CHANGES = original_profile
+        setattr(train_mod, "HYPERPARAM_CHANGES", original_profile)
     return model_path, float(iou_accuracy)
 
 

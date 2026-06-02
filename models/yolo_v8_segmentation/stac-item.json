@@ -179,8 +179,8 @@
         "mlm:hyperparameters": {
             "training.epochs": 20,
             "training.batch_size": 16,
-            "training.optimizer": "AdamW",
-            "training.learning_rate": 0.01,
+            "training.optimizer": "auto",
+            "training.learning_rate": 0.002,
             "training.val_ratio": 0.2,
             "training.split_seed": 42,
             "training.imgsz": 256,

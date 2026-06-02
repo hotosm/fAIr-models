@@ -83,6 +83,8 @@ jobs:
           FAIR_CI: "1"
           FAIR_FORCE_CPU: "1"
           FAIR_LABEL_DOMAIN: fair
+          FAIR_TRAINING_MEMORY_REQUEST: 4Gi
+          FAIR_TRAINING_MEMORY_LIMIT: 5Gi
         run: |
           stern -n fair --selector run_id --tail=0 --timestamps=short --color=always &
           trap "kill $! 2>/dev/null || true" EXIT

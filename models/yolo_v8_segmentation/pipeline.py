@@ -435,6 +435,8 @@ def _prepare_onnx_image(img_path: Path, input_width: int, input_height: int) -> 
     import numpy as np
     import rasterio
     from PIL import Image
+    from rasterio.crs import CRS
+    from rasterio.transform import from_bounds
 
     with rasterio.open(img_path) as src:
         arr = src.read([1, 2, 3]).astype(np.float32) / 255.0
@@ -442,6 +444,29 @@ def _prepare_onnx_image(img_path: Path, input_width: int, input_height: int) -> 
         crs = src.crs
         src_height = src.height
         src_width = src.width
+
+    # Many OAM TMS endpoints serve JPEG/PNG tiles (no embedded georeference).
+    # If the chip has no CRS/transform, derive bounds from the OAM-{x}-{y}-{z} filename
+    # so polygon outputs land in the correct lon/lat location.
+    if (crs is None) or (getattr(transform, "is_identity", lambda: False)()):
+        import math
+        import re
+
+        m = re.search(r"OAM-(\d+)-(\d+)-(\d+)\.", img_path.name)
+        if m:
+            x, y, z = (int(m.group(1)), int(m.group(2)), int(m.group(3)))
+            n = 2**z
+            west = x / n * 360.0 - 180.0
+            east = (x + 1) / n * 360.0 - 180.0
+
+            def _lat_deg(tile_y: int) -> float:
+                lat_rad = math.atan(math.sinh(math.pi * (1 - 2 * tile_y / n)))
+                return lat_rad * 180.0 / math.pi
+
+            north = _lat_deg(y)
+            south = _lat_deg(y + 1)
+            transform = from_bounds(west, south, east, north, src_width, src_height)
+            crs = CRS.from_epsg(4326)
 
     resized = [
         np.asarray(Image.fromarray(arr[c]).resize((input_width, input_height), Image.Resampling.BILINEAR))

@@ -177,14 +177,14 @@
             }
         ],
         "mlm:hyperparameters": {
-            "training.epochs": 20,
+            "training.epochs": 30,
             "training.batch_size": 16,
             "training.optimizer": "auto",
             "training.learning_rate": 0.002,
             "training.val_ratio": 0.2,
             "training.split_seed": 42,
             "training.imgsz": 256,
-            "training.pc": 2.0,
+            "training.pc": 3.0,
             "inference.confidence_threshold": 0.5,
             "inference.iou_threshold": 0.3
         },
@@ -200,7 +200,7 @@
                 "type": "int",
                 "default": 8,
                 "min": 1,
-                "max": 20,
+                "max": 30,
                 "description": "Number of training epochs."
             },
             {
@@ -252,9 +252,9 @@
             {
                 "key": "pc",
                 "type": "float",
-                "default": 2.0,
+                "default": 3.0,
                 "min": 0.0,
-                "max": 10.0,
+                "max": 4.0,
                 "description": "Positive class weighting parameter used by hot_fair_utilities training."
             },
             {

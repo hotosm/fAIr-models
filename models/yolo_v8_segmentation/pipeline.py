@@ -448,7 +448,8 @@ def _prepare_onnx_image(img_path: Path, input_width: int, input_height: int) -> 
     # Many OAM TMS endpoints serve JPEG/PNG tiles (no embedded georeference).
     # If the chip has no CRS/transform, derive bounds from the OAM-{x}-{y}-{z} filename
     # so polygon outputs land in the correct lon/lat location.
-    if (crs is None) or (getattr(transform, "is_identity", lambda: False)()):
+    # Affine.is_identity is a bool property, not a method.
+    if (crs is None) or getattr(transform, "is_identity", False):
         import math
         import re
 

@@ -1,0 +1,210 @@
+{
+    "type": "Feature",
+    "stac_version": "1.1.0",
+    "stac_extensions": [
+        "https://stac-extensions.github.io/mlm/v1.5.1/schema.json",
+        "https://stac-extensions.github.io/version/v1.2.0/schema.json",
+        "https://stac-extensions.github.io/classification/v2.0.0/schema.json",
+        "https://stac-extensions.github.io/file/v2.1.0/schema.json",
+        "https://stac-extensions.github.io/raster/v1.1.0/schema.json",
+        "https://hotosm.github.io/fAIr-models/schemas/v1.0.0/base-model/schema.json"
+    ],
+    "id": "dinov3s-buildings",
+    "geometry": {
+        "type": "Polygon",
+        "coordinates": [[[-180, -90], [180, -90], [180, 90], [-180, 90], [-180, -90]]]
+    },
+    "bbox": [-180, -90, 180, 90],
+    "properties": {
+        "datetime": "2026-05-21T00:00:00Z",
+        "created": "2026-05-18T00:00:00Z",
+        "updated": "2026-05-21T00:00:00Z",
+        "title": "DINO Buildings Small",
+        "description": "Frozen DINOv3-ViT-S/16 (LVD1689M) encoder with a UperNet decoder, multi-task auxiliary heads (boundary + signed distance), and watershed instance separation, for binary building segmentation from very high resolution RGB aerial imagery. Decoder pretrained on hotosm/vhr-building-segmentation (~37k chips, OAM + OSM, global). Approximately 6.6x smaller than the dinov3l-buildings ViT-L variant (53M total params vs 343M, 462 MB ckpt vs 1.73 GB) for edge / constrained-infra deployment at a measurable accuracy cost. Intended for direct inference or decoder fine-tuning on small downstream OAM + OSM labelled sets (~100-200 chips).",
+        "mlm:name": "dinov3s-buildings",
+        "mlm:architecture": "ViT-S/16 + UperNet",
+        "mlm:tasks": ["semantic-segmentation"],
+        "mlm:framework": "PyTorch",
+        "mlm:framework_version": "2.7.1",
+        "mlm:pretrained": true,
+        "mlm:pretrained_source": "https://arxiv.org/abs/2508.10104",
+        "mlm:accelerator": "amd64",
+        "mlm:accelerator_count": 1,
+        "keywords": ["building", "semantic-segmentation", "polygon"],
+        "license": "Apache-2.0",
+        "version": "1",
+        "deprecated": false,
+        "providers": [
+            {
+                "name": "Kshitij Raj Sharma",
+                "roles": ["processor"],
+                "url": "https://github.com/kshitijrajsharma/dinov3-hot-ablation",
+                "description": "Author of the dinov3-hot-ablation model recipe (decoder, multi-task training, watershed + DP+MBR-safe vectorisation)."
+            },
+            {
+                "name": "Facebook Research",
+                "roles": ["licensor"],
+                "url": "https://arxiv.org/abs/2508.10104",
+                "description": "DINOv3-ViT-S/16 encoder, used frozen."
+            },
+            {
+                "name": "HOTOSM",
+                "roles": ["producer", "host"],
+                "url": "https://www.hotosm.org",
+                "description": "Humanitarian OpenStreetMap Team"
+            }
+        ],
+        "fair:metrics_spec": [
+            {"key": "fair:pixel_iou", "name": "Pixel IoU", "description": "Building-class pixel IoU on the val split: sum of intersection pixels divided by sum of union pixels across all val chips."},
+            {"key": "fair:instance_precision", "name": "Instance Precision @ IoU>0.5", "description": "Fraction of predicted building instances that match a ground-truth instance at IoU>0.5 (panoptic-style matching via torchmetrics)."},
+            {"key": "fair:instance_recall", "name": "Instance Recall @ IoU>0.5", "description": "Fraction of ground-truth building instances matched by a prediction at IoU>0.5."},
+            {"key": "fair:instance_f1", "name": "Instance F1 @ IoU>0.5", "description": "Harmonic mean of instance precision and recall, micro-averaged across the val split."},
+            {"key": "fair:pred_avg_vertices", "name": "Predicted polygon avg vertices", "description": "Mean exterior vertex count across all predicted polygons after DP+MBR-safe regularisation, measured in each polygon's local UTM zone."},
+            {"key": "fair:pred_orthogonality", "name": "Predicted polygon orthogonality", "description": "Mean per-polygon fraction of edges within 5 degrees of the minimum-rotated-rectangle dominant axis. 1.0 = perfectly rectangular, near 0 = jagged/free-form."}
+        ],
+        "mlm:input": [
+            {
+                "name": "RGB chips",
+                "bands": [{"name": "red"}, {"name": "green"}, {"name": "blue"}],
+                "input": {
+                    "shape": [-1, 3, 256, 256],
+                    "dim_order": ["batch", "bands", "height", "width"],
+                    "data_type": "float32"
+                },
+                "pre_processing_function": {
+                    "format": "python",
+                    "expression": "models.dinov3s_buildings.pipeline:preprocess"
+                }
+            }
+        ],
+        "mlm:output": [
+            {
+                "name": "segmentation logits",
+                "tasks": ["semantic-segmentation"],
+                "result": {
+                    "shape": [-1, 3, 256, 256],
+                    "dim_order": ["batch", "channel", "height", "width"],
+                    "data_type": "float32"
+                },
+                "classification:classes": [
+                    {"name": "background", "value": 0, "description": "Non-building pixels"},
+                    {"name": "building", "value": 1, "description": "Building footprints"}
+                ],
+                "post_processing_function": {
+                    "format": "python",
+                    "expression": "models.dinov3s_buildings.pipeline:postprocess"
+                },
+                "bands": []
+            }
+        ],
+        "mlm:hyperparameters": {
+            "training.epochs": 15,
+            "training.batch_size": 8,
+            "training.learning_rate": 5e-5,
+            "training.weight_decay": 0.01,
+            "training.val_ratio": 0.2,
+            "training.split_seed": 42,
+            "training.block_size": 4,
+            "training.inner_val_frac": 0.1,
+            "training.freeze_encoder": true,
+            "training.norm_stats": "hot_global",
+            "training.tune_postprocess_trials": 30,
+            "training.sample_fraction": 1.0,
+            "inference.confidence_threshold": 0.4371,
+            "inference.simplify_m": 0.9626,
+            "inference.regularize_area_threshold": 0.4949,
+            "inference.regularize_overlap_tol_m2": 3.9251,
+            "inference.min_area_m2": 2.6465,
+            "inference.seed_min_distance": 6
+        },
+        "fair:split_spec": {
+            "strategy": "spatial",
+            "default_ratio": 0.2,
+            "seed": 42,
+            "block_size": 4,
+            "description": "Spatial block split on OAM-x-y-z tile coords: chips grouped into (x // block_size, y // block_size) blocks, whole blocks assigned to train or val. Non-OAM filenames fall back to a seeded random split."
+        },
+        "fair:hyperparameters_spec": [
+            {"key": "epochs", "type": "int", "default": 15, "min": 1, "max": 500, "description": "Decoder fine-tuning epochs"},
+            {"key": "batch_size", "type": "int", "default": 8, "min": 1, "max": 64, "description": "Training batch size"},
+            {"key": "learning_rate", "type": "float", "default": 5e-5, "min": 1e-7, "max": 1.0, "description": "AdamW learning rate (decoder only; encoder is frozen)"},
+            {"key": "weight_decay", "type": "float", "default": 0.01, "min": 0.0, "max": 1.0, "description": "AdamW weight decay"},
+            {"key": "val_ratio", "type": "float", "default": 0.2, "min": 0.05, "max": 0.5, "description": "Fraction of chips held out as spatial val. Blocks are added to val until this share of total chips is reached."},
+            {"key": "split_seed", "type": "int", "default": 42, "min": 0, "max": 2147483647, "description": "Seed for block ordering in the spatial split"},
+            {"key": "block_size", "type": "int", "default": 4, "min": 1, "max": 32, "description": "Side length (in TMS tile units) of the spatial block that holds adjacent chips together; larger blocks = stronger spatial separation, fewer blocks to split."},
+            {"key": "inner_val_frac", "type": "float", "default": 0.1, "min": 0.05, "max": 0.5, "description": "Within-train holdout that upstream finetune uses for Lightning's per-epoch val_loss/val_iou and early stopping. Independent of the catalog-facing spatial val."},
+            {"key": "freeze_encoder", "type": "bool", "default": true, "description": "Keep the DINOv3 encoder frozen (recommended)"},
+            {"key": "norm_stats", "type": "str", "default": "hot_global", "values": ["hot_global", "dataset"], "description": "Input normalisation source. 'hot_global' uses mean/std from the hotosm/vhr-building-segmentation dataset (matches pretraining). 'dataset' computes per-channel mean/std from the user's finetune chips, pick this when your imagery differs substantially from HOT global imagery."},
+            {"key": "confidence_threshold", "type": "float", "default": 0.4371, "min": 0.0, "max": 1.0, "description": "Sigmoid threshold for building mask"},
+            {"key": "simplify_m", "type": "float", "default": 0.9626, "min": 0.0, "max": 10.0, "description": "Douglas-Peucker tolerance in metres (EPSG:3857). 0 disables simplification."},
+            {"key": "regularize_area_threshold", "type": "float", "default": 0.4949, "min": 0.0, "max": 1.0, "description": "Minimum polygon-area / MBR-area ratio for the rectangle-substitution step. Lower = more aggressive squaring of corners."},
+            {"key": "regularize_overlap_tol_m2", "type": "float", "default": 3.9251, "min": 0.0, "max": 100.0, "description": "Maximum new neighbour overlap (m^2) allowed when substituting a polygon with its MBR. Keeps adjacent buildings from being merged."},
+            {"key": "min_area_m2", "type": "float", "default": 2.6465, "min": 0.0, "max": 1000.0, "description": "Drop polygons smaller than this area (m^2). Filters specks from sub-pixel artefacts."},
+            {"key": "seed_min_distance", "type": "int", "default": 6, "min": 1, "max": 32, "description": "Minimum pixel distance between watershed seeds picked from the predicted distance map. Larger values merge adjacent instances into a single building; smaller values split touching buildings more aggressively."},
+            {"key": "tune_postprocess_trials", "type": "int", "default": 30, "min": 0, "max": 500, "description": "Optuna trials run after training to find inference post-processing params that maximise F1 + 0.3 * mean_iou on the val set. Set to 0 to skip and use the catalog defaults. Requires at least 8 val chips; smaller val sets fall back to defaults with a warning."},
+            {"key": "sample_fraction", "type": "float", "default": 1.0, "min": 0.001, "max": 1.0, "description": "Fraction of the train split actually loaded by the upstream dataloader (maps to dinov3_hot cfg.data_pct). Set to a small value in CI smoke runs to keep memory and time low. 1.0 uses everything."}
+        ]
+    },
+    "assets": {
+        "checkpoint": {
+            "href": "https://huggingface.co/kshitijrajsharma/dinov3-hot-buildings/resolve/main/dinov3s_upernet_hot.ckpt",
+            "title": "Pretrained Lightning checkpoint (decoder fine-tuned on HOT VHR)",
+            "type": "application/octet-stream; framework=pytorch",
+            "roles": ["mlm:model", "mlm:weights"],
+            "mlm:artifact_type": "torch.save",
+            "raster:bands": [{"name": "red"}, {"name": "green"}, {"name": "blue"}]
+        },
+        "model": {
+            "href": "https://huggingface.co/kshitijrajsharma/dinov3-hot-buildings/resolve/main/dinov3s_buildings.onnx",
+            "title": "Portable ONNX inference model",
+            "type": "application/octet-stream; framework=onnx",
+            "roles": ["mlm:model", "mlm:compiled"],
+            "mlm:artifact_type": "onnx",
+            "raster:bands": [{"name": "red"}, {"name": "green"}, {"name": "blue"}]
+        },
+        "source-code": {
+            "href": "https://github.com/hotosm/fAIr-models/tree/master/models/dinov3s_buildings",
+            "type": "text/html",
+            "roles": ["code"],
+            "mlm:entrypoint": "models.dinov3s_buildings.pipeline:run_inference"
+        },
+        "mlm:training": {
+            "href": "ghcr.io/hotosm/fair-models/dinov3s_buildings:dev",
+            "type": "application/vnd.oci.image.index.v1+json",
+            "title": "Training Docker Image",
+            "roles": ["mlm:training-runtime"]
+        },
+        "mlm:inference": {
+            "href": "ghcr.io/hotosm/fair-models/dinov3s_buildings:dev-inference",
+            "type": "application/vnd.oci.image.index.v1+json",
+            "title": "Inference Docker Image",
+            "roles": ["mlm:inference-runtime"]
+        },
+        "readme": {
+            "href": "https://raw.githubusercontent.com/hotosm/fAIr-models/refs/heads/master/models/dinov3s_buildings/README.md",
+            "type": "text/markdown",
+            "roles": ["metadata"],
+            "title": "Model README"
+        }
+    },
+    "links": [
+        {
+            "rel": "license",
+            "href": "https://www.apache.org/licenses/LICENSE-2.0",
+            "type": "text/html",
+            "title": "Apache License 2.0"
+        },
+        {
+            "rel": "cite-as",
+            "href": "https://arxiv.org/abs/2508.10104",
+            "type": "text/html",
+            "title": "DINOv3 (Oquab et al., 2025), encoder"
+        },
+        {
+            "rel": "cite-as",
+            "href": "https://github.com/kshitijrajsharma/dinov3-hot-ablation",
+            "type": "text/html",
+            "title": "dinov3-hot-ablation (Kshitij Raj Sharma), decoder + training + post-processing"
+        }
+    ]
+}

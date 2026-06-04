@@ -73,7 +73,7 @@ jobs:
             ${{ env.REGISTRY }}/${{ github.repository_owner }}/fair-models/${{
             matrix.name }}
           tags: |
-            type=ref,event=pr,prefix=pr-
+            type=raw,value=dev,enable=${{ github.event_name == 'pull_request' }}
             type=raw,value=v${{ matrix.version }},enable={{is_default_branch}}
             type=raw,value=latest,enable={{is_default_branch}}
 
@@ -135,7 +135,7 @@ jobs:
             ${{ env.REGISTRY }}/${{ github.repository_owner }}/fair-models/${{
             matrix.name }}
           tags: |
-            type=ref,event=pr,prefix=pr-,suffix=-inference
+            type=raw,value=dev-inference,enable=${{ github.event_name == 'pull_request' }}
             type=raw,value=v${{ matrix.version }}-inference,enable={{is_default_branch}}
             type=raw,value=latest-inference,enable={{is_default_branch}}
 

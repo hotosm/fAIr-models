@@ -1,0 +1,9 @@
+# BuildKit uses <Dockerfile>.dockerignore automatically (no repo-level side effects)
+*
+!models/yolo11m_swimming_pools/
+!fair/
+!pyproject.toml
+!README.md
+!fair_zenml_patch.pth
+!models/conftest.py
+!models/test_integration.py

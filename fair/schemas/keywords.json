@@ -4,7 +4,8 @@
         "road",
         "tree",
         "water",
-        "landuse"
+        "landuse",
+        "swimming_pool"
     ],
     "allowed_tasks": [
         "semantic-segmentation",

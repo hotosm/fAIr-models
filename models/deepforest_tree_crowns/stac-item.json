@@ -1,0 +1,330 @@
+{
+  "type": "Feature",
+  "stac_version": "1.1.0",
+  "stac_extensions": [
+    "https://stac-extensions.github.io/mlm/v1.5.1/schema.json",
+    "https://stac-extensions.github.io/version/v1.2.0/schema.json",
+    "https://stac-extensions.github.io/classification/v2.0.0/schema.json",
+    "https://stac-extensions.github.io/file/v2.1.0/schema.json",
+    "https://stac-extensions.github.io/raster/v1.1.0/schema.json",
+    "https://hotosm.github.io/fAIr-models/schemas/v1.0.0/base-model/schema.json"
+  ],
+  "id": "deepforest-tree-crowns",
+  "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+      [
+        [
+          -180,
+          -90
+        ],
+        [
+          180,
+          -90
+        ],
+        [
+          180,
+          90
+        ],
+        [
+          -180,
+          90
+        ],
+        [
+          -180,
+          -90
+        ]
+      ]
+    ]
+  },
+  "bbox": [
+    -180,
+    -90,
+    180,
+    90
+  ],
+  "properties": {
+    "datetime": "2024-01-01T00:00:00Z",
+    "created": "2024-01-01T00:00:00Z",
+    "updated": "2024-01-01T00:00:00Z",
+    "title": "Detect small tree crowns",
+    "description": "DeepForest RetinaNet-ResNet50 detector for individual tree crowns in RGB aerial imagery. Pretrained by DeepForest on the NEON airborne forest dataset, intended for finetuning on OAM + OSM derived tree labels. Predicts one bounding-box polygon per detected crown.",
+    "mlm:name": "deepforest-tree-crowns",
+    "mlm:architecture": "RetinaNet",
+    "mlm:tasks": [
+      "object-detection"
+    ],
+    "mlm:framework": "PyTorch",
+    "mlm:framework_version": "2.10.0",
+    "mlm:pretrained": true,
+    "mlm:pretrained_source": "https://deepforest.readthedocs.io/",
+    "mlm:accelerator": "cuda",
+    "mlm:accelerator_count": 1,
+    "keywords": [
+      "tree",
+      "object-detection",
+      "polygon"
+    ],
+    "license": "MIT",
+    "version": "1",
+    "deprecated": false,
+    "providers": [
+      {
+        "name": "DeepForest",
+        "roles": [
+          "producer",
+          "licensor"
+        ],
+        "url": "https://deepforest.readthedocs.io/",
+        "description": "DeepForest tree crown detection project (Weecology, University of Florida)"
+      },
+      {
+        "name": "HOTOSM",
+        "roles": [
+          "host",
+          "processor"
+        ],
+        "url": "https://www.hotosm.org",
+        "description": "Humanitarian OpenStreetMap Team"
+      }
+    ],
+    "fair:metrics_spec": [
+      {
+        "key": "fair:precision",
+        "name": "precision",
+        "description": "Box precision at IoU 0.4 on the validation split"
+      },
+      {
+        "key": "fair:recall",
+        "name": "recall",
+        "description": "Box recall at IoU 0.4 on the validation split"
+      }
+    ],
+    "mlm:input": [
+      {
+        "name": "RGB chips",
+        "bands": [
+          {
+            "name": "red"
+          },
+          {
+            "name": "green"
+          },
+          {
+            "name": "blue"
+          }
+        ],
+        "input": {
+          "shape": [
+            3,
+            256,
+            256
+          ],
+          "dim_order": [
+            "bands",
+            "height",
+            "width"
+          ],
+          "data_type": "float32"
+        },
+        "pre_processing_function": {
+          "format": "python",
+          "expression": "models.deepforest_tree_crowns.pipeline:preprocess"
+        }
+      }
+    ],
+    "mlm:output": [
+      {
+        "name": "detections",
+        "tasks": [
+          "object-detection"
+        ],
+        "result": {
+          "shape": [
+            -1,
+            6
+          ],
+          "dim_order": [
+            "detections",
+            "values"
+          ],
+          "data_type": "float32"
+        },
+        "classification:classes": [
+          {
+            "name": "tree",
+            "value": 0,
+            "description": "Tree crown detection"
+          }
+        ],
+        "post_processing_function": {
+          "format": "python",
+          "expression": "models.deepforest_tree_crowns.pipeline:postprocess"
+        },
+        "bands": []
+      }
+    ],
+    "mlm:hyperparameters": {
+      "training.epochs": 10,
+      "training.batch_size": 4,
+      "training.learning_rate": 0.0001,
+      "training.val_ratio": 0.2,
+      "training.split_seed": 42,
+      "inference.confidence_threshold": 0.38
+    },
+    "fair:split_spec": {
+      "strategy": "random",
+      "default_ratio": 0.2,
+      "seed": 42,
+      "description": "Seeded random shuffle of labeled chips, last N% held out for validation."
+    },
+    "fair:hyperparameters_spec": [
+      {
+        "key": "epochs",
+        "type": "int",
+        "default": 10,
+        "min": 1,
+        "max": 500,
+        "description": "Number of training epochs"
+      },
+      {
+        "key": "batch_size",
+        "type": "int",
+        "default": 4,
+        "min": 1,
+        "max": 64,
+        "description": "Samples per training batch"
+      },
+      {
+        "key": "learning_rate",
+        "type": "float",
+        "default": 0.0001,
+        "min": 1e-07,
+        "max": 1.0,
+        "description": "Optimizer learning rate"
+      },
+      {
+        "key": "val_ratio",
+        "type": "float",
+        "default": 0.2,
+        "min": 0.05,
+        "max": 0.5,
+        "description": "Fraction of data held out for validation"
+      },
+      {
+        "key": "split_seed",
+        "type": "int",
+        "default": 42,
+        "min": 0,
+        "max": 2147483647,
+        "description": "Random seed for reproducible train/val split"
+      },
+      {
+        "key": "confidence_threshold",
+        "type": "float",
+        "default": 0.38,
+        "min": 0.0,
+        "max": 1.0,
+        "description": "Minimum detection confidence score to retain a predicted tree crown at inference"
+      },
+      {
+        "key": "sample_fraction",
+        "type": "float",
+        "default": 1.0,
+        "min": 0.001,
+        "max": 1.0,
+        "description": "Fraction of labeled chips used during training (stride-sampled; <1.0 enables fast smoke / CI runs)"
+      }
+    ]
+  },
+  "assets": {
+    "checkpoint": {
+      "href": "https://huggingface.co/weecology/deepforest-tree/resolve/cc21436bc5d572dde8ff5f93c1e71a32f563cace/NEON.pt",
+      "title": "Pretrained weights (DeepForest NEON tree crown RetinaNet)",
+      "type": "application/octet-stream; framework=pytorch",
+      "roles": [
+        "mlm:model",
+        "mlm:weights"
+      ],
+      "mlm:artifact_type": "torch.save",
+      "raster:bands": [
+        {
+          "name": "red"
+        },
+        {
+          "name": "green"
+        },
+        {
+          "name": "blue"
+        }
+      ]
+    },
+    "model": {
+      "href": "https://huggingface.co/kshitijrajsharma/fair-deepforest-tree-crowns/resolve/de6152aaae88957463fe5364418dcd823cb72c9c/deepforest_tree_crowns.onnx",
+      "title": "Portable ONNX inference model",
+      "type": "application/octet-stream; framework=onnx",
+      "roles": [
+        "mlm:model",
+        "mlm:compiled"
+      ],
+      "mlm:artifact_type": "onnx",
+      "raster:bands": [
+        {
+          "name": "red"
+        },
+        {
+          "name": "green"
+        },
+        {
+          "name": "blue"
+        }
+      ]
+    },
+    "source-code": {
+      "href": "https://github.com/hotosm/fAIr-models/tree/main/models/deepforest_tree_crowns",
+      "type": "text/html",
+      "roles": [
+        "code"
+      ],
+      "mlm:entrypoint": "models.deepforest_tree_crowns.pipeline:predict"
+    },
+    "mlm:training": {
+      "href": "ghcr.io/hotosm/fair-models/deepforest_tree_crowns:latest",
+      "type": "application/vnd.oci.image.index.v1+json",
+      "title": "Training Docker Image",
+      "roles": [
+        "mlm:training-runtime"
+      ]
+    },
+    "mlm:inference": {
+      "href": "ghcr.io/hotosm/fair-models/deepforest_tree_crowns:latest-inference",
+      "type": "application/vnd.oci.image.index.v1+json",
+      "title": "Inference Docker Image",
+      "roles": [
+        "mlm:inference-runtime"
+      ]
+    },
+    "readme": {
+      "href": "https://raw.githubusercontent.com/hotosm/fAIr-models/refs/heads/main/models/deepforest_tree_crowns/README.md",
+      "type": "text/markdown",
+      "roles": [
+        "metadata"
+      ],
+      "title": "Model README"
+    }
+  },
+  "links": [
+    {
+      "rel": "license",
+      "href": "https://opensource.org/license/mit",
+      "type": "text/html",
+      "title": "MIT License"
+    },
+    {
+      "rel": "cite-as",
+      "href": "https://doi.org/10.1111/2041-210X.13472",
+      "type": "text/html",
+      "title": "Weinstein et al. 2020, DeepForest: A Python package for RGB deep learning tree crown delineation"
+    }
+  ]
+}

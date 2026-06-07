@@ -252,3 +252,4 @@ CLAUDE.md
 .claude
 test_artifacts 
 ci-artifacts
+lightning_logs

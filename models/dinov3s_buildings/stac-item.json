@@ -19,7 +19,7 @@
         "datetime": "2026-05-21T00:00:00Z",
         "created": "2026-05-18T00:00:00Z",
         "updated": "2026-05-21T00:00:00Z",
-        "title": "DINO Buildings Small",
+        "title": "DINO Buildings",
         "description": "Frozen DINOv3-ViT-S/16 (LVD1689M) encoder with a UperNet decoder, multi-task auxiliary heads (boundary + signed distance), and watershed instance separation, for binary building segmentation from very high resolution RGB aerial imagery. Decoder pretrained on hotosm/vhr-building-segmentation (~37k chips, OAM + OSM, global). Approximately 6.6x smaller than the dinov3l-buildings ViT-L variant (53M total params vs 343M, 462 MB ckpt vs 1.73 GB) for edge / constrained-infra deployment at a measurable accuracy cost. Intended for direct inference or decoder fine-tuning on small downstream OAM + OSM labelled sets (~100-200 chips).",
         "mlm:name": "dinov3s-buildings",
         "mlm:architecture": "ViT-S/16 + UperNet",
@@ -30,6 +30,15 @@
         "mlm:pretrained_source": "https://arxiv.org/abs/2508.10104",
         "mlm:accelerator": "amd64",
         "mlm:accelerator_count": 1,
+        "fair:pinned": true,
+        "fair:node_pool": "ml-big8",
+        "fair:cpu_request": "3",
+        "fair:cpu_limit": "4",
+        "fair:memory_request": "4Gi",
+        "fair:memory_limit": "6Gi",
+        "fair:recommended_zoom": 19,
+        "fair:preview_location": {"type": "Point", "coordinates": [-13.23723, 8.47532]},
+        "fair:source_imagery": "https://tiles.openaerialmap.org/690585b76415e43597ffd7ea/0/690585b76415e43597ffd7eb/{z}/{x}/{y}",
         "keywords": ["building", "semantic-segmentation", "polygon"],
         "license": "Apache-2.0",
         "version": "1",
@@ -115,7 +124,10 @@
             "inference.regularize_area_threshold": 0.4949,
             "inference.regularize_overlap_tol_m2": 3.9251,
             "inference.min_area_m2": 2.6465,
-            "inference.seed_min_distance": 6
+            "inference.seed_min_distance": 6,
+            "inference.large_blob_area_px": 1500,
+            "inference.h_maxima_depth": 0.2,
+            "inference.sliding_stride": 192
         },
         "fair:split_spec": {
             "strategy": "spatial",
@@ -141,6 +153,9 @@
             {"key": "regularize_overlap_tol_m2", "type": "float", "default": 3.9251, "min": 0.0, "max": 100.0, "description": "Maximum new neighbour overlap (m^2) allowed when substituting a polygon with its MBR. Keeps adjacent buildings from being merged."},
             {"key": "min_area_m2", "type": "float", "default": 2.6465, "min": 0.0, "max": 1000.0, "description": "Drop polygons smaller than this area (m^2). Filters specks from sub-pixel artefacts."},
             {"key": "seed_min_distance", "type": "int", "default": 6, "min": 1, "max": 32, "description": "Minimum pixel distance between watershed seeds picked from the predicted distance map. Larger values merge adjacent instances into a single building; smaller values split touching buildings more aggressively."},
+            {"key": "large_blob_area_px", "type": "int", "default": 1500, "min": 200, "max": 8000, "description": "Connected-component area (pixels) above which a foreground blob is treated as large and split using distance-map h-maxima seeds instead of peak-local-max. Lower splits smaller merged clumps; higher leaves more touching buildings merged."},
+            {"key": "h_maxima_depth", "type": "float", "default": 0.2, "min": 0.05, "max": 0.5, "description": "Prominence (normalised distance units) of the h-maxima used to seed watershed splits inside large blobs. Higher gives fewer, more confident splits (less over-segmentation); lower splits more aggressively."},
+            {"key": "sliding_stride", "type": "int", "default": 192, "min": 64, "max": 256, "description": "Pixel step between 256x256 sliding windows at inference. Smaller strides overlap more (slower, marginally smoother stitching); larger strides cut window count and latency. 192 is ~1.9x faster than 128 at near-identical F1; 256 is tiling with no overlap."},
             {"key": "tune_postprocess_trials", "type": "int", "default": 30, "min": 0, "max": 500, "description": "Optuna trials run after training to find inference post-processing params that maximise F1 + 0.3 * mean_iou on the val set. Set to 0 to skip and use the catalog defaults. Requires at least 8 val chips; smaller val sets fall back to defaults with a warning."},
             {"key": "sample_fraction", "type": "float", "default": 1.0, "min": 0.001, "max": 1.0, "description": "Fraction of the train split actually loaded by the upstream dataloader (maps to dinov3_hot cfg.data_pct). Set to a small value in CI smoke runs to keep memory and time low. 1.0 uses everything."}
         ]

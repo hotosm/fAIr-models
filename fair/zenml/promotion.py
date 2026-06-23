@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import logging
 from typing import Annotated, Any
 
@@ -239,6 +237,7 @@ def publish_promoted_model(
     # Geometry: prefer caller-provided, fallback to dataset item geometry
     dataset_item = catalog_manager.get_item(DATASETS_COLLECTION, dataset_item_id)
     dataset_title: str = dataset_item.properties.get("title", dataset_item_id)
+    dataset_source_imagery: str | None = dataset_item.properties.get("fair:source_imagery")
     resolved_geometry = geometry
     if resolved_geometry is None:
         resolved_geometry = dataset_item.geometry
@@ -305,6 +304,7 @@ def publish_promoted_model(
         dataset_title=dataset_title,
         split_info=split_info,
         training_metrics_href=training_metrics_href,
+        source_imagery=dataset_source_imagery,
     )
 
     # TODO: Carry `fair:pinned` from the prior version so a retrain of a pinned

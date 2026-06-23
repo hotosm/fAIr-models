@@ -19,8 +19,6 @@ directory and passes that directory to the pipeline's `predict(session,
 input_images, params)` function.
 """
 
-from __future__ import annotations
-
 import importlib
 import json
 import logging
@@ -58,17 +56,25 @@ class ServeConfigError(RuntimeError):
 
 @lru_cache(maxsize=_ONNX_CACHE_SIZE)
 def load_session(model_uri: str) -> Any:
-    """Download the ONNX artifact and build a CPU inference session.
+    """Download the ONNX artifact and build a cached CPU inference session.
 
-    Cached so repeated requests for the same URI reuse the session.
+    Intra-op threads are capped to FAIR_KNATIVE_ONNX_THREADS so the session
+    doesn't oversubscribe the pod's CPU quota at concurrency 1.
     """
-    from onnxruntime import InferenceSession
+    from onnxruntime import GraphOptimizationLevel, InferenceSession, SessionOptions
     from upath import UPath
 
     source = UPath(model_uri)
     local_path = Path(tempfile.mkdtemp()) / (source.name or "model.onnx")
     local_path.write_bytes(source.read_bytes())
-    return InferenceSession(str(local_path), providers=["CPUExecutionProvider"])
+
+    options = SessionOptions()
+    options.graph_optimization_level = GraphOptimizationLevel.ORT_ENABLE_ALL
+    options.inter_op_num_threads = 1
+    intra_op_threads = int(os.environ.get("FAIR_KNATIVE_ONNX_THREADS", "0"))
+    if intra_op_threads > 0:
+        options.intra_op_num_threads = intra_op_threads
+    return InferenceSession(str(local_path), sess_options=options, providers=["CPUExecutionProvider"])
 
 
 def _load_pipeline() -> Any:

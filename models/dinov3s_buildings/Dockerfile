@@ -8,7 +8,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 COPY pyproject.toml README.md fair_zenml_patch.pth /tmp/fair-src/
 COPY fair /tmp/fair-src/fair
-ARG DINOV3_HOT_REF=v0.2.1
+ARG DINOV3_HOT_REF=v0.3.1
 RUN --mount=type=cache,target=/root/.cache/uv \
     SETUPTOOLS_SCM_PRETEND_VERSION=0.0.0 \
     uv pip install --no-sources \
@@ -51,7 +51,7 @@ RUN uv python install 3.13
 WORKDIR /app
 COPY pyproject.toml README.md fair_zenml_patch.pth /tmp/fair-src/
 COPY fair /tmp/fair-src/fair
-ARG DINOV3_HOT_REF=v0.2.1
+ARG DINOV3_HOT_REF=v0.3.1
 RUN --mount=type=cache,target=/python/.cache/uv \
     export SETUPTOOLS_SCM_PRETEND_VERSION=0.0.0 && \
     uv venv && uv pip install --no-sources \

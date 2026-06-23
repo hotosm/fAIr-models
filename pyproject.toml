@@ -38,9 +38,14 @@ dependencies = [
     "mlflow>=2.1.1,<4",
     "onnxruntime>=1.24.4",
     "pystac[validation]>=1.14.3,<2",
+    "reverse-geocode>=1.6.6",
+    "typer>=0.23.1",
     "universal-pathlib>=0.3.10",
     "zenml==0.94.2",
 ]
+
+[project.scripts]
+fair = "fair.cli:app"
 
 [project.optional-dependencies]
 test = [

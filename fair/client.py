@@ -25,6 +25,7 @@ from fair.stac.builders import (
 from fair.stac.catalog_manager import StacCatalogManager
 from fair.stac.collections import initialize_catalog
 from fair.stac.constants import BASE_MODELS_COLLECTION, DATASETS_COLLECTION, LOCAL_MODELS_COLLECTION
+from fair.stac.location import derive_location_props
 from fair.stac.validators import validate_compatibility, validate_item, validate_model_asset_urls
 from fair.stac.versioning import archive_previous_version, find_previous_active_item
 from fair.utils.data import (
@@ -190,6 +191,9 @@ class FairClient:
             item = pystac.Item.from_file(stac_item)
         else:
             item = build_base_model_item(**dataclasses.asdict(stac_item))
+        if item.bbox is None:
+            raise FairClientError(f"Item '{item.id}' has no bbox; cannot derive coverage")
+        item.properties.update(derive_location_props(item.properties, item.bbox))
         if errs := validate_item(item):
             raise FairClientError(f"Schema validation failed: {errs}")
         if errs := validate_model_asset_urls(item, required_keys=("checkpoint", "model"), optional_keys=()):

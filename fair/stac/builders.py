@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import json
 import re
 from dataclasses import dataclass
@@ -16,6 +14,7 @@ from fair.stac.constants import (
     LOCAL_MODEL_EXTENSIONS,
     OCI_IMAGE_INDEX_TYPE,
 )
+from fair.stac.location import derive_location_props
 from fair.stac.versioning import add_version_links
 
 
@@ -538,6 +537,7 @@ def build_local_model_item(
     dataset_title: str | None = None,
     split_info: dict[str, Any] | None = None,
     training_metrics_href: str | None = None,
+    source_imagery: str | None = None,
 ) -> pystac.Item:
     _validate_providers(providers)
     geom = geometry if geometry is not None else base_model_item.geometry
@@ -573,6 +573,12 @@ def build_local_model_item(
         properties["fair:base_model_id"] = base_model_id
     if dataset_id is not None:
         properties["fair:dataset_id"] = dataset_id
+    base_model_title = base_props.get("title")
+    if base_model_title is not None:
+        properties["fair:base_model_title"] = base_model_title
+    base_model_name = base_props.get("mlm:name")
+    if base_model_name is not None:
+        properties["fair:base_model_name"] = base_model_name
 
     # Copy fields from base model that apply to the finetuned variant
     for field in (
@@ -581,9 +587,20 @@ def build_local_model_item(
         "mlm:accelerator_count",
         "fair:metrics_spec",
         "fair:hyperparameters_spec",
+        "fair:recommended_zoom",
     ):
         if field in base_props:
             properties[field] = base_props[field]
+
+    # Record the dataset's imagery, not a base-model default: the chips were cut from it.
+    if source_imagery is not None:
+        properties["fair:source_imagery"] = source_imagery
+
+    properties["fair:preview_location"] = {
+        "type": "Point",
+        "coordinates": [(bbox[0] + bbox[2]) / 2, (bbox[1] + bbox[3]) / 2],
+    }
+    properties.update(derive_location_props(properties, bbox))
 
     if metrics:
         properties.update(metrics)

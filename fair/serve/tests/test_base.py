@@ -1,7 +1,5 @@
 """Tests for the Starlette serving app and ONNX session loader."""
 
-from __future__ import annotations
-
 import importlib
 import sys
 import textwrap
@@ -68,7 +66,9 @@ def test_load_session_is_cached(monkeypatch: pytest.MonkeyPatch, tmp_path: Path)
 
     import onnxruntime
 
-    monkeypatch.setattr(onnxruntime, "InferenceSession", lambda path, providers=None: FakeSession(path))
+    monkeypatch.setattr(
+        onnxruntime, "InferenceSession", lambda path, sess_options=None, providers=None: FakeSession(path)
+    )
 
     serve_base.load_session(str(fake_model))
     serve_base.load_session(str(fake_model))
@@ -102,7 +102,7 @@ def test_health_and_predict_routes(monkeypatch: pytest.MonkeyPatch, tmp_path: Pa
         monkeypatch.setattr(
             onnxruntime,
             "InferenceSession",
-            lambda path, providers=None: FakeSession(),
+            lambda path, sess_options=None, providers=None: FakeSession(),
         )
 
         chips_calls = _patch_fetch_chips(monkeypatch, tmp_path)

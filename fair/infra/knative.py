@@ -1,10 +1,8 @@
 """Per-model KNative Service: single config object, env-overridable."""
 
-from __future__ import annotations
-
 import os
 from collections.abc import Callable, Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
 import pystac
@@ -32,12 +30,13 @@ class KnativeConfig:
     memory_request: str = "1Gi"
     memory_limit: str = "3Gi"
     model_module_env: str = "MODEL_MODULE"
+    onnx_intra_threads: int = 0  # 0 = ORT default (no cap)
     cors_origins: str = "*"
     cors_methods: str = "*"
     cors_headers: str = "*"
 
     @classmethod
-    def from_env(cls) -> KnativeConfig:
+    def from_env(cls) -> "KnativeConfig":
         env = os.environ.get
         return cls(
             namespace=env("FAIR_KNATIVE_NAMESPACE") or cls.namespace,
@@ -53,6 +52,7 @@ class KnativeConfig:
             memory_request=env("FAIR_KNATIVE_MEMORY_REQUEST") or cls.memory_request,
             memory_limit=env("FAIR_KNATIVE_MEMORY_LIMIT") or cls.memory_limit,
             model_module_env=env("FAIR_KNATIVE_MODEL_MODULE_ENV") or cls.model_module_env,
+            onnx_intra_threads=int(env("FAIR_KNATIVE_ONNX_THREADS") or cls.onnx_intra_threads),
             cors_origins=env("FAIR_KNATIVE_CORS_ORIGINS") or cls.cors_origins,
             cors_methods=env("FAIR_KNATIVE_CORS_METHODS") or cls.cors_methods,
             cors_headers=env("FAIR_KNATIVE_CORS_HEADERS") or cls.cors_headers,
@@ -93,12 +93,17 @@ def _service_name(item: pystac.Item) -> str:
 
 
 def _container_env(cfg: KnativeConfig, entrypoint: str) -> list[dict[str, str]]:
-    return [
+    env = [
         {"name": cfg.model_module_env, "value": _module_from_entrypoint(entrypoint)},
+        {"name": "FAIR_KNATIVE_ONNX_THREADS", "value": str(cfg.onnx_intra_threads)},
         {"name": "FAIR_KNATIVE_CORS_ORIGINS", "value": cfg.cors_origins},
         {"name": "FAIR_KNATIVE_CORS_METHODS", "value": cfg.cors_methods},
         {"name": "FAIR_KNATIVE_CORS_HEADERS", "value": cfg.cors_headers},
     ]
+    # Match OpenMP to the ONNX cap so the numpy postprocess doesn't oversubscribe CPU.
+    if cfg.onnx_intra_threads > 0:
+        env.append({"name": "OMP_NUM_THREADS", "value": str(cfg.onnx_intra_threads)})
+    return env
 
 
 def build_knative_manifest(
@@ -123,13 +128,52 @@ def build_knative_manifest(
         msg = f"Item '{item.id}' source-code asset missing 'mlm:entrypoint'"
         raise KeyError(msg)
 
+    props = item.properties
+    # Per-model resources come from the STAC item so a re-register reproduces the sized pod.
+    effective_cfg = replace(
+        cfg,
+        cpu_request=str(props.get("fair:cpu_request", cfg.cpu_request)),
+        cpu_limit=str(props.get("fair:cpu_limit", cfg.cpu_limit)),
+        memory_request=str(props.get("fair:memory_request", cfg.memory_request)),
+        memory_limit=str(props.get("fair:memory_limit", cfg.memory_limit)),
+    )
+
     annotations = {
-        "autoscaling.knative.dev/min-scale": cfg.min_scale,
-        "autoscaling.knative.dev/max-scale": cfg.max_scale,
-        "autoscaling.knative.dev/scale-down-delay": cfg.scale_down_delay,
+        "autoscaling.knative.dev/min-scale": effective_cfg.min_scale,
+        "autoscaling.knative.dev/max-scale": effective_cfg.max_scale,
+        "autoscaling.knative.dev/scale-down-delay": effective_cfg.scale_down_delay,
     }
-    if cfg.target_concurrency > 0:
-        annotations["autoscaling.knative.dev/target"] = str(cfg.target_concurrency)
+    if effective_cfg.target_concurrency > 0:
+        annotations["autoscaling.knative.dev/target"] = str(effective_cfg.target_concurrency)
+
+    pod_spec: dict[str, Any] = {
+        "containerConcurrency": effective_cfg.container_concurrency,
+        "containers": [
+            {
+                "image": inference_asset.href,
+                "ports": [{"containerPort": effective_cfg.container_port}],
+                "env": _container_env(effective_cfg, entrypoint),
+                "envFrom": [
+                    {"secretRef": {"name": effective_cfg.s3_secret_name}},
+                ],
+                "resources": {
+                    "requests": {
+                        "cpu": effective_cfg.cpu_request,
+                        "memory": effective_cfg.memory_request,
+                    },
+                    "limits": {
+                        "cpu": effective_cfg.cpu_limit,
+                        "memory": effective_cfg.memory_limit,
+                    },
+                },
+            }
+        ],
+    }
+
+    # Pin to the model's declared node pool so it lands on its sized hardware.
+    node_pool = props.get("fair:node_pool")
+    if node_pool:
+        pod_spec["nodeSelector"] = {"doks.digitalocean.com/node-pool": str(node_pool)}
 
     return {
         "apiVersion": f"{KNATIVE_GROUP}/{KNATIVE_VERSION}",
@@ -143,29 +187,7 @@ def build_knative_manifest(
                 "metadata": {
                     "annotations": annotations,
                 },
-                "spec": {
-                    "containerConcurrency": cfg.container_concurrency,
-                    "containers": [
-                        {
-                            "image": inference_asset.href,
-                            "ports": [{"containerPort": cfg.container_port}],
-                            "env": _container_env(cfg, entrypoint),
-                            "envFrom": [
-                                {"secretRef": {"name": cfg.s3_secret_name}},
-                            ],
-                            "resources": {
-                                "requests": {
-                                    "cpu": cfg.cpu_request,
-                                    "memory": cfg.memory_request,
-                                },
-                                "limits": {
-                                    "cpu": cfg.cpu_limit,
-                                    "memory": cfg.memory_limit,
-                                },
-                            },
-                        }
-                    ],
-                },
+                "spec": pod_spec,
             }
         },
     }

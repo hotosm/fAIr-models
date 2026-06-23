@@ -23,10 +23,13 @@ AUX_IN_INDEX = 2
 DEFAULT_INFERENCE_PARAMS: dict[str, Any] = {
     "confidence_threshold": 0.4371,
     "seed_min_distance": 6,
+    "large_blob_area_px": 1500,
+    "h_maxima_depth": 0.2,
     "simplify_m": 0.9626,
     "regularize_area_threshold": 0.4949,
     "regularize_overlap_tol_m2": 3.9251,
     "min_area_m2": 2.6465,
+    "sliding_stride": 192,
 }
 
 
@@ -248,7 +251,7 @@ def export_onnx(
     """Export the trained decoder + frozen encoder to single-file ONNX bytes."""
     import onnx
     import torch
-    from dinov3_hot.serve import MODEL_INPUT_SIZE
+    from dinov3_hot.serve import INFERENCE_BATCH_SIZE, MODEL_INPUT_SIZE
     from torch import nn
 
     class _MainOnly(nn.Module):
@@ -260,7 +263,7 @@ def export_onnx(
             return self.wrapped(x)[0]
 
     model = _MainOnly(trained_model.cpu().eval()).eval()
-    dummy = torch.randn(1, 3, MODEL_INPUT_SIZE, MODEL_INPUT_SIZE)
+    dummy = torch.randn(INFERENCE_BATCH_SIZE, 3, MODEL_INPUT_SIZE, MODEL_INPUT_SIZE)
     with tempfile.TemporaryDirectory() as tmpdir:
         path = str(Path(tmpdir) / "model.onnx")
         torch.onnx.export(
@@ -269,7 +272,6 @@ def export_onnx(
             path,
             input_names=["image"],
             output_names=["logits"],
-            dynamic_shapes={"x": {0: torch.export.Dim("batch")}},
             dynamo=True,
         )
         # Dynamo writes weights to a sidecar `.onnx.data`; inline so the returned bytes are self-contained.

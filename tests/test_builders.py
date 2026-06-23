@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import json
 from typing import Any
 
@@ -276,6 +274,8 @@ class TestBuildLocalModelItem:
         assert local.properties["title"] == "Local UNet v2"
         assert local.properties["fair:user_id"] == "osm-42"
         assert local.properties["fair:base_model_id"] == "example-unet"
+        assert local.properties["fair:base_model_title"] == "Example UNet"
+        assert local.properties["fair:base_model_name"] == "example-unet"
         assert local.properties["fair:dataset_id"] == "ds-1"
         assert local.assets["checkpoint"].href == "https://example.com/finetuned.pt"
         assert local.assets["model"].href == "https://example.com/finetuned.onnx"
@@ -288,6 +288,75 @@ class TestBuildLocalModelItem:
             lnk for lnk in local.links if lnk.rel == "derived_from" and "datasets" in (lnk.get_href() or "")
         ]
         assert dataset_links[0].extra_fields.get("title") == "Buildings Banepa"
+
+    def test_recommended_zoom_inherited_but_not_source_imagery(self):
+        base = _base_model()
+        base.properties["fair:recommended_zoom"] = 19
+        base.properties["fair:source_imagery"] = "OpenAerialMap"
+        local = build_local_model_item(
+            base_model_item=base,
+            item_id="local-v1",
+            checkpoint_href="https://example.com/finetuned.pt",
+            onnx_href="https://example.com/finetuned.onnx",
+            mlm_hyperparameters={"epochs": 1},
+            keywords=["building"],
+            base_model_href="../base-models/example-unet/example-unet.json",
+            dataset_href="../datasets/ds-1/ds-1.json",
+            version="2",
+            title="Local UNet v2",
+            description="Finetuned model.",
+            user_id="osm-42",
+            providers=_PROVIDERS,
+        )
+        assert local.properties["fair:recommended_zoom"] == 19
+        assert "fair:source_imagery" not in local.properties
+
+    def test_source_imagery_recorded_from_dataset(self):
+        base = _base_model()
+        tms = "https://tiles.openaerialmap.org/abc/0/def/{z}/{x}/{y}"
+        local = build_local_model_item(
+            base_model_item=base,
+            item_id="local-v1",
+            checkpoint_href="https://example.com/finetuned.pt",
+            onnx_href="https://example.com/finetuned.onnx",
+            mlm_hyperparameters={"epochs": 1},
+            keywords=["building"],
+            base_model_href="../base-models/example-unet/example-unet.json",
+            dataset_href="../datasets/ds-1/ds-1.json",
+            version="2",
+            title="Local UNet v2",
+            description="Finetuned model.",
+            user_id="osm-42",
+            providers=_PROVIDERS,
+            source_imagery=tms,
+        )
+        assert local.properties["fair:source_imagery"] == tms
+
+    def test_preview_location_is_dataset_bbox_center(self):
+        base = _base_model()
+        dataset_geometry = {
+            "type": "Polygon",
+            "coordinates": [[[85.51, 27.63], [85.53, 27.63], [85.53, 27.65], [85.51, 27.65], [85.51, 27.63]]],
+        }
+        local = build_local_model_item(
+            base_model_item=base,
+            item_id="local-v1",
+            checkpoint_href="https://example.com/finetuned.pt",
+            onnx_href="https://example.com/finetuned.onnx",
+            mlm_hyperparameters={"epochs": 1},
+            keywords=["building"],
+            base_model_href="../base-models/example-unet/example-unet.json",
+            dataset_href="../datasets/ds-1/ds-1.json",
+            version="2",
+            title="Local UNet v2",
+            description="Finetuned model.",
+            user_id="osm-42",
+            providers=_PROVIDERS,
+            geometry=dataset_geometry,
+        )
+        preview = local.properties["fair:preview_location"]
+        assert preview["type"] == "Point"
+        assert preview["coordinates"] == pytest.approx([85.52, 27.64])
 
     def test_zenml_artifact_version_id_stored_on_asset(self):
         base = _base_model()

@@ -1,7 +1,6 @@
 """ZenML pipeline for YOLOv8 building instance segmentation."""
 
 import gc
-import json
 import shutil
 import tempfile
 from pathlib import Path
@@ -228,40 +227,39 @@ def preprocess(input_path: str, output_path: str, p_val: float = 0.05) -> str:
     return preprocessed_path
 
 
-def postprocess(prediction_path: str, output_geojson: str) -> dict[str, Any]:
-    """Merge predicted-mask GeoTIFF tiles into a building-footprint GeoJSON."""
-    import numpy as np
-    import rasterio
-    from hot_fair_utilities import polygonize
-
-    prediction_dir = Path(prediction_path)
-    raster_paths = sorted(p for ext in ("*.tif", "*.tiff", "*.png") for p in prediction_dir.glob(ext))
-    if not raster_paths:
-        empty = {"type": "FeatureCollection", "features": []}
-        Path(output_geojson).write_text(json.dumps(empty), encoding="utf-8")
-        return empty
-
-    has_positive_pixels = False
-    for raster_path in raster_paths:
-        with rasterio.open(raster_path) as src:
-            mask = src.read(1)
-        if np.any(mask > 0):
-            has_positive_pixels = True
-            break
-
-    if not has_positive_pixels:
-        empty = {"type": "FeatureCollection", "features": []}
-        Path(output_geojson).write_text(json.dumps(empty), encoding="utf-8")
-        return empty
-
-    polygonize(
-        input_path=prediction_path,
-        output_path=output_geojson,
-        remove_inputs=False,
-    )
-
-    with open(output_geojson, encoding="utf-8") as f:
-        return json.load(f)
+def postprocess(
+    box_output: Any,
+    mask_output: Any,
+    *,
+    input_width: int,
+    input_height: int,
+    src_width: int,
+    src_height: int,
+    transform: Any,
+    crs: Any,
+    confidence_threshold: float,
+    iou_threshold: float,
+    source: str,
+) -> list[dict[str, Any]]:
+    """Decode YOLOv8-seg ONNX outputs and return GeoJSON Features for one chip."""
+    features: list[dict[str, Any]] = []
+    for instance in _decode_yoloseg_instances(
+        box_output,
+        mask_output,
+        input_width=input_width,
+        input_height=input_height,
+        src_width=src_width,
+        src_height=src_height,
+        confidence_threshold=confidence_threshold,
+        iou_threshold=iou_threshold,
+    ):
+        properties = {
+            "confidence": round(instance["confidence"], 4),
+            "class": instance["class"],
+            "source": source,
+        }
+        features.extend(_vectorize_instance_mask(instance["mask"], transform, crs, properties))
+    return features
 
 
 def _copy_labels_geojson(labels_path: Path, destination: Path) -> None:
@@ -626,24 +624,21 @@ def predict(session: Any, input_images: str, params: dict[str, Any]) -> dict[str
         outputs = session.run(None, {input_name: batch})
         if len(outputs) < 2:
             continue
-        for instance in _decode_yoloseg_instances(
-            outputs[0],
-            outputs[1],
-            input_width=input_width,
-            input_height=input_height,
-            src_width=src_width,
-            src_height=src_height,
-            confidence_threshold=confidence_threshold,
-            iou_threshold=iou_threshold,
-        ):
-            properties = {
-                "confidence": round(instance["confidence"], 4),
-                "class": instance["class"],
-                "source": img_path.name,
-            }
-            features.extend(
-                _vectorize_instance_mask(instance["mask"], transform, crs, properties),
+        features.extend(
+            postprocess(
+                outputs[0],
+                outputs[1],
+                input_width=input_width,
+                input_height=input_height,
+                src_width=src_width,
+                src_height=src_height,
+                transform=transform,
+                crs=crs,
+                confidence_threshold=confidence_threshold,
+                iou_threshold=iou_threshold,
+                source=img_path.name,
             )
+        )
     return _build_feature_collection(features)
 
 

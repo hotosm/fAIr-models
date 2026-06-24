@@ -780,7 +780,6 @@ def run_inference(
     return predict(session, input_images, inference_params)
 
 
-
 @pipeline
 def training_pipeline(
     base_model_weights: str,

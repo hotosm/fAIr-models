@@ -780,11 +780,6 @@ def run_inference(
     return predict(session, input_images, inference_params)
 
 
-@step
-def run_postprocessing(prediction_path: str, output_geojson: str) -> dict[str, Any]:
-    """STAC entrypoint wrapper: polygonize prediction masks."""
-    return postprocess(prediction_path, output_geojson)
-
 
 @pipeline
 def training_pipeline(

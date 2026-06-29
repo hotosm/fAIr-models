@@ -551,6 +551,7 @@ def _decode_yoloseg_instances(
     import numpy as np
     from PIL import Image
     from predictor.yoloseg.utils import nms, sigmoid, xywh2xyxy
+    from scipy.ndimage import binary_fill_holes
 
     predictions = np.squeeze(np.asarray(box_output)).T
     num_classes = int(np.asarray(box_output).shape[1]) - num_masks - 4
@@ -608,6 +609,7 @@ def _decode_yoloseg_instances(
             dtype=np.float32,
         )
         binary = (resized_crop > 0.5).astype(np.uint8)
+        binary = binary_fill_holes(binary).astype(np.uint8)
         if not binary.any():
             continue
 

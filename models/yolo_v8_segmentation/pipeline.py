@@ -240,6 +240,8 @@ def postprocess(
     confidence_threshold: float,
     iou_threshold: float,
     source: str,
+    simplify_m: float = 0.5,
+    min_area_m2: float = 3.0,
 ) -> list[dict[str, Any]]:
     """Decode YOLOv8-seg ONNX outputs and return GeoJSON Features for one chip."""
     features: list[dict[str, Any]] = []
@@ -259,7 +261,56 @@ def postprocess(
             "source": source,
         }
         features.extend(_vectorize_instance_mask(instance["mask"], transform, crs, properties))
-    return features
+    return _simplify_and_filter_features(features, simplify_m=simplify_m, min_area_m2=min_area_m2)
+
+
+def _simplify_and_filter_features(
+    features: list[dict[str, Any]],
+    *,
+    simplify_m: float,
+    min_area_m2: float,
+) -> list[dict[str, Any]]:
+    """Apply geometry cleanup to reduce vertices and drop specks.
+
+    Implementation uses Shapely/GEOS for:
+    - Douglas-Peucker simplification (topology-preserving)
+    - area computation (in projected metres)
+
+    We project EPSG:4326 → EPSG:3857 so `simplify_m` and `min_area_m2` are in metres.
+    """
+    if simplify_m <= 0 and min_area_m2 <= 0:
+        return features
+
+    from pyproj import Transformer
+    from shapely.geometry import mapping, shape
+    from shapely.ops import transform as shapely_transform
+
+    project = Transformer.from_crs("EPSG:4326", "EPSG:3857", always_xy=True).transform
+    unproject = Transformer.from_crs("EPSG:3857", "EPSG:4326", always_xy=True).transform
+
+    out: list[dict[str, Any]] = []
+    for feat in features:
+        geom = feat.get("geometry")
+        if not isinstance(geom, dict):
+            continue
+
+        g = shape(geom)
+        if g.is_empty:
+            continue
+
+        g_m = shapely_transform(project, g)
+        if min_area_m2 > 0 and g_m.area < min_area_m2:
+            continue
+
+        if simplify_m > 0:
+            g_m = g_m.simplify(simplify_m, preserve_topology=True)
+            if g_m.is_empty:
+                continue
+
+        g_out = shapely_transform(unproject, g_m)
+        out.append({**feat, "geometry": mapping(g_out)})
+
+    return out
 
 
 def _copy_labels_geojson(labels_path: Path, destination: Path) -> None:
@@ -609,6 +660,8 @@ def predict(session: Any, input_images: str, params: dict[str, Any]) -> dict[str
         raise ValueError("params['confidence_threshold'] is required")
     confidence_threshold = float(params["confidence_threshold"])
     iou_threshold = float(params.get("iou_threshold", 0.3))
+    simplify_m = float(params.get("simplify_m", 0.5))
+    min_area_m2 = float(params.get("min_area_m2", 3.0))
     input_name, input_width, input_height = _extract_yolo_shapes(session)
 
     input_dir = resolve_directory(input_images)
@@ -637,6 +690,8 @@ def predict(session: Any, input_images: str, params: dict[str, Any]) -> dict[str
                 confidence_threshold=confidence_threshold,
                 iou_threshold=iou_threshold,
                 source=img_path.name,
+                simplify_m=simplify_m,
+                min_area_m2=min_area_m2,
             )
         )
     return _build_feature_collection(features)

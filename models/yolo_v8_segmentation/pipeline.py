@@ -471,6 +471,7 @@ def _restore_checkpoint(trained_model: Any):
 def _build_feature_collection(features: list[dict[str, Any]]) -> dict[str, Any]:
     return {"type": "FeatureCollection", "features": features}
 
+
 def _oam_tile_id(path: Path) -> tuple[int, int, int] | None:
     """Parse (x, y, z) from an OAM-{x}-{y}-{z} chip filename, or None if it doesn't match."""
     m = re.search(r"OAM-(\d+)-(\d+)-(\d+)\.", path.name)
@@ -798,13 +799,15 @@ def _predict_neighborhood(
                 global_bbox = [float(x1 + col_i), float(y1 + row_i), float(x2 + col_i), float(y2 + row_i)]
                 all_boxes.append(global_bbox)
                 all_scores.append(inst["confidence"])
-                all_instances.append({
-                    "confidence": inst["confidence"],
-                    "class": inst["class"],
-                    "mask": inst["mask"],
-                    "bbox": global_bbox,
-                    "transform": affine,
-                })
+                all_instances.append(
+                    {
+                        "confidence": inst["confidence"],
+                        "class": inst["class"],
+                        "mask": inst["mask"],
+                        "bbox": global_bbox,
+                        "transform": affine,
+                    }
+                )
 
     if not all_instances:
         return [], mosaic_transform, mosaic_crs, center_bounds

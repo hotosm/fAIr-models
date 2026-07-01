@@ -1,6 +1,7 @@
 """ZenML pipeline for YOLOv8 building instance segmentation."""
 
 import gc
+import re
 import shutil
 import tempfile
 from pathlib import Path
@@ -22,15 +23,6 @@ def _resolve_input_directory(path_value: str, purpose: str) -> Path:
 
     if "://" in str(path_value):
         return resolve_directory(path_value, pattern="*")
-    return _to_local_path(path_value, purpose)
-
-
-def _resolve_input_file(path_value: str, purpose: str) -> Path:
-    """Resolve local/remote file paths to a local path."""
-    from fair.utils.data import resolve_path
-
-    if "://" in str(path_value):
-        return resolve_path(path_value)
     return _to_local_path(path_value, purpose)
 
 
@@ -479,13 +471,55 @@ def _restore_checkpoint(trained_model: Any):
 def _build_feature_collection(features: list[dict[str, Any]]) -> dict[str, Any]:
     return {"type": "FeatureCollection", "features": features}
 
+def _oam_tile_id(path: Path) -> tuple[int, int, int] | None:
+    """Parse (x, y, z) from an OAM-{x}-{y}-{z} chip filename, or None if it doesn't match."""
+    m = re.search(r"OAM-(\d+)-(\d+)-(\d+)\.", path.name)
+    return (int(m.group(1)), int(m.group(2)), int(m.group(3))) if m else None
+
+
+def _oam_tile_georeference(x: int, y: int, z: int, width: int, height: int) -> tuple[Any, Any]:
+    """Derive (transform, crs) for an OAM {x}/{y}/{z} TMS tile, in EPSG:4326.
+
+    Many OAM TMS endpoints serve JPEG/PNG tiles with no embedded georeference.
+    Bounds are derived from the tile id so polygon outputs land in the correct
+    lon/lat location. Shared by the single-chip and sliding-window paths.
+    """
+    import math
+
+    from rasterio.crs import CRS
+    from rasterio.transform import from_bounds
+
+    n = 2**z
+    west = x / n * 360.0 - 180.0
+    east = (x + 1) / n * 360.0 - 180.0
+
+    def _lat_deg(tile_y: int) -> float:
+        lat_rad = math.atan(math.sinh(math.pi * (1 - 2 * tile_y / n)))
+        return lat_rad * 180.0 / math.pi
+
+    transform = from_bounds(west, _lat_deg(y + 1), east, _lat_deg(y), width, height)
+    return transform, CRS.from_epsg(4326)
+
+
+def _resize_bands_to_onnx_input(bands: list[Any], input_width: int, input_height: int) -> Any:
+    """Resize band arrays (each 2D) to the ONNX input size and stack into a (1, C, H, W) batch.
+
+    Shared by the single-chip path (_prepare_onnx_image) and the sliding-window
+    path (_predict_neighborhood), which otherwise resize with the same PIL call.
+    """
+    import numpy as np
+    from PIL import Image
+
+    resized = [
+        np.asarray(Image.fromarray(band).resize((input_width, input_height), Image.Resampling.BILINEAR))
+        for band in bands
+    ]
+    return np.stack(resized, axis=0)[np.newaxis, ...].astype(np.float32)
+
 
 def _prepare_onnx_image(img_path: Path, input_width: int, input_height: int) -> tuple[Any, Any, Any]:
     import numpy as np
     import rasterio
-    from PIL import Image
-    from rasterio.crs import CRS
-    from rasterio.transform import from_bounds
 
     with rasterio.open(img_path) as src:
         arr = src.read([1, 2, 3]).astype(np.float32) / 255.0
@@ -494,35 +528,13 @@ def _prepare_onnx_image(img_path: Path, input_width: int, input_height: int) -> 
         src_height = src.height
         src_width = src.width
 
-    # Many OAM TMS endpoints serve JPEG/PNG tiles (no embedded georeference).
-    # If the chip has no CRS/transform, derive bounds from the OAM-{x}-{y}-{z} filename
-    # so polygon outputs land in the correct lon/lat location.
     # Affine.is_identity is a bool property, not a method.
     if (crs is None) or getattr(transform, "is_identity", False):
-        import math
-        import re
+        tile_id = _oam_tile_id(img_path)
+        if tile_id is not None:
+            transform, crs = _oam_tile_georeference(*tile_id, src_width, src_height)
 
-        m = re.search(r"OAM-(\d+)-(\d+)-(\d+)\.", img_path.name)
-        if m:
-            x, y, z = (int(m.group(1)), int(m.group(2)), int(m.group(3)))
-            n = 2**z
-            west = x / n * 360.0 - 180.0
-            east = (x + 1) / n * 360.0 - 180.0
-
-            def _lat_deg(tile_y: int) -> float:
-                lat_rad = math.atan(math.sinh(math.pi * (1 - 2 * tile_y / n)))
-                return lat_rad * 180.0 / math.pi
-
-            north = _lat_deg(y)
-            south = _lat_deg(y + 1)
-            transform = from_bounds(west, south, east, north, src_width, src_height)
-            crs = CRS.from_epsg(4326)
-
-    resized = [
-        np.asarray(Image.fromarray(arr[c]).resize((input_width, input_height), Image.Resampling.BILINEAR))
-        for c in range(arr.shape[0])
-    ]
-    batch = np.stack(resized, axis=0)[np.newaxis, ...].astype(np.float32)
+    batch = _resize_bands_to_onnx_input([arr[c] for c in range(arr.shape[0])], input_width, input_height)
     return batch, transform, (src_width, src_height, input_width, input_height, crs)
 
 
@@ -620,6 +632,7 @@ def _decode_yoloseg_instances(
                 "confidence": float(scores[i]),
                 "class": int(class_ids[i]),
                 "mask": instance_mask,
+                "bbox": [float(x1), float(y1), float(x2), float(y2)],
             }
         )
     return instances
@@ -655,23 +668,202 @@ def _vectorize_instance_mask(
     return features
 
 
-def predict(session: Any, input_images: str, params: dict[str, Any]) -> dict[str, Any]:
-    from fair.utils.data import resolve_directory
+def _open_georeferenced_tile(path: Path, stack: Any) -> Any:
+    """Open a tile as a rasterio dataset, synthesizing CRS/transform from OAM filename if missing.
 
-    if "confidence_threshold" not in params:
-        raise ValueError("params['confidence_threshold'] is required")
-    confidence_threshold = float(params["confidence_threshold"])
-    iou_threshold = float(params.get("iou_threshold", 0.3))
-    simplify_m = float(params.get("simplify_m", 0.5))
-    min_area_m2 = float(params.get("min_area_m2", 3.0))
-    input_name, input_width, input_height = _extract_yolo_shapes(session)
+    Reuses _oam_tile_id / _oam_tile_georeference (same georeference fallback as
+    _prepare_onnx_image). Reused for each neighbor tile when building the 3x3 mosaic.
+    """
+    import numpy as np
+    import rasterio
+    from rasterio.io import MemoryFile
 
-    input_dir = resolve_directory(input_images)
-    patterns = ("*.png", "*.tif", "*.tiff", "*.jpg")
-    img_paths = sorted(p for pat in patterns for p in input_dir.glob(pat))
-    if not img_paths:
-        raise FileNotFoundError(f"No input images found in {input_dir}")
+    src = stack.enter_context(rasterio.open(path))
+    if src.crs is not None and not getattr(src.transform, "is_identity", False):
+        return src
 
+    tile_id = _oam_tile_id(path)
+    if tile_id is None:
+        return src
+
+    transform, crs = _oam_tile_georeference(*tile_id, src.width, src.height)
+    data = src.read()
+    mem = stack.enter_context(MemoryFile())
+    ds = stack.enter_context(
+        mem.open(
+            driver="GTiff",
+            width=src.width,
+            height=src.height,
+            count=data.shape[0],
+            dtype=str(data.dtype),
+            transform=transform,
+            crs=crs,
+        )
+    )
+    ds.write(np.asarray(data))
+    return ds
+
+
+def _predict_neighborhood(
+    session: Any,
+    center_tile_id: tuple[int, int, int],
+    tile_index: dict[tuple[int, int, int], Path],
+    *,
+    input_name: str,
+    input_width: int,
+    input_height: int,
+    confidence_threshold: float,
+    iou_threshold: float,
+) -> tuple[list[dict[str, Any]], Any, Any, Any]:
+    """Algorithm 1: 3x3 mosaic -> sliding windows -> ONNX -> decode -> offset -> global NMS.
+
+    Returns (instances, mosaic_transform, mosaic_crs, center_bounds).
+    Each instance contains mask (window-local), transform (window affine),
+    bbox (mosaic pixel coords), confidence and class.
+    """
+    from contextlib import ExitStack
+
+    import numpy as np
+    from predictor.yoloseg.utils import nms
+    from rasterio.merge import merge
+    from rasterio.windows import Window
+    from rasterio.windows import transform as window_transform
+
+    cx, cy, cz = center_tile_id
+    with ExitStack() as stack:
+        datasets = []
+        for dy in (-1, 0, 1):
+            for dx in (-1, 0, 1):
+                neighbor_path = tile_index.get((cx + dx, cy + dy, cz))
+                if neighbor_path is not None:
+                    datasets.append(_open_georeferenced_tile(neighbor_path, stack))
+
+        if not datasets:
+            return [], None, None, None
+
+        center_ds = _open_georeferenced_tile(tile_index[center_tile_id], stack)
+        center_bounds = center_ds.bounds
+        mosaic_crs = center_ds.crs
+        mosaic, mosaic_transform = merge(datasets)
+
+    if mosaic.shape[0] < 3:
+        return [], mosaic_transform, mosaic_crs, center_bounds
+
+    # mosaic is (bands, H, W); convert to (H, W, 3) float32 in [0, 1]
+    mosaic_rgb = np.transpose(mosaic[:3], (1, 2, 0)).astype(np.float32)
+    if mosaic_rgb.max() > 1.0:
+        mosaic_rgb = mosaic_rgb / 255.0
+    mosaic_h, mosaic_w = mosaic_rgb.shape[:2]
+
+    win_w = min(input_width, mosaic_w)
+    win_h = min(input_height, mosaic_h)
+    stride = max(1, input_width // 2)
+
+    x_starts = list(range(0, max(mosaic_w - win_w + 1, 1), stride))
+    y_starts = list(range(0, max(mosaic_h - win_h + 1, 1), stride))
+    if x_starts[-1] != max(mosaic_w - win_w, 0):
+        x_starts.append(max(mosaic_w - win_w, 0))
+    if y_starts[-1] != max(mosaic_h - win_h, 0):
+        y_starts.append(max(mosaic_h - win_h, 0))
+
+    all_instances: list[dict[str, Any]] = []
+    all_boxes: list[list[float]] = []
+    all_scores: list[float] = []
+
+    for row_off in y_starts:
+        for col_off in x_starts:
+            win = Window.from_slices((row_off, row_off + win_h), (col_off, col_off + win_w))
+            col_i, row_i = int(win.col_off), int(win.row_off)
+            crop = mosaic_rgb[row_i : row_i + win_h, col_i : col_i + win_w, :]
+            batch = _resize_bands_to_onnx_input([crop[:, :, c] for c in range(3)], input_width, input_height)
+
+            outputs = session.run(None, {input_name: batch})
+            if len(outputs) < 2:
+                continue
+
+            decoded = _decode_yoloseg_instances(
+                outputs[0],
+                outputs[1],
+                input_width=input_width,
+                input_height=input_height,
+                src_width=win_w,
+                src_height=win_h,
+                confidence_threshold=confidence_threshold,
+                iou_threshold=iou_threshold,
+            )
+
+            affine = window_transform(win, mosaic_transform)
+            for inst in decoded:
+                x1, y1, x2, y2 = inst["bbox"]
+                global_bbox = [float(x1 + col_i), float(y1 + row_i), float(x2 + col_i), float(y2 + row_i)]
+                all_boxes.append(global_bbox)
+                all_scores.append(inst["confidence"])
+                all_instances.append({
+                    "confidence": inst["confidence"],
+                    "class": inst["class"],
+                    "mask": inst["mask"],
+                    "bbox": global_bbox,
+                    "transform": affine,
+                })
+
+    if not all_instances:
+        return [], mosaic_transform, mosaic_crs, center_bounds
+
+    keep = nms(np.asarray(all_boxes, dtype=np.float32), np.asarray(all_scores, dtype=np.float32), iou_threshold)
+    return [all_instances[int(i)] for i in keep], mosaic_transform, mosaic_crs, center_bounds
+
+
+def _instances_to_features(
+    instances: list[dict[str, Any]],
+    *,
+    center_bounds: Any,
+    mosaic_transform: Any,
+    mosaic_crs: Any,
+    center_source: str,
+    simplify_m: float,
+    min_area_m2: float,
+) -> list[dict[str, Any]]:
+    """Algorithm 2: center-tile filter -> vectorize -> simplify -> GeoJSON features."""
+    from rasterio.transform import xy
+
+    if not instances:
+        return []
+
+    minx, miny, maxx, maxy = center_bounds
+    raw_features: list[dict[str, Any]] = []
+
+    for inst in instances:
+        x1, y1, x2, y2 = inst["bbox"]
+        world_x, world_y = xy(mosaic_transform, (y1 + y2) / 2.0, (x1 + x2) / 2.0, offset="center")
+        if not (minx <= world_x <= maxx and miny <= world_y <= maxy):
+            continue
+        properties = {
+            "confidence": round(float(inst["confidence"]), 4),
+            "class": int(inst["class"]),
+            "source": center_source,
+        }
+        raw_features.extend(_vectorize_instance_mask(inst["mask"], inst["transform"], mosaic_crs, properties))
+
+    return _simplify_and_filter_features(raw_features, simplify_m=simplify_m, min_area_m2=min_area_m2)
+
+
+def _predict_single_chips(
+    session: Any,
+    input_name: str,
+    img_paths: list[Path],
+    *,
+    input_width: int,
+    input_height: int,
+    confidence_threshold: float,
+    iou_threshold: float,
+    simplify_m: float,
+    min_area_m2: float,
+) -> list[dict[str, Any]]:
+    """Fallback for chips without an OAM-{x}-{y}-{z} filename.
+
+    No tile id means no neighborhood can be built, so each chip is decoded and
+    vectorized independently via postprocess() (CRS fallback + vectorize + simplify).
+    """
     features: list[dict[str, Any]] = []
     for img_path in img_paths:
         batch, transform, meta = _prepare_onnx_image(img_path, input_width, input_height)
@@ -692,6 +884,69 @@ def predict(session: Any, input_images: str, params: dict[str, Any]) -> dict[str
                 confidence_threshold=confidence_threshold,
                 iou_threshold=iou_threshold,
                 source=img_path.name,
+                simplify_m=simplify_m,
+                min_area_m2=min_area_m2,
+            )
+        )
+    return features
+
+
+def predict(session: Any, input_images: str, params: dict[str, Any]) -> dict[str, Any]:
+    from fair.utils.data import resolve_directory
+
+    if "confidence_threshold" not in params:
+        raise ValueError("params['confidence_threshold'] is required")
+    confidence_threshold = float(params["confidence_threshold"])
+    iou_threshold = float(params.get("iou_threshold", 0.3))
+    simplify_m = 0.5
+    min_area_m2 = 3.0
+    input_name, input_width, input_height = _extract_yolo_shapes(session)
+
+    input_dir = resolve_directory(input_images)
+    patterns = ("*.png", "*.tif", "*.tiff", "*.jpg")
+    img_paths = sorted(p for pat in patterns for p in input_dir.glob(pat))
+    if not img_paths:
+        raise FileNotFoundError(f"No input images found in {input_dir}")
+
+    tile_index: dict[tuple[int, int, int], Path] = {}
+    for p in img_paths:
+        tile_id = _oam_tile_id(p)
+        if tile_id is not None:
+            tile_index[tile_id] = p
+
+    if not tile_index:
+        features = _predict_single_chips(
+            session,
+            input_name,
+            img_paths,
+            input_width=input_width,
+            input_height=input_height,
+            confidence_threshold=confidence_threshold,
+            iou_threshold=iou_threshold,
+            simplify_m=simplify_m,
+            min_area_m2=min_area_m2,
+        )
+        return _build_feature_collection(features)
+
+    features: list[dict[str, Any]] = []
+    for center_tile_id, center_path in sorted(tile_index.items()):
+        instances, mosaic_transform, mosaic_crs, center_bounds = _predict_neighborhood(
+            session,
+            center_tile_id,
+            tile_index,
+            input_name=input_name,
+            input_width=input_width,
+            input_height=input_height,
+            confidence_threshold=confidence_threshold,
+            iou_threshold=iou_threshold,
+        )
+        features.extend(
+            _instances_to_features(
+                instances,
+                center_bounds=center_bounds,
+                mosaic_transform=mosaic_transform,
+                mosaic_crs=mosaic_crs,
+                center_source=center_path.name,
                 simplify_m=simplify_m,
                 min_area_m2=min_area_m2,
             )

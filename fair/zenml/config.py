@@ -129,7 +129,6 @@ def generate_training_config(
     overrides: dict[str, Any] | None = None,
     experiment_tracker: str | None = None,
 ) -> dict[str, Any]:
-    # ZenML config schema: https://docs.zenml.io/concepts/steps_and_pipelines/yaml_configuration
     props = base_model_item.properties
 
     hyperparams: dict[str, Any] = training_params(props.get("mlm:hyperparameters", {}))
@@ -249,7 +248,6 @@ def generate_inference_config(
     model_item: pystac.Item,
     input_images_path: str,
 ) -> dict[str, Any]:
-    # Works for both base-model and local-model items (same MLM structure)
     props = model_item.properties
 
     model_asset = model_item.assets.get("model")
@@ -270,12 +268,6 @@ def generate_inference_config(
         ],
     }
 
-    # Batch inference runs through ZenML (orchestrator pod + step pods on k8s),
-    # which needs zenml + kubernetes + the model's runtime deps. The mlm:inference
-    # asset (a distroless serving image for Knative live-serving) intentionally
-    # omits ZenML/kubernetes. So the batch pipeline uses mlm:training, which has
-    # the full toolchain. mlm:inference stays for the Knative live path only.
-    # TODO: May be in future we separate out the docker images
     runtime = model_item.assets.get("mlm:training") or model_item.assets.get("mlm:inference")
     if runtime and runtime.media_type == OCI_IMAGE_INDEX_TYPE:
         docker_cfg: dict[str, Any] = {
@@ -284,8 +276,15 @@ def generate_inference_config(
         }
         config["settings"] = {"docker": docker_cfg}
 
-    k8s = _scheduling_settings(model_item, "inference")
-    if k8s:
-        config.setdefault("steps", {}).setdefault("run_inference", {}).setdefault("settings", {}).update(k8s)
+    k8s = {
+        "orchestrator.kubernetes": {
+            "pod_settings": {
+                "node_selectors": _workload_selector("inference"),
+                "tolerations": [_workload_toleration("inference")],
+                "resources": _cpu_resources("inference"),
+            }
+        }
+    }
+    config.setdefault("steps", {}).setdefault("run_inference", {}).setdefault("settings", {}).update(k8s)
 
     return config

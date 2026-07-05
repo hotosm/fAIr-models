@@ -213,9 +213,7 @@ class FairClient:
                 raise FairClientError(f"Mirrored asset URL validation failed: {errs}")
         self._upload_assets_if_remote(item, BASE_MODELS_COLLECTION)
 
-        # FAIR_LABEL_DOMAIN unset = local-dev path with no public k8s exposure,
-        # so there is no live `/predict` URL to advertise.
-        public_domain = os.environ.get("FAIR_LABEL_DOMAIN")
+        public_domain = os.environ.get("FAIR_PREDICT_DOMAIN") or os.environ.get("FAIR_LABEL_DOMAIN")
         if public_domain:
             from fair.infra.knative import public_predict_url
 
@@ -564,7 +562,7 @@ class FairClient:
         if endpoint_asset is None:
             raise FairClientError(
                 f"Base model '{base_item.id}' has no 'mlm:inference-endpoint' asset. "
-                "Re-register the model with FAIR_LABEL_DOMAIN set so the public "
+                "Re-register the model with FAIR_PREDICT_DOMAIN set so the public "
                 "predict URL is recorded in STAC."
             )
         return endpoint_asset.href

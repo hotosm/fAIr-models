@@ -58,6 +58,14 @@ class PgStacBackend:
         item_dict = item.to_dict(transform_hrefs=False)
         item_dict["collection"] = collection_id
         with self._get_db() as db:
+            conn = db.connect()
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT partition FROM partitions WHERE collection = %s",
+                    [collection_id],
+                )
+                for (partition_name,) in cur.fetchall():
+                    cur.execute("SELECT drop_table_constraints(%s)", [partition_name])
             loader = Loader(db)
             loader.load_items(iter([item_dict]), insert_mode=Methods.upsert)
         log.info("Published %s/%s v%s", collection_id, item.id, item.properties.get("version"))
@@ -78,17 +86,23 @@ class PgStacBackend:
         return resp.status_code == 200
 
     def list_items(self, collection_id: str, *, limit: int | None = None) -> list[pystac.Item]:
-        url = f"{self._stac_api_url}/search"
-        payload: dict[str, object] = {"collections": [collection_id]}
-        if limit is not None:
-            payload["limit"] = limit
-        resp = self._http.post(url, json=payload)
-        resp.raise_for_status()
-        features = resp.json().get("features", [])
-        return [pystac.Item.from_dict(f) for f in features]
+        page_size = min(limit, 100) if limit else 100
+        payload: dict[str, object] = {"collections": [collection_id], "limit": page_size}
+        items: list[pystac.Item] = []
+        while True:
+            resp = self._http.post(f"{self._stac_api_url}/search", json=payload)
+            resp.raise_for_status()
+            data = resp.json()
+            items.extend(pystac.Item.from_dict(f) for f in data.get("features", []))
+            if limit and len(items) >= limit:
+                return items[:limit]
+            next_link = next((lnk for lnk in data.get("links", []) if lnk.get("rel") == "next"), None)
+            if not next_link or not next_link.get("body"):
+                break
+            payload = next_link["body"]
+        return items
 
     def patch_item(self, collection_id: str, item_id: str, patch: dict) -> pystac.Item:
-        # pgstac's loader has no native PATCH; do a get + merge + upsert
         item = self.get_item(collection_id, item_id)
         for key, value in patch.items():
             if key == "properties" and isinstance(value, dict):
@@ -103,7 +117,6 @@ class PgStacBackend:
         return self.publish_item(collection_id, item)
 
     def delete_item(self, collection_id: str, item_id: str) -> None:
-        # Loader has no delete API; call pgstac's delete_item() directly
         with self._get_db() as db:
             db.query_one("SELECT delete_item(%s, %s)", [item_id, collection_id])
         log.info("Deleted %s/%s", collection_id, item_id)

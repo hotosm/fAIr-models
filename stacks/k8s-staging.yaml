@@ -1,0 +1,55 @@
+# yaml-language-server: $schema=
+stack_name: k8s-staging
+zenml_version: 0.94.2
+
+_pod_defaults: &pod_defaults
+  env:
+    - name: ZENML_STORE_URL
+      value: "http://zenml.zenml.svc:80"
+    - name: AWS_ACCESS_KEY_ID
+      value: "${AWS_ACCESS_KEY_ID}"
+    - name: AWS_SECRET_ACCESS_KEY
+      value: "${AWS_SECRET_ACCESS_KEY}"
+    - name: AWS_REGION
+      value: "us-east-1"
+    - name: AWS_REQUEST_CHECKSUM_CALCULATION
+      value: "when_required"
+    - name: AWS_RESPONSE_CHECKSUM_VALIDATION
+      value: "when_required"
+    - name: MLFLOW_TRACKING_USERNAME
+      value: "${MLFLOW_ADMIN_USER}"
+    - name: MLFLOW_TRACKING_PASSWORD
+      value: "${MLFLOW_ADMIN_PASSWORD}"
+
+components:
+  orchestrator:
+    name: k8s_staging_orchestrator
+    flavor: kubernetes
+    type: orchestrator
+    configuration:
+      kubernetes_context: "arn:aws:eks:us-east-1:670261699094:cluster/hotosm-production-cluster"
+      kubernetes_namespace: zenml-pipelines
+      pod_settings: *pod_defaults
+      orchestrator_pod_settings: *pod_defaults
+  artifact_store:
+    name: s3_staging
+    flavor: s3
+    type: artifact_store
+    configuration:
+      path: s3://670261699094-zenml-artifacts-staging
+      key: "${AWS_ACCESS_KEY_ID}"
+      secret: "${AWS_SECRET_ACCESS_KEY}"
+  container_registry:
+    name: ghcr_staging
+    flavor: default
+    type: container_registry
+    configuration:
+      uri: ghcr.io/hotosm
+  experiment_tracker:
+    name: mlflow_staging
+    flavor: mlflow
+    type: experiment_tracker
+    configuration:
+      tracking_uri: "http://mlflow.mlflow.svc:80"
+      tracking_username: "${MLFLOW_ADMIN_USER}"
+      tracking_password: "${MLFLOW_ADMIN_PASSWORD}"

@@ -9,6 +9,7 @@ pf_container := "fair-dev-cli-pf"
 import 'recipes/dev.just'
 import 'recipes/dok8s.just'
 import 'recipes/examples.just'
+import 'recipes/k8s-staging.just'
 
 [doc('Deploy the full stack (default kind, pass `dok8s` for DigitalOcean)')]
 up env="dev":

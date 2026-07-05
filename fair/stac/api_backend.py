@@ -107,14 +107,21 @@ class StacApiBackend:
         return False
 
     def list_items(self, collection_id: str, *, limit: int | None = None) -> list[pystac.Item]:
-        url = f"{self._stac_api_url}/search"
-        payload: dict[str, object] = {"collections": [collection_id]}
-        if limit is not None:
-            payload["limit"] = limit
-        resp = self._http.post(url, json=payload)
-        resp.raise_for_status()
-        features = resp.json().get("features", [])
-        return [pystac.Item.from_dict(f) for f in features]
+        page_size = min(limit, 100) if limit else 100
+        payload: dict[str, object] = {"collections": [collection_id], "limit": page_size}
+        items: list[pystac.Item] = []
+        while True:
+            resp = self._http.post(f"{self._stac_api_url}/search", json=payload)
+            resp.raise_for_status()
+            data = resp.json()
+            items.extend(pystac.Item.from_dict(f) for f in data.get("features", []))
+            if limit and len(items) >= limit:
+                return items[:limit]
+            next_link = next((lnk for lnk in data.get("links", []) if lnk.get("rel") == "next"), None)
+            if not next_link or not next_link.get("body"):
+                break
+            payload = next_link["body"]
+        return items
 
     def deprecate_item(self, collection_id: str, item_id: str) -> pystac.Item:
         item = self.get_item(collection_id, item_id)

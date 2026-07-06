@@ -715,10 +715,10 @@ def _predict_neighborhood(
     input_height: int,
     confidence_threshold: float,
     iou_threshold: float,
-) -> tuple[list[dict[str, Any]], Any, Any, Any]:
+) -> tuple[list[dict[str, Any]], Any, Any]:
     """Algorithm 1: 3x3 mosaic -> sliding windows -> ONNX -> decode -> offset -> global NMS.
 
-    Returns (instances, mosaic_transform, mosaic_crs, center_bounds).
+    Returns (instances, mosaic_transform, mosaic_crs).
     Each instance contains mask (window-local), transform (window affine),
     bbox (mosaic pixel coords), confidence and class.
     """
@@ -740,15 +740,19 @@ def _predict_neighborhood(
                     datasets.append(_open_georeferenced_tile(neighbor_path, stack))
 
         if not datasets:
-            return [], None, None, None
+            return [], None, None
 
         center_ds = _open_georeferenced_tile(tile_index[center_tile_id], stack)
-        center_bounds = center_ds.bounds
         mosaic_crs = center_ds.crs
+        # Preserve the original chip scale seen by the baseline pipeline.
+        # OAM chips are typically 256x256; baseline inference resizes 256 -> ONNX input (e.g. 640).
+        # Sliding-window crops should use the chip pixel size (not the ONNX input size), then resize.
+        center_win_w = int(center_ds.width)
+        center_win_h = int(center_ds.height)
         mosaic, mosaic_transform = merge(datasets)
 
     if mosaic.shape[0] < 3:
-        return [], mosaic_transform, mosaic_crs, center_bounds
+        return [], mosaic_transform, mosaic_crs
 
     # mosaic is (bands, H, W); convert to (H, W, 3) float32 in [0, 1]
     mosaic_rgb = np.transpose(mosaic[:3], (1, 2, 0)).astype(np.float32)
@@ -756,9 +760,9 @@ def _predict_neighborhood(
         mosaic_rgb = mosaic_rgb / 255.0
     mosaic_h, mosaic_w = mosaic_rgb.shape[:2]
 
-    win_w = min(input_width, mosaic_w)
-    win_h = min(input_height, mosaic_h)
-    stride = max(1, input_width // 2)
+    win_w = min(center_win_w, mosaic_w)
+    win_h = min(center_win_h, mosaic_h)
+    stride = max(1, win_w // 2)
 
     x_starts = list(range(0, max(mosaic_w - win_w + 1, 1), stride))
     y_starts = list(range(0, max(mosaic_h - win_h + 1, 1), stride))
@@ -806,46 +810,37 @@ def _predict_neighborhood(
                         "mask": inst["mask"],
                         "bbox": global_bbox,
                         "transform": affine,
+                        "crs": mosaic_crs,
                     }
                 )
 
     if not all_instances:
-        return [], mosaic_transform, mosaic_crs, center_bounds
+        return [], mosaic_transform, mosaic_crs
 
     keep = nms(np.asarray(all_boxes, dtype=np.float32), np.asarray(all_scores, dtype=np.float32), iou_threshold)
-    return [all_instances[int(i)] for i in keep], mosaic_transform, mosaic_crs, center_bounds
+    return [all_instances[int(i)] for i in keep], mosaic_transform, mosaic_crs
 
 
 def _instances_to_features(
     instances: list[dict[str, Any]],
     *,
-    center_bounds: Any,
-    mosaic_transform: Any,
-    mosaic_crs: Any,
-    center_source: str,
     simplify_m: float,
     min_area_m2: float,
 ) -> list[dict[str, Any]]:
-    """Algorithm 2: center-tile filter -> vectorize -> simplify -> GeoJSON features."""
-    from rasterio.transform import xy
+    """Algorithm 2: vectorize -> simplify -> GeoJSON features."""
 
     if not instances:
         return []
 
-    minx, miny, maxx, maxy = center_bounds
     raw_features: list[dict[str, Any]] = []
 
     for inst in instances:
-        x1, y1, x2, y2 = inst["bbox"]
-        world_x, world_y = xy(mosaic_transform, (y1 + y2) / 2.0, (x1 + x2) / 2.0, offset="center")
-        if not (minx <= world_x <= maxx and miny <= world_y <= maxy):
-            continue
         properties = {
             "confidence": round(float(inst["confidence"]), 4),
             "class": int(inst["class"]),
-            "source": center_source,
+            "source": str(inst.get("source", "")),
         }
-        raw_features.extend(_vectorize_instance_mask(inst["mask"], inst["transform"], mosaic_crs, properties))
+        raw_features.extend(_vectorize_instance_mask(inst["mask"], inst["transform"], inst["crs"], properties))
 
     return _simplify_and_filter_features(raw_features, simplify_m=simplify_m, min_area_m2=min_area_m2)
 
@@ -931,9 +926,15 @@ def predict(session: Any, input_images: str, params: dict[str, Any]) -> dict[str
         )
         return _build_feature_collection(features)
 
-    features: list[dict[str, Any]] = []
+    import numpy as np
+    from predictor.yoloseg.utils import nms
+    from rasterio.transform import xy
+
+    aoi_instances: list[dict[str, Any]] = []
+    aoi_boxes: list[list[float]] = []
+    aoi_scores: list[float] = []
     for center_tile_id, center_path in sorted(tile_index.items()):
-        instances, mosaic_transform, mosaic_crs, center_bounds = _predict_neighborhood(
+        instances, mosaic_transform, mosaic_crs = _predict_neighborhood(
             session,
             center_tile_id,
             tile_index,
@@ -943,17 +944,27 @@ def predict(session: Any, input_images: str, params: dict[str, Any]) -> dict[str
             confidence_threshold=confidence_threshold,
             iou_threshold=iou_threshold,
         )
-        features.extend(
-            _instances_to_features(
-                instances,
-                center_bounds=center_bounds,
-                mosaic_transform=mosaic_transform,
-                mosaic_crs=mosaic_crs,
-                center_source=center_path.name,
-                simplify_m=simplify_m,
-                min_area_m2=min_area_m2,
-            )
-        )
+        if not instances or mosaic_transform is None:
+            continue
+
+        for inst in instances:
+            x1, y1, x2, y2 = inst["bbox"]
+            x_ul, y_ul = xy(mosaic_transform, y1, x1, offset="ul")
+            x_lr, y_lr = xy(mosaic_transform, y2, x2, offset="lr")
+            world_bbox = [min(x_ul, x_lr), min(y_ul, y_lr), max(x_ul, x_lr), max(y_ul, y_lr)]
+            inst["world_bbox"] = world_bbox
+            inst["source"] = center_path.name
+            inst["crs"] = mosaic_crs
+            aoi_instances.append(inst)
+            aoi_boxes.append(world_bbox)
+            aoi_scores.append(float(inst["confidence"]))
+
+    if not aoi_instances:
+        return _build_feature_collection([])
+
+    keep = nms(np.asarray(aoi_boxes, dtype=np.float32), np.asarray(aoi_scores, dtype=np.float32), iou_threshold)
+    kept_instances = [aoi_instances[int(i)] for i in keep]
+    features = _instances_to_features(kept_instances, simplify_m=simplify_m, min_area_m2=min_area_m2)
     return _build_feature_collection(features)
 
 

@@ -12,6 +12,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - add ZenML integration for model promotion and STAC catalog synchronization
 - implement STAC catalog management and builders for datasets and models
 
+## v0.3.2 (2026-07-22)
+
+### Fix
+
+- **ci**: only run the k8s integration test on wrokflow dispatch
+- **ref**: fix branch ref from master to develop
+
 ## v0.3.1 (2026-07-15)
 
 ### Feat

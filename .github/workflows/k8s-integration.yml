@@ -1,17 +1,6 @@
 name: K8s Integration Test
 
 on:
-  push:
-    branches: [develop]
-    paths:
-      - "fair/**"
-      - "examples/**"
-      - "models/**"
-      - "stacks/**"
-      - "infra/**"
-      - "pyproject.toml"
-      - "uv.lock"
-      - ".github/workflows/k8s-integration.yml"
   workflow_dispatch:
 
 permissions:

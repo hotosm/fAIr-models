@@ -1,6 +1,6 @@
 # fAIr-models
 
-[![codecov](https://codecov.io/gh/hotosm/fAIr-models/branch/master/graph/badge.svg)](https://codecov.io/gh/hotosm/fAIr-models)
+[![codecov](https://codecov.io/gh/hotosm/fAIr-models/branch/develop/graph/badge.svg)](https://codecov.io/gh/hotosm/fAIr-models)
 
 Model registry and ML pipeline orchestration for [fAIr](https://github.com/hotosm/fAIr).
 

@@ -1,7 +1,7 @@
 name: style & tests
 on:
   push:
-    branches: [ master ]
+    branches: [develop]
     paths:
       - "fair/**"
       - "examples/**"
@@ -11,7 +11,7 @@ on:
       - ".github/workflows/**"
       - ".github/scripts/**"
   pull_request:
-    branches: [ master ]
+    branches: [develop]
     paths:
       - "fair/**"
       - "examples/**"

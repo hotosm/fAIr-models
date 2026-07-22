@@ -58,7 +58,7 @@ just setup
     just validate
     ```
 
-4. Open a PR against `master` with a clear description
+4. Open a PR against `develop` with a clear description
 5. CI will run lint, typecheck, tests, STAC validation, and model validation
 6. Maintainers will review and provide feedback
 

@@ -1,7 +1,7 @@
 name: version consistency
 on:
   push:
-    branches: [ master ]
+    branches: [develop]
     paths:
       - "pyproject.toml"
       - "stacks/**"
@@ -10,7 +10,7 @@ on:
       - "scripts/check_zenml_version.py"
       - ".github/workflows/check-versions.yml"
   pull_request:
-    branches: [ master ]
+    branches: [develop]
     paths:
       - "pyproject.toml"
       - "stacks/**"

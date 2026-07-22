@@ -2,7 +2,7 @@ name: validate STAC items
 on:
   push:
     branches:
-      - master
+      - develop
     paths:
       - "models/**"
       - "fair/schemas/**"
@@ -10,7 +10,7 @@ on:
       - "fair/zenml/model_validator.py"
   pull_request:
     branches:
-      - master
+      - develop
     paths:
       - "models/**"
       - "fair/schemas/**"

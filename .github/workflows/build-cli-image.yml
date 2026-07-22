@@ -6,7 +6,7 @@ on:
       - "infra/cli/**"
       - ".github/workflows/build-cli-image.yml"
   push:
-    branches: [ master ]
+    branches: [develop]
     paths:
       - "infra/cli/**"
       - ".github/workflows/build-cli-image.yml"

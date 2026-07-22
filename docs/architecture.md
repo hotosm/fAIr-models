@@ -47,7 +47,7 @@ Catalog: fair-models
 
     ### Base model item
 
-    See [`models/unet_segmentation/stac-item.json`](https://github.com/hotosm/fAIr-models/tree/master/models/unet_segmentation/stac-item.json) for a complete example.
+    See [`models/unet_segmentation/stac-item.json`](https://github.com/hotosm/fAIr-models/tree/develop/models/unet_segmentation/stac-item.json) for a complete example.
     All three base models (`unet_segmentation`, `resnet18_classification`, `yolo11n_detection`) follow this structure.
 
     Key properties: `mlm:name`, `mlm:architecture`, `mlm:tasks`, `mlm:framework`,

@@ -19,7 +19,7 @@ Local kind cluster mirroring the EKS deployment from `hotosm/k8s-infra`. Use thi
     For GPU support add: [nvkind](https://github.com/NVIDIA/nvkind), the NVIDIA driver,
     and [nvidia-container-toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html). See [GPU Support](#gpu-support-optional) below.
 
-Source: [`infra/`](https://github.com/hotosm/fAIr-models/tree/master/infra)
+Source: [`infra/`](https://github.com/hotosm/fAIr-models/tree/develop/infra)
 
 ```bash title="Bring up the kind stack"
 just setup            # root: install Python deps (skip if already done)

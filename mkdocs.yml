@@ -3,7 +3,7 @@ site_description: Model registry and ML pipeline orchestration for fAIr
 site_url: https://hotosm.github.io/fAIr-models
 repo_url: https://github.com/hotosm/fAIr-models
 repo_name: hotosm/fAIr-models
-edit_uri: edit/master/docs/
+edit_uri: edit/develop/docs/
 
 theme:
   name: material

@@ -1,10 +1,10 @@
 name: validate opentofu dok8s
 on:
   push:
-    branches: [master]
+    branches: [develop]
     paths: [infra/dok8s/**]
   pull_request:
-    branches: [master]
+    branches: [develop]
     paths: [infra/dok8s/**]
 defaults:
   run:

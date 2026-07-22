@@ -178,7 +178,7 @@
             "raster:bands": [{"name": "red"}, {"name": "green"}, {"name": "blue"}]
         },
         "source-code": {
-            "href": "https://github.com/hotosm/fAIr-models/tree/master/models/dinov3s_buildings",
+            "href": "https://github.com/hotosm/fAIr-models/tree/develop/models/dinov3s_buildings",
             "type": "text/html",
             "roles": ["code"],
             "mlm:entrypoint": "models.dinov3s_buildings.pipeline:run_inference"
@@ -196,7 +196,7 @@
             "roles": ["mlm:inference-runtime"]
         },
         "readme": {
-            "href": "https://raw.githubusercontent.com/hotosm/fAIr-models/refs/heads/master/models/dinov3s_buildings/README.md",
+            "href": "https://raw.githubusercontent.com/hotosm/fAIr-models/refs/heads/develop/models/dinov3s_buildings/README.md",
             "type": "text/markdown",
             "roles": ["metadata"],
             "title": "Model README"

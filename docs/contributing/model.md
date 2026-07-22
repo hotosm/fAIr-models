@@ -12,9 +12,9 @@ platform.
 
 | Model | Task | Architecture | Directory |
 |---|---|---|---|
-| UNet segmentation | Semantic segmentation | UNet (torchgeo) | [`models/unet_segmentation/`](https://github.com/hotosm/fAIr-models/tree/master/models/unet_segmentation) |
-| ResNet18 classification | Binary classification | ResNet18 (torchvision) | [`models/resnet18_classification/`](https://github.com/hotosm/fAIr-models/tree/master/models/resnet18_classification) |
-| YOLOv11n detection | Object detection | YOLOv11 nano (ultralytics) | [`models/yolo11n_detection/`](https://github.com/hotosm/fAIr-models/tree/master/models/yolo11n_detection) |
+| UNet segmentation | Semantic segmentation | UNet (torchgeo) | [`models/unet_segmentation/`](https://github.com/hotosm/fAIr-models/tree/develop/models/unet_segmentation) |
+| ResNet18 classification | Binary classification | ResNet18 (torchvision) | [`models/resnet18_classification/`](https://github.com/hotosm/fAIr-models/tree/develop/models/resnet18_classification) |
+| YOLOv11n detection | Object detection | YOLOv11 nano (ultralytics) | [`models/yolo11n_detection/`](https://github.com/hotosm/fAIr-models/tree/develop/models/yolo11n_detection) |
 
 ## Model Scope
 
@@ -50,7 +50,7 @@ monitoring. Core categories:
 Other OpenStreetMap feature categories (`landuse`, `bridge`, etc.) are
 welcome as long as they are compatible with the platform's RGB input and
 vector output constraints. To add a new keyword, include it in
-[`keywords.json`](https://github.com/hotosm/fAIr-models/blob/master/fair/schemas/keywords.json) as part of your PR.
+[`keywords.json`](https://github.com/hotosm/fAIr-models/blob/develop/fair/schemas/keywords.json) as part of your PR.
 
 ### Input Requirements
 
@@ -1016,7 +1016,7 @@ data_type), `classification:classes` (one entry per output class with
             "mlm:artifact_type": "torch.save"
         },
         "source-code": {
-            "href": "https://github.com/hotosm/fAIr-models/tree/master/models/unet_segmentation/pipeline.py",
+            "href": "https://github.com/hotosm/fAIr-models/tree/develop/models/unet_segmentation/pipeline.py",
             "type": "text/x-python",
             "title": "UNet pipeline source",
             "roles": ["mlm:source_code"],
@@ -1174,10 +1174,10 @@ flowchart LR
 
 On PR submission, the workflows above run:
 
-1. **Style and core tests** ([style.yml](https://github.com/hotosm/fAIr-models/blob/master/.github/workflows/style.yml)) : `ruff check`, `ruff format --diff`, `ty check`, and `pytest --cov-fail-under=95` on the `fair/` package.
-2. **STAC + model validation** ([validate-stac.yml](https://github.com/hotosm/fAIr-models/blob/master/.github/workflows/validate-stac.yml)) : runs `just validate`, which calls `scripts/validate_stac_items.py` (pystac + fAIr schema: `fair:metrics_spec`, `fair:split_spec`, MLM fields, assets, keywords including a geometry type, a supported license) and `scripts/validate_model.py` (AST checks for `training_pipeline`/`inference_pipeline` `@pipeline`, `split_dataset` `@step`, and the four required `tests/test_steps.py` functions).
-3. **Build + test in Docker** ([build-model-images.yml](https://github.com/hotosm/fAIr-models/blob/master/.github/workflows/build-model-images.yml)) : builds `--target test`, runs `pytest models/<name>/tests/`, then runs `pytest models/test_integration.py -m slow` (the same checks `just test-model` runs locally), builds `--target runtime`, pushes the runtime image as `pr-<num>` (production tags `:latest` and `:v<version>` are gated on default branch), builds `--target inference`, smoke-tests it against the Banepa OAM bbox with baseline + finetuned ONNX, and pushes the inference image as `pr-<num>-inference`.
-4. **kind-cluster E2E** ([test-model.yml](https://github.com/hotosm/fAIr-models/blob/master/.github/workflows/test-model.yml)) : spins up a kind cluster with the full helmfile stack (ZenML, MLflow, STAC, MinIO) and runs `just example <model>` + `scripts/test_serve.py` against the model. This is the per-PR parity check for `K8s Integration Test`, which only runs on `push: master`.
+1. **Style and core tests** ([style.yml](https://github.com/hotosm/fAIr-models/blob/develop/.github/workflows/style.yml)) : `ruff check`, `ruff format --diff`, `ty check`, and `pytest --cov-fail-under=95` on the `fair/` package.
+2. **STAC + model validation** ([validate-stac.yml](https://github.com/hotosm/fAIr-models/blob/develop/.github/workflows/validate-stac.yml)) : runs `just validate`, which calls `scripts/validate_stac_items.py` (pystac + fAIr schema: `fair:metrics_spec`, `fair:split_spec`, MLM fields, assets, keywords including a geometry type, a supported license) and `scripts/validate_model.py` (AST checks for `training_pipeline`/`inference_pipeline` `@pipeline`, `split_dataset` `@step`, and the four required `tests/test_steps.py` functions).
+3. **Build + test in Docker** ([build-model-images.yml](https://github.com/hotosm/fAIr-models/blob/develop/.github/workflows/build-model-images.yml)) : builds `--target test`, runs `pytest models/<name>/tests/`, then runs `pytest models/test_integration.py -m slow` (the same checks `just test-model` runs locally), builds `--target runtime`, pushes the runtime image as `pr-<num>` (production tags `:latest` and `:v<version>` are gated on default branch), builds `--target inference`, smoke-tests it against the Banepa OAM bbox with baseline + finetuned ONNX, and pushes the inference image as `pr-<num>-inference`.
+4. **kind-cluster E2E** ([test-model.yml](https://github.com/hotosm/fAIr-models/blob/develop/.github/workflows/test-model.yml)) : spins up a kind cluster with the full helmfile stack (ZenML, MLflow, STAC, MinIO) and runs `just example <model>` + `scripts/test_serve.py` against the model. This is the per-PR parity check for `K8s Integration Test`, which only runs on `push: develop`.
 
 All checks must pass before the PR is reviewed.
 
@@ -1196,13 +1196,13 @@ just test-serve <your_model>           # spin up the inference container and POS
 
 If `just setup` reports the stack is already up from a previous session you can skip it. `just up` / `just down` start and stop the compose services without destroying volumes; `just tear` is the destructive reset.
 
-When all of these commands return cleanly your model is ready to PR. CI re-runs the same `--target test` and `--target runtime` builds plus the inference smoke test against the same OAM bbox (see [`.github/workflows/build-model-images.yml`](https://github.com/hotosm/fAIr-models/blob/master/.github/workflows/build-model-images.yml)), and runs the full kind-cluster parity check in [`.github/workflows/test-model.yml`](https://github.com/hotosm/fAIr-models/blob/master/.github/workflows/test-model.yml). The `K8s Integration Test` workflow ([`k8s-integration.yml`](https://github.com/hotosm/fAIr-models/blob/master/.github/workflows/k8s-integration.yml)) runs on `push: master` only, not on PRs.
+When all of these commands return cleanly your model is ready to PR. CI re-runs the same `--target test` and `--target runtime` builds plus the inference smoke test against the same OAM bbox (see [`.github/workflows/build-model-images.yml`](https://github.com/hotosm/fAIr-models/blob/develop/.github/workflows/build-model-images.yml)), and runs the full kind-cluster parity check in [`.github/workflows/test-model.yml`](https://github.com/hotosm/fAIr-models/blob/develop/.github/workflows/test-model.yml). The `K8s Integration Test` workflow ([`k8s-integration.yml`](https://github.com/hotosm/fAIr-models/blob/develop/.github/workflows/k8s-integration.yml)) runs on `push: develop` only, not on PRs.
 
 ## Reference
 
 - [STAC MLM Extension v1.5.1](https://github.com/stac-extensions/mlm) -- MLM fields spec
 - [MLM Best Practices](https://github.com/stac-extensions/mlm/blob/main/best-practices.md)
-- [UNet segmentation model](https://github.com/hotosm/fAIr-models/tree/master/models/unet_segmentation) -- segmentation reference
-- [ResNet18 classification model](https://github.com/hotosm/fAIr-models/tree/master/models/resnet18_classification) -- classification reference
-- [YOLOv11n detection model](https://github.com/hotosm/fAIr-models/tree/master/models/yolo11n_detection) -- detection reference
-- [UNet STAC item](https://github.com/hotosm/fAIr-models/blob/master/models/unet_segmentation/stac-item.json) -- STAC item template
+- [UNet segmentation model](https://github.com/hotosm/fAIr-models/tree/develop/models/unet_segmentation) -- segmentation reference
+- [ResNet18 classification model](https://github.com/hotosm/fAIr-models/tree/develop/models/resnet18_classification) -- classification reference
+- [YOLOv11n detection model](https://github.com/hotosm/fAIr-models/tree/develop/models/yolo11n_detection) -- detection reference
+- [UNet STAC item](https://github.com/hotosm/fAIr-models/blob/develop/models/unet_segmentation/stac-item.json) -- STAC item template

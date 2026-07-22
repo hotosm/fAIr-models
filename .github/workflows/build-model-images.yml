@@ -7,7 +7,7 @@ on:
       - ".github/workflows/build-model-images.yml"
       - ".github/scripts/detect_models.py"
   push:
-    branches: [master]
+    branches: [develop]
     paths:
       - "models/**"
       - ".github/workflows/build-model-images.yml"

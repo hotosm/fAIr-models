@@ -7,7 +7,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 ARG DINOV3_HOT_REF=v0.3.1
-ARG DINOV3_REF=main
+ARG DINOV3_REF=6876159a11b4df116f30f667f8c9888617df0751
 ARG FAIR_PY_OPS_VERSION=0.3.4
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv pip install --no-sources \
@@ -49,7 +49,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends git ca-certific
 RUN uv python install 3.13
 WORKDIR /app
 ARG DINOV3_HOT_REF=v0.3.1
-ARG DINOV3_REF=main
+ARG DINOV3_REF=6876159a11b4df116f30f667f8c9888617df0751
 ARG FAIR_PY_OPS_VERSION=0.3.4
 RUN --mount=type=cache,target=/python/.cache/uv \
     uv venv && uv pip install --no-sources \

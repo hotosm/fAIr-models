@@ -6,10 +6,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential libgdal-dev libgl1 libglib2.0-0 \
     && rm -rf /var/lib/apt/lists/*
 
-COPY pyproject.toml README.md fair_zenml_patch.pth /tmp/fair-src/
-COPY fair /tmp/fair-src/fair
+ARG FAIR_PY_OPS_VERSION=0.3.4
 RUN --mount=type=cache,target=/root/.cache/uv \
-    SETUPTOOLS_SCM_PRETEND_VERSION=0.0.0 \
     uv pip install \
     --extra-index-url https://download.pytorch.org/whl/cpu \
     --index-strategy unsafe-best-match \
@@ -19,7 +17,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     pyproj \
     onnx \
     onnxscript \
-    /tmp/fair-src[k8s,serve]
+    "fair-py-ops[k8s,serve]==${FAIR_PY_OPS_VERSION}"
 
 # Runtime stage: minimal image
 FROM python:3.13-slim-trixie AS runtime
@@ -45,22 +43,19 @@ ENTRYPOINT ["/usr/local/bin/python"]
 # Test stage: adds test dependencies for CI
 FROM runtime AS test
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
-COPY --from=builder /tmp/fair-src /tmp/fair-src
+ARG FAIR_PY_OPS_VERSION=0.3.4
 RUN --mount=type=cache,target=/root/.cache/uv \
-    SETUPTOOLS_SCM_PRETEND_VERSION=0.0.0 \
-    uv pip install --system /tmp/fair-src[test]
+    uv pip install --system "fair-py-ops[test]==${FAIR_PY_OPS_VERSION}"
 
 # Inference builder stage: distroless-ready venv with serving deps
 FROM ghcr.io/astral-sh/uv:bookworm-slim AS inference-builder
 ENV UV_PYTHON_INSTALL_DIR=/python UV_PYTHON_PREFERENCE=only-managed
 RUN uv python install 3.13
 WORKDIR /app
-COPY pyproject.toml README.md fair_zenml_patch.pth /tmp/fair-src/
-COPY fair /tmp/fair-src/fair
+ARG FAIR_PY_OPS_VERSION=0.3.4
 RUN --mount=type=cache,target=/root/.cache/uv \
-    export SETUPTOOLS_SCM_PRETEND_VERSION=0.0.0 && \
     uv venv && uv pip install \
-    /tmp/fair-src[serve] \
+    "fair-py-ops[serve]==${FAIR_PY_OPS_VERSION}" \
     rasterio \
     pyproj \
     numpy \

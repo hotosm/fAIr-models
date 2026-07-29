@@ -7,12 +7,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 ARG DINOV3_HOT_REF=v0.3.1
-ARG FAIR_PY_OPS_VERSION=0.3.2
+ARG DINOV3_REF=main
+ARG FAIR_PY_OPS_VERSION=0.3.4
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv pip install --no-sources \
     "git+https://github.com/kshitijrajsharma/dinov3-hot-ablation@${DINOV3_HOT_REF}" \
     polymetrics==0.2.2 \
-    "fair-py-ops[k8s,serve]==${FAIR_PY_OPS_VERSION}"
+    "fair-py-ops[k8s,serve]==${FAIR_PY_OPS_VERSION}" \
+    && uv pip install --no-deps "git+https://github.com/facebookresearch/dinov3@${DINOV3_REF}"
 
 FROM python:3.13.13-slim-trixie AS runtime
 WORKDIR /app
@@ -35,7 +37,7 @@ ENTRYPOINT ["/usr/local/bin/python"]
 # Test stage: pytest extras for CI.
 FROM runtime AS test
 COPY --from=ghcr.io/astral-sh/uv:0.11.8 /uv /usr/local/bin/uv
-ARG FAIR_PY_OPS_VERSION=0.3.2
+ARG FAIR_PY_OPS_VERSION=0.3.4
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv pip install --system "fair-py-ops[test]==${FAIR_PY_OPS_VERSION}"
 
@@ -47,13 +49,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends git ca-certific
 RUN uv python install 3.13
 WORKDIR /app
 ARG DINOV3_HOT_REF=v0.3.1
-ARG FAIR_PY_OPS_VERSION=0.3.2
+ARG DINOV3_REF=main
+ARG FAIR_PY_OPS_VERSION=0.3.4
 RUN --mount=type=cache,target=/python/.cache/uv \
     uv venv && uv pip install --no-sources \
     --extra-index-url https://download.pytorch.org/whl/cpu \
     --index-strategy unsafe-best-match \
     "fair-py-ops[serve]==${FAIR_PY_OPS_VERSION}" \
-    "git+https://github.com/kshitijrajsharma/dinov3-hot-ablation@${DINOV3_HOT_REF}"
+    "git+https://github.com/kshitijrajsharma/dinov3-hot-ablation@${DINOV3_HOT_REF}" \
+    && uv pip install --no-deps "git+https://github.com/facebookresearch/dinov3@${DINOV3_REF}"
 COPY models/dinov3s_buildings/pipeline.py /app/models/dinov3s_buildings/pipeline.py
 
 # Inference stage: distroless live-serving runtime.

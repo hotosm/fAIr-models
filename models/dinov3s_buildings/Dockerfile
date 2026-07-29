@@ -6,15 +6,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential libgdal-dev git \
     && rm -rf /var/lib/apt/lists/*
 
-COPY pyproject.toml README.md fair_zenml_patch.pth /tmp/fair-src/
-COPY fair /tmp/fair-src/fair
 ARG DINOV3_HOT_REF=v0.3.1
+ARG FAIR_PY_OPS_VERSION=0.3.2
 RUN --mount=type=cache,target=/root/.cache/uv \
-    SETUPTOOLS_SCM_PRETEND_VERSION=0.0.0 \
     uv pip install --no-sources \
     "git+https://github.com/kshitijrajsharma/dinov3-hot-ablation@${DINOV3_HOT_REF}" \
     polymetrics==0.2.2 \
-    /tmp/fair-src[k8s,serve]
+    "fair-py-ops[k8s,serve]==${FAIR_PY_OPS_VERSION}"
 
 FROM python:3.13.13-slim-trixie AS runtime
 WORKDIR /app
@@ -37,27 +35,24 @@ ENTRYPOINT ["/usr/local/bin/python"]
 # Test stage: pytest extras for CI.
 FROM runtime AS test
 COPY --from=ghcr.io/astral-sh/uv:0.11.8 /uv /usr/local/bin/uv
-COPY --from=builder /tmp/fair-src /tmp/fair-src
+ARG FAIR_PY_OPS_VERSION=0.3.2
 RUN --mount=type=cache,target=/root/.cache/uv \
-    SETUPTOOLS_SCM_PRETEND_VERSION=0.0.0 \
-    uv pip install --system /tmp/fair-src[test]
+    uv pip install --system "fair-py-ops[test]==${FAIR_PY_OPS_VERSION}"
 
-# Inference builder: distroless-ready venv. Upstream dinov3-hot + fair-src[serve]
+# Inference builder: distroless-ready venv. Upstream dinov3-hot + fair-py-ops[serve]
 FROM ghcr.io/astral-sh/uv:0.11.8-trixie-slim AS inference-builder
 ENV UV_PYTHON_INSTALL_DIR=/python UV_PYTHON_PREFERENCE=only-managed
 RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 RUN uv python install 3.13
 WORKDIR /app
-COPY pyproject.toml README.md fair_zenml_patch.pth /tmp/fair-src/
-COPY fair /tmp/fair-src/fair
 ARG DINOV3_HOT_REF=v0.3.1
+ARG FAIR_PY_OPS_VERSION=0.3.2
 RUN --mount=type=cache,target=/python/.cache/uv \
-    export SETUPTOOLS_SCM_PRETEND_VERSION=0.0.0 && \
     uv venv && uv pip install --no-sources \
     --extra-index-url https://download.pytorch.org/whl/cpu \
     --index-strategy unsafe-best-match \
-    /tmp/fair-src[serve] \
+    "fair-py-ops[serve]==${FAIR_PY_OPS_VERSION}" \
     "git+https://github.com/kshitijrajsharma/dinov3-hot-ablation@${DINOV3_HOT_REF}"
 COPY models/dinov3s_buildings/pipeline.py /app/models/dinov3s_buildings/pipeline.py
 

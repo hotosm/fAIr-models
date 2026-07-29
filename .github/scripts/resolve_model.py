@@ -2,8 +2,8 @@
 
 Reads:
     INPUT_MODEL   model dir under models/ (workflow_dispatch input; takes precedence)
-    BASE_SHA      PR base sha (pull_request_target)
-    HEAD_SHA      PR head sha (pull_request_target)
+    BASE_SHA      PR base sha (pull_request)
+    HEAD_SHA      PR head sha (pull_request)
 
 Writes `name=<model>` to $GITHUB_OUTPUT and prints the name. Exits 1 with a
 clear message if no model can be resolved or required files are missing.

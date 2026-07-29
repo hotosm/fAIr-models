@@ -67,7 +67,7 @@ FILE_CHECKS: list[tuple[Path, str, re.Pattern[str]]] = [
     (
         REPO / "infra/compose/docker-compose.yml",
         "zenml-postgres image tag",
-        re.compile(r"ghcr\.io/hotosm/zenml-postgres:(\S+)"),
+        re.compile(r"ghcr\.io/hotosm/fair/zenml-postgres:(\S+)"),
     ),
     (
         REPO / "infra/values/zenml.yaml.gotmpl",

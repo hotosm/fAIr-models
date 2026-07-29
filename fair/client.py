@@ -611,10 +611,18 @@ class FairClient:
         config_dir: Path | str | None = None,
     ) -> tuple[Any, Path]:
         cat = self._get_backend()
-        try:
-            model_item = cat.get_item(LOCAL_MODELS_COLLECTION, local_model_id)
-        except KeyError as exc:
-            raise FairClientError(f"Local model '{local_model_id}' not found. Run promote() first.") from exc
+        model_item = None
+        for collection in (LOCAL_MODELS_COLLECTION, BASE_MODELS_COLLECTION):
+            try:
+                model_item = cat.get_item(collection, local_model_id)
+                break
+            except KeyError:
+                continue
+        if model_item is None:
+            raise FairClientError(
+                f"Model '{local_model_id}' not found in local-models or base-models. "
+                "Promote a local model or register a base model first."
+            )
 
         pipeline_module = self._pipeline_module_from_item(model_item)
 

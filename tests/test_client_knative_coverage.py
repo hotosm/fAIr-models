@@ -477,6 +477,37 @@ def test_finetune_promote_and_predict_workflows(monkeypatch, tmp_path) -> None:
         client.finetune(base_model_id=base_item.id, dataset_id="missing", model_name="demo-model")
 
 
+def test_predict_resolves_base_model_when_not_local(monkeypatch, tmp_path) -> None:
+    base_item = _build_base_model_item()
+    backend = DummyBackend({(BASE_MODELS_COLLECTION, base_item.id): base_item})
+
+    client = FairClient(
+        stac_api_url="https://stac.example.com",
+        dsn="postgresql://example",
+        config_dir=str(tmp_path / "config"),
+        upload_artifacts=False,
+    )
+    monkeypatch.setattr(client, "_get_backend", lambda: backend)
+    monkeypatch.setattr(client, "_artifact_store_prefix", lambda: "s3://bucket")
+    monkeypatch.setattr(client, "_pipeline_module_from_item", lambda _: "models.demo.pipeline")
+    monkeypatch.setattr(
+        client_module, "generate_inference_config", lambda *args, **kwargs: {"steps": {"predict": {}}}
+    )
+    prediction_run = SimpleNamespace(
+        id="predict-run",
+        status="completed",
+        steps={"predict": SimpleNamespace(outputs={"predictions": [DummyOutput({"ok": True})]})},
+    )
+    fake_module = SimpleNamespace(inference_pipeline=DummyPipeline(prediction_run))
+    monkeypatch.setattr(client_module.importlib, "import_module", lambda _: fake_module)
+
+    assert client.predict(base_item.id, str(tmp_path)) == {"ok": True}
+
+    monkeypatch.setattr(client, "_get_backend", lambda: DummyBackend({}))
+    with pytest.raises(FairClientError, match="not found in local-models or base-models"):
+        client.predict("ghost", str(tmp_path))
+
+
 def test_predict_live_error_paths_and_success(monkeypatch, tmp_path) -> None:
     base_item = _build_base_model_item()
     local_model = _build_item("local-model", {"fair:base_model_id": base_item.id})

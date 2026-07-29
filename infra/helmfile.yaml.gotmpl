@@ -2,13 +2,13 @@ environments:
   dev:
     values:
       - environments/dev.yaml
-  dok8s:
+  cluster:
     values:
-      - environments/dok8s.yaml.gotmpl
+      - environments/cluster.yaml.gotmpl
 
 ---
 
-{{- $isDok8s := eq .Environment.Name "dok8s" }}
+{{- $isCluster := eq .Environment.Name "cluster" }}
 
 repositories:
   - name: ingress-nginx
@@ -37,13 +37,9 @@ releases:
     namespace: ingress-nginx
     chart: ingress-nginx/ingress-nginx
     version: "4.15.1"
-    installed: {{ $isDok8s }}
+    installed: {{ $isCluster }}
     values:
       - controller:
-          service:
-            annotations:
-              service.beta.kubernetes.io/do-loadbalancer-name: fair-lb
-              service.beta.kubernetes.io/do-loadbalancer-size-unit: "1"
           resources:
             requests: { cpu: 100m, memory: 128Mi }
             limits: { cpu: 500m, memory: 256Mi }
@@ -52,7 +48,7 @@ releases:
     namespace: cert-manager
     chart: jetstack/cert-manager
     version: "v1.20.1"
-    installed: {{ $isDok8s }}
+    installed: {{ $isCluster }}
     values:
       - crds:
           enabled: true
@@ -97,4 +93,4 @@ releases:
     namespace: knative-operator
     chart: knative-operator/knative-operator
     version: "v1.17.8"
-    installed: {{ $isDok8s }}
+    installed: {{ $isCluster }}

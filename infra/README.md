@@ -2,10 +2,12 @@
 
 One stack, two targets:
 
-- **dev** — `kind` cluster on your laptop (default).
-- **dok8s** — DigitalOcean Kubernetes (DOKS) with managed DNS, TLS, and KNative live serving.
+- **dev**: `kind` cluster on your laptop (default).
+- **cluster**: any managed Kubernetes cluster, adding ingress, TLS, and KNative live serving.
 
 Both run **the same in-cluster services** (Postgres+PostGIS, MinIO, STAC, MLflow, ZenML), driven by a single helmfile and a single justfile.
+
+Provisioning the cluster itself, the kubeconfig, and the DNS records is out of scope here. The `cluster` recipes act on whatever context `kubectl` currently points at.
 
 ## Layout
 
@@ -15,11 +17,10 @@ infra/
 ├── justfile                # all commands
 ├── kind-config.yaml        # local cluster
 ├── ports.conf              # dev port-forward map
-├── environments/           # per-env values (dev.yaml, dok8s.yaml.gotmpl)
+├── environments/           # per-env values (dev.yaml, cluster.yaml.gotmpl)
 ├── values/                 # chart values (env-templated)
 ├── manifests/              # raw k8s manifests (postgres, ingress, knative, ...)
-├── scripts/                # seed_data.py, zenml-token.sh
-└── dok8s/                  # OpenTofu: cluster + ml node pool only
+└── scripts/                # seed_data.py, zenml-token.sh
 ```
 
 ## Prerequisites
@@ -27,41 +28,53 @@ infra/
 | Use case | Tools |
 |---|---|
 | dev (kind) | `kind`, `kubectl`, `helm`, `helmfile`, `uv` |
-| dok8s | + `tofu`, `doctl` (authenticated), `envsubst`, `psql` |
+| cluster | + `envsubst`, `psql`, a kubeconfig for the target cluster |
 
 ## Commands
 
 ```bash
 just up           # spin up local stack (kind)
-just up dok8s     # provision + deploy on DigitalOcean
+just up cluster   # deploy to the cluster kubectl points at
 just example      # run all 3 example pipelines on the active stack
-just example dok8s
-just predict      # smoke-test live KNative endpoints (dok8s)
+just predict      # smoke-test live KNative endpoints
 just urls         # show service URLs
 just status       # cluster + pod health
 just down         # stop port-forwards / helm uninstall
-just tear         # delete kind cluster / tofu destroy
+just tear         # delete kind cluster / uninstall releases
 ```
 
-## dok8s setup
+## Cluster setup
+
+The `cluster` recipes read their configuration from the environment:
 
 ```bash
-cd infra/dok8s
-cp terraform.tfvars.example terraform.tfvars
-# fill in: do_token, domain, letsencrypt_email, mlflow/zenml admin creds
-cd ..
-just up dok8s
+export FAIR_DOMAIN=fair.example.com
+export LETSENCRYPT_EMAIL=ops@example.com
+export MLFLOW_ADMIN_USER=... MLFLOW_ADMIN_PASSWORD=...
+export ZENML_ADMIN_USER=... ZENML_ADMIN_PASSWORD=... ZENML_STORE_API_KEY=...
+just up cluster
 ```
 
-`just up dok8s` runs: `tofu apply` → save kubeconfig → apply Postgres → `helmfile apply` → cluster-issuer + ingresses + KNative-serving + s3-credentials → wait for LB IP → set wildcard DNS → seed data → register ZenML stack → write `.env.dok8s`.
+`just up cluster` runs: apply Postgres → `helmfile apply` → KNative-serving + s3-credentials → wait for the ingress LoadBalancer IP → cluster-issuer + ingresses. Point `*.$FAIR_DOMAIN` and `*.predict.$FAIR_DOMAIN` at the printed IP; wildcards do not span dots, so both records are needed.
 
-## Running examples remotely (after `just up dok8s`)
+## Serving a model
 
-The justfile-driven `just example dok8s` flow handles everything. To submit a pipeline by hand:
+KNative services are registered per model, separately from the STAC registration:
 
 ```bash
-source infra/.env.dok8s
+fair knative register models/unet_segmentation/stac-item.json
+fair knative status unet-segmentation
+```
+
+`fair basemodel register` then checks `https://<model>.predict.$FAIR_PREDICT_DOMAIN/health` and refuses to publish a model whose service is not already serving.
+
+## Running examples remotely
+
+`just example` handles the port-forwards, the ZenML token, and the env. To submit a pipeline by hand:
+
+```bash
+eval "$(just _env)"
 uv run --group example python examples/segmentation/run.py
 ```
 
-The `dok8s` ZenML stack is configured to schedule pipeline pods on the `ml` autoscaling pool via `fair/workload=ml`.
+The `cluster` ZenML stack schedules pipeline pods on the ML pool via `fair/workload=ml`.

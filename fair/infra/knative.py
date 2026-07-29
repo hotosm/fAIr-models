@@ -4,12 +4,30 @@ import os
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, replace
 from typing import Any
+from urllib.parse import urlsplit, urlunsplit
 
 import pystac
 
 KNATIVE_GROUP = "serving.knative.dev"
 KNATIVE_VERSION = "v1"
 KNATIVE_PLURAL = "services"
+
+# Route served by fair.serve.base.create_app.
+HEALTH_PATH = "/health"
+# Generous enough for a scale-to-zero cold start, which the activator holds.
+DEFAULT_HEALTH_TIMEOUT = 60.0
+
+
+class KnativeError(Exception):
+    """Base for KNative provisioning and readiness failures."""
+
+
+class KnativeNotInstalledError(KnativeError):
+    """KNative Serving is not registered on the target cluster."""
+
+
+class KnativeServiceUnavailableError(KnativeError):
+    """A model's KNative service did not answer 200 on its health route."""
 
 
 @dataclass(frozen=True)
@@ -75,10 +93,42 @@ def knative_service_host(name: str, namespace: str | None = None) -> str:
     return f"{knative_service_name(name)}.{ns}.svc.cluster.local"
 
 
-def public_predict_url(name: str, domain: str) -> str:
+def public_service_url(name: str, domain: str) -> str:
     # Must stay in lock-step with config-domain, domain-template, and the
     # wildcard Ingress; this is the only place the shape lives.
-    return f"https://{knative_service_name(name)}.predict.{domain}/predict"
+    return f"https://{knative_service_name(name)}.predict.{domain}"
+
+
+def public_predict_url(name: str, domain: str) -> str:
+    return f"{public_service_url(name, domain)}/predict"
+
+
+def health_url(endpoint_href: str) -> str:
+    """Map any endpoint URL on a service to that service's health route."""
+    parts = urlsplit(endpoint_href)
+    if not parts.scheme or not parts.netloc:
+        msg = f"Endpoint href '{endpoint_href}' is not an absolute URL"
+        raise ValueError(msg)
+    return urlunsplit((parts.scheme, parts.netloc, HEALTH_PATH, "", ""))
+
+
+def probe_service_health(
+    url: str,
+    *,
+    timeout: float = DEFAULT_HEALTH_TIMEOUT,
+    verify: bool = True,
+) -> None:
+    """Return once the service answers 200, raise otherwise."""
+    import httpx
+
+    try:
+        response = httpx.get(url, timeout=timeout, verify=verify)
+    except httpx.HTTPError as exc:
+        msg = f"{url} is unreachable: {exc}"
+        raise KnativeServiceUnavailableError(msg) from exc
+    if response.status_code != 200:
+        msg = f"{url} returned HTTP {response.status_code}, expected 200"
+        raise KnativeServiceUnavailableError(msg)
 
 
 def _module_from_entrypoint(entrypoint: str) -> str:
@@ -256,8 +306,8 @@ def ensure_knative_service(
     config: KnativeConfig | None = None,
 ) -> None:
     if not _knative_serving_installed():
-        print(f"skip knative: {KNATIVE_GROUP}/{KNATIVE_VERSION} not registered on cluster")
-        return
+        msg = f"{KNATIVE_GROUP}/{KNATIVE_VERSION} is not registered on the cluster; install KNative Serving first"
+        raise KnativeNotInstalledError(msg)
     cfg = config or KNATIVE_CONFIG
     ns = namespace if namespace is not None else cfg.namespace
     manifest = build_knative_manifest(item, namespace=ns, config=cfg)
@@ -291,6 +341,23 @@ def _knative_serving_installed() -> bool:
     except (config.ConfigException, ApiException):
         return False
     return any(g.name == KNATIVE_GROUP for g in groups)
+
+
+def knative_service_status(model_name: str, namespace: str | None = None) -> tuple[str, str]:
+    """(Ready condition, cluster-assigned URL) for a model's KNative service."""
+    ns = namespace if namespace is not None else KNATIVE_CONFIG.namespace
+    api = _custom_objects_api()
+    service = api.get_namespaced_custom_object(
+        group=KNATIVE_GROUP,
+        version=KNATIVE_VERSION,
+        namespace=ns,
+        plural=KNATIVE_PLURAL,
+        name=knative_service_name(model_name),
+    )
+    status = service.get("status", {})
+    conditions = status.get("conditions", [])
+    ready = next((c.get("status", "Unknown") for c in conditions if c.get("type") == "Ready"), "Unknown")
+    return ready, status.get("url", "")
 
 
 def delete_knative_service(model_name: str, namespace: str | None = None) -> None:

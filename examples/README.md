@@ -40,7 +40,7 @@ uv run python examples/run.py unet_segmentation --epochs 1 --samples-per-epoch 1
 4. Predicts on `data/sample/test/oam/`.
 
 Each step runs inside the model's docker image (via ZenML's docker
-orchestrator). Same image dok8s deploys via KNative — see
+orchestrator). KNative serves that same image on a deployed cluster, see
 [`just test-serve`](../justfile) for the API smoke test.
 
 ## Output

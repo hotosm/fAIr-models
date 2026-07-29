@@ -13,6 +13,7 @@ import pystac
 import yaml
 from upath import UPath
 from zenml.client import Client
+from zenml.config import DockerSettings
 from zenml.enums import StackComponentType
 
 from fair.params import inference_params
@@ -50,6 +51,14 @@ logger = logging.getLogger(__name__)
 _DEFAULT_CATALOG_PATH = "stac_catalog/catalog.json"
 
 _LABEL_FILE_SUFFIXES = (".json", ".geojson", ".csv")
+
+# Training and inference run in the model's own image, which already carries the
+# pipeline code. Skipping source download keeps the caller's package tree (e.g. a
+# Django app named `datasets`) off sys.path so it can't shadow third-party imports.
+_MODEL_IMAGE_DOCKER_SETTINGS = DockerSettings(
+    allow_download_from_code_repository=False,
+    allow_download_from_artifact_store=False,
+)
 
 
 def _labels_dir_from_href(labels_href: str) -> str:
@@ -206,6 +215,12 @@ class FairClient:
         else:
             item.properties.setdefault("version", "1")
 
+        # Gate before anything is mirrored, archived, or published, so a model
+        # with no live service leaves no half-written state behind.
+        endpoint_href = self._ensure_inference_endpoint(item)
+        if endpoint_href:
+            self._verify_predict_service(endpoint_href)
+
         if self._upload_artifacts:
             self._mirror_asset_to_artifact_store(item, "checkpoint", BASE_MODELS_COLLECTION)
             self._mirror_asset_to_artifact_store(item, "model", BASE_MODELS_COLLECTION)
@@ -213,34 +228,56 @@ class FairClient:
                 raise FairClientError(f"Mirrored asset URL validation failed: {errs}")
         self._upload_assets_if_remote(item, BASE_MODELS_COLLECTION)
 
-        # FAIR_LABEL_DOMAIN unset = local-dev path with no public k8s exposure,
-        # so there is no live `/predict` URL to advertise.
-        public_domain = os.environ.get("FAIR_LABEL_DOMAIN")
-        if public_domain:
-            from fair.infra.knative import public_predict_url
-
-            service_name = item.properties.get("mlm:name") or item.id
-            item.add_asset(
-                "mlm:inference-endpoint",
-                pystac.Asset(
-                    href=public_predict_url(service_name, public_domain),
-                    media_type="application/json",
-                    roles=["mlm:inference-endpoint"],
-                ),
-            )
-
         if prev:
             successor_href = cat.item_href(BASE_MODELS_COLLECTION, item.id)
             archive_previous_version(cat, BASE_MODELS_COLLECTION, prev, successor_href)
 
         published = cat.publish_item(BASE_MODELS_COLLECTION, item)
-
-        if self._stac_api_url:
-            from fair.infra.knative import ensure_knative_service
-
-            ensure_knative_service(published)
         print(f"register: base-model {published.id} v{published.properties['version']}")
         return published.id
+
+    def _ensure_inference_endpoint(self, item: pystac.Item) -> str | None:
+        """Public `/predict` URL for the item, derived from the domain when the item omits one."""
+        existing = item.assets.get("mlm:inference-endpoint")
+        if existing is not None:
+            return existing.href
+
+        # Unset domain = local-dev path with no public k8s exposure, so there
+        # is no live `/predict` URL to advertise or check.
+        public_domain = os.environ.get("FAIR_PREDICT_DOMAIN")
+        if not public_domain:
+            return None
+
+        from fair.infra.knative import public_predict_url
+
+        href = public_predict_url(item.properties.get("mlm:name") or item.id, public_domain)
+        item.add_asset(
+            "mlm:inference-endpoint",
+            pystac.Asset(
+                href=href,
+                media_type="application/json",
+                roles=["mlm:inference-endpoint"],
+            ),
+        )
+        return href
+
+    def _verify_predict_service(self, endpoint_href: str) -> None:
+        """Refuse to register a model whose KNative service is not already serving."""
+        from fair.infra.knative import (
+            DEFAULT_HEALTH_TIMEOUT,
+            KnativeServiceUnavailableError,
+            health_url,
+            probe_service_health,
+        )
+
+        timeout = float(os.environ.get("FAIR_KNATIVE_HEALTH_TIMEOUT") or DEFAULT_HEALTH_TIMEOUT)
+        try:
+            probe_service_health(health_url(endpoint_href), timeout=timeout, verify=self._predict_verify_ssl())
+        except KnativeServiceUnavailableError as exc:
+            raise FairClientError(
+                f"KNative predict service is not serving: {exc}. "
+                "Deploy it first with `fair knative register <stac-item.json>`."
+            ) from exc
 
     def _register_dataset_from_item(
         self, stac_item_path: str, *, user_id: str, paths: type[DatasetStoragePaths] | None = None
@@ -419,7 +456,11 @@ class FairClient:
             model_name=model_name,
             overrides=overrides,
         )
-        run = mod.training_pipeline.with_options(config_path=str(train_cfg), enable_cache=False)()
+        run = mod.training_pipeline.with_options(
+            config_path=str(train_cfg),
+            enable_cache=False,
+            settings={"docker": _MODEL_IMAGE_DOCKER_SETTINGS},
+        )()
         if run is None:
             raise RuntimeError("Training pipeline returned no run")
         print(f"finetune: {run.id} ({run.status})")
@@ -564,7 +605,7 @@ class FairClient:
         if endpoint_asset is None:
             raise FairClientError(
                 f"Base model '{base_item.id}' has no 'mlm:inference-endpoint' asset. "
-                "Re-register the model with FAIR_LABEL_DOMAIN set so the public "
+                "Re-register the model with FAIR_PREDICT_DOMAIN set so the public "
                 "predict URL is recorded in STAC."
             )
         return endpoint_asset.href
@@ -597,7 +638,10 @@ class FairClient:
         run = mod.training_pipeline.with_options(
             config_path=str(train_cfg),
             enable_cache=False,
-            settings={"orchestrator": {"synchronous": False}},
+            settings={
+                "docker": _MODEL_IMAGE_DOCKER_SETTINGS,
+                "orchestrator": {"synchronous": False},
+            },
         )()
         if run is None:
             raise RuntimeError("Training pipeline returned no run reference")
@@ -656,7 +700,10 @@ class FairClient:
         run = mod.inference_pipeline.with_options(
             config_path=str(inf_cfg),
             enable_cache=False,
-            settings={"orchestrator": {"synchronous": False}},
+            settings={
+                "docker": _MODEL_IMAGE_DOCKER_SETTINGS,
+                "orchestrator": {"synchronous": False},
+            },
         )()
         if run is None:
             raise RuntimeError("Inference pipeline returned no run reference")
@@ -664,7 +711,11 @@ class FairClient:
 
     def predict(self, local_model_id: str, image_path: str) -> dict[str, Any]:
         mod, inf_cfg = self._prepare_inference_pipeline(local_model_id=local_model_id, image_path=image_path)
-        run = mod.inference_pipeline.with_options(config_path=str(inf_cfg), enable_cache=False)()
+        run = mod.inference_pipeline.with_options(
+            config_path=str(inf_cfg),
+            enable_cache=False,
+            settings={"docker": _MODEL_IMAGE_DOCKER_SETTINGS},
+        )()
         if run is None:
             raise RuntimeError("Inference pipeline returned no run")
         print(f"predict: {run.id} ({run.status})")

@@ -433,6 +433,23 @@ function. The same function powers three paths:
 | Batch (`client.predict`) | `inference_pipeline` → `run_inference` step → `predict(...)` | ZenML image |
 | Local / test | Direct call to `predict(...)` with a stubbed ONNX session | any |
 
+### Serving a model
+
+The KNative service is registered separately from, and before, the STAC item:
+
+```bash
+fair knative register models/<model>/stac-item.json
+fair knative status <model-name>
+fair basemodel register models/<model>/stac-item.json
+```
+
+`fair knative register` reads the `mlm:inference` image and the `source-code`
+`mlm:entrypoint` straight from the item file, so it runs before the model exists
+in STAC. `fair basemodel register` then requests
+`https://<model>.predict.$FAIR_PREDICT_DOMAIN/health` and refuses to publish
+unless the service answers 200. With `FAIR_PREDICT_DOMAIN` unset there is no
+public endpoint to check, and registration skips it.
+
 === "inference_pipeline"
 
     ```python

@@ -63,7 +63,7 @@ def check_text_file(path: Path, label: str, pattern: re.Pattern[str], version: s
 
 FILE_CHECKS: list[tuple[Path, str, re.Pattern[str]]] = [
     (REPO / "stacks/compose.yaml", "zenml_version", re.compile(r"^zenml_version:\s*(\S+)\s*$", re.M)),
-    (REPO / "stacks/dok8s.yaml", "zenml_version", re.compile(r"^zenml_version:\s*(\S+)\s*$", re.M)),
+    (REPO / "stacks/cluster.yaml", "zenml_version", re.compile(r"^zenml_version:\s*(\S+)\s*$", re.M)),
     (
         REPO / "infra/compose/docker-compose.yml",
         "zenml-postgres image tag",

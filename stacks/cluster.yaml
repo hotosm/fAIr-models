@@ -1,5 +1,5 @@
 # yaml-language-server: $schema=
-stack_name: dok8s
+stack_name: cluster
 zenml_version: 0.94.2
 
 _pod_defaults: &pod_defaults
@@ -23,11 +23,11 @@ _pod_defaults: &pod_defaults
 
 components:
   orchestrator:
-    name: doks_orchestrator
+    name: cluster_orchestrator
     flavor: kubernetes
     type: orchestrator
     configuration:
-      kubernetes_context: ${DOKS_CONTEXT}
+      kubernetes_context: ${KUBE_CONTEXT}
       kubernetes_namespace: fair
       pod_settings: *pod_defaults
       orchestrator_pod_settings: *pod_defaults

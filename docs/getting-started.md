@@ -83,7 +83,7 @@ fair/                  # Core library (pip-installable as fair-py-ops)
   zenml/               # ZenML config generation, promotion, steps
 models/                # Base model contributions (one subdir per model)
 examples/              # Example pipelines (segmentation, classification, detection)
-infra/                 # Production stack (Kubernetes via helmfile, DigitalOcean via OpenTofu)
+infra/                 # Production stack (Kubernetes via helmfile)
 infra/compose/         # Local dev stack (this is what `just setup` uses)
 stacks/compose.yaml    # ZenML stack definition for the compose stack
 tests/                 # pytest suite

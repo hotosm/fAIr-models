@@ -237,3 +237,57 @@ def test_dataset_build_requires_osm_url(tmp_path, monkeypatch) -> None:
         ["dataset", "build", "--tms", "https://t/{z}/{x}/{y}", "--aoi", str(aoi), "--zoom", "19"],
     )
     assert result.exit_code != 0
+
+
+def test_knative_register_applies_the_service(tmp_path, monkeypatch) -> None:
+    import fair.infra.knative as knative_module
+
+    item = SimpleNamespace(id="unet-segmentation", properties={"mlm:name": "unet_segmentation"})
+    monkeypatch.setattr("fair.cli.pystac.Item.from_file", lambda _: item)
+    applied: list[tuple[object, str | None]] = []
+    monkeypatch.setattr(
+        knative_module,
+        "ensure_knative_service",
+        lambda stac_item, namespace=None: applied.append((stac_item, namespace)),
+    )
+    stac_item_path = tmp_path / "stac-item.json"
+    stac_item_path.write_text("{}")
+
+    result = runner.invoke(app, ["knative", "register", str(stac_item_path), "--namespace", "serving"])
+
+    assert result.exit_code == 0
+    assert applied == [(item, "serving")]
+    assert "unet-segmentation" in result.output
+
+
+def test_knative_status_reports_readiness(monkeypatch) -> None:
+    import fair.infra.knative as knative_module
+
+    monkeypatch.setattr(
+        knative_module,
+        "knative_service_status",
+        lambda name, namespace=None: ("True", f"https://{name}.predict.example.com"),
+    )
+
+    result = runner.invoke(app, ["knative", "status", "unet-segmentation"])
+
+    assert result.exit_code == 0
+    assert "ready=True" in result.output
+    assert "https://unet-segmentation.predict.example.com" in result.output
+
+
+def test_knative_delete_delegates(monkeypatch) -> None:
+    import fair.infra.knative as knative_module
+
+    deleted: list[tuple[str, str | None]] = []
+    monkeypatch.setattr(
+        knative_module,
+        "delete_knative_service",
+        lambda name, namespace=None: deleted.append((name, namespace)),
+    )
+
+    result = runner.invoke(app, ["knative", "delete", "unet_segmentation"])
+
+    assert result.exit_code == 0
+    assert deleted == [("unet_segmentation", None)]
+    assert "deleted unet-segmentation" in result.output

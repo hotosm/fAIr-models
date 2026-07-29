@@ -1,39 +1,40 @@
-_up-dok8s: _tofu-apply _save-kubeconfig _apply-postgres _helmfile-dok8s _post-deploy-dok8s
-    @just _urls-dok8s
+# Recipes for a real (non-kind) cluster. Cluster provisioning, kubeconfig and
+# DNS are managed outside this repo; every recipe reads its configuration from
+# the environment and fails if a required value is missing.
+#
+#   FAIR_DOMAIN          apex domain serving the stack (e.g. fair.example.com)
+#   LETSENCRYPT_EMAIL    contact address on the cluster issuer
+#   MLFLOW_ADMIN_USER    MLflow admin credentials
+#   MLFLOW_ADMIN_PASSWORD
+#   ZENML_ADMIN_USER     ZenML admin credentials
+#   ZENML_ADMIN_PASSWORD
+#   ZENML_STORE_API_KEY
 
-_tofu-apply:
-    cd dok8s && tofu init -upgrade && tofu apply -auto-approve
+_up-cluster: _apply-postgres _helmfile-cluster _post-deploy-cluster
+    @just _urls-cluster
 
-_save-kubeconfig:
+_require-env:
     #!/usr/bin/env bash
     set -euo pipefail
-    cd dok8s
-    CTX="$(tofu output -raw doks_context)"
-    doctl kubernetes cluster kubeconfig save "${CTX#do-*-}"
+    missing=()
+    for var in FAIR_DOMAIN LETSENCRYPT_EMAIL MLFLOW_ADMIN_USER MLFLOW_ADMIN_PASSWORD \
+               ZENML_ADMIN_USER ZENML_ADMIN_PASSWORD ZENML_STORE_API_KEY; do
+        [[ -n "${!var:-}" ]] || missing+=("$var")
+    done
+    if (( ${#missing[@]} )); then
+        echo "ERROR: unset required env vars: ${missing[*]}" >&2
+        exit 1
+    fi
 
-_helmfile-dok8s:
+_helmfile-cluster: _require-env
+    helmfile -e cluster apply
+
+_post-deploy-cluster: _require-env
     #!/usr/bin/env bash
     set -euo pipefail
-    cd dok8s
-    export FAIR_DOMAIN="$(tofu output -raw fair_domain)"
-    export LETSENCRYPT_EMAIL="$(tofu output -raw letsencrypt_email)"
-    export MLFLOW_ADMIN_USER="$(tofu output -raw mlflow_admin_user)"
-    export MLFLOW_ADMIN_PASSWORD="$(tofu output -raw mlflow_admin_password)"
-    export ZENML_ADMIN_USER="$(tofu output -raw zenml_admin_user)"
-    export ZENML_ADMIN_PASSWORD="$(tofu output -raw zenml_admin_password)"
-    export ZENML_STORE_API_KEY="$(tofu output -raw zenml_store_api_key)"
-    cd ..
-    helmfile -e dok8s apply
-
-_post-deploy-dok8s:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    export FAIR_DOMAIN="$(cd dok8s && tofu output -raw fair_domain)"
-    export LETSENCRYPT_EMAIL="$(cd dok8s && tofu output -raw letsencrypt_email)"
     envsubst '${FAIR_DOMAIN} ${LETSENCRYPT_EMAIL}' < manifests/knative-serving.yaml.gotmpl | kubectl apply -f -
     kubectl apply -f manifests/s3-credentials.yaml
     just _wait-lb
-    just _set-dns
     kubectl wait --for=condition=Available deployment/cert-manager-webhook -n cert-manager --timeout=180s
     envsubst '${FAIR_DOMAIN} ${LETSENCRYPT_EMAIL}' < manifests/cluster-issuer.yaml.gotmpl | kubectl apply -f -
     envsubst '${FAIR_DOMAIN} ${LETSENCRYPT_EMAIL}' < manifests/ingress.yaml.gotmpl | kubectl apply -f -
@@ -45,64 +46,46 @@ _wait-lb:
     for i in $(seq 1 60); do
         IP=$(kubectl get svc -n ingress-nginx ingress-nginx-controller \
             -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || true)
-        [[ -n "$IP" ]] && { echo "$IP" > dok8s/.lb-ip; echo "  $IP"; exit 0; }
+        if [[ -n "$IP" ]]; then
+            echo "  $IP"
+            # `<svc>.predict.$FAIR_DOMAIN` is two labels deep and DNS wildcards
+            # do not span dots, so both records are required.
+            echo "  point *.${FAIR_DOMAIN} and *.predict.${FAIR_DOMAIN} at this address"
+            exit 0
+        fi
         sleep 5
     done
     echo "ERROR: LoadBalancer IP not assigned after 5 minutes" >&2; exit 1
 
-_set-dns:
+_down-cluster:
+    -helmfile -e cluster destroy
+
+_tear-cluster:
     #!/usr/bin/env bash
     set -euo pipefail
-    FAIR_DOMAIN="$(cd dok8s && tofu output -raw fair_domain)"
-    IP=$(cat dok8s/.lb-ip)
-    ZONE=$(echo "$FAIR_DOMAIN" | awk -F. '{print $(NF-1)"."$NF}')
-    NAME=$(echo "$FAIR_DOMAIN" | sed "s/\.$ZONE\$//")
-    # `<svc>.predict.$FAIR_DOMAIN` is two labels deep; DNS wildcards do not
-    # span dots, so a second record is required.
-    RECORD_NAMES=("*.$NAME" "*.predict.$NAME")
-    EXISTING_RECORDS=$(doctl compute domain records list "$ZONE" --format ID,Type,Name --no-header)
-    for record_name in "${RECORD_NAMES[@]}"; do
-        existing=$(echo "$EXISTING_RECORDS" | awk -v t=A -v n="$record_name" '$2==t && $3==n {print $1}')
-        if [[ -n "$existing" ]]; then
-            for id in $existing; do
-                doctl compute domain records update "$ZONE" --record-id "$id" --record-data "$IP" >/dev/null
-            done
-        else
-            doctl compute domain records create "$ZONE" --record-type A --record-name "$record_name" --record-data "$IP" --record-ttl 300 >/dev/null
-        fi
-        echo "DNS $record_name.$ZONE -> $IP"
-    done
+    helmfile -e cluster destroy 2>/dev/null || true
+    kubectl delete -f manifests/postgres.yaml --ignore-not-found
 
-_down-dok8s:
-    -helmfile -e dok8s destroy
-
-_tear-dok8s:
+_urls-cluster:
     #!/usr/bin/env bash
     set -euo pipefail
-    -helmfile -e dok8s destroy 2>/dev/null || true
-    cd dok8s && tofu destroy -auto-approve
-
-_urls-dok8s:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    DOMAIN="$(cd dok8s && tofu output -raw fair_domain 2>/dev/null || echo unknown)"
+    DOMAIN="${FAIR_DOMAIN:-unset}"
     echo "ZenML:   https://zenml.${DOMAIN}"
     echo "MLflow:  https://mlflow.${DOMAIN}"
     echo "STAC:    https://stac.${DOMAIN}/stac"
     echo "Predict: https://predict.${DOMAIN}"
     echo "API:     https://api.${DOMAIN}/api/v1/health/"
 
-[doc('Deploy the fAIr Django backend to dok8s. Secrets are managed by terraform — run `tofu apply` in dok8s/ first.')]
+[doc('Deploy the fAIr Django backend. Needs the fair-backend-secrets secret in the cluster.')]
 up-fair-api: _bootstrap-fair-db
     #!/usr/bin/env bash
     set -euo pipefail
-    FAIR_DOMAIN="$(cd dok8s && tofu output -raw fair_domain)"
     kubectl -n {{ ns }} get secret fair-backend-secrets >/dev/null 2>&1 \
-        || { echo "ERROR: fair-backend-secrets missing — run 'cd dok8s && tofu apply' first" >&2; exit 1; }
+        || { echo "ERROR: fair-backend-secrets missing, create it before deploying" >&2; exit 1; }
     kubectl apply -f manifests/fair-backend.yaml
     kubectl rollout status -n {{ ns }} deployment/fair-backend --timeout=300s
     echo
-    echo "  https://api.${FAIR_DOMAIN}/api/v1/health/"
+    echo "  https://api.${FAIR_DOMAIN:-unset}/api/v1/health/"
 
 [doc('Force a redeploy of fair-backend (after pushing a new :test image)')]
 rollout-fair-api:

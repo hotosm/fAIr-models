@@ -96,9 +96,13 @@ Follow the [nvkind prerequisites and setup guide](https://github.com/NVIDIA/nvki
 ### Label domain
 
 Node labels and taints use the `fair.dev` prefix (hardcoded in the dev config files).
-For production (dok8s), the label domain comes from the `domain` OpenTofu variable in `infra/dok8s/terraform.tfvars` (exposed as the `fair_domain` output and consumed by the `infra/` justfile recipes).
+On a deployed cluster the label domain must match the labels on the ML node pool, and is set through `FAIR_LABEL_DOMAIN`.
 
 The runtime default in `fair/zenml/config.py` can be overridden via `FAIR_LABEL_DOMAIN` env var.
+
+### Predict domain
+
+`FAIR_PREDICT_DOMAIN` is separate from the label domain: it is the public DNS domain KNative serves models on, and it is what `fair basemodel register` health-checks and records as the `mlm:inference-endpoint` asset. Leave it unset for local work with no public exposure.
 
 ??? abstract "Decisions"
 

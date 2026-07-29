@@ -29,11 +29,15 @@ model_app = typer.Typer(no_args_is_help=True, help="Finetune and promote local m
 basemodel_app = typer.Typer(no_args_is_help=True, help="Register base models.")
 item_app = typer.Typer(no_args_is_help=True, help="Read and update STAC items in any collection.")
 stack_app = typer.Typer(no_args_is_help=True, help="Bring the local Compose stack up and down.")
+knative_app = typer.Typer(no_args_is_help=True, help="Manage the KNative service that serves a model.")
 app.add_typer(dataset_app, name="dataset")
 app.add_typer(model_app, name="model")
 app.add_typer(basemodel_app, name="basemodel")
 app.add_typer(item_app, name="item")
 app.add_typer(stack_app, name="stack")
+app.add_typer(knative_app, name="knative")
+
+_NAMESPACE_HELP = "KNative namespace (default: $FAIR_KNATIVE_NAMESPACE, else 'predict')"
 
 _COLLECTIONS = {BASE_MODELS_COLLECTION, DATASETS_COLLECTION, LOCAL_MODELS_COLLECTION}
 
@@ -206,6 +210,43 @@ def basemodel_register(
 ) -> None:
     """Register a base model STAC item."""
     typer.echo(_client().register_base_model(str(item)))
+
+
+@knative_app.command("register")
+def knative_register(
+    item: Annotated[Path, typer.Argument(exists=True, dir_okay=False, help="Model STAC item JSON")],
+    namespace: Annotated[str | None, typer.Option(help=_NAMESPACE_HELP)] = None,
+) -> None:
+    """Create or update the KNative service serving a model, before registering the model itself."""
+    from fair.infra.knative import ensure_knative_service, knative_service_name
+
+    stac_item = pystac.Item.from_file(str(item))
+    ensure_knative_service(stac_item, namespace=namespace)
+    typer.echo(knative_service_name(stac_item.properties.get("mlm:name") or stac_item.id))
+
+
+@knative_app.command("status")
+def knative_status(
+    name: Annotated[str, typer.Argument(help="Model name (mlm:name) or STAC item id")],
+    namespace: Annotated[str | None, typer.Option(help=_NAMESPACE_HELP)] = None,
+) -> None:
+    """Show whether a model's KNative service is Ready, and the URL it serves."""
+    from fair.infra.knative import knative_service_status
+
+    ready, url = knative_service_status(name, namespace=namespace)
+    typer.echo(f"ready={ready}\turl={url}")
+
+
+@knative_app.command("delete")
+def knative_delete(
+    name: Annotated[str, typer.Argument(help="Model name (mlm:name) or STAC item id")],
+    namespace: Annotated[str | None, typer.Option(help=_NAMESPACE_HELP)] = None,
+) -> None:
+    """Delete a model's KNative service."""
+    from fair.infra.knative import delete_knative_service, knative_service_name
+
+    delete_knative_service(name, namespace=namespace)
+    typer.echo(f"deleted {knative_service_name(name)}")
 
 
 @item_app.command("get")

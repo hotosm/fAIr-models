@@ -147,7 +147,7 @@ def test_predict_raises_when_inference_pipeline_returns_no_run(
     )
 
     class _InferencePipeline:
-        def with_options(self, *, config_path: str, enable_cache: bool) -> Any:
+        def with_options(self, *, config_path: str, enable_cache: bool, settings: dict[str, Any]) -> Any:
             def _runner() -> None:
                 return None
 
@@ -383,7 +383,7 @@ def test_dataset_and_prediction_error_paths(monkeypatch: pytest.MonkeyPatch, tmp
     missing_backend = SimpleNamespace(get_item=lambda collection, item_id: (_ for _ in ()).throw(KeyError(item_id)))
     monkeypatch.setattr(client, "_get_backend", lambda: missing_backend)
 
-    with pytest.raises(FairClientError, match=r"Run promote\(\) first"):
+    with pytest.raises(FairClientError, match="not found in local-models or base-models"):
         client.predict("missing-model", str(tmp_path))
 
     with pytest.raises(FairClientError, match="not found in 'local-models'"):
@@ -480,7 +480,7 @@ def test_finetune_and_promote_error_paths(monkeypatch: pytest.MonkeyPatch, tmp_p
     monkeypatch.setattr(client_module, "generate_training_config", lambda *args, **kwargs: {"steps": {}})
 
     class _TrainingPipeline:
-        def with_options(self, *, config_path: str, enable_cache: bool) -> Any:
+        def with_options(self, *, config_path: str, enable_cache: bool, settings: dict[str, Any]) -> Any:
             def _runner() -> None:
                 return None
 

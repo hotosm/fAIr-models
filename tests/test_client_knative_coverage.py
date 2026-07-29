@@ -59,7 +59,7 @@ class DummyPipeline:
         self._run = run
         self.config_path: str | None = None
 
-    def with_options(self, *, config_path: str, enable_cache: bool) -> Any:
+    def with_options(self, *, config_path: str, enable_cache: bool, settings: Any = None) -> Any:
         self.config_path = config_path
 
         def _runner() -> Any:
@@ -325,19 +325,11 @@ def test_setup_register_base_model_and_register_dataset_paths(monkeypatch, tmp_p
     assert client.register_base_model("base.json") == "resnet18-classification"
     assert item.properties["version"] == "2"
     assert archived == ["done"]
-    assert ensured == [], "local mode (no stac_api_url) must not provision a KNative service"
+    assert ensured == [], "registration must never provision a KNative service"
 
     client._stac_api_url = "https://stac.example.com"
     assert client.register_base_model("base.json") == "resnet18-classification"
-    assert ensured == ["resnet18-classification"]
-
-    monkeypatch.setattr(
-        knative_module,
-        "ensure_knative_service",
-        lambda published: (_ for _ in ()).throw(RuntimeError("boom")),
-    )
-    with pytest.raises(RuntimeError, match="boom"):
-        client.register_base_model("base.json")
+    assert ensured == [], "a remote STAC backend must not provision a KNative service either"
     client._stac_api_url = None
 
     source_labels = tmp_path / "labels.geojson"
@@ -490,9 +482,7 @@ def test_predict_resolves_base_model_when_not_local(monkeypatch, tmp_path) -> No
     monkeypatch.setattr(client, "_get_backend", lambda: backend)
     monkeypatch.setattr(client, "_artifact_store_prefix", lambda: "s3://bucket")
     monkeypatch.setattr(client, "_pipeline_module_from_item", lambda _: "models.demo.pipeline")
-    monkeypatch.setattr(
-        client_module, "generate_inference_config", lambda *args, **kwargs: {"steps": {"predict": {}}}
-    )
+    monkeypatch.setattr(client_module, "generate_inference_config", lambda *args, **kwargs: {"steps": {"predict": {}}})
     prediction_run = SimpleNamespace(
         id="predict-run",
         status="completed",
@@ -635,14 +625,15 @@ def test_knative_helpers_and_service_upsert(monkeypatch) -> None:
     knative_module._upsert_knative_service(api, manifest, knative_module.DEFAULT_NAMESPACE)
     assert api.patched[-1]["metadata"]["name"] == "resnet18-classification"
 
-    # ensure_knative_service: skip-when-not-installed branch + happy upsert
+    # ensure_knative_service: happy upsert + fail-loud when Serving is absent
     upserted: list[str] = []
     monkeypatch.setattr(knative_module, "_upsert_knative_service", lambda *args: upserted.append("service"))
     monkeypatch.setattr(knative_module, "_custom_objects_api", lambda: api)
     monkeypatch.setattr(knative_module, "_knative_serving_installed", lambda: True)
     knative_module.ensure_knative_service(_build_base_model_item())
     monkeypatch.setattr(knative_module, "_knative_serving_installed", lambda: False)
-    knative_module.ensure_knative_service(_build_base_model_item())
+    with pytest.raises(knative_module.KnativeNotInstalledError):
+        knative_module.ensure_knative_service(_build_base_model_item())
     assert upserted == ["service"]
 
     delete_api = DummyCustomObjectsApi()
@@ -681,3 +672,149 @@ def test_knative_serving_installed_discovery(monkeypatch: pytest.MonkeyPatch) ->
     monkeypatch.setattr(config, "load_incluster_config", _raise_config)
     monkeypatch.setattr(config, "load_kube_config", _raise_config)
     assert knative_module._knative_serving_installed() is False
+
+
+def test_public_urls_and_health_url() -> None:
+    assert knative_module.public_service_url("Model_Name", "fair.example.com") == (
+        "https://model-name.predict.fair.example.com"
+    )
+    assert knative_module.health_url("https://model-name.predict.fair.example.com/predict") == (
+        "https://model-name.predict.fair.example.com/health"
+    )
+    # Query strings and non-standard paths still resolve to the same probe.
+    assert knative_module.health_url("http://localhost:8090/predict?debug=1") == "http://localhost:8090/health"
+    with pytest.raises(ValueError, match="absolute URL"):
+        knative_module.health_url("/predict")
+
+
+def test_probe_service_health(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, Any] = {}
+
+    def _respond(status_code: int):
+        def _get(url: str, **kwargs: Any) -> Any:
+            captured["url"] = url
+            captured["kwargs"] = kwargs
+            return SimpleNamespace(status_code=status_code)
+
+        return _get
+
+    monkeypatch.setattr(httpx, "get", _respond(200))
+    knative_module.probe_service_health("https://svc.predict.example.com/health", timeout=5.0, verify=False)
+    assert captured["url"] == "https://svc.predict.example.com/health"
+    assert captured["kwargs"] == {"timeout": 5.0, "verify": False}
+
+    monkeypatch.setattr(httpx, "get", _respond(503))
+    with pytest.raises(knative_module.KnativeServiceUnavailableError, match="HTTP 503"):
+        knative_module.probe_service_health("https://svc.predict.example.com/health")
+
+    def _raise(url: str, **_: Any) -> Any:
+        raise httpx.ConnectError("name resolution failed")
+
+    monkeypatch.setattr(httpx, "get", _raise)
+    with pytest.raises(knative_module.KnativeServiceUnavailableError, match="unreachable"):
+        knative_module.probe_service_health("https://svc.predict.example.com/health")
+
+
+def test_knative_service_status(monkeypatch: pytest.MonkeyPatch) -> None:
+    class StatusApi:
+        def __init__(self, status: dict[str, Any]) -> None:
+            self._status = status
+            self.requested: str | None = None
+
+        def get_namespaced_custom_object(self, *, name: str, **_: Any) -> dict[str, Any]:
+            self.requested = name
+            return {"metadata": {"name": name}, "status": self._status}
+
+    ready_api = StatusApi(
+        {
+            "conditions": [{"type": "ConfigurationsReady", "status": "True"}, {"type": "Ready", "status": "True"}],
+            "url": "https://model-name.predict.example.com",
+        }
+    )
+    monkeypatch.setattr(knative_module, "_custom_objects_api", lambda: ready_api)
+    assert knative_module.knative_service_status("Model_Name") == ("True", "https://model-name.predict.example.com")
+    assert ready_api.requested == "model-name"
+
+    monkeypatch.setattr(knative_module, "_custom_objects_api", lambda: StatusApi({}))
+    assert knative_module.knative_service_status("model-name", namespace="serving") == ("Unknown", "")
+
+
+def _gated_client(monkeypatch: pytest.MonkeyPatch, item: pystac.Item) -> tuple[FairClient, DummyBackend]:
+    backend = DummyBackend()
+    client = FairClient(catalog_path="catalog.json")
+    monkeypatch.setattr(client, "_get_backend", lambda: backend)
+    monkeypatch.setattr(client_module.pystac.Item, "from_file", lambda _: item)
+    monkeypatch.setattr(client_module, "validate_item", lambda _: [])
+    monkeypatch.setattr(client_module, "validate_model_asset_urls", lambda *args, **kwargs: [])
+    monkeypatch.setattr(client_module, "find_previous_active_item", lambda *args, **kwargs: None)
+    monkeypatch.setattr(client, "_upload_assets_if_remote", lambda *args, **kwargs: None)
+    return client, backend
+
+
+def test_register_base_model_records_endpoint_when_service_is_live(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("FAIR_PREDICT_DOMAIN", "fair.example.com")
+    monkeypatch.setenv("FAIR_KNATIVE_HEALTH_TIMEOUT", "12")
+    item = _build_base_model_item()
+    client, backend = _gated_client(monkeypatch, item)
+
+    probed: dict[str, Any] = {}
+    monkeypatch.setattr(
+        knative_module,
+        "probe_service_health",
+        lambda url, **kwargs: probed.update(url=url, **kwargs),
+    )
+
+    assert client.register_base_model("base.json") == "resnet18-classification"
+    assert probed["url"] == "https://resnet18-classification.predict.fair.example.com/health"
+    assert probed["timeout"] == 12.0
+    assert item.assets["mlm:inference-endpoint"].href == (
+        "https://resnet18-classification.predict.fair.example.com/predict"
+    )
+    assert [collection for collection, _ in backend.published] == [BASE_MODELS_COLLECTION]
+
+
+def test_register_base_model_rejects_a_dead_predict_service(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("FAIR_PREDICT_DOMAIN", "fair.example.com")
+    item = _build_base_model_item()
+    client, backend = _gated_client(monkeypatch, item)
+
+    def _unavailable(url: str, **_: Any) -> None:
+        raise knative_module.KnativeServiceUnavailableError(f"{url} returned HTTP 404, expected 200")
+
+    monkeypatch.setattr(knative_module, "probe_service_health", _unavailable)
+
+    with pytest.raises(FairClientError, match="fair knative register"):
+        client.register_base_model("base.json")
+    assert backend.published == [], "a dead service must leave nothing published"
+
+
+def test_register_base_model_probes_the_endpoint_declared_on_the_item(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("FAIR_PREDICT_DOMAIN", "fair.example.com")
+    item = _build_base_model_item()
+    item.add_asset(
+        "mlm:inference-endpoint",
+        pystac.Asset(href="https://serving.internal:8443/predict", roles=["mlm:inference-endpoint"]),
+    )
+    client, _ = _gated_client(monkeypatch, item)
+
+    probed: list[str] = []
+    monkeypatch.setattr(knative_module, "probe_service_health", lambda url, **_: probed.append(url))
+
+    assert client.register_base_model("base.json") == "resnet18-classification"
+    assert probed == ["https://serving.internal:8443/health"]
+    assert item.assets["mlm:inference-endpoint"].href == "https://serving.internal:8443/predict"
+
+
+def test_register_base_model_skips_the_probe_without_a_domain(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("FAIR_PREDICT_DOMAIN", raising=False)
+    item = _build_base_model_item()
+    client, backend = _gated_client(monkeypatch, item)
+
+    def _fail(*_: Any, **__: Any) -> None:
+        raise AssertionError("local-dev registration must not probe any service")
+
+    monkeypatch.setattr(knative_module, "probe_service_health", _fail)
+
+    assert client.register_base_model("base.json") == "resnet18-classification"
+    assert "mlm:inference-endpoint" not in item.assets
+    assert len(backend.published) == 1

@@ -7,10 +7,10 @@ cli_image := "fair-dev-cli:latest"
 pf_container := "fair-dev-cli-pf"
 
 import 'recipes/dev.just'
-import 'recipes/dok8s.just'
+import 'recipes/cluster.just'
 import 'recipes/examples.just'
 
-[doc('Deploy the full stack (default kind, pass `dok8s` for DigitalOcean)')]
+[doc('Deploy the full stack (default kind, pass `cluster` for a real cluster)')]
 up env="dev":
     @just _up-{{ env }}
 
@@ -18,7 +18,7 @@ up env="dev":
 down env="dev":
     @just _down-{{ env }}
 
-[doc('Destroy everything (kind cluster or dok8s tofu state)')]
+[doc('Destroy everything (kind cluster or the deployed releases)')]
 tear env="dev":
     @just _tear-{{ env }}
 

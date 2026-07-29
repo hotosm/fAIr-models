@@ -21,9 +21,11 @@ data:
   ZENML_ACTIVE_STACK_ID: "38858ba6-c10b-4efa-8cd3-e2b5599e81a3"
   HOME: "/tmp"
   # fair.zenml.config._workload_selector reads this to build pipeline-pod
-  # nodeSelectors. Must match the live label-domain on the ml node-pool
-  # (see dok8s/main.tf labels)
+  # nodeSelectors. Must match the live label-domain on the ml node-pool.
   FAIR_LABEL_DOMAIN: "fair.krschap.tech"
+  # Public predict domain: base-model registration checks
+  # https://<model>.predict.$FAIR_PREDICT_DOMAIN/health before publishing.
+  FAIR_PREDICT_DOMAIN: "fair.krschap.tech"
   FAIR_STAC_API_URL: "https://stac.fair.krschap.tech/stac"
   BUCKET_NAME: "fair-data"
   PARENT_BUCKET_FOLDER: "backend"

@@ -234,11 +234,9 @@ fair/_version.py
 infra/dev/.port-forward.pids
 infra/dev/.pf-logs/
 
-# dok8s infra
-infra/dok8s/.env
-infra/dok8s/.dok8s-stack-resolved.yaml
+# cluster infra
+infra/.cluster-stack-resolved.yaml
 infra/*.kubeconfig
-infra/.env.dok8s
 soul.md
 .fair-mode
 mlflow.db

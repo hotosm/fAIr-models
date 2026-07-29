@@ -15,7 +15,7 @@ import httpx
 
 REPO = Path(__file__).resolve().parents[1]
 PYPROJECT = REPO / "pyproject.toml"
-GHCR_REPO = "hotosm/zenml-postgres"
+GHCR_REPO = "hotosm/fair/zenml-postgres"
 
 DEP_RE = re.compile(r"^zenml(?:\[[^\]]+\])?\s*(==|>=)\s*(\S+)$")
 

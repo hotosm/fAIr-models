@@ -7,12 +7,14 @@ from typing import Any
 import numpy as np
 import pytest
 import shapely.geometry as sgeom
-from dinov3_hot.serve import predict_session
+from dinov3_hot.serve import INFERENCE_BATCH_SIZE, MODEL_INPUT_SIZE, predict_session
 
 
 class _StubSession:
     def get_inputs(self) -> list[Any]:
-        return [SimpleNamespace(name="image")]
+        # Mirrors the static batch dim `export_onnx` bakes in; the sliding window
+        # reads it to group chips.
+        return [SimpleNamespace(name="image", shape=[INFERENCE_BATCH_SIZE, 3, MODEL_INPUT_SIZE, MODEL_INPUT_SIZE])]
 
     def run(self, _outputs: list[str] | None, feeds: dict[str, np.ndarray]) -> list[np.ndarray]:
         batch = feeds["image"]

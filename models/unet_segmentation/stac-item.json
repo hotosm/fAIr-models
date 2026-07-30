@@ -184,6 +184,7 @@
       "training.scheduler": "cosine",
       "training.max_grad_norm": 1.0,
       "training.freeze_encoder": true,
+      "training.calibrate_threshold": true,
       "inference.min_class_value": 1,
       "inference.confidence_threshold": 0.5
     },
@@ -296,12 +297,18 @@
         "description": "Freeze pretrained encoder weights during finetuning"
       },
       {
+        "key": "calibrate_threshold",
+        "type": "bool",
+        "default": true,
+        "description": "Select inference.confidence_threshold by a deterministic validation-split F1 sweep after training (rate-matching fallback when validation has no positive pixels)"
+      },
+      {
         "key": "confidence_threshold",
         "type": "float",
         "default": 0.5,
         "min": 0.0,
         "max": 1.0,
-        "description": "Minimum per-pixel softmax probability to retain a predicted class at inference"
+        "description": "Minimum per-pixel foreground probability to retain a predicted class at inference; used as-is only when calibrate_threshold is false"
       },
       {
         "key": "min_class_value",

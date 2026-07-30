@@ -172,7 +172,8 @@
       }
     ],
     "mlm:hyperparameters": {
-      "training.epochs": 5,
+      "training.epochs": 30,
+      "training.early_stop_patience": 5,
       "training.batch_size": 4,
       "training.learning_rate": 0.0001,
       "training.weight_decay": 0.0001,
@@ -197,10 +198,18 @@
       {
         "key": "epochs",
         "type": "int",
-        "default": 5,
+        "default": 30,
         "min": 1,
         "max": 500,
-        "description": "Number of training epochs"
+        "description": "Maximum number of training epochs; early stopping usually ends training sooner"
+      },
+      {
+        "key": "early_stop_patience",
+        "type": "int",
+        "default": 5,
+        "min": 0,
+        "max": 100,
+        "description": "Stop training after this many epochs without validation-loss improvement and restore the best epoch's weights; 0 disables early stopping"
       },
       {
         "key": "batch_size",

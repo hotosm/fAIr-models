@@ -276,6 +276,7 @@ def train_model(
     max_grad_norm = hyperparameters.get("max_grad_norm", 1.0)
     scheduler_name = hyperparameters.get("scheduler", "cosine")
     freeze_encoder = hyperparameters.get("freeze_encoder", True)
+    early_stop_patience = int(hyperparameters.get("early_stop_patience", 5))
     seed = split_info["seed"]
 
     with mlflow_training_context(hyperparameters, model_name, base_model_id, dataset_id):
@@ -327,6 +328,10 @@ def train_model(
 
         train_losses: list[float] = []
         val_losses: list[float] = []
+        best_val_loss = float("inf")
+        best_epoch = 0
+        best_state: dict[str, Any] | None = None
+        epochs_without_improvement = 0
 
         model.train()
         for epoch in range(epochs):
@@ -357,6 +362,21 @@ def train_model(
             log_metadata(metadata={"loss": avg_train_loss, "epoch": epoch + 1})
             msg = f"epoch {epoch + 1}/{epochs}  train_loss={avg_train_loss:.4f}  val_loss={avg_val_loss:.4f}"
             print(msg, flush=True)
+
+            if avg_val_loss < best_val_loss:
+                best_val_loss = avg_val_loss
+                best_epoch = epoch + 1
+                best_state = {k: v.detach().cpu().clone() for k, v in model.state_dict().items()}
+                epochs_without_improvement = 0
+            else:
+                epochs_without_improvement += 1
+                if early_stop_patience > 0 and epochs_without_improvement >= early_stop_patience:
+                    print(f"early stopping at epoch {epoch + 1} (best epoch {best_epoch})", flush=True)
+                    break
+
+        if best_state is not None:
+            model.load_state_dict(best_state)
+        log_metadata(metadata={"best_epoch": best_epoch, "best_val_loss": best_val_loss})
 
         from fair.zenml.metrics import log_loss_history
 

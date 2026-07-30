@@ -48,7 +48,7 @@
     "created": "2024-01-01T00:00:00Z",
     "updated": "2024-01-01T00:00:00Z",
     "title": "UNet Building Segmentation",
-    "description": "UNet semantic segmentation model for building footprint extraction from very high resolution RGB aerial imagery. Pretrained on the OAM-TCD dataset (NeurIPS 2024) via torchgeo, intended for finetuning on OpenAerialMap + OpenStreetMap chip-label pairs.",
+    "description": "UNet semantic segmentation model for building footprint extraction from very high resolution RGB aerial imagery. Pretrained on the hotosm/vhr-building-segmentation dataset (frozen ImageNet encoder, decoder + 2-class head trained on 57,890 building chips), intended for finetuning on OpenAerialMap + OpenStreetMap chip-label pairs.",
     "mlm:name": "unet-segmentation",
     "mlm:architecture": "UNet",
     "mlm:tasks": [
@@ -57,7 +57,7 @@
     "mlm:framework": "PyTorch",
     "mlm:framework_version": "2.10.0",
     "mlm:pretrained": true,
-    "mlm:pretrained_source": "https://arxiv.org/abs/2407.11743",
+    "mlm:pretrained_source": "https://huggingface.co/datasets/hotosm/vhr-building-segmentation",
     "mlm:accelerator": "cuda",
     "mlm:accelerator_count": 1,
     "keywords": [
@@ -323,8 +323,8 @@
   },
   "assets": {
     "checkpoint": {
-      "href": "https://hf.co/isaaccorley/unet_resnet34_oam_rgb_tcd/resolve/40c914bbcbe43a6a87c81adb0a22ff2d4a53204d/unet_resnet34_oam_rgb_tcd-9472042e.pth",
-      "title": "Pretrained weights (OAM-TCD UNet ResNet34)",
+      "href": "https://hf.co/nilsho01/unet-resnet34-vhr-buildings/resolve/289e829883fc17b253cf9892946f6502199998a8/unet_bldg_base.pth",
+      "title": "Pretrained weights (VHR buildings UNet ResNet34)",
       "type": "application/octet-stream; framework=pytorch",
       "roles": [
         "mlm:model",
@@ -406,9 +406,9 @@
     },
     {
       "rel": "cite-as",
-      "href": "https://arxiv.org/abs/2407.11743",
+      "href": "https://huggingface.co/datasets/hotosm/vhr-building-segmentation",
       "type": "text/html",
-      "title": "OAM-TCD Pretrained Weights (NeurIPS 2024)"
+      "title": "VHR Building Segmentation Dataset (base-model training data)"
     }
   ]
 }

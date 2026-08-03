@@ -5,6 +5,8 @@ on:
   push:
     branches:
       - develop
+      - staging
+      - main
     paths:
       - 'models/**'
       - 'scripts/**'
@@ -54,7 +56,8 @@ jobs:
           repository: hotosm/k8s-infra
           token: ${{ steps.generate-token.outputs.token }}
           path: k8s-infra
-          ref: develop
+          # Dynamically targets the matching environment branch in k8s-infra
+          ref: ${{ github.ref_name }}
 
       - name: Build, Push, and Update Models
         run: |
@@ -119,7 +122,8 @@ jobs:
           # Only commit if yq actually modified the values file
           if ! git diff-index --quiet HEAD; then
             git commit -m "chore(gitops): update model images to tag sha-${GITHUB_SHA::7} [skip ci]"
-            git push origin develop
+            # Dynamically push to the matching environment branch in k8s-infra
+            git push origin ${{ github.ref_name }}
           else
             echo "No changes to commit."
           fi

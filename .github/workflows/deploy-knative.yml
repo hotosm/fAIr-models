@@ -1,0 +1,92 @@
+name: Build Inference & Update K8s Infra
+
+on:
+  workflow_dispatch:
+    inputs:
+      model_name:
+        description: 'Model directory name (e.g., unet_segmentation)'
+        required: true
+        default: 'unet_segmentation'
+  push:
+    branches:
+      - develop
+    paths:
+      - 'models/**'
+
+jobs:
+  build-and-update-gitops:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout fair-models
+        uses: actions/checkout@v4
+
+      - name: Setup Python & uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: "latest"
+
+      - name: Install Dependencies
+        run: |
+          uv sync --group dev
+          # Install yq for safely modifying the k8s-infra YAML
+          sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
+          sudo chmod a+x /usr/local/bin/yq
+
+      - name: Determine Model & Image Name
+        id: meta
+        run: |
+          # Use manual input if dispatched, otherwise default to unet_segmentation for this test
+          MODEL_NAME="${{ github.event.inputs.model_name || 'unet_segmentation' }}"
+          echo "MODEL_NAME=${MODEL_NAME}" >> $GITHUB_ENV
+          
+          # Use your existing STAC script to infer the image href
+          IMAGE_HREF=$(uv run python scripts/stac_asset.py "models/${MODEL_NAME}/stac-item.json" mlm:inference)
+          echo "IMAGE_HREF=${IMAGE_HREF}" >> $GITHUB_ENV
+          
+          # Use the short commit SHA as a unique, immutable tag
+          IMAGE_TAG="sha-${GITHUB_SHA::7}"
+          echo "IMAGE_TAG=${IMAGE_TAG}" >> $GITHUB_ENV
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build & Push Inference Image
+        run: |
+          docker build -f "models/${MODEL_NAME}/Dockerfile" --target inference -t "${IMAGE_HREF}:${IMAGE_TAG}" .
+          docker push "${IMAGE_HREF}:${IMAGE_TAG}"
+
+      - name: Generate GitHub App Token
+        id: generate-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.INFRA_APP_ID }}
+          private-key: ${{ secrets.INFRA_APP_PRIVATE_KEY }}
+          owner: hotosm
+          repositories: k8s-infra
+
+      - name: Checkout k8s-infra
+        uses: actions/checkout@v4
+        with:
+          repository: hotosm/k8s-infra
+          token: ${{ steps.generate-token.outputs.token }}
+          path: k8s-infra
+          ref: feature/fair-models-deploy
+
+      - name: Update Helm Values
+        run: |
+          cd k8s-infra
+          VALUES_FILE="apps/fair-models/helm/values.yaml"
+          
+          # Dynamically update the image and tag using yq
+          yq -i ".models.${MODEL_NAME}.image = \"${IMAGE_HREF}\"" $VALUES_FILE
+          yq -i ".models.${MODEL_NAME}.tag = \"${IMAGE_TAG}\"" $VALUES_FILE
+          
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add $VALUES_FILE
+          git commit -m "chore(gitops): update ${MODEL_NAME} to tag ${IMAGE_TAG} [skip ci]"
+          git push origin feature/fair-models-deploy

@@ -2,11 +2,6 @@ name: Build Inference & Update K8s Infra
 
 on:
   workflow_dispatch:
-    inputs:
-      model_name:
-        description: 'Model directory name (e.g., unet_segmentation)'
-        required: true
-        default: 'unet_segmentation'
   push:
     branches:
       - develop
@@ -32,32 +27,12 @@ jobs:
           sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
           sudo chmod a+x /usr/local/bin/yq
 
-      - name: Determine Model & Image Name
-        id: meta
-        run: |
-          # Use manual input if dispatched, otherwise default to unet_segmentation for this test
-          MODEL_NAME="${{ github.event.inputs.model_name || 'unet_segmentation' }}"
-          echo "MODEL_NAME=${MODEL_NAME}" >> $GITHUB_ENV
-          
-          # Use your existing STAC script to infer the image href
-          IMAGE_HREF=$(uv run python scripts/stac_asset.py "models/${MODEL_NAME}/stac-item.json" mlm:inference)
-          echo "IMAGE_HREF=${IMAGE_HREF}" >> $GITHUB_ENV
-          
-          # Use the short commit SHA as a unique, immutable tag
-          IMAGE_TAG="sha-${GITHUB_SHA::7}"
-          echo "IMAGE_TAG=${IMAGE_TAG}" >> $GITHUB_ENV
-
       - name: Login to GHCR
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Build & Push Inference Image
-        run: |
-          docker build -f "models/${MODEL_NAME}/Dockerfile" --target inference -t "${IMAGE_HREF}:${IMAGE_TAG}" .
-          docker push "${IMAGE_HREF}:${IMAGE_TAG}"
 
       - name: Generate GitHub App Token
         id: generate-token
@@ -76,17 +51,46 @@ jobs:
           path: k8s-infra
           ref: feature/fair-models-deploy
 
-      - name: Update Helm Values
+      - name: Build, Push, and Update Models
+        run: |
+          # Use the short commit SHA as a unique, immutable tag
+          IMAGE_TAG="sha-${GITHUB_SHA::7}"
+          VALUES_FILE="k8s-infra/apps/fair-models/helm/values.yaml"
+          
+          # Define all 4 models array
+          MODELS=("dinov3s_buildings" "resnet18_classification" "unet_segmentation" "yolo11n_detection")
+          
+          for MODEL_NAME in "${MODELS[@]}"; do
+            echo "========================================="
+            echo "Processing ${MODEL_NAME}..."
+            echo "========================================="
+            
+            # 1. Infer Image HREF using your STAC script
+            IMAGE_HREF=$(uv run python scripts/stac_asset.py "models/${MODEL_NAME}/stac-item.json" mlm:inference)
+            
+            # 2. Build the Docker Image
+            docker build -f "models/${MODEL_NAME}/Dockerfile" --target inference -t "${IMAGE_HREF}:${IMAGE_TAG}" .
+            
+            # 3. Push the Docker Image
+            docker push "${IMAGE_HREF}:${IMAGE_TAG}"
+            
+            # 4. Update the specific model's values in k8s-infra
+            yq -i ".models.${MODEL_NAME}.image = \"${IMAGE_HREF}\"" $VALUES_FILE
+            yq -i ".models.${MODEL_NAME}.tag = \"${IMAGE_TAG}\"" $VALUES_FILE
+          done
+
+      - name: Commit and Push to k8s-infra
         run: |
           cd k8s-infra
-          VALUES_FILE="apps/fair-models/helm/values.yaml"
-          
-          # Dynamically update the image and tag using yq
-          yq -i ".models.${MODEL_NAME}.image = \"${IMAGE_HREF}\"" $VALUES_FILE
-          yq -i ".models.${MODEL_NAME}.tag = \"${IMAGE_TAG}\"" $VALUES_FILE
-          
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add $VALUES_FILE
-          git commit -m "chore(gitops): update ${MODEL_NAME} to tag ${IMAGE_TAG} [skip ci]"
-          git push origin feature/fair-models-deploy
+          
+          git add apps/fair-models/helm/values.yaml
+          
+          # Only commit if there are actual changes
+          if ! git diff-index --quiet HEAD; then
+            git commit -m "chore(gitops): update model images to tag sha-${GITHUB_SHA::7} [skip ci]"
+            git push origin feature/fair-models-deploy
+          else
+            echo "No changes to commit."
+          fi

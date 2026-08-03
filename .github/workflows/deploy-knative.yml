@@ -7,6 +7,9 @@ on:
       - develop
     paths:
       - 'models/**'
+      - 'scripts/**'
+      - 'pyproject.toml'
+      - 'uv.lock'
 
 jobs:
   build-and-update-gitops:
@@ -58,15 +61,25 @@ jobs:
           # Use the short commit SHA as a unique, immutable tag
           IMAGE_TAG="sha-${GITHUB_SHA::7}"
           VALUES_FILE="k8s-infra/apps/fair-models/helm/values.yaml"
+          ALL_MODELS="dinov3s_buildings resnet18_classification unet_segmentation yolo11n_detection"
           
           # Determine which models to build
           if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
             echo "Manual trigger detected. Building all models."
-            CHANGED_MODELS="dinov3s_buildings resnet18_classification unet_segmentation yolo11n_detection"
+            CHANGED_MODELS="$ALL_MODELS"
           else
-            echo "Push detected. Finding modified models..."
-            # Extract unique model directory names that have changes
-            CHANGED_MODELS=$(git diff --name-only HEAD~1 HEAD | grep '^models/' | awk -F/ '{print $2}' | sort -u || true)
+            echo "Push detected. Checking changed files..."
+            
+            # Check if core/global files changed (e.g., pyproject.toml, uv.lock, scripts/)
+            CORE_CHANGED=$(git diff --name-only HEAD~1 HEAD | grep -E '^(pyproject\.toml|uv\.lock|scripts/|\.github/)' || true)
+            
+            if [ -n "$CORE_CHANGED" ]; then
+              echo "Core/shared files changed ($CORE_CHANGED). Rebuilding all models as a safety measure."
+              CHANGED_MODELS="$ALL_MODELS"
+            else
+              # Extract unique model directory names that have changes
+              CHANGED_MODELS=$(git diff --name-only HEAD~1 HEAD | grep '^models/' | awk -F/ '{print $2}' | sort -u || true)
+            fi
           fi
           
           if [ -z "$CHANGED_MODELS" ]; then

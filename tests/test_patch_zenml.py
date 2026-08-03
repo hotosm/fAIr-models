@@ -1,3 +1,7 @@
+import os
+import subprocess
+import sys
+
 import pytest
 
 
@@ -77,10 +81,19 @@ class TestZenMLPostgresPatch:
         assert ServerDatabaseType("postgresql").value == "postgresql"
         assert len([m for m in ServerDatabaseType if m.value == "postgresql"]) == 1
 
-    def test_env_var_skips_patch(self, monkeypatch):
-        monkeypatch.setenv("FAIR_SKIP_ZENML_PATCH", "1")
-        import fair._patch_zenml
-
-        # Patch was already applied in this process, but _apply should return early
-        # without error when the env var is set
-        fair._patch_zenml._apply()
+    def test_env_var_skips_patch(self):
+        # Needs a fresh interpreter: this process is already patched, so an in-process
+        # _apply() returns early whether or not the env var is set.
+        code = (
+            "import fair._patch_zenml as p; p._apply();"
+            "from zenml.models.v2.misc.server_models import ServerDatabaseType;"
+            "print(any(m.value == 'postgresql' for m in ServerDatabaseType))"
+        )
+        result = subprocess.run(
+            [sys.executable, "-c", code],
+            capture_output=True,
+            text=True,
+            env={**os.environ, "FAIR_SKIP_ZENML_PATCH": "1"},
+        )
+        assert result.returncode == 0, result.stderr
+        assert result.stdout.strip() == "False"

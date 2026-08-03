@@ -1,10 +1,6 @@
 {
     "allowed_keywords": [
-        "building",
-        "road",
-        "tree",
-        "water",
-        "landuse"
+        "*"
     ],
     "allowed_tasks": [
         "semantic-segmentation",

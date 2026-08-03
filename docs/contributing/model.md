@@ -49,8 +49,10 @@ monitoring. Core categories:
 
 Other OpenStreetMap feature categories (`landuse`, `bridge`, etc.) are
 welcome as long as they are compatible with the platform's RGB input and
-vector output constraints. To add a new keyword, include it in
-[`keywords.json`](https://github.com/hotosm/fAIr-models/blob/develop/fair/schemas/keywords.json) as part of your PR.
+vector output constraints. The vocabulary in
+[`keywords.json`](https://github.com/hotosm/fAIr-models/blob/develop/fair/schemas/keywords.json)
+is set to `*`, so any keyword validates and no PR is needed to introduce one.
+A model and the dataset it trains on must still share at least one keyword.
 
 ### Input Requirements
 

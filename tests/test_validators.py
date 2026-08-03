@@ -109,6 +109,16 @@ def _dataset(tmp_path, keywords=None, label_tasks=None):
     return item
 
 
+def _schema_with_allowed_keywords(value):
+    """Override the shipped vocabulary; `fair/schemas/keywords.json` allows everything."""
+    from fair.stac.validators import _load_keywords_schema
+
+    return {**_load_keywords_schema(), "allowed_keywords": value}
+
+
+_RESTRICTED_VOCABULARY = _schema_with_allowed_keywords(["building", "road", "tree", "water", "landuse"])
+
+
 def test_compatible_pair(tmp_path):
     assert validate_compatibility(_model(), _dataset(tmp_path)) == []
 
@@ -140,19 +150,21 @@ def test_task_label_mapping(tmp_path, model_task, label_task):
 
 
 def test_unknown_keywords(tmp_path):
-    errors = validate_compatibility(
-        _model(keywords=["alien"]),
-        _dataset(tmp_path, keywords=["alien"]),
-    )
+    with patch("fair.stac.validators._load_keywords_schema", return_value=_RESTRICTED_VOCABULARY):
+        errors = validate_compatibility(
+            _model(keywords=["alien"]),
+            _dataset(tmp_path, keywords=["alien"]),
+        )
     assert any("Unknown" in e for e in errors)
 
 
 def test_geometry_and_task_keywords_are_valid(tmp_path):
-    """polygon, semantic-segmentation etc. should pass vocabulary check."""
-    errors = validate_compatibility(
-        _model(keywords=["building", "polygon", "semantic-segmentation"]),
-        _dataset(tmp_path, keywords=["building", "polygon", "semantic-segmentation"]),
-    )
+    """polygon, semantic-segmentation etc. count as vocabulary, not unknown keywords."""
+    with patch("fair.stac.validators._load_keywords_schema", return_value=_RESTRICTED_VOCABULARY):
+        errors = validate_compatibility(
+            _model(keywords=["building", "polygon", "semantic-segmentation"]),
+            _dataset(tmp_path, keywords=["building", "polygon", "semantic-segmentation"]),
+        )
     assert not any("Unknown" in e for e in errors)
 
 
@@ -255,7 +267,8 @@ class TestValidateBaseModelItem:
     def test_unknown_keyword(self):
         item = _valid_base_model()
         item.properties["keywords"] = ["alien"]
-        errors = validate_item(item)
+        with patch("fair.stac.validators._load_keywords_schema", return_value=_RESTRICTED_VOCABULARY):
+            errors = validate_item(item)
         assert any("Unknown keywords" in e for e in errors)
 
     def test_unknown_task(self):
@@ -723,3 +736,32 @@ class TestRegisterFairSchemas:
         monkeypatch.setattr(RegisteredValidator, "get_validator", staticmethod(lambda: instance))
         register_fair_schemas()
         assert instance.schema_cache == {}
+
+
+@pytest.mark.parametrize("wildcard", ["*", ["*"]])
+def test_wildcard_vocabulary_accepts_any_keyword(wildcard):
+    item = _valid_base_model()
+    item.properties["keywords"] = ["alien", "spaceport"]
+    with patch("fair.stac.validators._load_keywords_schema", return_value=_schema_with_allowed_keywords(wildcard)):
+        assert validate_item(item) == []
+
+
+@pytest.mark.parametrize("wildcard", ["*", ["*"]])
+def test_wildcard_vocabulary_accepts_any_keyword_in_compatibility(tmp_path, wildcard):
+    with patch("fair.stac.validators._load_keywords_schema", return_value=_schema_with_allowed_keywords(wildcard)):
+        errors = validate_compatibility(
+            _model(keywords=["alien"]),
+            _dataset(tmp_path, keywords=["alien"]),
+        )
+    assert errors == []
+
+
+def test_wildcard_vocabulary_still_requires_a_shared_keyword(tmp_path):
+    """`*` opens the vocabulary; it does not waive model/dataset overlap."""
+    with patch("fair.stac.validators._load_keywords_schema", return_value=_schema_with_allowed_keywords("*")):
+        errors = validate_compatibility(
+            _model(keywords=["alien"]),
+            _dataset(tmp_path, keywords=["spaceport"]),
+        )
+    assert any("No keywords in common" in e for e in errors)
+    assert not any("Unknown" in e for e in errors)

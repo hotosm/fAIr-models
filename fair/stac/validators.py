@@ -72,13 +72,29 @@ def validate_model_weight_href(item: pystac.Item, *, timeout: float = 10.0) -> l
     return validate_model_asset_urls(item, timeout=timeout)
 
 
-def _validate_keyword_vocabulary(item: pystac.Item) -> list[str]:
-    schema = _load_keywords_schema()
+KEYWORD_WILDCARD = "*"
+
+
+def _accepts_any_keyword(schema: dict) -> bool:
+    """True when `allowed_keywords` is `*`, or a list containing it, which opens the vocabulary."""
+    allowed = schema["allowed_keywords"]
+    if isinstance(allowed, str):
+        return allowed == KEYWORD_WILDCARD
+    return KEYWORD_WILDCARD in allowed
+
+
+def _unknown_keywords(schema: dict, keywords: set[str]) -> set[str]:
+    if _accepts_any_keyword(schema):
+        return set()
     allowed = (
         set(schema["allowed_keywords"]) | set(schema["allowed_tasks"]) | set(schema.get("allowed_geometry_types", []))
     )
-    keywords = set(item.properties.get("keywords", []))
-    unknown = keywords - allowed
+    return keywords - allowed
+
+
+def _validate_keyword_vocabulary(item: pystac.Item) -> list[str]:
+    schema = _load_keywords_schema()
+    unknown = _unknown_keywords(schema, set(item.properties.get("keywords", [])))
     if unknown:
         return [f"Unknown keywords: {unknown}"]
     return []
@@ -99,8 +115,6 @@ def validate_compatibility(
     dataset_item: pystac.Item,
 ) -> list[str]:
     schema = _load_keywords_schema()
-    allowed_keywords = set(schema["allowed_keywords"])
-    allowed_tasks = set(schema["allowed_tasks"])
     task_label_mapping = schema["task_label_mapping"]
 
     errors: list[str] = []
@@ -108,13 +122,11 @@ def validate_compatibility(
     model_keywords = set(base_model_item.properties.get("keywords", []))
     dataset_keywords = set(dataset_item.properties.get("keywords", []))
 
-    unknown_model = model_keywords - allowed_keywords - allowed_tasks - set(schema.get("allowed_geometry_types", []))
+    unknown_model = _unknown_keywords(schema, model_keywords)
     if unknown_model:
         errors.append(f"Unknown model keywords: {unknown_model}")
 
-    unknown_dataset = (
-        dataset_keywords - allowed_keywords - allowed_tasks - set(schema.get("allowed_geometry_types", []))
-    )
+    unknown_dataset = _unknown_keywords(schema, dataset_keywords)
     if unknown_dataset:
         errors.append(f"Unknown dataset keywords: {unknown_dataset}")
 

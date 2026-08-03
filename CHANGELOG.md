@@ -12,6 +12,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - add ZenML integration for model promotion and STAC catalog synchronization
 - implement STAC catalog management and builders for datasets and models
 
+## v0.3.5 (2026-08-03)
+
+### Fix
+
+- **keyword**: allow wildcard in allowed list
+- **test**: fix test cases for the inference batch
+- **pin**: dinov3 commit hash
+- **dockerfile**: fix fair py ops version in all model dockerfiles
+
 ## v0.3.4 (2026-07-29)
 
 ### Fix

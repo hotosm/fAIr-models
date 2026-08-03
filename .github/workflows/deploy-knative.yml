@@ -49,7 +49,8 @@ jobs:
           repository: hotosm/k8s-infra
           token: ${{ steps.generate-token.outputs.token }}
           path: k8s-infra
-          ref: feature/fair-models-deploy
+          # Now explicitly checking out the develop branch
+          ref: develop
 
       - name: Build, Push, and Update Models
         run: |
@@ -90,7 +91,8 @@ jobs:
           # Only commit if there are actual changes
           if ! git diff-index --quiet HEAD; then
             git commit -m "chore(gitops): update model images to tag sha-${GITHUB_SHA::7} [skip ci]"
-            git push origin feature/fair-models-deploy
+            # Now explicitly pushing directly to the develop branch
+            git push origin develop
           else
             echo "No changes to commit."
           fi

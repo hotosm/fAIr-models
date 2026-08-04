@@ -100,6 +100,53 @@ def test_evaluate_model(
     assert 0.0 <= metrics["mean_iou"] <= 1.0
 
 
+def test_calibrate_threshold(
+    toy_chips: Path,
+    toy_labels: Path,
+    base_hyperparameters: dict[str, Any],
+    pretrained_weights: str,
+) -> None:
+    from models.unet_segmentation.pipeline import calibrate_threshold, split_dataset, train_model
+
+    split_info = split_dataset.entrypoint(
+        dataset_chips=str(toy_chips),
+        dataset_labels=str(toy_labels),
+        hyperparameters=base_hyperparameters,
+    )
+    model = train_model.entrypoint(
+        dataset_chips=str(toy_chips),
+        dataset_labels=str(toy_labels),
+        base_model_weights=pretrained_weights,
+        hyperparameters=base_hyperparameters,
+        split_info=split_info,
+        num_classes=2,
+    )
+    params = calibrate_threshold.entrypoint(
+        trained_model=model,
+        dataset_chips=str(toy_chips),
+        dataset_labels=str(toy_labels),
+        hyperparameters=base_hyperparameters,
+        split_info=split_info,
+        num_classes=2,
+    )
+
+    assert params["method"] in {"val_sweep", "rate_match", "default"}
+    assert 0.0 < params["confidence_threshold"] < 1.0
+    if params["method"] == "val_sweep":
+        assert 0.0 <= params["val_f1"] <= 1.0
+
+    disabled = calibrate_threshold.entrypoint(
+        trained_model=model,
+        dataset_chips=str(toy_chips),
+        dataset_labels=str(toy_labels),
+        hyperparameters={**base_hyperparameters, "calibrate_threshold": False},
+        split_info=split_info,
+        num_classes=2,
+    )
+    assert disabled["method"] == "default"
+    assert disabled["confidence_threshold"] == base_hyperparameters.get("confidence_threshold", 0.5)
+
+
 def test_export_onnx(base_hyperparameters: dict[str, Any]) -> None:
     import onnx
     from torchgeo.models import unet

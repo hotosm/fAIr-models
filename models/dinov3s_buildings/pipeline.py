@@ -194,6 +194,116 @@ def evaluate_model(
     return metrics
 
 
+THRESHOLD_GRID = [round(0.1 + 0.05 * i, 2) for i in range(17)]
+
+
+def _burn_masks(dataset_chips: str, dataset_labels: str) -> tuple[Path, Path]:
+    """Burn GT polygons for all chips; returns (chips_dir, masks_dir)."""
+    from dinov3_hot.paths import resolve_labels_geojson
+    from geomltoolkits.raster.burn import burn_labels
+
+    chips_dir = resolve_directory(dataset_chips, "*.tif*")
+    labels_geojson = resolve_labels_geojson(Path(resolve_directory(dataset_labels, "*.geojson")))
+    masks_dir = Path(tempfile.mkdtemp()) / "masks"
+    burn_labels(
+        labels_path=str(labels_geojson),
+        chips_dir=str(chips_dir),
+        output_dir=str(masks_dir),
+        burn_value=255,
+    )
+    return chips_dir, masks_dir
+
+
+def _pooled_probs_and_targets(
+    net: Any, chips_dir: Path, masks_dir: Path, chip_names: list[str], split_info: dict[str, Any], device: str
+) -> tuple[Any, Any]:
+    """Flattened mask-head probabilities and binary GT pixels for the given chips."""
+    import numpy as np
+    import rasterio
+    from dinov3_hot.tune import cache_val_forwards
+
+    cache = cache_val_forwards(
+        net, chips_dir, chip_names,
+        mean=split_info["norm_mean"], std=split_info["norm_std"], device=device,
+    )
+    probs, targets = [], []
+    for entry in cache:
+        probs.append(entry["mask_prob"].ravel())
+        with rasterio.open(masks_dir / entry["name"]) as src:
+            targets.append(src.read(1).ravel() > 0)
+    return np.concatenate(probs), np.concatenate(targets)
+
+
+@step
+def calibrate_threshold(
+    trained_model: Any,
+    dataset_chips: str,
+    dataset_labels: str,
+    hyperparameters: dict[str, Any],
+    split_info: dict[str, Any],
+) -> Annotated[dict[str, Any], "calibrated_threshold"]:
+    """Select the mask confidence_threshold by a deterministic val sweep,
+    decoupled from the Optuna post-process search.
+
+    17-point pixel-F1 sweep over 0.10-0.90 on the spatial val chips; falls
+    back to rate-matching on the train chips (threshold at which the
+    predicted positive-pixel fraction matches the labeled fraction - needs
+    no held-out data) when val has fewer than two chips or no positive
+    pixels. The result seeds tune_postprocess's defaults, which apply
+    verbatim whenever the Optuna search is skipped (val < 8 chips or
+    trials disabled) - exactly the small-dataset case where the catalog
+    constant used to be served unchanged.
+    """
+    import numpy as np
+    import torch
+
+    default = float(
+        hyperparameters.get("confidence_threshold", DEFAULT_INFERENCE_PARAMS["confidence_threshold"])
+    )
+    result: dict[str, Any] = {"confidence_threshold": default, "method": "default", "val_f1": None}
+    if not hyperparameters.get("calibrate_threshold", True):
+        log_metadata(metadata={"fair/threshold_calibration": result})
+        return result
+
+    chips_dir, masks_dir = _burn_masks(dataset_chips, dataset_labels)
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    val_names = split_info["val_chip_names"]
+
+    probs = targets = None
+    if len(val_names) >= 2:
+        probs, targets = _pooled_probs_and_targets(
+            trained_model, chips_dir, masks_dir, val_names, split_info, device
+        )
+    if probs is not None and targets.any():
+        curve = []
+        for t in THRESHOLD_GRID:
+            pred = probs >= t
+            tp = int((pred & targets).sum())
+            fp = int((pred & ~targets).sum())
+            fn = int((~pred & targets).sum())
+            curve.append(2 * tp / max(2 * tp + fp + fn, 1))
+        best = max(range(len(THRESHOLD_GRID)), key=curve.__getitem__)
+        result = {
+            "confidence_threshold": THRESHOLD_GRID[best],
+            "method": "val_sweep",
+            "val_f1": curve[best],
+        }
+    else:
+        probs, targets = _pooled_probs_and_targets(
+            trained_model, chips_dir, masks_dir, split_info["train_chip_names"], split_info, device
+        )
+        pos_frac = float(targets.mean())
+        if pos_frac > 0:
+            result = {
+                "confidence_threshold": float(np.quantile(probs, 1.0 - pos_frac)),
+                "method": "rate_match",
+                "val_f1": None,
+            }
+
+    log_metadata(metadata={"fair/threshold_calibration": result})
+    return result
+
+
 @step
 def tune_postprocess(
     trained_model: Any,
@@ -201,14 +311,26 @@ def tune_postprocess(
     dataset_labels: str,
     hyperparameters: dict[str, Any],
     split_info: dict[str, Any],
+    calibrated_threshold: dict[str, Any] | None = None,
 ) -> Annotated[dict[str, Any], "recommended_inference_params"]:
-    """Optuna over post-process params via `dinov3_hot.tune.tune_postprocess_run`."""
+    """Optuna over post-process params via `dinov3_hot.tune.tune_postprocess_run`.
+
+    Defaults are seeded with the calibrated confidence_threshold, so the
+    skipped-search path (val < 8 chips or trials disabled) serves the
+    calibrated value instead of the catalog constant. When the search runs
+    it still tunes the threshold jointly within [0.3, 0.8]; constraining
+    that space to the calibrated value would need a dinov3_hot change.
+    """
     from dinov3_hot.paths import resolve_labels_geojson
     from dinov3_hot.tune import tune_postprocess_run
 
     n_trials = int(hyperparameters.get("tune_postprocess_trials", 30))
     chips_dir = resolve_directory(dataset_chips, "*.tif*")
     labels_geojson = resolve_labels_geojson(Path(resolve_directory(dataset_labels, "*.geojson")))
+
+    defaults = dict(DEFAULT_INFERENCE_PARAMS)
+    if calibrated_threshold and calibrated_threshold.get("method") != "default":
+        defaults["confidence_threshold"] = float(calibrated_threshold["confidence_threshold"])
 
     result = tune_postprocess_run(
         trained_model,
@@ -219,7 +341,16 @@ def tune_postprocess(
         std=split_info["norm_std"],
         n_trials=n_trials,
         seed=int(split_info["seed"]),
-        default_params=DEFAULT_INFERENCE_PARAMS,
+        default_params=defaults,
+    )
+    log_metadata(
+        metadata={
+            "fair/tune_postprocess": {
+                "skipped": result.get("skipped"),
+                "calibrated_threshold": defaults["confidence_threshold"],
+                "final_threshold": result["best_params"].get("confidence_threshold"),
+            }
+        }
     )
     return result["best_params"]
 
@@ -309,12 +440,20 @@ def training_pipeline(
         split_info=split_info,
         num_classes=num_classes,
     )
+    calibrated = calibrate_threshold(
+        trained_model=trained,
+        dataset_chips=dataset_chips,
+        dataset_labels=dataset_labels,
+        hyperparameters=hyperparameters,
+        split_info=split_info,
+    )
     tune_postprocess(
         trained_model=trained,
         dataset_chips=dataset_chips,
         dataset_labels=dataset_labels,
         hyperparameters=hyperparameters,
         split_info=split_info,
+        calibrated_threshold=calibrated,
     )
     export_onnx(trained_model=trained, hyperparameters=hyperparameters, num_classes=num_classes)
 

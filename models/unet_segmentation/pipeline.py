@@ -131,9 +131,14 @@ def predict(session: Any, input_images: str, params: dict[str, Any]) -> dict[str
         batch, transform, crs = _preprocess_onnx_image(img_path)
         logits = session.run(None, {input_name: batch})[0]
         probs = _softmax(logits[0], axis=0)
-        mask = probs.argmax(axis=0)
-        top_prob = probs.max(axis=0)
-        mask = np.where(top_prob >= confidence_threshold, mask, 0)
+        # Threshold the most likely foreground class directly. The previous
+        # rule (argmax, then mask where max-prob < threshold) could only move
+        # the operating point above 0.5 in the binary case; thresholds below
+        # 0.5 were no-ops. At the 0.5 default both rules coincide.
+        fg_probs = probs[min_class_value:]
+        fg_class = fg_probs.argmax(axis=0) + min_class_value
+        fg_prob = fg_probs.max(axis=0)
+        mask = np.where(fg_prob >= confidence_threshold, fg_class, 0)
         features.extend(_vectorize_segmentation_mask(mask, transform, crs, min_class_value))
     return _build_feature_collection(features)
 
@@ -225,6 +230,110 @@ def _train_step(
     torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=max_grad_norm)
     optimizer.step()
     return loss.item()
+
+
+THRESHOLD_GRID = [round(0.1 + 0.05 * i, 2) for i in range(17)]
+
+
+def _collect_foreground_probs(model: Any, loader: Any, device: str) -> tuple[Any, Any]:
+    """Pooled sigmoid(foreground - background logit) and binary targets, flattened."""
+    import torch
+
+    probs, targets = [], []
+    model.eval()
+    with torch.no_grad():
+        for batch in loader:
+            images, masks = preprocess(batch)
+            logits = model(images.to(device))
+            probs.append(torch.sigmoid(logits[:, 1] - logits[:, 0]).cpu())
+            targets.append(masks > 0)
+    return torch.cat(probs).flatten(), torch.cat(targets).flatten()
+
+
+def _f1_at_threshold(probs: Any, targets: Any, threshold: float) -> float:
+    pred = probs >= threshold
+    tp = (pred & targets).sum().item()
+    fp = (pred & ~targets).sum().item()
+    fn = (~pred & targets).sum().item()
+    return 2 * tp / max(2 * tp + fp + fn, 1)
+
+
+@step
+def calibrate_threshold(
+    trained_model: Any,
+    dataset_chips: str,
+    dataset_labels: str,
+    hyperparameters: dict[str, Any],
+    split_info: dict[str, Any],
+    num_classes: int = 2,
+) -> Annotated[dict[str, Any], "recommended_inference_params"]:
+    """Select inference.confidence_threshold on the validation split.
+
+    Deterministic 17-point F1 sweep over 0.10-0.90. Falls back to
+    rate-matching on the train sampler (threshold at which the predicted
+    positive-pixel fraction equals the labeled positive fraction) when the
+    validation split contains no positive pixels, and to the configured
+    default when neither split has positives. Binary models only: with more
+    than two classes a single foreground threshold is ill-defined, so the
+    default passes through unchanged.
+    """
+    import torch
+
+    default = float(hyperparameters.get("confidence_threshold", 0.5))
+    result: dict[str, Any] = {"confidence_threshold": default, "method": "default", "val_f1": None}
+    if num_classes != 2 or not hyperparameters.get("calibrate_threshold", True):
+        log_metadata(metadata={"fair/threshold_calibration": result})
+        return result
+
+    chip_size = hyperparameters.get("chip_size", 256)
+    batch_size = hyperparameters.get("batch_size", 4)
+    samples_per_epoch = hyperparameters.get("samples_per_epoch", 50)
+    sample_fraction = hyperparameters.get("sample_fraction", 1.0)
+    device = _get_device()
+    model = trained_model.to(device)
+
+    val_loader = _build_dataset(
+        dataset_chips,
+        dataset_labels,
+        chip_size,
+        length=0,
+        batch_size=batch_size,
+        split="val",
+        seed=split_info["seed"],
+        sample_fraction=sample_fraction,
+    )
+    probs, targets = _collect_foreground_probs(model, val_loader, device)
+
+    if bool(targets.any()):
+        curve = [_f1_at_threshold(probs, targets, t) for t in THRESHOLD_GRID]
+        best = max(range(len(THRESHOLD_GRID)), key=curve.__getitem__)
+        result = {
+            "confidence_threshold": THRESHOLD_GRID[best],
+            "method": "val_sweep",
+            "val_f1": curve[best],
+        }
+    else:
+        train_loader = _build_dataset(
+            dataset_chips,
+            dataset_labels,
+            chip_size,
+            length=samples_per_epoch,
+            batch_size=batch_size,
+            split="train",
+            seed=split_info["seed"],
+            sample_fraction=sample_fraction,
+        )
+        probs, targets = _collect_foreground_probs(model, train_loader, device)
+        pos_frac = targets.float().mean().item()
+        if pos_frac > 0:
+            result = {
+                "confidence_threshold": float(torch.quantile(probs, 1.0 - pos_frac)),
+                "method": "rate_match",
+                "val_f1": None,
+            }
+
+    log_metadata(metadata={"fair/threshold_calibration": result})
+    return result
 
 
 @step
@@ -491,6 +600,14 @@ def training_pipeline(
         num_classes=num_classes,
     )
     evaluate_model(
+        trained_model=trained_model,
+        dataset_chips=dataset_chips,
+        dataset_labels=dataset_labels,
+        hyperparameters=hyperparameters,
+        split_info=split_info,
+        num_classes=num_classes,
+    )
+    calibrate_threshold(
         trained_model=trained_model,
         dataset_chips=dataset_chips,
         dataset_labels=dataset_labels,

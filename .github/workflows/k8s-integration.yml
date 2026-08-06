@@ -24,6 +24,8 @@ jobs:
           enable-cache: true
 
       - uses: extractions/setup-just@v2
+        with:
+          just-version: "1.39.0"
 
       - uses: helm/kind-action@v1
         with:

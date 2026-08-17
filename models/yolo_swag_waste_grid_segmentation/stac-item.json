@@ -1,0 +1,396 @@
+{
+  "type": "Feature",
+  "stac_version": "1.1.0",
+  "stac_extensions": [
+    "https://stac-extensions.github.io/mlm/v1.5.1/schema.json",
+    "https://stac-extensions.github.io/version/v1.2.0/schema.json",
+    "https://stac-extensions.github.io/classification/v2.0.0/schema.json",
+    "https://stac-extensions.github.io/file/v2.1.0/schema.json",
+    "https://stac-extensions.github.io/raster/v1.1.0/schema.json",
+    "https://hotosm.github.io/fAIr-models/schemas/v1.0.0/base-model/schema.json"
+  ],
+  "id": "yolo_swag_waste_grid_segmentation",
+  "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+      [
+        [
+          -180,
+          -90
+        ],
+        [
+          180,
+          -90
+        ],
+        [
+          180,
+          90
+        ],
+        [
+          -180,
+          90
+        ],
+        [
+          -180,
+          -90
+        ]
+      ]
+    ]
+  },
+  "bbox": [
+    -180,
+    -90,
+    180,
+    90
+  ],
+  "properties": {
+    "datetime": "2024-01-01T00:00:00Z",
+    "created": "2026-07-20T00:00:00Z",
+    "updated": "2026-07-20T00:00:00Z",
+    "title": "Solid Waste Detection",
+    "description": "A grid-based semantic-segmentation model that classifies 5 m x 5 m UAV-imagery cells as background or waste. The classifier is pretrained on 60 globally distributed OpenAerialMap scenes.",
+    "mlm:name": "yolo-swag-waste-grid-segmentation",
+    "mlm:architecture": "yolo26xcls",
+    "mlm:tasks": [
+      "semantic-segmentation"
+    ],
+    "mlm:framework": "PyTorch",
+    "mlm:framework_version": "2.10.0",
+    "mlm:pretrained": true,
+    "mlm:pretrained_source": "https://raw.githubusercontent.com/GIScience/solid-waste-detection-for-fAIr/9f62fd1e4de6905a38620c195a6e62bcef280956/data/checkpoint/checkpoint_v1_extra_large.pt",
+    "mlm:accelerator": "cuda",
+    "mlm:accelerator_count": 1,
+    "fair:recommended_zoom": 22,
+    "fair:min_zoom": 20,
+    "fair:max_zoom": 22,
+    "keywords": [
+      "solid-waste",
+      "semantic-segmentation",
+      "polygon"
+    ],
+    "license": "MIT",
+    "version": "1",
+    "deprecated": false,
+    "providers": [
+      {
+        "name": "HeiGIT",
+        "roles": [
+          "producer",
+          "host"
+        ],
+        "url": "https://www.heigit.org",
+        "description": "Heidelberg Institute for GeoInformation Technology"
+      }
+    ],
+    "fair:metrics_spec": [
+      {
+        "key": "fair:accuracy",
+        "name": "Accuracy",
+        "description": "Fraction of correctly classified grid cells across all classes in the evaluation dataset"
+      }
+    ],
+    "mlm:input": [
+      {
+        "name": "RGB chips",
+        "bands": [
+          {
+            "name": "red"
+          },
+          {
+            "name": "green"
+          },
+          {
+            "name": "blue"
+          }
+        ],
+        "input": {
+          "shape": [
+            -1,
+            3,
+            128,
+            128
+          ],
+          "dim_order": [
+            "batch",
+            "bands",
+            "height",
+            "width"
+          ],
+          "data_type": "float32"
+        },
+        "pre_processing_function": {
+          "format": "python",
+          "expression": "models.yolo_swag_waste_grid_segmentation.pipeline:preprocess"
+        }
+      }
+    ],
+    "mlm:output": [
+      {
+        "name": "waste-segmentation",
+        "tasks": [
+          "semantic-segmentation"
+        ],
+        "result": {
+          "shape": [
+            -1,
+            2
+          ],
+          "dim_order": [
+            "batch",
+            "class"
+          ],
+          "data_type": "float32"
+        },
+        "description": "Per-cell classification of the grid.",
+        "classification:classes": [
+          {
+            "name": "background",
+            "value": 0,
+            "description": "Grid cell selected from label=0 features, or randomly sampled from cells with zero waste overlap when no label=0 features are provided"
+          },
+          {
+            "name": "waste",
+            "value": 1,
+            "description": "Grid cell is covered by label=1 features above waste_overlap_threshold"
+          }
+        ],
+        "post_processing_function": {
+          "format": "python",
+          "expression": "models.yolo_swag_waste_grid_segmentation.pipeline:postprocess"
+        },
+        "bands": []
+      }
+    ],
+    "mlm:hyperparameters": {
+      "training.epochs": 20,
+      "training.batch_size": 4,
+      "training.learning_rate": 0.001,
+      "training.weight_decay": 0.0001,
+      "training.optimizer": "AdamW",
+      "training.val_ratio": 0.1,
+      "training.test_ratio": 0.1,
+      "training.split_seed": 42,
+      "training.scheduler": "cosine",
+      "training.freeze_layers": 10,
+      "training.waste_overlap_threshold": 0.8,
+      "training.cell_size_m": 5.0,
+      "training.sample_fraction": 1.0,
+      "inference.confidence_threshold": 0.5,
+      "inference.cell_size_m": 5.0
+    },
+    "fair:split_spec": {
+      "strategy": "grid_5m_stratified_grouped",
+      "default_ratio": 0.1,
+      "seed": 42,
+      "description": "Mosaic chips and build a 5 m x 5 m grid. Cells from each label=1 waste polygon and each label=0 background polygon remain in one split."
+    },
+    "fair:hyperparameters_spec": [
+      {
+        "key": "epochs",
+        "type": "int",
+        "default": 5,
+        "min": 1,
+        "max": 500,
+        "description": "Number of training epochs"
+      },
+      {
+        "key": "batch_size",
+        "type": "int",
+        "default": 4,
+        "min": 1,
+        "max": 128,
+        "description": "Samples per training batch"
+      },
+      {
+        "key": "learning_rate",
+        "type": "float",
+        "default": 0.001,
+        "min": 1e-07,
+        "max": 1.0,
+        "description": "Optimizer learning rate"
+      },
+      {
+        "key": "weight_decay",
+        "type": "float",
+        "default": 0.0001,
+        "min": 0.0,
+        "max": 1.0,
+        "description": "L2 regularization weight decay"
+      },
+      {
+        "key": "optimizer",
+        "type": "str",
+        "default": "AdamW",
+        "values": [
+          "AdamW",
+          "Adam",
+          "SGD"
+        ],
+        "description": "Optimizer algorithm"
+      },
+      {
+        "key": "val_ratio",
+        "type": "float",
+        "default": 0.1,
+        "min": 0.05,
+        "max": 0.5,
+        "description": "Target fraction of source label-polygon groups held out for validation"
+      },
+      {
+        "key": "test_ratio",
+        "type": "float",
+        "default": 0.1,
+        "min": 0.05,
+        "max": 0.5,
+        "description": "Target fraction of source label-polygon groups held out for final evaluation"
+      },
+      {
+        "key": "split_seed",
+        "type": "int",
+        "default": 42,
+        "min": 0,
+        "max": 2147483647,
+        "description": "Random seed for reproducible train, validation, and test splitting"
+      },
+      {
+        "key": "scheduler",
+        "type": "str",
+        "default": "cosine",
+        "values": [
+          "cosine",
+          "none"
+        ],
+        "description": "Learning rate scheduler applied per epoch"
+      },
+      {
+        "key": "freeze_layers",
+        "type": "int",
+        "default": 10,
+        "min": 0,
+        "description": "Number of first YOLO layers to freeze during finetuning; use 0 to freeze none"
+      },
+      {
+        "key": "confidence_threshold",
+        "type": "float",
+        "default": 0.5,
+        "min": 0.0,
+        "max": 1.0,
+        "description": "Minimum softmax probability to retain a predicted class at inference"
+      },
+      {
+        "key": "waste_overlap_threshold",
+        "type": "float",
+        "default": 0.8,
+        "min": 0.0,
+        "max": 1.0,
+        "description": "Minimum fractional area of a grid cell covered by label=1 features for the cell to be labeled 'waste'"
+      },
+      {
+        "key": "cell_size_m",
+        "type": "float",
+        "default": 5.0,
+        "min": 3.0,
+        "max": 10.0,
+        "description": "Edge length, in meters, for training and inference grid cells"
+      },
+      {
+        "key": "sample_fraction",
+        "type": "float",
+        "default": 1.0,
+        "min": 0.001,
+        "max": 1.0,
+        "description": "Fraction of chip files used during training (an evenly distributed deterministic subset; <1.0 enables fast smoke and CI runs)"
+      }
+    ]
+  },
+  "assets": {
+    "checkpoint": {
+      "href": "https://raw.githubusercontent.com/GIScience/solid-waste-detection-for-fAIr/9f62fd1e4de6905a38620c195a6e62bcef280956/data/checkpoint/checkpoint_v1_extra_large.pt",
+      "title": "Pretrained YOLO26x-cls model weights for solid waste detection",
+      "type": "application/octet-stream; framework=pytorch",
+      "roles": [
+        "mlm:model",
+        "mlm:weights"
+      ],
+      "mlm:artifact_type": "torch.save",
+      "raster:bands": [
+        {
+          "name": "red"
+        },
+        {
+          "name": "green"
+        },
+        {
+          "name": "blue"
+        }
+      ]
+    },
+    "model": {
+      "href": "https://media.githubusercontent.com/media/GIScience/solid-waste-detection-for-fAIr/9f62fd1e4de6905a38620c195a6e62bcef280956/data/checkpoint/checkpoint_v1_extra_large.onnx",
+      "title": "Portable YOLO26x-cls ONNX inference model",
+      "type": "application/octet-stream; framework=onnx",
+      "roles": [
+        "mlm:model",
+        "mlm:compiled"
+      ],
+      "mlm:artifact_type": "onnx",
+      "raster:bands": [
+        {
+          "name": "red"
+        },
+        {
+          "name": "green"
+        },
+        {
+          "name": "blue"
+        }
+      ]
+    },
+    "source-code": {
+      "href": "https://github.com/GIScience/fAIr-models/tree/master/models/yolo_swag_waste_grid_segmentation",
+      "type": "text/html",
+      "roles": [
+        "code"
+      ],
+      "mlm:entrypoint": "models.yolo_swag_waste_grid_segmentation.pipeline:predict"
+    },
+    "mlm:training": {
+      "href": "ghcr.io/hotosm/fair-models/yolo_swag_waste_grid_segmentation:latest",
+      "type": "application/vnd.oci.image.index.v1+json",
+      "title": "Training Docker Image",
+      "roles": [
+        "mlm:training-runtime"
+      ]
+    },
+    "mlm:inference": {
+      "href": "ghcr.io/hotosm/fair-models/yolo_swag_waste_grid_segmentation:latest-inference",
+      "type": "application/vnd.oci.image.index.v1+json",
+      "title": "Inference Docker Image",
+      "roles": [
+        "mlm:inference-runtime"
+      ]
+    },
+    "readme": {
+      "href": "https://raw.githubusercontent.com/GIScience/fAIr-models/refs/heads/master/models/yolo_swag_waste_grid_segmentation/README.md",
+      "type": "text/markdown",
+      "roles": [
+        "metadata"
+      ],
+      "title": "Model README"
+    }
+  },
+  "links": [
+    {
+      "rel": "license",
+      "href": "https://spdx.org/licenses/MIT.html",
+      "type": "text/html",
+      "title": "MIT License"
+    },
+    {
+      "rel": "cite-as",
+      "href": "https://doi.org/10.48550/arXiv.2605.02316",
+      "type": "text/html",
+      "title": "Open-access model for detecting openly dumped dispersed municipal solid waste from crowdsourced UAV imagery in Sub-Saharan Africa"
+    }
+  ]
+}

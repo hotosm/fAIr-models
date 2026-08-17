@@ -104,6 +104,7 @@ def mock_instrumentation():
         patch("fair.zenml.instrumentation.log_evaluation_results"),
         patch("fair.zenml.metrics.log_metadata"),
         patch("fair.zenml.metrics.log_loss_history"),
+        patch("mlflow.log_metric"),
         patch("zenml.log_metadata"),
     ]
     for module_name in _discover_pipeline_modules():

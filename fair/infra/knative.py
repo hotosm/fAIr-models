@@ -140,9 +140,7 @@ def build_knative_manifest(
 
     container = manifest["spec"]["template"]["spec"]["containers"][0]
     container["image"] = inference.href
-    container.setdefault("env", []).insert(
-        0, {"name": "MODEL_MODULE", "value": _module_from_entrypoint(entrypoint)}
-    )
+    container.setdefault("env", []).insert(0, {"name": "MODEL_MODULE", "value": _module_from_entrypoint(entrypoint)})
 
     resources = container.setdefault("resources", {})
     for section, key, prop in (

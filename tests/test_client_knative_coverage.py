@@ -818,3 +818,45 @@ def test_register_base_model_skips_the_probe_without_a_domain(monkeypatch: pytes
     assert client.register_base_model("base.json") == "resnet18-classification"
     assert "mlm:inference-endpoint" not in item.assets
     assert len(backend.published) == 1
+
+
+class _ReadyApi:
+    def __init__(self, conditions: list[dict[str, str]]) -> None:
+        self._conditions = conditions
+
+    def get_namespaced_custom_object(self, **_: Any) -> dict[str, Any]:
+        return {"status": {"conditions": self._conditions}}
+
+
+def test_wait_until_ready_states() -> None:
+    knative_module._wait_until_ready(_ReadyApi([{"type": "Ready", "status": "True"}]), "svc", "predict", 5)
+    with pytest.raises(knative_module.KnativeServiceUnavailableError):
+        knative_module._wait_until_ready(
+            _ReadyApi([{"type": "Ready", "status": "False", "message": "boom"}]), "svc", "predict", 5
+        )
+    with pytest.raises(knative_module.KnativeServiceUnavailableError):
+        knative_module._wait_until_ready(_ReadyApi([]), "svc", "predict", 0)
+
+
+def test_node_pool_selector_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    item = _build_base_model_item()
+    item.properties["fair:node_pool"] = "ml-big8"
+
+    monkeypatch.setenv("FAIR_KNATIVE_NODE_SELECTOR_KEY", "example.com/pool")
+    manifest = knative_module.build_knative_manifest(item)
+    assert manifest["spec"]["template"]["spec"]["nodeSelector"] == {"example.com/pool": "ml-big8"}
+
+    monkeypatch.delenv("FAIR_KNATIVE_NODE_SELECTOR_KEY", raising=False)
+    manifest = knative_module.build_knative_manifest(item)
+    assert "nodeSelector" not in manifest["spec"]["template"]["spec"]
+
+
+def test_ensure_knative_service_verifies_when_timeout_set(monkeypatch: pytest.MonkeyPatch) -> None:
+    waited: list[str] = []
+    monkeypatch.setattr(knative_module, "_knative_serving_installed", lambda: True)
+    monkeypatch.setattr(knative_module, "_custom_objects_api", lambda: _ReadyApi([]))
+    monkeypatch.setattr(knative_module, "_upsert_knative_service", lambda *_: None)
+    monkeypatch.setattr(knative_module, "_wait_until_ready", lambda *a: waited.append(a[1]))
+    monkeypatch.setenv("FAIR_KNATIVE_VERIFY_TIMEOUT", "5")
+    knative_module.ensure_knative_service(_build_base_model_item())
+    assert waited == ["resnet18-classification"]

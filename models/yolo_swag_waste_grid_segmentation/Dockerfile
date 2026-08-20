@@ -1,7 +1,7 @@
 # Builder stage: training + batch dependencies (GPU torch).
 FROM ghcr.io/astral-sh/uv:0.11.8-python3.13-trixie-slim AS builder
 ENV UV_SYSTEM_PYTHON=1 UV_LINK_MODE=copy
-ARG FAIR_PY_OPS_VERSION=0.3.4
+ARG FAIR_PY_OPS_VERSION=0.3.6
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential libgdal-dev gdal-bin libgl1 libglib2.0-0 \
@@ -40,13 +40,12 @@ ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1
 COPY models/yolo_swag_waste_grid_segmentation models/yolo_swag_waste_grid_segmentation
 COPY models/conftest.py models/conftest.py
 COPY models/test_integration.py models/test_integration.py
-RUN touch models/__init__.py
 
 ENTRYPOINT ["/usr/local/bin/python"]
 
 # Test stage: pytest extras for CI.
 FROM runtime AS test
-ARG FAIR_PY_OPS_VERSION=0.3.4
+ARG FAIR_PY_OPS_VERSION=0.3.6
 COPY --from=ghcr.io/astral-sh/uv:0.11.8 /uv /usr/local/bin/uv
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv pip install --system "fair-py-ops[test]==${FAIR_PY_OPS_VERSION}"
@@ -54,7 +53,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 # Inference builder: distroless-ready CPU venv (ONNX serving, no torch).
 FROM ghcr.io/astral-sh/uv:0.11.8-trixie-slim AS inference-builder
 ENV UV_PYTHON_INSTALL_DIR=/python UV_PYTHON_PREFERENCE=only-managed
-ARG FAIR_PY_OPS_VERSION=0.3.4
+ARG FAIR_PY_OPS_VERSION=0.3.6
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 RUN uv python install 3.13
@@ -68,10 +67,7 @@ RUN --mount=type=cache,target=/python/.cache/uv \
     shapely==2.1.2 \
     numpy==2.5.2 \
     Pillow==12.3.0
-# fair-py-ops bundles a top-level `models` package; own /app/models so this model's
-# pipeline resolves ahead of it (fair never imports the bundled models at runtime).
-COPY models/yolo_swag_waste_grid_segmentation/__init__.py models/yolo_swag_waste_grid_segmentation/pipeline.py /app/models/yolo_swag_waste_grid_segmentation/
-RUN touch /app/models/__init__.py
+COPY models/yolo_swag_waste_grid_segmentation/pipeline.py /app/models/yolo_swag_waste_grid_segmentation/pipeline.py
 
 # Inference stage: distroless live-serving runtime.
 FROM gcr.io/distroless/python3-debian12:nonroot AS inference

@@ -105,9 +105,7 @@ def test_proxy_register_base_model_does_not_stamp() -> None:
 
     proxy.register_base_model("path/to/base.json")
 
-    register_base_model.assert_called_once_with(
-        "path/to/base.json", knative_template=None, knative_namespace=None
-    )
+    register_base_model.assert_called_once_with("path/to/base.json", knative_template=None, knative_namespace=None)
 
 
 def test_proxy_get_item_delegates_to_backend() -> None:

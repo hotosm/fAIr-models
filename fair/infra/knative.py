@@ -1,68 +1,24 @@
-"""Per-model KNative Service: single config object, env-overridable."""
+"""Per-model KNative Service: manifest from a YAML template, applied via the k8s API."""
 
 import os
+import time
 from collections.abc import Callable, Iterable
-from dataclasses import dataclass, replace
+from pathlib import Path
 from typing import Any
 
 import pystac
+import yaml
 
 KNATIVE_GROUP = "serving.knative.dev"
 KNATIVE_VERSION = "v1"
 KNATIVE_PLURAL = "services"
 
-
-@dataclass(frozen=True)
-class KnativeConfig:
-    namespace: str = "predict"
-    container_port: int = 8080
-    s3_secret_name: str = "s3-credentials"
-    min_scale: str = "0"
-    max_scale: str = "5"
-    scale_down_delay: str = "60s"
-    # Hard per-pod request cap. 0 = unlimited (Knative default).
-    container_concurrency: int = 1
-    # Soft autoscaler target (in-flight reqs per pod). 0 omits the annotation
-    # and lets Knative derive it from containerConcurrency * 70%.
-    target_concurrency: int = 0
-    cpu_request: str = "500m"
-    cpu_limit: str = "2"
-    memory_request: str = "1Gi"
-    memory_limit: str = "3Gi"
-    model_module_env: str = "MODEL_MODULE"
-    onnx_intra_threads: int = 0  # 0 = ORT default (no cap)
-    cors_origins: str = "*"
-    cors_methods: str = "*"
-    cors_headers: str = "*"
-
-    @classmethod
-    def from_env(cls) -> "KnativeConfig":
-        env = os.environ.get
-        return cls(
-            namespace=env("FAIR_KNATIVE_NAMESPACE") or cls.namespace,
-            container_port=int(env("FAIR_KNATIVE_CONTAINER_PORT") or cls.container_port),
-            s3_secret_name=env("FAIR_KNATIVE_S3_SECRET") or cls.s3_secret_name,
-            min_scale=env("FAIR_KNATIVE_MIN_SCALE") or cls.min_scale,
-            max_scale=env("FAIR_KNATIVE_MAX_SCALE") or cls.max_scale,
-            scale_down_delay=env("FAIR_KNATIVE_SCALE_DOWN_DELAY") or cls.scale_down_delay,
-            container_concurrency=int(env("FAIR_KNATIVE_CONTAINER_CONCURRENCY") or cls.container_concurrency),
-            target_concurrency=int(env("FAIR_KNATIVE_TARGET_CONCURRENCY") or cls.target_concurrency),
-            cpu_request=env("FAIR_KNATIVE_CPU_REQUEST") or cls.cpu_request,
-            cpu_limit=env("FAIR_KNATIVE_CPU_LIMIT") or cls.cpu_limit,
-            memory_request=env("FAIR_KNATIVE_MEMORY_REQUEST") or cls.memory_request,
-            memory_limit=env("FAIR_KNATIVE_MEMORY_LIMIT") or cls.memory_limit,
-            model_module_env=env("FAIR_KNATIVE_MODEL_MODULE_ENV") or cls.model_module_env,
-            onnx_intra_threads=int(env("FAIR_KNATIVE_ONNX_THREADS") or cls.onnx_intra_threads),
-            cors_origins=env("FAIR_KNATIVE_CORS_ORIGINS") or cls.cors_origins,
-            cors_methods=env("FAIR_KNATIVE_CORS_METHODS") or cls.cors_methods,
-            cors_headers=env("FAIR_KNATIVE_CORS_HEADERS") or cls.cors_headers,
-        )
+DEFAULT_NAMESPACE = os.environ.get("FAIR_KNATIVE_NAMESPACE") or "predict"
+_DEFAULT_TEMPLATE = Path(__file__).with_name("knative-service.yaml")
 
 
-KNATIVE_CONFIG: KnativeConfig = KnativeConfig.from_env()
-
-DEFAULT_NAMESPACE = KNATIVE_CONFIG.namespace
-S3_CREDENTIALS_SECRET = KNATIVE_CONFIG.s3_secret_name
+def _template_path(override: str | None = None) -> Path:
+    return Path(override or os.environ.get("FAIR_KNATIVE_TEMPLATE") or _DEFAULT_TEMPLATE)
 
 
 def knative_service_name(name: str) -> str:
@@ -71,14 +27,19 @@ def knative_service_name(name: str) -> str:
 
 
 def knative_service_host(name: str, namespace: str | None = None) -> str:
-    ns = namespace if namespace is not None else KNATIVE_CONFIG.namespace
+    ns = namespace if namespace is not None else DEFAULT_NAMESPACE
     return f"{knative_service_name(name)}.{ns}.svc.cluster.local"
 
 
+_DEFAULT_PREDICT_URL_TEMPLATE = "https://{name}.{namespace}.{domain}/predict"
+
+
 def public_predict_url(name: str, domain: str) -> str:
-    # Must stay in lock-step with config-domain, domain-template, and the
-    # wildcard Ingress; this is the only place the shape lives.
-    return f"https://{knative_service_name(name)}.predict.{domain}/predict"
+    """Public `/predict` URL for a model. Override the shape via FAIR_PREDICT_URL_TEMPLATE
+    (placeholders {name}, {namespace}, {domain}); it must match the cluster's Knative
+    domain config and keep the `/predict` path served by fair.serve.base."""
+    template = os.environ.get("FAIR_PREDICT_URL_TEMPLATE") or _DEFAULT_PREDICT_URL_TEMPLATE
+    return template.format(name=knative_service_name(name), namespace=DEFAULT_NAMESPACE, domain=domain)
 
 
 def _module_from_entrypoint(entrypoint: str) -> str:
@@ -92,105 +53,66 @@ def _service_name(item: pystac.Item) -> str:
     return knative_service_name(item.properties.get("mlm:name") or item.id)
 
 
-def _container_env(cfg: KnativeConfig, entrypoint: str) -> list[dict[str, str]]:
-    env = [
-        {"name": cfg.model_module_env, "value": _module_from_entrypoint(entrypoint)},
-        {"name": "FAIR_KNATIVE_ONNX_THREADS", "value": str(cfg.onnx_intra_threads)},
-        {"name": "FAIR_KNATIVE_CORS_ORIGINS", "value": cfg.cors_origins},
-        {"name": "FAIR_KNATIVE_CORS_METHODS", "value": cfg.cors_methods},
-        {"name": "FAIR_KNATIVE_CORS_HEADERS", "value": cfg.cors_headers},
-    ]
-    # Match OpenMP to the ONNX cap so the numpy postprocess doesn't oversubscribe CPU.
-    if cfg.onnx_intra_threads > 0:
-        env.append({"name": "OMP_NUM_THREADS", "value": str(cfg.onnx_intra_threads)})
-    return env
+def _entrypoint(item: pystac.Item) -> str:
+    source = item.assets.get("source-code")
+    if source is None:
+        msg = f"Item '{item.id}' missing 'source-code' asset"
+        raise KeyError(msg)
+    entrypoint = source.extra_fields.get("mlm:entrypoint")
+    if not entrypoint:
+        msg = f"Item '{item.id}' source-code asset missing 'mlm:entrypoint'"
+        raise KeyError(msg)
+    return entrypoint
 
 
 def build_knative_manifest(
     item: pystac.Item,
     namespace: str | None = None,
-    config: KnativeConfig | None = None,
+    template_path: str | None = None,
 ) -> dict[str, Any]:
-    cfg = config or KNATIVE_CONFIG
-    ns = namespace if namespace is not None else cfg.namespace
-
-    inference_asset = item.assets.get("mlm:inference")
-    if inference_asset is None:
+    """Render the ksvc manifest. The YAML template supplies the static shape; the STAC
+    item supplies name, image, MODEL_MODULE, and any per-model resource/node overrides.
+    """
+    inference = item.assets.get("mlm:inference")
+    if inference is None:
         msg = f"Item '{item.id}' missing 'mlm:inference' asset"
         raise KeyError(msg)
+    entrypoint = _entrypoint(item)
 
-    source_asset = item.assets.get("source-code")
-    if source_asset is None:
-        msg = f"Item '{item.id}' missing 'source-code' asset"
-        raise KeyError(msg)
-    entrypoint = source_asset.extra_fields.get("mlm:entrypoint")
-    if not entrypoint:
-        msg = f"Item '{item.id}' source-code asset missing 'mlm:entrypoint'"
-        raise KeyError(msg)
-
+    manifest = yaml.safe_load(_template_path(template_path).read_text())
     props = item.properties
-    # Per-model resources come from the STAC item so a re-register reproduces the sized pod.
-    effective_cfg = replace(
-        cfg,
-        cpu_request=str(props.get("fair:cpu_request", cfg.cpu_request)),
-        cpu_limit=str(props.get("fair:cpu_limit", cfg.cpu_limit)),
-        memory_request=str(props.get("fair:memory_request", cfg.memory_request)),
-        memory_limit=str(props.get("fair:memory_limit", cfg.memory_limit)),
-    )
+    service_name = _service_name(item)
+    manifest["metadata"]["name"] = service_name
+    manifest["metadata"]["namespace"] = namespace or DEFAULT_NAMESPACE
 
-    annotations = {
-        "autoscaling.knative.dev/min-scale": effective_cfg.min_scale,
-        "autoscaling.knative.dev/max-scale": effective_cfg.max_scale,
-        "autoscaling.knative.dev/scale-down-delay": effective_cfg.scale_down_delay,
-    }
-    if effective_cfg.target_concurrency > 0:
-        annotations["autoscaling.knative.dev/target"] = str(effective_cfg.target_concurrency)
+    labels = manifest["metadata"].setdefault("labels", {})
+    labels.setdefault("app.kubernetes.io/managed-by", "fair")
+    labels["app.kubernetes.io/name"] = service_name
+    if version := props.get("version"):
+        labels["app.kubernetes.io/version"] = str(version)
 
-    pod_spec: dict[str, Any] = {
-        "containerConcurrency": effective_cfg.container_concurrency,
-        "containers": [
-            {
-                "image": inference_asset.href,
-                "ports": [{"containerPort": effective_cfg.container_port}],
-                "env": _container_env(effective_cfg, entrypoint),
-                "envFrom": [
-                    {"secretRef": {"name": effective_cfg.s3_secret_name}},
-                ],
-                "resources": {
-                    "requests": {
-                        "cpu": effective_cfg.cpu_request,
-                        "memory": effective_cfg.memory_request,
-                    },
-                    "limits": {
-                        "cpu": effective_cfg.cpu_limit,
-                        "memory": effective_cfg.memory_limit,
-                    },
-                },
-            }
-        ],
-    }
+    container = manifest["spec"]["template"]["spec"]["containers"][0]
+    container["image"] = inference.href
+    container.setdefault("env", []).insert(0, {"name": "MODEL_MODULE", "value": _module_from_entrypoint(entrypoint)})
 
-    # Pin to the model's declared node pool so it lands on its sized hardware.
+    resources = container.setdefault("resources", {})
+    for section, key, prop in (
+        ("requests", "cpu", "fair:cpu_request"),
+        ("requests", "memory", "fair:memory_request"),
+        ("limits", "cpu", "fair:cpu_limit"),
+        ("limits", "memory", "fair:memory_limit"),
+    ):
+        if prop in props:
+            resources.setdefault(section, {})[key] = str(props[prop])
+
     node_pool = props.get("fair:node_pool")
     if node_pool:
-        pod_spec["nodeSelector"] = {"doks.digitalocean.com/node-pool": str(node_pool)}
-
-    return {
-        "apiVersion": f"{KNATIVE_GROUP}/{KNATIVE_VERSION}",
-        "kind": "Service",
-        "metadata": {
-            "name": _service_name(item),
-            "namespace": ns,
-        },
-        "spec": {
-            "template": {
-                "metadata": {
-                    "annotations": annotations,
-                },
-                "spec": pod_spec,
-            }
-        },
-    }
+        selector_key = os.environ.get("FAIR_KNATIVE_NODE_SELECTOR_KEY")
+        if selector_key:
+            manifest["spec"]["template"]["spec"]["nodeSelector"] = {selector_key: str(node_pool)}
+        else:
+            print(f"skip node pool: FAIR_KNATIVE_NODE_SELECTOR_KEY unset; ignoring fair:node_pool '{node_pool}'")
+    return manifest
 
 
 def _custom_objects_api() -> Any:
@@ -250,31 +172,58 @@ def _upsert_knative_service(api: Any, manifest: dict[str, Any], namespace: str) 
     )
 
 
+def _wait_until_ready(api: Any, name: str, namespace: str, timeout: int) -> None:
+    """Poll the ksvc's Ready condition until True; raise on a failed or timed-out rollout."""
+    deadline = time.monotonic() + timeout
+    while True:
+        obj = api.get_namespaced_custom_object(
+            group=KNATIVE_GROUP,
+            version=KNATIVE_VERSION,
+            namespace=namespace,
+            plural=KNATIVE_PLURAL,
+            name=name,
+        )
+        conditions = (obj.get("status") or {}).get("conditions") or []
+        ready = next((c for c in conditions if c.get("type") == "Ready"), None)
+        if ready and ready.get("status") == "True":
+            return
+        if ready and ready.get("status") == "False":
+            raise RuntimeError(f"knative service '{name}' failed to become ready: {ready.get('message')}")
+        if time.monotonic() >= deadline:
+            raise RuntimeError(f"knative service '{name}' not ready within {timeout}s")
+        time.sleep(3)
+
+
 def ensure_knative_service(
     item: pystac.Item,
     namespace: str | None = None,
-    config: KnativeConfig | None = None,
-) -> None:
+    template_path: str | None = None,
+) -> bool:
+    """Apply the ksvc (create or patch, like `kubectl apply`) and report whether a service
+    was deployed. Returns False when Knative Serving is not installed on the cluster.
+    Set FAIR_KNATIVE_VERIFY_TIMEOUT>0 to block until the service reports Ready."""
     if not _knative_serving_installed():
         print(f"skip knative: {KNATIVE_GROUP}/{KNATIVE_VERSION} not registered on cluster")
-        return
-    cfg = config or KNATIVE_CONFIG
-    ns = namespace if namespace is not None else cfg.namespace
-    manifest = build_knative_manifest(item, namespace=ns, config=cfg)
+        return False
+    ns = namespace or DEFAULT_NAMESPACE
+    manifest = build_knative_manifest(item, namespace=ns, template_path=template_path)
     api = _custom_objects_api()
-
     _upsert_knative_service(api, manifest, ns)
+    timeout = int(os.environ.get("FAIR_KNATIVE_VERIFY_TIMEOUT", "0"))
+    if timeout > 0:
+        _wait_until_ready(api, manifest["metadata"]["name"], ns, timeout)
+    return True
 
 
 def reconcile_knative_services(
     items: Iterable[pystac.Item],
     namespace: str | None = None,
-    config: KnativeConfig | None = None,
+    template_path: str | None = None,
 ) -> list[str]:
     applied: list[str] = []
     for item in items:
-        ensure_knative_service(item, namespace=namespace, config=config)
-        applied.append(item.id)
+        if ensure_knative_service(item, namespace=namespace, template_path=template_path):
+            applied.append(item.id)
     return applied
 
 
@@ -296,7 +245,7 @@ def _knative_serving_installed() -> bool:
 def delete_knative_service(model_name: str, namespace: str | None = None) -> None:
     from kubernetes.client.exceptions import ApiException
 
-    ns = namespace if namespace is not None else KNATIVE_CONFIG.namespace
+    ns = namespace if namespace is not None else DEFAULT_NAMESPACE
     api = _custom_objects_api()
     name = knative_service_name(model_name)
     try:

@@ -176,7 +176,7 @@ def create_app() -> ASGIApp:
             Route("/predict", predict_route, methods=["POST"]),
         ],
     )
-    # FAIR_KNATIVE_CORS_* envs are injected by fair.infra.knative.KnativeConfig.
+    # FAIR_KNATIVE_CORS_* envs come from the ksvc manifest (fair/infra/knative-service.yaml).
     return CORSMiddleware(
         app,
         allow_origins=_cors_list("FAIR_KNATIVE_CORS_ORIGINS"),

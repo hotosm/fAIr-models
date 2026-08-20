@@ -185,7 +185,13 @@ class FairClient:
             initialize_catalog(self._catalog_path)
         print("setup: ok")
 
-    def register_base_model(self, stac_item: str | BaseModelItemParams) -> str:
+    def register_base_model(
+        self,
+        stac_item: str | BaseModelItemParams,
+        *,
+        knative_template: str | None = None,
+        knative_namespace: str | None = None,
+    ) -> str:
         cat = self._get_backend()
         if isinstance(stac_item, str):
             item = pystac.Item.from_file(stac_item)
@@ -213,10 +219,19 @@ class FairClient:
                 raise FairClientError(f"Mirrored asset URL validation failed: {errs}")
         self._upload_assets_if_remote(item, BASE_MODELS_COLLECTION)
 
-        # FAIR_LABEL_DOMAIN unset = local-dev path with no public k8s exposure,
-        # so there is no live `/predict` URL to advertise.
-        public_domain = os.environ.get("FAIR_LABEL_DOMAIN")
-        if public_domain:
+        # Deploy the per-model predict service before publishing, and advertise an
+        # inference endpoint only when a service was actually created; a missing cluster
+        # or unset FAIR_PREDICT_DOMAIN leaves no dead `/predict` URL in STAC.
+        deployed = False
+        if self._stac_api_url:
+            from fair.infra.knative import ensure_knative_service
+
+            deployed = ensure_knative_service(
+                item, namespace=knative_namespace, template_path=knative_template
+            )
+
+        public_domain = os.environ.get("FAIR_PREDICT_DOMAIN")
+        if deployed and public_domain:
             from fair.infra.knative import public_predict_url
 
             service_name = item.properties.get("mlm:name") or item.id
@@ -234,11 +249,6 @@ class FairClient:
             archive_previous_version(cat, BASE_MODELS_COLLECTION, prev, successor_href)
 
         published = cat.publish_item(BASE_MODELS_COLLECTION, item)
-
-        if self._stac_api_url:
-            from fair.infra.knative import ensure_knative_service
-
-            ensure_knative_service(published)
         print(f"register: base-model {published.id} v{published.properties['version']}")
         return published.id
 
@@ -564,7 +574,7 @@ class FairClient:
         if endpoint_asset is None:
             raise FairClientError(
                 f"Base model '{base_item.id}' has no 'mlm:inference-endpoint' asset. "
-                "Re-register the model with FAIR_LABEL_DOMAIN set so the public "
+                "Re-register the model with FAIR_PREDICT_DOMAIN set so the public "
                 "predict URL is recorded in STAC."
             )
         return endpoint_asset.href
@@ -685,8 +695,16 @@ class UserScopedFairClient:
     def setup(self) -> None:
         self._client.setup()
 
-    def register_base_model(self, stac_item: str | BaseModelItemParams) -> str:
-        return self._client.register_base_model(stac_item)
+    def register_base_model(
+        self,
+        stac_item: str | BaseModelItemParams,
+        *,
+        knative_template: str | None = None,
+        knative_namespace: str | None = None,
+    ) -> str:
+        return self._client.register_base_model(
+            stac_item, knative_template=knative_template, knative_namespace=knative_namespace
+        )
 
     def register_dataset(
         self,

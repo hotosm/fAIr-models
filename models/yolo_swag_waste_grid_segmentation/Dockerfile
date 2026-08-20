@@ -1,90 +1,79 @@
-# Builder stage: install dependencies
-FROM ghcr.io/astral-sh/uv:python3.13-trixie-slim AS builder
+# Builder stage: training + batch dependencies (GPU torch).
+FROM ghcr.io/astral-sh/uv:0.11.8-python3.13-trixie-slim AS builder
 ENV UV_SYSTEM_PYTHON=1 UV_LINK_MODE=copy
+ARG FAIR_PY_OPS_VERSION=0.3.4
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    libexpat1 libgdal36 libgl1 libglib2.0-0 \
+    build-essential libgdal-dev gdal-bin libgl1 libglib2.0-0 \
     && rm -rf /var/lib/apt/lists/*
 
-ARG FAIR_PY_OPS_VERSION=0.3.5
-COPY pyproject.toml README.md fair_zenml_patch.pth /tmp/fair-src/
-COPY fair /tmp/fair-src/fair
-
-COPY infra/compose/docker-compose.yml infra/compose/init-db.sql /tmp/fair-src/infra/compose/
-COPY stacks/compose.yaml /tmp/fair-src/stacks/
-COPY data/sample /tmp/fair-src/data/sample
-
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv pip install hatchling hatch-vcs
-RUN --mount=type=cache,target=/root/.cache/uv \
-    python -m pip install \
-    --index-url https://download.pytorch.org/whl/cu126 \
-    torch==2.10.0\
-    torchvision==0.25.0
-RUN --mount=type=cache,target=/root/.cache/uv \
-    SETUPTOOLS_SCM_PRETEND_VERSION=0.0.0 \
     uv pip install \
-    --no-build-isolation \
-    "ultralytics>=8.4.0" \
-    rasterio==1.4.4 \
+    --extra-index-url https://download.pytorch.org/whl/cu126 \
+    --index-strategy unsafe-best-match \
+    torch==2.10.0 torchvision==0.25.0
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv pip install \
+    ultralytics==8.4.124 \
+    rasterio==1.5.1 \
     pyproj==3.7.2 \
-    geopandas==1.1.2 \
-    shapely \
-    Pillow \
-    onnx \
-    onnxscript \
+    geopandas==1.1.4 \
+    shapely==2.1.2 \
+    Pillow==12.3.0 \
+    onnx==1.22.0 \
+    onnxscript==0.7.1 \
     "fair-py-ops[k8s,serve]==${FAIR_PY_OPS_VERSION}"
 
-# Runtime stage: minimal image
-FROM python:3.13-slim-trixie AS runtime
-
+# Runtime stage: minimal training/batch image.
+FROM python:3.13.13-slim-trixie AS runtime
 WORKDIR /app
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    libexpat1 libgdal36 libgl1 libglib2.0-0 \
+    libexpat1 libgdal36 gdal-bin libgl1 libglib2.0-0 \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /usr/local/lib/python3.13/site-packages /usr/local/lib/python3.13/site-packages
 COPY --from=builder /usr/local/bin /usr/local/bin
 
-ENV PYTHONUNBUFFERED=1 \
-    PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1
 
 COPY models/yolo_swag_waste_grid_segmentation models/yolo_swag_waste_grid_segmentation
 COPY models/conftest.py models/conftest.py
 COPY models/test_integration.py models/test_integration.py
+RUN touch models/__init__.py
 
 ENTRYPOINT ["/usr/local/bin/python"]
 
-# Test stage: adds test dependencies for CI
+# Test stage: pytest extras for CI.
 FROM runtime AS test
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
-COPY --from=builder /tmp/fair-src /tmp/fair-src
+ARG FAIR_PY_OPS_VERSION=0.3.4
+COPY --from=ghcr.io/astral-sh/uv:0.11.8 /uv /usr/local/bin/uv
 RUN --mount=type=cache,target=/root/.cache/uv \
-    SETUPTOOLS_SCM_PRETEND_VERSION=0.0.0 \
-    uv pip install --system /tmp/fair-src[test]
+    uv pip install --system "fair-py-ops[test]==${FAIR_PY_OPS_VERSION}"
 
-# Inference builder stage: distroless-ready venv with serving deps
-FROM ghcr.io/astral-sh/uv:bookworm-slim AS inference-builder
+# Inference builder: distroless-ready CPU venv (ONNX serving, no torch).
+FROM ghcr.io/astral-sh/uv:0.11.8-trixie-slim AS inference-builder
 ENV UV_PYTHON_INSTALL_DIR=/python UV_PYTHON_PREFERENCE=only-managed
+ARG FAIR_PY_OPS_VERSION=0.3.4
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
 RUN uv python install 3.13
 WORKDIR /app
-COPY pyproject.toml README.md fair_zenml_patch.pth /tmp/fair-src/
-COPY fair /tmp/fair-src/fair
-COPY infra/compose/docker-compose.yml infra/compose/init-db.sql /tmp/fair-src/infra/compose/
-COPY stacks/compose.yaml /tmp/fair-src/stacks/
-COPY data/sample /tmp/fair-src/data/sample
-RUN --mount=type=cache,target=/root/.cache/uv \
-    export SETUPTOOLS_SCM_PRETEND_VERSION=0.0.0 && \
+RUN --mount=type=cache,target=/python/.cache/uv \
     uv venv && uv pip install \
-    /tmp/fair-src[serve] \
-    rasterio\
-    pyproj \
-    numpy \
-    Pillow
-COPY models/yolo_swag_waste_grid_segmentation/pipeline.py /app/models/yolo_swag_waste_grid_segmentation/pipeline.py
+    "fair-py-ops[serve]==${FAIR_PY_OPS_VERSION}" \
+    onnxruntime==1.29.0 \
+    rasterio==1.5.1 \
+    pyproj==3.7.2 \
+    shapely==2.1.2 \
+    numpy==2.5.2 \
+    Pillow==12.3.0
+# fair-py-ops bundles a top-level `models` package; own /app/models so this model's
+# pipeline resolves ahead of it (fair never imports the bundled models at runtime).
+COPY models/yolo_swag_waste_grid_segmentation/__init__.py models/yolo_swag_waste_grid_segmentation/pipeline.py /app/models/yolo_swag_waste_grid_segmentation/
+RUN touch /app/models/__init__.py
 
-# Inference stage: distroless runtime for live serving
+# Inference stage: distroless live-serving runtime.
 FROM gcr.io/distroless/python3-debian12:nonroot AS inference
 WORKDIR /app
 COPY --from=inference-builder /python /python

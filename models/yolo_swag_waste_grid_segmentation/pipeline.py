@@ -118,6 +118,8 @@ def predict(session: Any, input_images: str, params: dict[str, Any]) -> dict[str
 
     from fair.utils.data import resolve_directory
 
+    if "confidence_threshold" not in params:
+        raise ValueError("predict requires a 'confidence_threshold' parameter")
     confidence_threshold = float(params["confidence_threshold"])
     cell_size_m = float(params.get("cell_size_m", CELL_SIZE_M))
     input_name = session.get_inputs()[0].name

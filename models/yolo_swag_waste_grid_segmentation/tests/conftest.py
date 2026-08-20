@@ -115,7 +115,7 @@ def _build_dataset_stac_item(chips_dir: Path, labels_dir: Path) -> dict[str, Any
             "label:tasks": ["segmentation"],
             "label:classes": [{"name": "waste", "classes": ["yes"]}],
             "label:description": "Polygon labels covering the left half of the mosaic",
-            "keywords": ["waste"],
+            "keywords": ["solid-waste"],
             "fair:user_id": "test",
             "version": "1",
             "deprecated": False,

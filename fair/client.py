@@ -194,7 +194,13 @@ class FairClient:
             initialize_catalog(self._catalog_path)
         print("setup: ok")
 
-    def register_base_model(self, stac_item: str | BaseModelItemParams) -> str:
+    def register_base_model(
+        self,
+        stac_item: str | BaseModelItemParams,
+        *,
+        knative_template: str | None = None,
+        knative_namespace: str | None = None,
+    ) -> str:
         cat = self._get_backend()
         if isinstance(stac_item, str):
             item = pystac.Item.from_file(stac_item)
@@ -215,8 +221,15 @@ class FairClient:
         else:
             item.properties.setdefault("version", "1")
 
-        # Gate before anything is mirrored, archived, or published, so a model
-        # with no live service leaves no half-written state behind.
+        # Deploy the per-model predict service (idempotent) when the cluster is reachable,
+        # then advertise + verify it before anything is mirrored, archived, or published,
+        # so a model with no live service leaves no half-written state behind.
+        if self._stac_api_url:
+            from fair.infra.knative import _knative_serving_installed, ensure_knative_service
+
+            if _knative_serving_installed():
+                ensure_knative_service(item, namespace=knative_namespace, template_path=knative_template)
+
         endpoint_href = self._ensure_inference_endpoint(item)
         if endpoint_href:
             self._verify_predict_service(endpoint_href)
@@ -744,8 +757,16 @@ class UserScopedFairClient:
     def setup(self) -> None:
         self._client.setup()
 
-    def register_base_model(self, stac_item: str | BaseModelItemParams) -> str:
-        return self._client.register_base_model(stac_item)
+    def register_base_model(
+        self,
+        stac_item: str | BaseModelItemParams,
+        *,
+        knative_template: str | None = None,
+        knative_namespace: str | None = None,
+    ) -> str:
+        return self._client.register_base_model(
+            stac_item, knative_template=knative_template, knative_namespace=knative_namespace
+        )
 
     def register_dataset(
         self,

@@ -100,15 +100,7 @@ exclude = [
 ]
 
 [tool.hatch.build.targets.wheel]
-packages = ["fair", "models"]
-exclude = [
-    "models/**/tests/",
-    "models/**/conftest.py",
-    "models/conftest.py",
-    "models/test_integration.py",
-    "models/**/Dockerfile",
-    "models/**/Dockerfile.dockerignore",
-]
+packages = ["fair"]
 
 [tool.hatch.build.targets.wheel.force-include]
 "fair_zenml_patch.pth" = "fair_zenml_patch.pth"

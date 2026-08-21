@@ -1,5 +1,5 @@
 # Builder stage: install dependencies
-FROM ghcr.io/astral-sh/uv:python3.13-trixie-slim AS builder
+FROM ghcr.io/astral-sh/uv:0.11.8-python3.13-trixie-slim AS builder
 ENV UV_SYSTEM_PYTHON=1 UV_LINK_MODE=copy
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -13,12 +13,12 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     --index-strategy unsafe-best-match \
     torch==2.10.0 \
     torchgeo==0.9.0 \
-    onnx \
-    onnxscript \
+    onnx==1.22.0 \
+    onnxscript==0.7.1 \
     "fair-py-ops[k8s,serve]==${FAIR_PY_OPS_VERSION}"
 
 # Runtime stage: minimal image
-FROM python:3.13-slim-trixie AS runtime
+FROM python:3.13.13-slim-trixie AS runtime
 
 WORKDIR /app
 
@@ -40,13 +40,13 @@ ENTRYPOINT ["/usr/local/bin/python"]
 
 # Test stage: adds test dependencies for CI
 FROM runtime AS test
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+COPY --from=ghcr.io/astral-sh/uv:0.11.8 /uv /usr/local/bin/uv
 ARG FAIR_PY_OPS_VERSION=0.3.4
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv pip install --system "fair-py-ops[test]==${FAIR_PY_OPS_VERSION}"
 
 # Inference builder stage: distroless-ready venv with serving deps
-FROM ghcr.io/astral-sh/uv:bookworm-slim AS inference-builder
+FROM ghcr.io/astral-sh/uv:0.11.8-bookworm-slim AS inference-builder
 ENV UV_PYTHON_INSTALL_DIR=/python UV_PYTHON_PREFERENCE=only-managed
 RUN uv python install 3.13
 WORKDIR /app
@@ -54,10 +54,11 @@ ARG FAIR_PY_OPS_VERSION=0.3.4
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv venv && uv pip install \
     "fair-py-ops[serve]==${FAIR_PY_OPS_VERSION}" \
-    rasterio \
-    pyproj \
-    numpy \
-    Pillow
+    onnxruntime==1.28.0 \
+    rasterio==1.5.1 \
+    pyproj==3.7.2 \
+    numpy==2.5.2 \
+    Pillow==12.3.0
 COPY models/unet_segmentation/pipeline.py /app/models/unet_segmentation/pipeline.py
 
 # Inference stage: distroless runtime for live serving

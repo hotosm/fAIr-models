@@ -61,7 +61,7 @@ WORKDIR /app
 RUN --mount=type=cache,target=/python/.cache/uv \
     uv venv && uv pip install \
     "fair-py-ops[serve]==${FAIR_PY_OPS_VERSION}" \
-    onnxruntime==1.29.0 \
+    onnxruntime==1.28.0 \
     rasterio==1.5.1 \
     pyproj==3.7.2 \
     shapely==2.1.2 \

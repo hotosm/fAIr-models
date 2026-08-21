@@ -56,6 +56,7 @@ RUN --mount=type=cache,target=/python/.cache/uv \
     --extra-index-url https://download.pytorch.org/whl/cpu \
     --index-strategy unsafe-best-match \
     "fair-py-ops[serve]==${FAIR_PY_OPS_VERSION}" \
+    onnxruntime==1.28.0 \
     "git+https://github.com/kshitijrajsharma/dinov3-hot-ablation@${DINOV3_HOT_REF}" \
     && uv pip install --no-deps "git+https://github.com/facebookresearch/dinov3@${DINOV3_REF}"
 COPY models/dinov3s_buildings/pipeline.py /app/models/dinov3s_buildings/pipeline.py

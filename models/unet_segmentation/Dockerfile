@@ -46,7 +46,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     uv pip install --system "fair-py-ops[test]==${FAIR_PY_OPS_VERSION}"
 
 # Inference builder stage: distroless-ready venv with serving deps
-FROM ghcr.io/astral-sh/uv:0.11.8-bookworm-slim AS inference-builder
+FROM ghcr.io/astral-sh/uv:0.11.8-trixie-slim AS inference-builder
 ENV UV_PYTHON_INSTALL_DIR=/python UV_PYTHON_PREFERENCE=only-managed
 RUN uv python install 3.13
 WORKDIR /app

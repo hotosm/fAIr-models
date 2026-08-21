@@ -29,6 +29,13 @@ LOCAL_MODEL_EXTENSIONS = [
 ]
 DATASET_EXTENSIONS = [LABEL_SCHEMA, FILE_SCHEMA, VERSION_SCHEMA, FAIR_DATASET_SCHEMA]
 
+# The GeoJSON property key that `fair.datasets._stamp_class_label` writes the class
+# index onto, and therefore the key dataset items must name in `label:properties`
+# and `label:classes[].name`. The Label extension requires both to name a property
+# that is actually present on the label asset's features, so the writer and the
+# STAC declaration have to read the same constant.
+LABEL_CLASS_PROPERTY = "label"
+
 # Backwards compat alias
 MODEL_EXTENSIONS = BASE_MODEL_EXTENSIONS
 

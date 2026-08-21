@@ -16,11 +16,16 @@ class ModelInfo(TypedDict):
 
 
 def get_changed_models() -> set[str] | None:
-    if os.getenv("EVENT_NAME") != "pull_request":
+    event = os.getenv("EVENT_NAME")
+    if event == "pull_request":
+        base_sha = os.getenv("BASE_SHA")
+    elif event == "push":
+        base_sha = os.getenv("BEFORE_SHA")
+    else:
         return None
-    base_sha = os.getenv("BASE_SHA")
     head_sha = os.getenv("HEAD_SHA")
-    if not base_sha or not head_sha:
+    # No usable base (missing, or all-zero on a branch's first push) means build everything.
+    if not base_sha or not head_sha or set(base_sha) == {"0"}:
         return None
     try:
         result = subprocess.run(

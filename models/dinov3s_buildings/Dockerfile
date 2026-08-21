@@ -12,6 +12,7 @@ ARG FAIR_PY_OPS_VERSION=0.3.6
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv pip install --no-sources \
     "git+https://github.com/kshitijrajsharma/dinov3-hot-ablation@${DINOV3_HOT_REF}" \
+    torchgeo==0.9.0 \
     polymetrics==0.2.2 \
     "fair-py-ops[k8s,serve]==${FAIR_PY_OPS_VERSION}" \
     && uv pip install --no-deps "git+https://github.com/facebookresearch/dinov3@${DINOV3_REF}"
@@ -57,6 +58,7 @@ RUN --mount=type=cache,target=/python/.cache/uv \
     --index-strategy unsafe-best-match \
     "fair-py-ops[serve]==${FAIR_PY_OPS_VERSION}" \
     onnxruntime==1.28.0 \
+    torchgeo==0.9.0 \
     "git+https://github.com/kshitijrajsharma/dinov3-hot-ablation@${DINOV3_HOT_REF}" \
     && uv pip install --no-deps "git+https://github.com/facebookresearch/dinov3@${DINOV3_REF}"
 COPY models/dinov3s_buildings/pipeline.py /app/models/dinov3s_buildings/pipeline.py

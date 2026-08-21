@@ -232,6 +232,28 @@ def _raster_bands_from_model_input(mlm_input: list[dict[str, Any]]) -> list[dict
     return bands or None
 
 
+def _class_objects_for_stamped_labels(label_classes: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Class Objects describing what the label file actually carries.
+
+    `label_classes` as passed in is the OSM *filter* spec (tag key -> accepted tag
+    values). `fair.datasets._stamp_class_label` turns each matching feature into
+    ``properties[LABEL_CLASS_PROPERTY] = <1-based index into that list>``, so the
+    published Class Object names that key and enumerates those indices. 0 is
+    reserved for background and never appears on a feature.
+    """
+    return [{"name": LABEL_CLASS_PROPERTY, "classes": list(range(1, len(label_classes) + 1))}]
+
+
+def _osm_class_mapping(label_classes: list[dict[str, Any]]) -> str:
+    """Index -> OSM tag mapping, which `label:classes` alone cannot express."""
+    pairs = "; ".join(
+        f"{index} = {cls.get('name', LABEL_CLASS_PROPERTY)}"
+        f"={'|'.join(str(value) for value in (cls.get('classes') or ['*']))}"
+        for index, cls in enumerate(label_classes, start=1)
+    )
+    return f"Class values in `{LABEL_CLASS_PROPERTY}` (0 = background): {pairs}."
+
+
 def build_dataset_item(
     label_type: Literal["vector", "raster"],
     label_tasks: list[str],
@@ -276,18 +298,23 @@ def build_dataset_item(
     # A caller that passes `label_properties` is describing its own label file and is
     # left alone. Otherwise the labels came from `fair.datasets`, so declare the key
     # that module stamps rather than "class", which appears on no feature it writes.
+    declares_own_labels = label_properties is not None
     resolved_label_properties = (
-        label_properties
-        if label_properties is not None
-        else (None if label_type == "raster" else [LABEL_CLASS_PROPERTY])
+        label_properties if declares_own_labels else (None if label_type == "raster" else [LABEL_CLASS_PROPERTY])
     )
+    resolved_label_classes = label_classes
+    resolved_label_description = label_description
+    if not declares_own_labels and label_type == "vector" and label_classes:
+        resolved_label_classes = _class_objects_for_stamped_labels(label_classes)
+        if resolved_label_description is None:
+            resolved_label_description = f"{description}\n\n{_osm_class_mapping(label_classes)}"
 
     properties: dict[str, Any] = {
         "title": title,
         "description": description,
         "label:type": label_type,
         "label:tasks": label_tasks,
-        "label:classes": label_classes,
+        "label:classes": resolved_label_classes,
         "label:properties": resolved_label_properties,
         "keywords": keywords,
         "fair:user_id": user_id,
@@ -303,7 +330,9 @@ def build_dataset_item(
         properties["fair:geometry_type"] = geometry_type
     if license_id is not None:
         properties["license"] = license_id
-    properties["label:description"] = label_description if label_description is not None else description
+    properties["label:description"] = (
+        resolved_label_description if resolved_label_description is not None else description
+    )
     if label_methods is not None:
         properties["label:methods"] = label_methods
 

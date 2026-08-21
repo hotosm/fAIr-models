@@ -30,6 +30,33 @@ Extends the [Label Extension](https://stac-extensions.github.io/label/v1.0.1/sch
 
 **Required assets:** `chips`, `labels`
 
+### How labels are encoded
+
+The [Label Extension](https://github.com/stac-extensions/label) defines `label:properties` as
+"the names of the property field(s) in each `Feature` of the label asset's `FeatureCollection`
+that contains the classes", and a Class Object's `name` as "the property key within the asset's
+each `Feature` corresponding to class labels". Both must therefore name a property that is
+actually present on the features in `labels.geojson`.
+
+`fair.datasets` writes those features. For each OSM feature it matches, it stamps a 1-based class
+index onto `properties.label` (`LABEL_CLASS_PROPERTY`), reserving `0` for background. Items built
+by `build_dataset_item` declare exactly that:
+
+```json
+"label:type": "vector",
+"label:properties": ["label"],
+"label:classes": [{"name": "label", "classes": [1, 2]}],
+"label:description": "Chips and labels.\n\nClass values in `label` (0 = background): 1 = building=yes|house; 2 = highway=*."
+```
+
+Note that the `label_classes` argument is the OSM **filter** spec (tag key -> accepted tag values)
+and is not what the label file contains, so it is not published verbatim. The tag mapping it
+carries is preserved in `label:description`, which is the only field that can express it.
+
+A caller that passes `label_properties` explicitly is describing its own label file and is left
+alone: its `label_classes` and `label_description` are published unchanged. `label:properties` is
+`null` for `label:type: "raster"`, per the extension.
+
 ## Local Model (Finetuned)
 
 Extends the base model schema with training provenance: links to the base model and dataset, evaluation metrics, training duration, and ZenML artifact references.

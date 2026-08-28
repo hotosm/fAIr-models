@@ -50,21 +50,43 @@ def test_predict_returns_unique_wgs84_polygons(toy_chips: Path) -> None:
 
 
 @pytest.mark.parametrize(
-    ("waste_confidence", "expected_label"),
-    [(0.1, "background"), (0.5, "waste"), (0.9, "waste")],
+    ("waste_confidence", "expected_labels"),
+    [(0.1, set()), (0.5, {"waste"}), (0.9, {"waste"})],
 )
-def test_predict_applies_the_waste_confidence_threshold(
+def test_predict_returns_only_waste_cells_at_or_above_threshold(
     toy_chips: Path,
     waste_confidence: float,
-    expected_label: str,
+    expected_labels: set[str],
 ) -> None:
-    """The threshold is inclusive and controls the output label."""
+    """Cells below the inclusive threshold are dropped; kept cells are labeled 'waste'."""
     from models.yolo_swag_waste_grid_segmentation.pipeline import predict
 
     session = _StubSession(_probabilities_for_waste_confidence(waste_confidence))
     predictions = predict(session, str(toy_chips), {"confidence_threshold": 0.5})
 
-    assert {feature["properties"]["label"] for feature in predictions["features"]} == {expected_label}
+    assert predictions["type"] == "FeatureCollection"
+    assert {feature["properties"]["label"] for feature in predictions["features"]} == expected_labels
+
+
+def test_predict_clips_grid_to_bbox(toy_chips: Path) -> None:
+    """A western-half request bbox drops the eastern grid cells."""
+    from models.yolo_swag_waste_grid_segmentation.pipeline import predict
+
+    session = _StubSession(_probabilities_for_waste_confidence(0.9))
+    params = {"confidence_threshold": 0.5}
+
+    full = predict(session, str(toy_chips), params)
+    clipped = predict(session, str(toy_chips), params, bbox=[85.5, 27.6, 85.5002, 27.6004])
+
+    full_ids = {feature["properties"]["cell_id"] for feature in full["features"]}
+    clipped_ids = {feature["properties"]["cell_id"] for feature in clipped["features"]}
+    assert 0 < len(clipped_ids) < len(full_ids)
+    assert clipped_ids <= full_ids
+
+    def max_longitude(collection: dict) -> float:
+        return max(pt[0] for f in collection["features"] for pt in f["geometry"]["coordinates"][0])
+
+    assert max_longitude(clipped) < max_longitude(full)
 
 
 def test_predict_requires_a_confidence_threshold(toy_chips: Path) -> None:

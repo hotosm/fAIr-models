@@ -128,6 +128,57 @@ def test_health_and_predict_routes(monkeypatch: pytest.MonkeyPatch, tmp_path: Pa
         serve_base.load_session.cache_clear()
 
 
+def test_predict_forwards_bbox_when_pipeline_accepts_it(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    from starlette.testclient import TestClient
+
+    module_name = "bboxmodel.pipeline"
+    stub_root = tmp_path / "stubsrc_bbox"
+    package_dir = stub_root / "bboxmodel"
+    package_dir.mkdir(parents=True)
+    (package_dir / "__init__.py").write_text("")
+    (package_dir / "pipeline.py").write_text(
+        textwrap.dedent(
+            """
+            def predict(session, input_images, params, bbox=None):
+                return {"type": "FeatureCollection", "features": [], "echo_bbox": bbox}
+            """
+        )
+    )
+    sys.path.insert(0, str(stub_root))
+
+    try:
+        monkeypatch.setenv("MODEL_MODULE", module_name)
+        from fair.serve import base as serve_base
+
+        serve_base.load_session.cache_clear()
+
+        fake_model = tmp_path / "model.onnx"
+        fake_model.write_bytes(b"onnx")
+
+        class FakeSession:
+            pass
+
+        import onnxruntime
+
+        monkeypatch.setattr(
+            onnxruntime,
+            "InferenceSession",
+            lambda path, sess_options=None, providers=None: FakeSession(),
+        )
+        _patch_fetch_chips(monkeypatch, tmp_path)
+
+        importlib.invalidate_caches()
+        app = serve_base.create_app()
+        with TestClient(app) as client:
+            request = {**VALID_REQUEST, "model_uri": str(fake_model)}
+            resp = client.post("/predict", json=request)
+            assert resp.status_code == 200, resp.text
+            assert resp.json()["echo_bbox"] == VALID_REQUEST["bbox"]
+    finally:
+        sys.path.remove(str(stub_root))
+        serve_base.load_session.cache_clear()
+
+
 @pytest.mark.parametrize(
     ("mutation", "expected_fragment"),
     [

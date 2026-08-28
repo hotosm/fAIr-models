@@ -108,12 +108,12 @@ def postprocess(output: Any) -> list[dict[str, Any]]:
     ]
 
 
-def predict(session: Any, input_images: str, params: dict[str, Any]) -> dict[str, Any]:
+def predict(session: Any, input_images: str, params: dict[str, Any], bbox: list[float] | None = None) -> dict[str, Any]:
     import numpy as np
     import rasterio
     from PIL import Image
     from pyproj import Transformer
-    from shapely.geometry import mapping
+    from shapely.geometry import box, mapping
     from shapely.ops import transform as shapely_transform
 
     from fair.utils.data import resolve_directory
@@ -153,6 +153,13 @@ def predict(session: Any, input_images: str, params: dict[str, Any]) -> dict[str
         bounds_proj = (min(px), min(py), max(px), max(py))
 
         grid = build_grid_gdf(bounds_proj, cell_size_m, target_crs)
+        if bbox is not None:
+            to_target = Transformer.from_crs("EPSG:4326", target_crs, always_xy=True)
+            west, south, east, north = (float(v) for v in bbox)
+            x0, y0 = to_target.transform(west, south)
+            x1, y1 = to_target.transform(east, north)
+            aoi = box(min(x0, x1), min(y0, y1), max(x0, x1), max(y0, y1))
+            grid = grid[grid.intersects(aoi)]
         utm_to_mosaic = Transformer.from_crs(target_crs, mosaic_crs, always_xy=True)
         to_wgs84 = Transformer.from_crs(target_crs, "EPSG:4326", always_xy=True)
 
@@ -178,7 +185,8 @@ def predict(session: Any, input_images: str, params: dict[str, Any]) -> dict[str
 
             probs = np.asarray(session.run(None, {input_name: batch})[0]).reshape(-1)
             waste_confidence = float(probs[waste_idx])
-            label = "waste" if waste_confidence >= confidence_threshold else "background"
+            if waste_confidence < confidence_threshold:
+                continue
 
             geom_wgs84 = shapely_transform(lambda x, y, _z=None: to_wgs84.transform(x, y), cell_geom)
             features.append(
@@ -186,7 +194,7 @@ def predict(session: Any, input_images: str, params: dict[str, Any]) -> dict[str
                     "type": "Feature",
                     "properties": {
                         "cell_id": int(grid.loc[idx, "cell_id"]),
-                        "label": label,
+                        "label": "waste",
                         "confidence": round(waste_confidence, 4),
                     },
                     "geometry": mapping(geom_wgs84),

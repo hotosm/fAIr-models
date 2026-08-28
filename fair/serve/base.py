@@ -16,10 +16,12 @@ Request schema:
 
 The server downloads imagery chips via geomltoolkits into a temporary
 directory and passes that directory to the pipeline's `predict(session,
-input_images, params)` function.
+input_images, params)` function. When a pipeline's `predict` also declares a
+`bbox` parameter, the request bbox is forwarded so it can clip work to the AOI.
 """
 
 import importlib
+import inspect
 import json
 import logging
 import os
@@ -140,7 +142,7 @@ async def _fetch_chips(image_uri: str, bbox: list[float], zoom: int, out_dir: st
     )
 
 
-async def _predict(request: Request, pipeline: Any) -> JSONResponse:
+async def _predict(request: Request, pipeline: Any, forward_bbox: bool) -> JSONResponse:
     try:
         payload = await request.json()
     except json.JSONDecodeError as exc:
@@ -155,7 +157,8 @@ async def _predict(request: Request, pipeline: Any) -> JSONResponse:
         session = load_session(parsed["model_uri"])
         with tempfile.TemporaryDirectory(prefix="fair-serve-") as tmp:
             chips_dir = await _fetch_chips(parsed["image_uri"], parsed["bbox"], parsed["zoom"], tmp)
-            result = pipeline.predict(session, chips_dir, parsed["params"])
+            predict_kwargs = {"bbox": parsed["bbox"]} if forward_bbox else {}
+            result = pipeline.predict(session, chips_dir, parsed["params"], **predict_kwargs)
     except Exception as exc:
         logger.exception("predict failed")
         return JSONResponse({"error": str(exc)}, status_code=500)
@@ -165,9 +168,10 @@ async def _predict(request: Request, pipeline: Any) -> JSONResponse:
 
 def create_app() -> ASGIApp:
     pipeline = _load_pipeline()
+    forward_bbox = "bbox" in inspect.signature(pipeline.predict).parameters
 
     async def predict_route(request: Request) -> JSONResponse:
-        return await _predict(request, pipeline)
+        return await _predict(request, pipeline, forward_bbox)
 
     app: ASGIApp = Starlette(
         debug=False,

@@ -12,6 +12,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - add ZenML integration for model promotion and STAC catalog synchronization
 - implement STAC catalog management and builders for datasets and models
 
+## v0.3.8 (2026-08-28)
+
+### Fix
+
+- **bbox**: add function based bbox for predict
+- **models**: detect models on push changes as well
+- **pin**: fix torchgeo pinned version
+
 ## v0.3.7 (2026-08-21)
 
 ### Fix

@@ -144,6 +144,7 @@ def train_model(
             out_dir=str(out_dir),
             val_frac=hyperparameters.get("inner_val_frac", 0.1),
             ft_lr=hyperparameters.get("learning_rate", 5e-5),
+            ft_weight_decay=hyperparameters.get("weight_decay"),
             ft_epochs=hyperparameters.get("epochs", 15),
             ft_patience=hyperparameters.get("early_stop_patience", 5),
         )
@@ -153,8 +154,15 @@ def train_model(
     if train_losses or val_losses:
         log_loss_history(train_losses, val_losses)
 
+    # Guardrail: ship the pretrained checkpoint unless the adapted head strictly beats
+    best_ckpt = summary["best_ckpt"]
+    delta = summary.get("delta")
+    if not (isinstance(delta, (int, float)) and delta > 0):
+        best_ckpt = str(pretrained)
+        log_metadata(metadata={"fair/finetune_reverted_to_baseline": True, "fair/finetune_delta": delta})
+
     # Encoder weights are frozen and absent from the Lightning ckpt; re-inject via ckpt_path.
-    return DinoV3HotLit.load_from_checkpoint(summary["best_ckpt"], map_location="cpu", ckpt_path=str(encoder_ckpt)).net
+    return DinoV3HotLit.load_from_checkpoint(best_ckpt, map_location="cpu", ckpt_path=str(encoder_ckpt)).net
 
 
 @step
@@ -251,7 +259,7 @@ def export_onnx(
     """Export the trained decoder + frozen encoder to single-file ONNX bytes."""
     import onnx
     import torch
-    from dinov3_hot.serve import INFERENCE_BATCH_SIZE, MODEL_INPUT_SIZE
+    from dinov3_hot.serve import MODEL_INPUT_SIZE
     from torch import nn
 
     class _MainOnly(nn.Module):
@@ -263,7 +271,8 @@ def export_onnx(
             return self.wrapped(x)[0]
 
     model = _MainOnly(trained_model.cpu().eval()).eval()
-    dummy = torch.randn(INFERENCE_BATCH_SIZE, 3, MODEL_INPUT_SIZE, MODEL_INPUT_SIZE)
+    # The serving runtime feeds one window at a time, so export at batch 1.
+    dummy = torch.randn(1, 3, MODEL_INPUT_SIZE, MODEL_INPUT_SIZE)
     with tempfile.TemporaryDirectory() as tmpdir:
         path = str(Path(tmpdir) / "model.onnx")
         torch.onnx.export(

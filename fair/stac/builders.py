@@ -691,7 +691,7 @@ def build_local_model_item(
         ),
     )
 
-    for key in ("source-code", "mlm:training", "mlm:inference"):
+    for key in ("source-code", "mlm:training", "mlm:inference", "mlm:inference-endpoint"):
         if key in base_model_item.assets:
             item.add_asset(key, base_model_item.assets[key].clone())
 

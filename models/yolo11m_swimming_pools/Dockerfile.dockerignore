@@ -1,0 +1,4 @@
+*
+!models/yolo11m_swimming_pools/
+!models/conftest.py
+!models/test_integration.py

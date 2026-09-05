@@ -55,6 +55,7 @@ jobs:
       - uses: helmfile/helmfile-action@v2
         with:
           helmfile-args: version
+          helm-version: v3.16.4
       - uses: docker/login-action@v3
         with:
           registry: ghcr.io
@@ -73,10 +74,20 @@ jobs:
 
       - name: Deploy stack + register
         run: |
+          docker pull ghcr.io/hotosm/zenml-postgres:0.94.2
+          kind load docker-image ghcr.io/hotosm/zenml-postgres:0.94.2 --name fair
           (cd infra && just up)
           echo "127.0.0.1 minio.fair.svc zenml.fair.svc mlflow.fair.svc stac.fair.svc" | sudo tee -a /etc/hosts
           uv run zenml init
           infra/scripts/register-k8s-stack.sh
+
+      - name: Dump ZenML install diagnostics
+        if: failure()
+        run: |
+          kubectl get jobs,pods -n fair -o wide || true
+          kubectl describe job -n fair zenml-db-migration || true
+          kubectl logs -n fair job/zenml-db-migration --all-containers || true
+          kubectl get events -n fair --sort-by=.lastTimestamp | tail -n 80 || true
 
       - name: Install stern
         run: |

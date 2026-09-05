@@ -33,6 +33,7 @@ jobs:
       - uses: helmfile/helmfile-action@v2
         with:
           helmfile-args: version
+          helm-version: v3.16.4
 
       - uses: docker/login-action@v3
         with:
@@ -50,7 +51,18 @@ jobs:
 
       - name: Deploy stack
         working-directory: infra
-        run: just up
+        run: |
+          docker pull ghcr.io/hotosm/zenml-postgres:0.94.2
+          kind load docker-image ghcr.io/hotosm/zenml-postgres:0.94.2 --name fair
+          just up
+
+      - name: Dump ZenML install diagnostics
+        if: failure()
+        run: |
+          kubectl get jobs,pods -n fair -o wide || true
+          kubectl describe job -n fair zenml-db-migration || true
+          kubectl logs -n fair job/zenml-db-migration --all-containers || true
+          kubectl get events -n fair --sort-by=.lastTimestamp | tail -n 80 || true
 
       - name: Alias cluster service names to localhost
         run: |

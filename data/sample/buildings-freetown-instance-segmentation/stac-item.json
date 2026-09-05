@@ -1,0 +1,93 @@
+{
+  "type": "Feature",
+  "stac_version": "1.1.0",
+  "stac_extensions": [
+    "https://stac-extensions.github.io/label/v1.0.1/schema.json",
+    "https://stac-extensions.github.io/file/v2.1.0/schema.json",
+    "https://stac-extensions.github.io/version/v1.2.0/schema.json",
+    "https://hotosm.github.io/fAIr-models/schemas/v1.0.0/dataset/schema.json"
+  ],
+  "id": "buildings-freetown-instance-segmentation",
+  "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+      [
+        [-13.173980712890625, 8.412602260297845],
+        [-13.173980712890625, 8.413960772564492],
+        [-13.172607421875, 8.413960772564492],
+        [-13.171234130859375, 8.413960772564492],
+        [-13.16986083984375, 8.413960772564492],
+        [-13.168487548828125, 8.413960772564492],
+        [-13.1671142578125, 8.413960772564492],
+        [-13.1671142578125, 8.412602260297845],
+        [-13.1671142578125, 8.411243743267434],
+        [-13.1671142578125, 8.409885221474003],
+        [-13.168487548828125, 8.409885221474003],
+        [-13.16986083984375, 8.409885221474003],
+        [-13.171234130859375, 8.409885221474003],
+        [-13.172607421875, 8.409885221474003],
+        [-13.173980712890625, 8.409885221474003],
+        [-13.173980712890625, 8.411243743267434],
+        [-13.173980712890625, 8.412602260297845]
+      ]
+    ]
+  },
+  "bbox": [
+    -13.173980712890625,
+    8.409885221474003,
+    -13.1671142578125,
+    8.413960772564492
+  ],
+  "properties": {
+    "datetime": "2025-12-11T00:00:00Z",
+    "created": "2025-12-11T00:00:00Z",
+    "updated": "2025-12-11T00:00:00Z",
+    "title": "buildings-freetown-instance-segmentation",
+    "description": "OpenAerialMap chips with OSM building footprints (GeoJSON polygons) for instance segmentation in Freetown, Sierra Leone.",
+    "label:type": "vector",
+    "label:tasks": ["instance-segmentation"],
+    "label:classes": [
+      {
+        "name": "building",
+        "classes": ["yes", "house", "residential", "construction"]
+      }
+    ],
+    "label:properties": ["building"],
+    "label:description": "OSM building footprints (GeoJSON polygons) used as per-instance segmentation masks",
+    "label:methods": ["manual"],
+    "keywords": ["building", "instance-segmentation", "polygon"],
+    "fair:user_id": "anonymous",
+    "version": "1",
+    "deprecated": false,
+    "license": "CC-BY-4.0",
+    "providers": [
+      {
+        "name": "HOTOSM",
+        "roles": ["producer", "licensor"],
+        "url": "https://www.hotosm.org"
+      }
+    ]
+  },
+  "assets": {
+    "chips": {
+      "href": "../train/freetown/oam",
+      "type": "image/tiff; application=geotiff",
+      "roles": ["data"],
+      "title": "Training chips"
+    },
+    "labels": {
+      "href": "../train/freetown/osm",
+      "type": "application/geo+json",
+      "roles": ["labels"],
+      "title": "OSM building footprints (GeoJSON)"
+    }
+  },
+  "links": [
+    {
+      "rel": "source",
+      "href": "https://tiles.openaerialmap.org/690585b76415e43597ffd7ea/0/690585b76415e43597ffd7eb/{z}/{x}/{y}",
+      "type": "image/tiff; application=geotiff",
+      "title": "Source OAM imagery (fAIr dataset 228)"
+    }
+  ]
+}

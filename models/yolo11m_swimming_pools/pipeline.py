@@ -16,6 +16,15 @@ from fair.zenml.instrumentation import log_evaluation_results, mlflow_training_c
 from fair.zenml.materializers import CheckpointBytesMaterializer, ONNXMaterializer
 
 
+def _get_device() -> str:
+    """Use CUDA when the training image can see a GPU; otherwise CPU."""
+    import torch
+
+    if torch.cuda.is_available():
+        return "0"
+    return "cpu"
+
+
 def _download_checkpoint(url: str) -> Path:
     from upath import UPath
 
@@ -134,8 +143,9 @@ def train_model(
     from spd_hot.train import train_yolo
 
     del num_classes
-    split_cfg = parse_split_params(hyperparameters)
-    train_cfg = parse_train_params(hyperparameters)
+    train_hp = {**hyperparameters, "device": _get_device()}
+    split_cfg = parse_split_params(train_hp)
+    train_cfg = parse_train_params(train_hp)
 
     yolo_dir = Path(split_info["_yolo_dir"])
     data_yaml = yolo_dir / "data.yaml"
@@ -178,8 +188,9 @@ def evaluate_model(
     from spd_hot.params import parse_split_params, parse_train_params
 
     del class_names
-    split_cfg = parse_split_params(hyperparameters)
-    train_cfg = parse_train_params(hyperparameters)
+    train_hp = {**hyperparameters, "device": _get_device()}
+    split_cfg = parse_split_params(train_hp)
+    train_cfg = parse_train_params(train_hp)
 
     yolo_dir = Path(split_info["_yolo_dir"])
     data_yaml = yolo_dir / "data.yaml"
@@ -188,7 +199,7 @@ def evaluate_model(
         data_yaml = yolo_dir / "data.yaml"
 
     model = _restore_checkpoint(trained_model)
-    metrics = evaluate_yolo(model, str(data_yaml), imgsz=train_cfg.imgsz)
+    metrics = evaluate_yolo(model, str(data_yaml), imgsz=train_cfg.imgsz, device=train_cfg.device)
     log_evaluation_results(metrics)
     return metrics
 

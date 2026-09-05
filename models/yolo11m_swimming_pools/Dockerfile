@@ -1,5 +1,6 @@
 # Builder stage
-# Install training deps. fair-py-ops comes from PyPI (not a COPY of ./fair).
+# Training deps with CUDA Torch (falls back to CPU if no GPU is visible).
+# fair-py-ops comes from PyPI (not a COPY of ./fair).
 # spd-hot comes from git; override SPD_HOT_REPO/SPD_HOT_REF for a fork or tag.
 FROM ghcr.io/astral-sh/uv:0.11.8-python3.13-trixie-slim AS builder
 ENV UV_SYSTEM_PYTHON=1 UV_LINK_MODE=copy
@@ -13,9 +14,11 @@ ARG SPD_HOT_REPO=https://github.com/AbdelrahmanKatkat/spd-hot
 ARG SPD_HOT_REF=main
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv pip install \
-    --extra-index-url https://download.pytorch.org/whl/cpu \
+    --extra-index-url https://download.pytorch.org/whl/cu126 \
     --index-strategy unsafe-best-match \
-    torch==2.10.0 \
+    torch==2.10.0
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv pip install \
     "ultralytics>=8.4.0" \
     rasterio \
     pyproj \
@@ -57,7 +60,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     uv pip install --system "fair-py-ops[test]==${FAIR_PY_OPS_VERSION}"
 
 # Inference builder stage
-# Small venv: fair-py-ops[serve] + spd-hot (no Ultralytics).
+# CPU-only venv: ONNX Runtime (not onnxruntime-gpu). No Torch / Ultralytics.
 FROM ghcr.io/astral-sh/uv:0.11.8-trixie-slim AS inference-builder
 ENV UV_PYTHON_INSTALL_DIR=/python UV_PYTHON_PREFERENCE=only-managed
 RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates \

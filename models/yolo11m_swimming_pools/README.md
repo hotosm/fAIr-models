@@ -11,7 +11,8 @@ The model returns a GeoJSON `FeatureCollection` where each detection is represen
 - **Model**: Ultralytics YOLO11m, single class `swimming_pool` (`value: 0`).
 - **Input**: 3-band RGB GeoTIFF chips; ONNX input size is **640×640** (declared in `stac-item.json` `mlm:input`).
 - **Output**: GeoJSON polygons (bboxes as polygons), with per-detection confidence.
-- **Serving**: ONNX Runtime session; decoding + NMS + georeferencing implemented in `spd-hot`.
+- **Serving**: ONNX Runtime session (CPU only); decoding + NMS + georeferencing implemented in `spd-hot`.
+- **Accelerator**: the training/runtime image ships CUDA Torch and uses a GPU when one is visible, otherwise CPU. Live inference stays on CPU ONNX Runtime.
 
 ## Pretrained source
 

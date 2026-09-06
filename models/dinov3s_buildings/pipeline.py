@@ -29,7 +29,7 @@ DEFAULT_INFERENCE_PARAMS: dict[str, Any] = {
     "regularize_area_threshold": 0.4949,
     "regularize_overlap_tol_m2": 3.9251,
     "min_area_m2": 2.6465,
-    "sliding_stride": 192,
+    "sliding_stride": 256,
 }
 
 

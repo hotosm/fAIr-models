@@ -2,7 +2,7 @@
 
 ## Overview
 
-SWAG screens georeferenced, very-high-resolution RGB aerial or UAV imagery for visible, openly dumped solid waste. It classifies 5 m × 5 m cells as `waste` or `background` and returns the cells as GeoJSON for review. The pretrained model covers urban and peri-urban settings from 60 globally distributed OpenAerialMap scenes; fine-tune it before use in a geography or imagery setting that is not well represented by that data.
+SWAG screens georeferenced, very-high-resolution RGB aerial or UAV imagery for visible, openly dumped solid waste. It classifies square grid cells as `waste` or `background` and returns the cells as GeoJSON for review. The pretrained model covers urban and peri-urban settings from 60 globally distributed OpenAerialMap scenes; fine-tune it before use in a geography or imagery setting that is not well represented by that data.
 
 ## Pretrained source
 
@@ -42,7 +42,7 @@ The [extra-large checkpoint](https://raw.githubusercontent.com/GIScience/solid-w
 
 - **Parameters:** 28.33 M
 - **Compute:** 2.21 GMACs (about 4.41 GFLOPs, counting one multiply-add as two FLOPs) per cell
-- **Inference input:** fixed batch-1 `float32` tensor of `1 × 3 × 128 × 128`; inference runs one 5 m cell at a time
+- **Inference input:** fixed batch-1 `float32` tensor of `1 × 3 × 128 × 128`; inference runs one cell at a time
 - **CPU inference:** about 11.7 ms per cell
 - **Memory and benchmark host:** about 381 MiB memory usage after model warm-up; Intel Core Ultra 7 255H (16 logical CPUs), CPU ONNX Runtime
 
@@ -50,7 +50,7 @@ The [extra-large checkpoint](https://raw.githubusercontent.com/GIScience/solid-w
 
 **Target:** visible, openly dumped solid waste in georeferenced, very-high-resolution RGB aerial or UAV imagery. SWAG is intended to screen an urban or peri-urban area and highlight, e.g., where a reviewer should look more closely. Fine-tune it with local labels when the imagery or the appearance of waste differs from the training data.
 
-Each output feature is one 5 m × 5 m grid cell by default (`cell_size_m` can change this size):
+Each output feature is one 10 m × 10 m grid cell by default (`cell_size_m` can change this size):
 
 | Output part  | Meaning                                                                                                                                                                              |
 | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -64,8 +64,8 @@ SWAG does not identify waste material types, trace exact pile boundaries, or est
 ## Limitations
 
 - Results depend on image quality, ground sampling distance, illumination, occlusion, and whether local waste appearance resembles the OAM training scenes. Local fine-tuning is recommended before operational use in a new geography or sensor setting.
-- The fixed 5 m grid trades boundary detail for consistent area coverage. A positive cell can include both waste and non-waste land, and small piles can be missed when they do not cover the configured threshold of a cell.
-- Tile zoom is not a fixed ground resolution: metres per pixel vary with latitude, and an OAM service can resample imagery beyond its native resolution. The serving runtime currently accepts its global zoom range without enforcing this model's STAC zoom metadata. Check the source imagery's native ground sampling distance and the number of native pixels per 5 m cell before relying on a prediction.
+- The fixed grid trades boundary detail for consistent area coverage. A positive cell can include both waste and non-waste land, and small piles can be missed when they do not cover the configured threshold of a cell.
+- Tile zoom is not a fixed ground resolution: metres per pixel vary with latitude, and an OAM service can resample imagery beyond its native resolution. The serving runtime currently accepts its global zoom range without enforcing this model's STAC zoom metadata. Check the source imagery's native ground sampling distance and the number of native pixels per cell before relying on a prediction.
 - Grouping cells by source polygon reduces leakage between splits, but it is not an independent field campaign. Reported accuracy should not be interpreted as a guarantee of performance in another area.
 - Predictions should be reviewed by a domain expert before publication, enforcement, or resource-allocation decisions.
 
@@ -92,10 +92,10 @@ Because the target is accumulations of small objects, use the finest available z
 
 ### Inference parameters
 
-| Parameter              | Default | Use                                                                                                                                                                             |
-| ---------------------- | ------: | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `confidence_threshold` |   `0.5` | Required threshold for assigning `waste`: raise it to reduce false positives, or lower it to find more candidate cells.                                                         |
-| `cell_size_m`          |   `5.0` | Inference-grid edge length in metres. Smaller cells give a denser output grid and require more model calls; use the training value unless there is a clear reason to change it. |
+| Parameter              | Default | Use                                                                                                                                                                                                                   |
+| ---------------------- | ------: | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `confidence_threshold` |   `0.5` | Required threshold for assigning `waste`: raise it to reduce false positives, or lower it to find more candidate cells.                                                                                               |
+| `cell_size_m`          |  `10.0` | Inference-grid edge length in metres. Smaller cells give a denser output grid and require more model calls; the default is coarser than the 5 m training grid so large areas stay within the serving request timeout. |
 
 Inference is fixed at batch 1; there is no inference `batch_size` setting.
 

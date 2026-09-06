@@ -110,7 +110,7 @@ The `score` is the mean predicted mask probability across the pixels belonging t
 
 Standardised CPU-only baseline for capacity planning. Single-threaded ONNX runtime, cold session, synthetic RGB input. Measured on Intel Core i9-14900HX, 64 GB RAM.
 
-**Workload**: One 512x512 RGB tile, sliding window 256 stride 128 = 9 forward passes per tile.
+**Workload**: One 512x512 RGB tile, sliding window 256 stride 128 = 9 forward passes per tile. This baseline fixes stride at 128 as a reference load; the operational default is stride 256 (about 4 passes per 512 tile).
 
 | Metric                            |  Small (this) |         Large |    Ratio |
 | --------------------------------- | ------------: | ------------: | -------: |

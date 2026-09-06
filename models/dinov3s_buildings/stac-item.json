@@ -169,7 +169,7 @@
       "inference.seed_min_distance": 6,
       "inference.large_blob_area_px": 1500,
       "inference.h_maxima_depth": 0.2,
-      "inference.sliding_stride": 192
+      "inference.sliding_stride": 256
     },
     "fair:split_spec": {
       "strategy": "spatial",
@@ -323,10 +323,10 @@
       {
         "key": "sliding_stride",
         "type": "int",
-        "default": 192,
+        "default": 256,
         "min": 64,
         "max": 256,
-        "description": "Pixel step between 256x256 sliding windows at inference. Smaller strides overlap more (slower, marginally smoother stitching); larger strides cut window count and latency. 192 is ~1.9x faster than 128 at near-identical F1; 256 is tiling with no overlap."
+        "description": "Pixel step between 256x256 sliding windows at inference. Larger strides cut window count and latency; smaller strides overlap more (slower, marginally smoother stitching). The default 256 is tiling with no overlap; 192 is ~1.9x faster than 128 at near-identical F1."
       },
       {
         "key": "tune_postprocess_trials",

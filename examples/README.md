@@ -15,19 +15,23 @@ just example                        # run all examples end-to-end
 Or one model at a time:
 
 ```bash
+just example sklearn_rgb_segmentation
 just example dinov3s_buildings
 just example yolo_swag_waste_grid_segmentation
 ```
 
+`sklearn_rgb_segmentation` is the fastest end-to-end run: it has no
+deep-learning stack and trains in seconds, so it is the quickest way to
+watch the whole flow locally.
+
 ## Overriding hyperparameters
 
 The runner uses STAC `mlm:hyperparameters` defaults. Override any of
-`epochs`, `batch_size`, `learning_rate`, `sample_fraction`, `chip_size`
-by invoking python directly. `sample_fraction` is the 0-1 fraction of
-available chips used for training:
+`epochs`, `batch_size`, `learning_rate`, `samples_per_epoch`, `chip_size`
+by invoking python directly:
 
 ```bash
-uv run python examples/run.py dinov3s_buildings --epochs 1 --sample-fraction 0.1
+uv run python examples/run.py dinov3s_buildings --epochs 1 --samples-per-epoch 6
 ```
 
 ## How it works
@@ -60,7 +64,7 @@ Drop a new directory under `models/`:
 ```
 models/<your_model>/
 ├── Dockerfile
-├── pipeline.py        # exports training_pipeline, inference_pipeline, predict
+├── pipeline.py        # exports training_pipeline, inference_pipeline, split_dataset, predict
 └── stac-item.json     # declares mlm:tasks, mlm:hyperparameters, mlm:training/inference image hrefs
 ```
 

@@ -34,7 +34,7 @@ icon: lucide/rocket
 
 ## Running the Example Pipelines
 
-Two example pipelines demonstrate the full workflow: register a base model,
+Example pipelines demonstrate the full workflow: register a base model,
 finetune on sample data, promote the best version, and run inference.
 
 | Example                                          | Task                  | Model                               |
@@ -82,7 +82,7 @@ orchestrator.
 
 - `fair/` is the core library (pip-installable as `fair-py-ops`): STAC catalog management, builders, and validators under `stac/`, data helpers under `utils/`, and ZenML config generation, promotion, and steps under `zenml/`.
 - `models/` holds base model contributions, one subdirectory per model.
-- `examples/` holds the example pipelines for building and waste segmentation.
+- `examples/` holds the example pipeline runner for the models under `models/`.
 - `infra/` holds the production stack (Kubernetes via helmfile); the local dev stack that `just setup` uses is under `infra/compose/`.
 - `stacks/compose.yaml` is the ZenML stack definition for the compose stack.
 - `tests/` holds the pytest suite.
@@ -91,7 +91,7 @@ orchestrator.
 
 ```bash title="Available recipes"
 just setup     # install deps + bring up stack + register ZenML stack
-just example   # run both example pipelines
+just example   # run all example pipelines
 just down      # stop the stack (state preserved, fast restart)
 just up        # restart after `just down`
 just tear      # destroy stack + volumes + local ZenML state

@@ -657,7 +657,8 @@ The shared `models/conftest.py` provides common fixtures (`toy_chips`,
     def test_export_onnx(...): ...
     ```
 
-See `models/dinov3s_buildings/tests/` or
+See `models/sklearn_rgb_segmentation/tests/` for the minimal reference, or
+`models/dinov3s_buildings/tests/` and
 `models/yolo_swag_waste_grid_segmentation/tests/` for complete working examples.
 
 Run the tests locally with `just example <your_model>`, which exercises the
@@ -692,7 +693,7 @@ validated by CI against the platform's requirements schema.
 | `mlm:name`              | string   | Model identifier (matches directory name)                                                                                     |
 | `mlm:architecture`      | string   | Architecture name (e.g. `UNet`, `YOLOv8`)                                                                                     |
 | `mlm:tasks`             | string[] | One or more of: `semantic-segmentation`, `instance-segmentation`, `object-detection`, `classification`                        |
-| `mlm:framework`         | string   | `PyTorch` or `TensorFlow`                                                                                                     |
+| `mlm:framework`         | string   | `PyTorch`, `TensorFlow`, or `scikit-learn`                                                                                    |
 | `mlm:framework_version` | string   | Framework version                                                                                                             |
 | `mlm:pretrained`        | boolean  | Whether pretrained weights are used                                                                                           |
 | `mlm:pretrained_source` | string   | Origin of the pretrained weights: a URL to the paper/dataset/checkpoint, or a descriptive string when no canonical URL exists |
@@ -942,7 +943,7 @@ manages them internally, e.g. Ultralytics):
 | `scheduler`     | Recommended | LR scheduler: `"cosine"` or `"none"`                      |
 | `max_grad_norm` | Recommended | Maximum gradient norm for clipping                        |
 
-See the two reference models under `models/` for working
+See the reference models under `models/` for working
 `fair:hyperparameters_spec` and `mlm:hyperparameters` blocks.
 
 The platform auto-extracts `chip_size` from `mlm:input[0].input.shape[-1]`
@@ -1239,6 +1240,7 @@ When all of these commands return cleanly your model is ready to PR. CI re-runs 
 
 - [STAC MLM Extension v1.5.1](https://github.com/stac-extensions/mlm): MLM fields spec
 - [MLM Best Practices](https://github.com/stac-extensions/mlm/blob/main/best-practices.md)
+- [scikit-learn RGB segmentation model](https://github.com/hotosm/fAIr-models/tree/develop/models/sklearn_rgb_segmentation): minimal reference (no deep-learning stack)
 - [DINOv3 buildings model](https://github.com/hotosm/fAIr-models/tree/develop/models/dinov3s_buildings): building segmentation reference
 - [YOLO SWAG waste grid model](https://github.com/hotosm/fAIr-models/tree/develop/models/yolo_swag_waste_grid_segmentation): waste grid segmentation reference
 - [DINOv3 buildings STAC item](https://github.com/hotosm/fAIr-models/blob/develop/models/dinov3s_buildings/stac-item.json): STAC item template

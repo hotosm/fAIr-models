@@ -18,7 +18,7 @@ just build
 just example
 ```
 
-`just setup` installs Python deps, brings up the full stack via Docker Compose (Postgres + MinIO + STAC + MLflow + ZenML), and registers the ZenML stack. `just build` builds the model Docker images that the local_docker orchestrator runs each pipeline step in. `just example` runs both reference pipelines end-to-end.
+`just setup` installs Python deps, brings up the full stack via Docker Compose (Postgres + MinIO + STAC + MLflow + ZenML), and registers the ZenML stack. `just build` builds the model Docker images that the local_docker orchestrator runs each pipeline step in. `just example` runs all example pipelines end-to-end.
 
 | Service         | URL                     | Credentials                 |
 | --------------- | ----------------------- | --------------------------- |
@@ -53,7 +53,7 @@ Run `just` to see all recipes.
 
 ```bash
 just setup     # install deps + bring up stack + register ZenML stack
-just example   # run both example pipelines
+just example   # run all example pipelines
 just down      # stop the stack (state preserved, fast restart)
 just up        # restart after `just down`
 just tear      # destroy stack + volumes + local ZenML state

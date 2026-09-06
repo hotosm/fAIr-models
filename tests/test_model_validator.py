@@ -169,10 +169,9 @@ def inference_pipeline(): ...
         assert "README.md" in errors[0]
 
     def test_validates_real_example(self) -> None:
-        """Validate the actual unet_segmentation model in the repo."""
-        model_dir = Path(__file__).resolve().parent.parent / "models" / "unet_segmentation"
-        if model_dir.exists():
-            assert validate_model(model_dir) == []
+        """Validate the actual dinov3s_buildings model in the repo."""
+        model_dir = Path(__file__).resolve().parent.parent / "models" / "dinov3s_buildings"
+        assert validate_model(model_dir) == []
 
 
 class TestValidateTestSteps:

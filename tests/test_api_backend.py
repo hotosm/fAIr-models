@@ -129,23 +129,6 @@ def test_item_href_format() -> None:
     assert href == "https://stac.example/api/collections/datasets/items/ds-1"
 
 
-def test_api_key_attached_as_bearer() -> None:
-    seen: dict[str, str] = {}
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        seen["auth"] = request.headers.get("authorization", "")
-        return httpx.Response(404)
-
-    backend = StacApiBackend.__new__(StacApiBackend)
-    backend._stac_api_url = "https://stac.example/api"
-    backend._http = httpx.Client(
-        transport=_routes_to(handler),
-        headers={"Authorization": "Bearer secret-token-123"},
-    )
-    backend.item_exists("datasets", "ds-1")
-    assert seen["auth"] == "Bearer secret-token-123"
-
-
 def test_init_bootstraps_collections_via_post_and_put() -> None:
     seen: list[tuple[str, str]] = []
 

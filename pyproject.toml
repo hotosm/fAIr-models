@@ -12,60 +12,55 @@ license = "AGPL-3.0-only"
 authors = [{ name = "HOTOSM", email = "sysadmin@hotosm.org" }]
 maintainers = [{ name = "Kshitij Raj Sharma", email = "krschap@duck.com" }]
 keywords = [
-    "machine-learning",
-    "geospatial",
-    "stac",
-    "openstreetmap",
-    "humanitarian",
-    "model-registry",
-    "mlops",
+  "machine-learning",
+  "geospatial",
+  "stac",
+  "openstreetmap",
+  "humanitarian",
+  "model-registry",
+  "mlops",
 ]
 classifiers = [
-    "Development Status :: 3 - Alpha",
-    "Intended Audience :: Developers",
-    "Intended Audience :: Science/Research",
-    "License :: OSI Approved :: GNU Affero General Public License v3",
-    "Operating System :: OS Independent",
-    "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.12",
-    "Programming Language :: Python :: 3.13",
-    "Topic :: Scientific/Engineering :: Artificial Intelligence",
-    "Topic :: Scientific/Engineering :: GIS",
-    "Typing :: Typed",
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
+  "Intended Audience :: Science/Research",
+  "License :: OSI Approved :: GNU Affero General Public License v3",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: Scientific/Engineering :: Artificial Intelligence",
+  "Topic :: Scientific/Engineering :: GIS",
+  "Typing :: Typed",
 ]
 dependencies = [
-    "httpx>=0.28.1",
-    "mlflow>=2.1.1,<4",
-    "onnxruntime>=1.24.4,<1.29",  # 1.29 segfaults at import on distroless serving images
-    "pystac[validation]>=1.14.3,<2",
-    "reverse-geocode>=1.6.6",
-    "typer>=0.23.1",
-    "universal-pathlib>=0.3.10",
-    "zenml==0.94.2",
+  "httpx>=0.28.1",
+  "mlflow>=2.1.1,<4",
+  "onnxruntime>=1.24.4,<1.29", # 1.29 segfaults at import on distroless serving images
+  "pystac[validation]>=1.14.3,<2",
+  "reverse-geocode>=1.6.6",
+  "typer>=0.23.1",
+  "universal-pathlib>=0.3.10",
+  "zenml==0.94.2",
 ]
 
 [project.scripts]
 fair = "fair.cli:app"
 
 [project.optional-dependencies]
-test = [
-    "kubernetes==35.0.0",
-    "pytest>=8.0",
-    "pytest-cov>=6.0",
-    "zenml[server]==0.94.2",
-]
+test = ["kubernetes==35.0.0", "pytest>=8.0", "pytest-cov>=6.0", "zenml[server]==0.94.2"]
 k8s = [
-    "kubernetes==35.0.0",
-    "opentelemetry-proto>=1.25.0",
-    "pypgstac[psycopg]>=0.9",
-    "pystac-client>=0.9,<1",
-    "zenml[connectors-aws,connectors-kubernetes,s3fs,server]==0.94.2",
+  "kubernetes==35.0.0",
+  "opentelemetry-proto>=1.25.0",
+  "pypgstac[psycopg]>=0.9",
+  "pystac-client>=0.9,<1",
+  "zenml[connectors-aws,connectors-kubernetes,s3fs,server]==0.94.2",
 ]
 serve = [
-    "geomltoolkits>=2.0.2",
-    "s3fs>=2025.3.0",
-    "starlette>=0.40,<0.46",
-    "uvicorn[standard]>=0.34",
+  "geomltoolkits>=2.0.2",
+  "s3fs>=2025.3.0",
+  "starlette>=0.40,<0.46",
+  "uvicorn[standard]>=0.34",
 ]
 
 [project.urls]
@@ -80,23 +75,23 @@ source = "vcs"
 
 [tool.hatch.build.targets.sdist]
 include = [
-    "fair/",
-    "models/",
-    "infra/compose/docker-compose.yml",
-    "infra/compose/init-db.sql",
-    "stacks/compose.yaml",
-    "data/sample/",
-    "fair_zenml_patch.pth",
-    "LICENSE",
-    "README.md",
+  "fair/",
+  "models/",
+  "infra/compose/docker-compose.yml",
+  "infra/compose/init-db.sql",
+  "stacks/compose.yaml",
+  "data/sample/",
+  "fair_zenml_patch.pth",
+  "LICENSE",
+  "README.md",
 ]
 exclude = [
-    "models/**/tests/",
-    "models/**/conftest.py",
-    "models/conftest.py",
-    "models/test_integration.py",
-    "models/**/Dockerfile",
-    "models/**/Dockerfile.dockerignore",
+  "models/**/tests/",
+  "models/**/conftest.py",
+  "models/conftest.py",
+  "models/test_integration.py",
+  "models/**/Dockerfile",
+  "models/**/Dockerfile.dockerignore",
 ]
 
 [tool.hatch.build.targets.wheel]
@@ -112,22 +107,22 @@ packages = ["fair"]
 
 [dependency-groups]
 dev = [
-    "ty",
-    "ruff",
-    "kubernetes==35.0.0",
-    "pytest>=8.0",
-    "pytest-cov>=6.0",
-    "commitizen>=4.1",
-    "pre-commit>=4.0",
+  "ty",
+  "ruff",
+  "kubernetes==35.0.0",
+  "pytest>=8.0",
+  "pytest-cov>=6.0",
+  "commitizen>=4.1",
+  "pre-commit>=4.0",
 ]
 ci = [{ include-group = "dev" }]
 docs = [
-    "zensical>=0.0.24",
-    "mkdocstrings[python]>=0.29",
-    "mkdocs-section-index>=0.3",
-    "mkdocs-git-revision-date-localized-plugin>=1.4",
-    "mkdocs-git-authors-plugin>=0.9",
-    "mkdocs-glightbox>=0.4",
+  "zensical>=0.0.24",
+  "mkdocstrings[python]>=0.29",
+  "mkdocs-section-index>=0.3",
+  "mkdocs-git-revision-date-localized-plugin>=1.4",
+  "mkdocs-git-authors-plugin>=0.9",
+  "mkdocs-glightbox>=0.4",
 ]
 
 [tool.ruff]
@@ -147,7 +142,6 @@ source = ["fair"]
 omit = ["tests/*"]
 
 [tool.coverage.report]
-fail_under = 95
 exclude_lines = ["pragma: no cover", "if TYPE_CHECKING:"]
 
 [tool.commitizen]

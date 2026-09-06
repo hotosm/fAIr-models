@@ -58,10 +58,17 @@ def http_url_to_s3_uri(url: str) -> str:
         if not endpoint:
             continue
         endpoint_parsed = urlparse(endpoint)
-        if parsed.hostname == endpoint_parsed.hostname:
-            path_parts = parsed.path.lstrip("/").split("/", 1)
-            if len(path_parts) == 2:
-                return f"s3://{path_parts[0]}/{path_parts[1]}"
+        if parsed.hostname != endpoint_parsed.hostname:
+            continue
+        # The endpoint may carry a path prefix (e.g. /api/v1/artifacts); strip it so the
+        # remainder is bucket/key, not the prefix. Same host without the prefix is not ours.
+        prefix = endpoint_parsed.path.rstrip("/")
+        if prefix and not parsed.path.startswith(prefix + "/"):
+            continue
+        remainder = parsed.path[len(prefix) :].lstrip("/") if prefix else parsed.path.lstrip("/")
+        path_parts = remainder.split("/", 1)
+        if len(path_parts) == 2:
+            return f"s3://{path_parts[0]}/{path_parts[1]}"
     s3_match = re.match(r"^https?://(.+?)\.s3\.(.+?)\.amazonaws\.com/(.+)$", url)
     if s3_match:
         return f"s3://{s3_match.group(1)}/{s3_match.group(3)}"

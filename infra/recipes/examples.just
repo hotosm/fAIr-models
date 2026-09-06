@@ -27,7 +27,7 @@ _env:
     export KUBE_CONTEXT="${KUBE_CONTEXT:-$(kubectl config current-context)}"
     EOF
 
-[doc('Run all 3 example pipelines (segmentation, classification, detection) against the cluster')]
+[doc('Run the example pipelines for all models against the cluster')]
 example: _example
 
 [doc('Smoke-test the live KNative predict services')]
@@ -35,7 +35,7 @@ predict:
     #!/usr/bin/env bash
     set -euo pipefail
     DOMAIN="${FAIR_DOMAIN:?FAIR_DOMAIN must be set to the deployed apex domain}"
-    for svc in unet-segmentation resnet18-classification yolo11n-detection; do
+    for svc in dinov3s-buildings yolo-swag-waste-grid-segmentation; do
         url="https://${svc}.predict.${DOMAIN}/health"
         printf "%-30s " "$svc"
         if curl -sfk --max-time 30 "$url" >/dev/null; then echo "ok"; else echo "fail ($url)"; fi
@@ -87,7 +87,7 @@ _example:
     TOKEN=$(scripts/zenml-token.sh --wait) || { echo "ERROR: failed to fetch ZenML token" >&2; exit 1; }
     export ZENML_STORE_API_TOKEN="$TOKEN"
     cd ..
-    for ex in segmentation classification detection; do
-        echo "=== $ex ==="
-        uv run --group example python "examples/$ex/run.py"
+    for model in dinov3s_buildings yolo_swag_waste_grid_segmentation; do
+        echo "=== $model ==="
+        uv run python examples/run.py "$model"
     done

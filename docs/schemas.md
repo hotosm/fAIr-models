@@ -12,11 +12,11 @@ Each schema follows the [STAC Extension](https://stac-extensions.github.io/) pat
 
 Extends the [MLM Extension](https://stac-extensions.github.io/mlm/v1.5.1/schema.json) with training pipeline metadata: metrics spec, split spec, hyperparameter bounds, and runtime container references.
 
-**Schema URL:** [`v1.0.0/base-model/schema.json`](schemas/v1.0.0/base-model/schema.json)
+**Schema URL:** [`fair/schemas/v1.0.0/base-model/schema.json`](../fair/schemas/v1.0.0/base-model/schema.json)
 
 **Required properties:** `title`, `description`, `mlm:name`, `mlm:architecture`, `mlm:tasks`, `mlm:framework`, `mlm:framework_version`, `mlm:pretrained`, `mlm:input`, `mlm:output`, `mlm:hyperparameters`, `keywords`, `version`, `license`, `fair:metrics_spec`, `fair:split_spec`
 
-**Recommended properties:** `fair:hyperparameters_spec` (declares types, bounds, and defaults for every key in `mlm:hyperparameters` — see [Contributing a Model](contributing/model.md#hyperparameters))
+**Recommended properties:** `fair:hyperparameters_spec` (declares types, bounds, and defaults for every key in `mlm:hyperparameters`, see [Contributing a Model](contributing/model.md#hyperparameters))
 
 **Required assets:** `checkpoint`, `source-code`, `mlm:training`, `mlm:inference`
 
@@ -24,7 +24,7 @@ Extends the [MLM Extension](https://stac-extensions.github.io/mlm/v1.5.1/schema.
 
 Extends the [Label Extension](https://stac-extensions.github.io/label/v1.0.1/schema.json) with fAIr training data metadata: user attribution, chip counts, and download archives.
 
-**Schema URL:** [`v1.0.0/dataset/schema.json`](schemas/v1.0.0/dataset/schema.json)
+**Schema URL:** [`fair/schemas/v1.0.0/dataset/schema.json`](../fair/schemas/v1.0.0/dataset/schema.json)
 
 **Required properties:** `title`, `description`, `label:type`, `label:tasks`, `label:classes`, `keywords`, `fair:user_id`, `version`, `deprecated`
 
@@ -34,7 +34,7 @@ Extends the [Label Extension](https://stac-extensions.github.io/label/v1.0.1/sch
 
 Extends the base model schema with training provenance: links to the base model and dataset, evaluation metrics, training duration, and ZenML artifact references.
 
-**Schema URL:** [`v1.0.0/local-model/schema.json`](schemas/v1.0.0/local-model/schema.json)
+**Schema URL:** [`fair/schemas/v1.0.0/local-model/schema.json`](../fair/schemas/v1.0.0/local-model/schema.json)
 
 **Required properties:** `title`, `description`, `mlm:name`, `mlm:architecture`, `mlm:tasks`, `mlm:framework`, `mlm:framework_version`, `mlm:pretrained`, `mlm:pretrained_source`, `mlm:input`, `mlm:output`, `mlm:hyperparameters`, `keywords`, `version`, `deprecated`, `fair:user_id`
 
@@ -46,10 +46,10 @@ Each item type follows the [STAC Version Extension](https://github.com/stac-exte
 
 ### ID Strategy
 
-| Type | ID | How determined |
-|------|-----|----------------|
-| Base model | Human-readable slug | `item_id` from the STAC JSON file (e.g. `yolo11n-detection`) |
-| Dataset | Human-readable slug | `_slugify(title)` or `item_id` from the STAC JSON file |
+| Type        | ID                       | How determined                                                 |
+| ----------- | ------------------------ | -------------------------------------------------------------- |
+| Base model  | Human-readable slug      | `item_id` from the STAC JSON file (e.g. `dinov3s-buildings`)   |
+| Dataset     | Human-readable slug      | `_slugify(title)` or `item_id` from the STAC JSON file         |
 | Local model | ZenML model version UUID | Unique per user/training run, passed as `item_id` on promotion |
 
 Local models use UUIDs because the same base model + dataset pair can produce different finetuned models across users and training runs.
@@ -60,7 +60,7 @@ All three types use the `version` property (string, starting at `"1"`).
 
 **Base models and datasets** follow the same pattern:
 
-1. On first register: `version: "1"`, item ID is the slug (e.g. `yolo11n-detection`)
+1. On first register: `version: "1"`, item ID is the slug (e.g. `dinov3s-buildings`)
 2. On re-register: previous item is archived as `{slug}-v{N}` with `deprecated: true`, new item keeps the original slug with `version: "{N+1}"`
 3. Archived items link to their successor via `successor-version`; the active item links back via `predecessor-version`
 
@@ -72,30 +72,30 @@ Base models match on `mlm:name`, datasets match on `title` to find previous acti
 
 All items use links from the [Version Extension](https://stac-extensions.github.io/version/v1.2.0/schema.json):
 
-| Link relation | Direction | Present on |
-|---------------|-----------|------------|
-| `latest-version` | self-referencing | Active items only |
-| `predecessor-version` | current -> previous | Items with version > 1 |
-| `successor-version` | old -> new | Archived (deprecated) items |
+| Link relation         | Direction           | Present on                  |
+| --------------------- | ------------------- | --------------------------- |
+| `latest-version`      | self-referencing    | Active items only           |
+| `predecessor-version` | current -> previous | Items with version > 1      |
+| `successor-version`   | old -> new          | Archived (deprecated) items |
 
 ### Example
 
 After registering a dataset three times:
 
-| Item ID | Version | Deprecated | Links |
-|---------|---------|------------|-------|
-| `buildings-banepa-semantic-segmentation-v1` | 1 | true | `successor-version` -> v2 |
-| `buildings-banepa-semantic-segmentation-v2` | 2 | true | `successor-version` -> v3 |
-| `buildings-banepa-semantic-segmentation` | 3 | false | `latest-version` -> self, `predecessor-version` -> v2 |
+| Item ID                                     | Version | Deprecated | Links                                                 |
+| ------------------------------------------- | ------- | ---------- | ----------------------------------------------------- |
+| `buildings-banepa-semantic-segmentation-v1` | 1       | true       | `successor-version` -> v2                             |
+| `buildings-banepa-semantic-segmentation-v2` | 2       | true       | `successor-version` -> v3                             |
+| `buildings-banepa-semantic-segmentation`    | 3       | false      | `latest-version` -> self, `predecessor-version` -> v2 |
 
 ## Timestamps
 
 Temporal tracking uses:
 
-| Property | Set by | Purpose |
-|----------|--------|---------|
+| Property  | Set by                      | Purpose                                |
+| --------- | --------------------------- | -------------------------------------- |
 | `created` | Builder (on first creation) | When the STAC item was first published |
-| `updated` | Backend (on every publish) | When the item was last modified |
+| `updated` | Backend (on every publish)  | When the item was last modified        |
 
 ## Validation
 
@@ -105,6 +105,6 @@ Schemas are registered into PySTAC's `JsonSchemaSTACValidator.schema_cache` at r
 from fair.stac.validators import validate_item
 import pystac
 
-item = pystac.Item.from_file("models/yolo11n_detection/stac-item.json")
+item = pystac.Item.from_file("models/dinov3s_buildings/stac-item.json")
 errors = validate_item(item)
 ```

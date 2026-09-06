@@ -40,6 +40,28 @@ def predict(session: Any, input_images: str, params: dict[str, Any]) -> dict[str
     return predict_session(session, Path(resolve_directory(input_images)), params)
 
 
+def preprocess(image_path: Any) -> Any:
+    """Per-window transform the serving path applies: RGB chip to a HOT-normalised NCHW float32 tensor."""
+    import numpy as np
+    import rasterio
+    from dinov3_hot.serve import HOT_MEAN, HOT_STD, MODEL_INPUT_SIZE
+
+    with rasterio.open(image_path) as src:
+        rgb = src.read([1, 2, 3], out_shape=(3, MODEL_INPUT_SIZE, MODEL_INPUT_SIZE)).astype(np.float32) / 255.0
+    mean = np.asarray(HOT_MEAN, dtype=np.float32).reshape(3, 1, 1)
+    std = np.asarray(HOT_STD, dtype=np.float32).reshape(3, 1, 1)
+    return ((rgb - mean) / std)[np.newaxis, ...]
+
+
+def postprocess(logits: Any, confidence_threshold: float = DEFAULT_INFERENCE_PARAMS["confidence_threshold"]) -> Any:
+    """Reduce the decoder's 3-channel logits to a binary building mask via the mask-channel probability."""
+    import numpy as np
+
+    mask_logit = np.asarray(logits)[:, 0]
+    probability = 1.0 / (1.0 + np.exp(-mask_logit))
+    return (probability >= confidence_threshold).astype(np.uint8)
+
+
 @step
 def split_dataset(
     dataset_chips: str,

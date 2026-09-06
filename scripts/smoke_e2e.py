@@ -28,7 +28,7 @@ import httpx
 logging.getLogger("httpx").setLevel(logging.WARNING)
 
 DEFAULT_API = "https://api.fair.krschap.tech"
-DEFAULT_BASE_MODEL = "yolo11n-detection"
+DEFAULT_BASE_MODEL = "dinov3s-buildings"
 DEFAULT_IMAGERY = "https://tiles.openaerialmap.org/62d85d11d8499800053796c1/0/62d85d11d8499800053796c2/{z}/{x}/{y}"
 AOI_POLYGON = [
     [85.51678, 27.63133],
@@ -230,7 +230,7 @@ def run(cfg: Config) -> int:
             body={
                 "base_model_stac_id": cfg.base_model,
                 "dataset_stac_id": stac_id,
-                "model_name": f"yolo11n-detection-smoke-{_stamp()}",
+                "model_name": f"dinov3s-buildings-smoke-{_stamp()}",
                 "overrides": {
                     "epochs": 3,
                     "batch_size": 2,

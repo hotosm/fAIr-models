@@ -242,7 +242,7 @@ def test_dataset_build_requires_osm_url(tmp_path, monkeypatch) -> None:
 def test_knative_register_applies_the_service(tmp_path, monkeypatch) -> None:
     import fair.infra.knative as knative_module
 
-    item = SimpleNamespace(id="unet-segmentation", properties={"mlm:name": "unet_segmentation"})
+    item = SimpleNamespace(id="dinov3s-buildings", properties={"mlm:name": "dinov3s_buildings"})
     monkeypatch.setattr("fair.cli.pystac.Item.from_file", lambda _: item)
     applied: list[tuple[object, str | None]] = []
     monkeypatch.setattr(
@@ -257,7 +257,7 @@ def test_knative_register_applies_the_service(tmp_path, monkeypatch) -> None:
 
     assert result.exit_code == 0
     assert applied == [(item, "serving")]
-    assert "unet-segmentation" in result.output
+    assert "dinov3s-buildings" in result.output
 
 
 def test_knative_status_reports_readiness(monkeypatch) -> None:
@@ -269,11 +269,11 @@ def test_knative_status_reports_readiness(monkeypatch) -> None:
         lambda name, namespace=None: ("True", f"https://{name}.predict.example.com"),
     )
 
-    result = runner.invoke(app, ["knative", "status", "unet-segmentation"])
+    result = runner.invoke(app, ["knative", "status", "dinov3s-buildings"])
 
     assert result.exit_code == 0
     assert "ready=True" in result.output
-    assert "https://unet-segmentation.predict.example.com" in result.output
+    assert "https://dinov3s-buildings.predict.example.com" in result.output
 
 
 def test_knative_delete_delegates(monkeypatch) -> None:
@@ -286,8 +286,8 @@ def test_knative_delete_delegates(monkeypatch) -> None:
         lambda name, namespace=None: deleted.append((name, namespace)),
     )
 
-    result = runner.invoke(app, ["knative", "delete", "unet_segmentation"])
+    result = runner.invoke(app, ["knative", "delete", "dinov3s_buildings"])
 
     assert result.exit_code == 0
-    assert deleted == [("unet_segmentation", None)]
-    assert "deleted unet-segmentation" in result.output
+    assert deleted == [("dinov3s_buildings", None)]
+    assert "deleted dinov3s-buildings" in result.output

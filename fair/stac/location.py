@@ -21,13 +21,30 @@ def coverage_from_bbox(bbox: Sequence[float]) -> str:
     return reverse_geocode.get((lat, lon))["country"]
 
 
+def place_from_center(lon: float, lat: float) -> dict[str, str]:
+    place = reverse_geocode.get((lat, lon))
+    return {"name": place["city"], "country": place["country"], "country_code": place["country_code"]}
+
+
 def derive_location_props(properties: Mapping[str, Any], bbox: Sequence[float]) -> dict[str, Any]:
     props: dict[str, Any] = {"fair:coverage": coverage_from_bbox(bbox)}
-    preview = properties.get("fair:preview_location")
-    if preview is not None:
-        lon, lat = preview["coordinates"][:2]
-        place = reverse_geocode.get((lat, lon))
-        props["fair:preview_place"] = place["city"]
+    center = _center_from_properties(properties)
+    if center is not None:
+        place = place_from_center(*center)
+        props["fair:preview_place"] = place["name"]
         props["fair:preview_country"] = place["country"]
         props["fair:preview_country_code"] = place["country_code"]
     return props
+
+
+def _center_from_properties(properties: Mapping[str, Any]) -> tuple[float, float] | None:
+    preview = properties.get("fair:preview")
+    if isinstance(preview, dict) and isinstance(preview.get("center"), (list, tuple)):
+        lon, lat = preview["center"][:2]
+        return lon, lat
+    # Fall back to the legacy point for items that predate fair:preview.
+    legacy = properties.get("fair:preview_location")
+    if isinstance(legacy, dict) and isinstance(legacy.get("coordinates"), (list, tuple)):
+        lon, lat = legacy["coordinates"][:2]
+        return lon, lat
+    return None

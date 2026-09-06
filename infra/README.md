@@ -11,31 +11,27 @@ Provisioning the cluster itself, the kubeconfig, and the DNS records is out of s
 
 ## Layout
 
-```
-infra/
-├── helmfile.yaml.gotmpl    # all chart releases (env-aware)
-├── justfile                # all commands
-├── kind-config.yaml        # local cluster
-├── ports.conf              # dev port-forward map
-├── environments/           # per-env values (dev.yaml, cluster.yaml.gotmpl)
-├── values/                 # chart values (env-templated)
-├── manifests/              # raw k8s manifests (postgres, ingress, knative, ...)
-└── scripts/                # seed_data.py, zenml-token.sh
-```
+Everything below lives under `infra/`. `helmfile.yaml.gotmpl` declares all
+chart releases (env-aware), `justfile` holds all commands, `kind-config.yaml`
+defines the local cluster, and `ports.conf` maps the dev port-forwards.
+Per-env values sit in `environments/` (`dev.yaml`, `cluster.yaml.gotmpl`),
+chart values in `values/` (env-templated), raw k8s manifests (postgres,
+ingress, knative, and so on) in `manifests/`, and helper scripts
+(`seed_data.py`, `zenml-token.sh`) in `scripts/`.
 
 ## Prerequisites
 
-| Use case | Tools |
-|---|---|
-| dev (kind) | `kind`, `kubectl`, `helm`, `helmfile`, `uv` |
-| cluster | + `envsubst`, `psql`, a kubeconfig for the target cluster |
+| Use case   | Tools                                                     |
+| ---------- | --------------------------------------------------------- |
+| dev (kind) | `kind`, `kubectl`, `helm`, `helmfile`, `uv`               |
+| cluster    | + `envsubst`, `psql`, a kubeconfig for the target cluster |
 
 ## Commands
 
 ```bash
 just up           # spin up local stack (kind)
 just up cluster   # deploy to the cluster kubectl points at
-just example      # run all 3 example pipelines on the active stack
+just example      # run both example pipelines on the active stack
 just predict      # smoke-test live KNative endpoints
 just urls         # show service URLs
 just status       # cluster + pod health
@@ -62,8 +58,8 @@ just up cluster
 KNative services are registered per model, separately from the STAC registration:
 
 ```bash
-fair knative register models/unet_segmentation/stac-item.json
-fair knative status unet-segmentation
+fair knative register models/dinov3s_buildings/stac-item.json
+fair knative status dinov3s-buildings
 ```
 
 `fair basemodel register` then checks `https://<model>.predict.$FAIR_PREDICT_DOMAIN/health` and refuses to publish a model whose service is not already serving.
@@ -74,7 +70,7 @@ fair knative status unet-segmentation
 
 ```bash
 eval "$(just _env)"
-uv run --group example python examples/segmentation/run.py
+uv run python examples/run.py dinov3s_buildings
 ```
 
 The `cluster` ZenML stack schedules pipeline pods on the ML pool via `fair/workload=ml`.

@@ -311,8 +311,17 @@ class TestBuildLocalModelItem:
         assert local.properties["fair:recommended_zoom"] == 19
         assert "fair:source_imagery" not in local.properties
 
-    def test_source_imagery_recorded_from_dataset(self):
+    def test_fair_preview_composed_from_base_and_training_aoi(self):
         base = _base_model()
+        base.properties["fair:preview"] = {
+            "center": [-13.2, 8.4],
+            "zoom": {"recommended": 19, "min": 14, "max": 22},
+            "imagery": {"url": "https://base/{z}/{x}/{y}", "type": "tms"},
+        }
+        dataset_geometry = {
+            "type": "Polygon",
+            "coordinates": [[[85.51, 27.63], [85.53, 27.63], [85.53, 27.65], [85.51, 27.65], [85.51, 27.63]]],
+        }
         tms = "https://tiles.openaerialmap.org/abc/0/def/{z}/{x}/{y}"
         local = build_local_model_item(
             base_model_item=base,
@@ -328,16 +337,17 @@ class TestBuildLocalModelItem:
             description="Finetuned model.",
             user_id="osm-42",
             providers=_PROVIDERS,
+            geometry=dataset_geometry,
             source_imagery=tms,
         )
-        assert local.properties["fair:source_imagery"] == tms
+        preview = local.properties["fair:preview"]
+        assert preview["center"] == pytest.approx([85.52, 27.64])
+        assert preview["bbox"] == pytest.approx([85.51, 27.63, 85.53, 27.65])
+        assert preview["zoom"] == {"recommended": 19, "min": 14, "max": 22}
+        assert preview["imagery"]["url"] == tms
 
-    def test_preview_location_is_dataset_bbox_center(self):
+    def test_fair_preview_absent_when_base_lacks_zoom_and_imagery(self):
         base = _base_model()
-        dataset_geometry = {
-            "type": "Polygon",
-            "coordinates": [[[85.51, 27.63], [85.53, 27.63], [85.53, 27.65], [85.51, 27.65], [85.51, 27.63]]],
-        }
         local = build_local_model_item(
             base_model_item=base,
             item_id="local-v1",
@@ -352,11 +362,8 @@ class TestBuildLocalModelItem:
             description="Finetuned model.",
             user_id="osm-42",
             providers=_PROVIDERS,
-            geometry=dataset_geometry,
         )
-        preview = local.properties["fair:preview_location"]
-        assert preview["type"] == "Point"
-        assert preview["coordinates"] == pytest.approx([85.52, 27.64])
+        assert "fair:preview" not in local.properties
 
     def test_zenml_artifact_version_id_stored_on_asset(self):
         base = _base_model()
@@ -557,11 +564,27 @@ class TestLocalModelMetricsAndTiming:
 
 
 class TestSlugifyUnderscores:
-    def test_preserves_underscores(self) -> None:
-        assert _slugify("my_model") == "my_model"
-
-    def test_spaces_become_hyphens(self) -> None:
-        assert _slugify("my model") == "my-model"
-
     def test_underscores_and_spaces_produce_different_ids(self) -> None:
         assert _slugify("my_model") != _slugify("my model")
+        assert _slugify("my model") == "my-model"
+
+
+class TestDeriveLocationProps:
+    def test_prefers_fair_preview_then_falls_back_to_legacy_point(self) -> None:
+        from fair.stac.location import derive_location_props
+
+        bbox = [85.51, 27.63, 85.53, 27.65]
+        modern = derive_location_props({"fair:preview": {"center": [85.52, 27.64]}}, bbox)
+        legacy = derive_location_props(
+            {"fair:preview_location": {"type": "Point", "coordinates": [85.52, 27.64]}}, bbox
+        )
+        assert modern["fair:preview_place"] == legacy["fair:preview_place"]
+        assert modern["fair:preview_country"] == legacy["fair:preview_country"]
+        assert modern["fair:preview_country"]
+
+    def test_no_preview_yields_only_coverage(self) -> None:
+        from fair.stac.location import derive_location_props
+
+        props = derive_location_props({}, [85.51, 27.63, 85.53, 27.65])
+        assert "fair:preview_place" not in props
+        assert "fair:coverage" in props

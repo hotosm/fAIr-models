@@ -227,6 +227,22 @@ def test_validator_paths_cover_assets_and_geojson(monkeypatch: pytest.MonkeyPatc
     ]
 
 
+def test_http_url_to_s3_uri_strips_endpoint_path_prefix(monkeypatch: pytest.MonkeyPatch) -> None:
+    # FAIR_S3_PUBLIC_URL carries a path prefix (the artifacts proxy). The prefix must be
+    # stripped so bucket/key are correct, not treated as bucket "api".
+    monkeypatch.setenv("FAIR_S3_PUBLIC_URL", "https://dev.example.org/api/v1/artifacts")
+    monkeypatch.delenv("AWS_ENDPOINT_URL", raising=False)
+    assert (
+        http_url_to_s3_uri("https://dev.example.org/api/v1/artifacts/fair-dev/dev/zenml/x/model.onnx")
+        == "s3://fair-dev/dev/zenml/x/model.onnx"
+    )
+    # Same host but outside the artifacts prefix must not be rewritten to a bogus bucket.
+    assert (
+        http_url_to_s3_uri("https://dev.example.org/api/v1/base-models/x")
+        == "https://dev.example.org/api/v1/base-models/x"
+    )
+
+
 def test_data_helpers_cover_conversions_counts_and_uploads(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setenv("AWS_ENDPOINT_URL", "https://minio.example.com")
     assert s3_uri_to_http_url("s3://bucket/path/file.tif") == "https://minio.example.com/bucket/path/file.tif"
@@ -383,9 +399,8 @@ def test_config_helpers_cover_edge_cases(monkeypatch: pytest.MonkeyPatch, tmp_pa
 
 def test_base_model_stac_items_publish_onnx_assets() -> None:
     model_roots = {
-        Path("models/resnet18_classification/stac-item.json"): "resnet18_classification.onnx",
-        Path("models/unet_segmentation/stac-item.json"): "unet_segmentation.onnx",
-        Path("models/yolo11n_detection/stac-item.json"): "yolo11n_detection.onnx",
+        Path("models/dinov3s_buildings/stac-item.json"): "dinov3s_buildings.onnx",
+        Path("models/yolo_swag_waste_grid_segmentation/stac-item.json"): "checkpoint_v1_extra_large.onnx",
     }
 
     for stac_path, onnx_filename in model_roots.items():

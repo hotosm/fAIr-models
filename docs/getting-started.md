@@ -34,21 +34,25 @@ icon: lucide/rocket
 
 ## Running the Example Pipelines
 
-Three example pipelines demonstrate the full workflow for each supported task
-type: register a base model, finetune on sample data, promote the best version,
-and run inference.
+Two example pipelines demonstrate the full workflow: register a base model,
+finetune on sample data, promote the best version, and run inference.
 
-| Example | Task | Model |
-| --- | --- | --- |
-| `examples/segmentation/` | Semantic segmentation | UNet (torchgeo) |
-| `examples/classification/` | Binary classification | ResNet18 (torchvision) |
-| `examples/detection/` | Object detection | YOLOv11n (ultralytics) |
+| Example                                          | Task                  | Model                               |
+| ------------------------------------------------ | --------------------- | ----------------------------------- |
+| `just example dinov3s_buildings`                 | Semantic segmentation | DINOv3 ViT-S/16 + UperNet (PyTorch) |
+| `just example yolo_swag_waste_grid_segmentation` | Semantic segmentation | YOLO26x classifier (ultralytics)    |
+| `just example sklearn_rgb_segmentation`          | Semantic segmentation | Logistic regression (scikit-learn)  |
 
 ### Run All Pipelines
 
 ```bash
+just build
 just example
 ```
+
+`just build` builds the model Docker images before any pipeline runs, since the
+`compose` ZenML stack executes each step in the model image via the local_docker
+orchestrator.
 
 ??? example "Running a single example"
 
@@ -58,7 +62,7 @@ just example
     AWS_SECRET_ACCESS_KEY=minioadmin \
     FAIR_STAC_API_URL=http://localhost:8082 \
     FAIR_DSN=postgresql://postgres:postgres@localhost:5432/fair_models \
-        uv run python examples/segmentation/run.py
+        uv run python examples/run.py dinov3s_buildings
     ```
 
 ### Verifying Results
@@ -76,24 +80,18 @@ just example
 
 ## Project Structure
 
-```text
-fair/                  # Core library (pip-installable as fair-py-ops)
-  stac/                # STAC catalog management, builders, validators
-  utils/               # Data helpers
-  zenml/               # ZenML config generation, promotion, steps
-models/                # Base model contributions (one subdir per model)
-examples/              # Example pipelines (segmentation, classification, detection)
-infra/                 # Production stack (Kubernetes via helmfile)
-infra/compose/         # Local dev stack (this is what `just setup` uses)
-stacks/compose.yaml    # ZenML stack definition for the compose stack
-tests/                 # pytest suite
-```
+- `fair/` is the core library (pip-installable as `fair-py-ops`): STAC catalog management, builders, and validators under `stac/`, data helpers under `utils/`, and ZenML config generation, promotion, and steps under `zenml/`.
+- `models/` holds base model contributions, one subdirectory per model.
+- `examples/` holds the example pipelines for building and waste segmentation.
+- `infra/` holds the production stack (Kubernetes via helmfile); the local dev stack that `just setup` uses is under `infra/compose/`.
+- `stacks/compose.yaml` is the ZenML stack definition for the compose stack.
+- `tests/` holds the pytest suite.
 
 ## Development Commands
 
 ```bash title="Available recipes"
 just setup     # install deps + bring up stack + register ZenML stack
-just example   # run all 3 example pipelines
+just example   # run both example pipelines
 just down      # stop the stack (state preserved, fast restart)
 just up        # restart after `just down`
 just tear      # destroy stack + volumes + local ZenML state

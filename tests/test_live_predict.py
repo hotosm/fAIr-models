@@ -29,7 +29,7 @@ class _StubResponse:
 
 def _build_base_model_item(*, with_endpoint: bool = True) -> pystac.Item:
     item = pystac.Item(
-        id="resnet18-classification",
+        id="dinov3s-buildings",
         geometry={
             "type": "Polygon",
             "coordinates": [[[-180, -90], [180, -90], [180, 90], [-180, 90], [-180, -90]]],
@@ -37,7 +37,7 @@ def _build_base_model_item(*, with_endpoint: bool = True) -> pystac.Item:
         bbox=[-180, -90, 180, 90],
         datetime=datetime.now(UTC),
         properties={
-            "mlm:name": "resnet18-classification",
+            "mlm:name": "dinov3s-buildings",
             "mlm:hyperparameters": {"inference.confidence_threshold": 0.5},
         },
     )
@@ -46,7 +46,7 @@ def _build_base_model_item(*, with_endpoint: bool = True) -> pystac.Item:
         item.add_asset(
             "mlm:inference-endpoint",
             pystac.Asset(
-                href="https://resnet18-classification.predict.fair.example.com/predict",
+                href="https://dinov3s-buildings.predict.fair.example.com/predict",
                 media_type="application/json",
                 roles=["mlm:inference-endpoint"],
             ),
@@ -59,8 +59,8 @@ def test_public_predict_url_matches_cluster_routing_convention() -> None:
     # KnativeServing config-domain. Changing either side without the other
     # will route predictions to a nonexistent host.
     assert (
-        public_predict_url("resnet18-classification", "fair.example.com")
-        == "https://resnet18-classification.predict.fair.example.com/predict"
+        public_predict_url("dinov3s-buildings", "fair.example.com")
+        == "https://dinov3s-buildings.predict.fair.example.com/predict"
     )
 
 
@@ -80,7 +80,7 @@ def test_predict_live_reads_endpoint_from_stac(monkeypatch) -> None:
     monkeypatch.setattr(httpx, "post", fake_post)
 
     result = client.predict_live(
-        "resnet18-classification",
+        "dinov3s-buildings",
         image_uri="https://tiles.openaerialmap.org/abc/{z}/{x}/{y}",
         bbox=[85.5, 27.6, 85.52, 27.63],
         zoom=18,
@@ -88,7 +88,7 @@ def test_predict_live_reads_endpoint_from_stac(monkeypatch) -> None:
     )
 
     assert result == {"status": "ok"}
-    assert captured["url"] == "https://resnet18-classification.predict.fair.example.com/predict"
+    assert captured["url"] == "https://dinov3s-buildings.predict.fair.example.com/predict"
     assert captured["kwargs"]["verify"] is False
     sent = captured["kwargs"]["json"]
     assert sent["params"] == {"confidence_threshold": 0.5}
@@ -113,7 +113,7 @@ def test_predict_live_explicit_override_wins_over_stac(monkeypatch) -> None:
     monkeypatch.setattr(httpx, "post", fake_post)
 
     client.predict_live(
-        "resnet18-classification",
+        "dinov3s-buildings",
         image_uri="https://tiles.openaerialmap.org/abc/{z}/{x}/{y}",
         bbox=[85.5, 27.6, 85.52, 27.63],
         zoom=18,
@@ -134,7 +134,7 @@ def test_predict_live_missing_endpoint_asset_raises(monkeypatch) -> None:
 
     with pytest.raises(FairClientError, match="mlm:inference-endpoint"):
         client.predict_live(
-            "resnet18-classification",
+            "dinov3s-buildings",
             image_uri="https://tiles.openaerialmap.org/abc/{z}/{x}/{y}",
             bbox=[85.5, 27.6, 85.52, 27.63],
             zoom=18,

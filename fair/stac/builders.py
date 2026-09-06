@@ -1,3 +1,4 @@
+import copy
 import json
 import re
 from dataclasses import dataclass
@@ -14,7 +15,7 @@ from fair.stac.constants import (
     LOCAL_MODEL_EXTENSIONS,
     OCI_IMAGE_INDEX_TYPE,
 )
-from fair.stac.location import derive_location_props
+from fair.stac.location import coverage_from_bbox, place_from_center
 from fair.stac.versioning import add_version_links
 
 
@@ -87,38 +88,6 @@ class BaseModelItemParams:
     providers: list[dict[str, Any]]
     onnx_href: str
     readme_href: str = ""
-
-
-@dataclass
-class LocalModelItemParams:
-    base_model_item: pystac.Item
-    checkpoint_href: str
-    onnx_href: str
-    mlm_hyperparameters: dict[str, Any]
-    keywords: list[str]
-    base_model_href: str
-    dataset_href: str
-    version: str
-    title: str
-    description: str
-    user_id: str
-    providers: list[dict[str, Any]]
-    item_id: str | None = None
-    mlm_name: str | None = None
-    geometry: dict[str, Any] | None = None
-    metrics: dict[str, Any] | None = None
-    labeled_chip_count: int | None = None
-    thumbnail_href: str | None = None
-    predecessor_version_href: str | None = None
-    self_href: str | None = None
-    zenml_artifact_version_id: str | None = None
-    training_started_at: str | None = None
-    training_ended_at: str | None = None
-    training_duration_seconds: float | None = None
-    base_model_id: str | None = None
-    dataset_id: str | None = None
-    dataset_title: str | None = None
-    split_info: dict[str, Any] | None = None
 
 
 _SOURCE_CODE_EXTENSIONS = {
@@ -507,6 +476,43 @@ def build_base_model_item(
     return item
 
 
+def _compose_local_preview(
+    base_props: dict[str, Any],
+    bbox: list[float],
+    source_imagery: str | None,
+    thumbnail_href: str | None,
+) -> dict[str, Any] | None:
+    """Compose the local fair:preview from the base preview and the training AOI.
+
+    Returns None when neither a base fair:preview nor a legacy fair:recommended_zoom is
+    present to seed zoom, since center, zoom and imagery are all required by the schema.
+    """
+    base_preview = base_props.get("fair:preview")
+    preview: dict[str, Any] = copy.deepcopy(base_preview) if isinstance(base_preview, dict) else {}
+    preview.pop("thumbnail_href", None)
+
+    center = [(bbox[0] + bbox[2]) / 2, (bbox[1] + bbox[3]) / 2]
+    preview["center"] = center
+    preview["bbox"] = list(bbox)
+
+    if source_imagery is not None:
+        # The dataset imagery replaces the base sample, so do not inherit the base's
+        # imagery name/attribution which would mislabel the new tiles.
+        preview["imagery"] = {"url": source_imagery, "type": "tms"}
+
+    if "zoom" not in preview and "fair:recommended_zoom" in base_props:
+        preview["zoom"] = {"recommended": base_props["fair:recommended_zoom"]}
+
+    if thumbnail_href is not None:
+        preview["thumbnail_href"] = thumbnail_href
+
+    if "zoom" not in preview or "imagery" not in preview:
+        return None
+
+    preview["place"] = place_from_center(center[0], center[1])
+    return preview
+
+
 def build_local_model_item(
     base_model_item: pystac.Item,
     checkpoint_href: str,
@@ -592,15 +598,11 @@ def build_local_model_item(
         if field in base_props:
             properties[field] = base_props[field]
 
-    # Record the dataset's imagery, not a base-model default: the chips were cut from it.
-    if source_imagery is not None:
-        properties["fair:source_imagery"] = source_imagery
-
-    properties["fair:preview_location"] = {
-        "type": "Point",
-        "coordinates": [(bbox[0] + bbox[2]) / 2, (bbox[1] + bbox[3]) / 2],
-    }
-    properties.update(derive_location_props(properties, bbox))
+    # The dataset's imagery is used because the chips were cut from it.
+    properties["fair:coverage"] = coverage_from_bbox(bbox)
+    preview = _compose_local_preview(base_props, bbox, source_imagery, thumbnail_href)
+    if preview is not None:
+        properties["fair:preview"] = preview
 
     if metrics:
         properties.update(metrics)

@@ -11,11 +11,7 @@
         },
         {
           "type": "object",
-          "required": [
-            "type",
-            "properties",
-            "assets"
-          ],
+          "required": ["type", "properties", "assets"],
           "properties": {
             "type": {
               "const": "Feature"
@@ -50,18 +46,11 @@
             },
             "assets": {
               "type": "object",
-              "required": [
-                "model",
-                "checkpoint",
-                "source-code"
-              ],
+              "required": ["model", "checkpoint", "source-code"],
               "properties": {
                 "model": {
                   "type": "object",
-                  "required": [
-                    "href",
-                    "mlm:artifact_type"
-                  ],
+                  "required": ["href", "mlm:artifact_type"],
                   "properties": {
                     "href": {
                       "type": "string",
@@ -69,9 +58,7 @@
                     },
                     "mlm:artifact_type": {
                       "type": "string",
-                      "enum": [
-                        "onnx"
-                      ]
+                      "enum": ["onnx"]
                     },
                     "zenml:artifact_version_id": {
                       "type": "string"
@@ -80,10 +67,7 @@
                 },
                 "checkpoint": {
                   "type": "object",
-                  "required": [
-                    "href",
-                    "mlm:artifact_type"
-                  ],
+                  "required": ["href", "mlm:artifact_type"],
                   "properties": {
                     "href": {
                       "type": "string",
@@ -108,9 +92,7 @@
                 },
                 "source-code": {
                   "type": "object",
-                  "required": [
-                    "href"
-                  ],
+                  "required": ["href"],
                   "properties": {
                     "href": {
                       "type": "string",
@@ -124,9 +106,7 @@
                 },
                 "training-metrics": {
                   "type": "object",
-                  "required": [
-                    "href"
-                  ],
+                  "required": ["href"],
                   "properties": {
                     "href": {
                       "type": "string",
@@ -144,9 +124,7 @@
   "definitions": {
     "stac_extensions": {
       "type": "object",
-      "required": [
-        "stac_extensions"
-      ],
+      "required": ["stac_extensions"],
       "properties": {
         "stac_extensions": {
           "type": "array",
@@ -162,6 +140,85 @@
         "fair:user_id": {
           "type": "string",
           "minLength": 1
+        },
+        "fair:preview": {
+          "type": "object",
+          "required": ["center", "zoom", "imagery"],
+          "properties": {
+            "center": {
+              "type": "array",
+              "minItems": 2,
+              "maxItems": 2,
+              "items": {
+                "type": "number"
+              }
+            },
+            "bbox": {
+              "type": "array",
+              "minItems": 4,
+              "maxItems": 4,
+              "items": {
+                "type": "number"
+              }
+            },
+            "zoom": {
+              "type": "object",
+              "required": ["recommended"],
+              "properties": {
+                "recommended": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 24
+                },
+                "min": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 24
+                },
+                "max": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 24
+                }
+              }
+            },
+            "imagery": {
+              "type": "object",
+              "required": ["url"],
+              "properties": {
+                "url": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "type": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "attribution": {
+                  "type": "string"
+                }
+              }
+            },
+            "thumbnail_href": {
+              "type": "string"
+            },
+            "place": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "country": {
+                  "type": "string"
+                },
+                "country_code": {
+                  "type": "string"
+                }
+              }
+            }
+          }
         },
         "fair:base_model_id": {
           "type": "string"
@@ -203,9 +260,7 @@
           "type": "array",
           "items": {
             "type": "object",
-            "required": [
-              "name"
-            ],
+            "required": ["name"],
             "properties": {
               "name": {
                 "type": "string"
@@ -249,17 +304,12 @@
         },
         "mlm:hyperparameters": {
           "type": "object",
-          "required": [
-            "training.epochs",
-            "training.batch_size",
-            "training.learning_rate",
-            "inference.confidence_threshold"
-          ],
+          "required": ["inference.confidence_threshold"],
           "properties": {
-            "training.epochs": {"type": "integer", "minimum": 1},
-            "training.batch_size": {"type": "integer", "minimum": 1},
-            "training.learning_rate": {"type": "number", "exclusiveMinimum": 0},
-            "inference.confidence_threshold": {"type": "number", "minimum": 0, "maximum": 1}
+            "training.epochs": { "type": "integer", "minimum": 1 },
+            "training.batch_size": { "type": "integer", "minimum": 1 },
+            "training.learning_rate": { "type": "number", "exclusiveMinimum": 0 },
+            "inference.confidence_threshold": { "type": "number", "minimum": 0, "maximum": 1 }
           }
         },
         "keywords": {
@@ -280,10 +330,7 @@
           "minItems": 1,
           "items": {
             "type": "object",
-            "required": [
-              "name",
-              "roles"
-            ],
+            "required": ["name", "roles"],
             "properties": {
               "name": {
                 "type": "string",

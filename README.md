@@ -14,17 +14,18 @@ Prerequisites: Docker, [uv](https://docs.astral.sh/uv/), [just](https://just.sys
 git clone https://github.com/hotosm/fAIr-models.git
 cd fAIr-models
 just setup
+just build
 just example
 ```
 
-`just setup` installs Python deps, brings up the full stack via Docker Compose (Postgres + MinIO + STAC + MLflow + ZenML), and registers the ZenML stack. `just example` runs all three reference pipelines end-to-end.
+`just setup` installs Python deps, brings up the full stack via Docker Compose (Postgres + MinIO + STAC + MLflow + ZenML), and registers the ZenML stack. `just build` builds the model Docker images that the local_docker orchestrator runs each pipeline step in. `just example` runs both reference pipelines end-to-end.
 
-| Service | URL | Credentials |
-| --- | --- | --- |
-| ZenML dashboard | <http://localhost:8080> | `default` / (empty) |
-| MLflow | <http://localhost:5000> | none |
-| STAC API | <http://localhost:8082> | none |
-| MinIO console | <http://localhost:9001> | `minioadmin` / `minioadmin` |
+| Service         | URL                     | Credentials                 |
+| --------------- | ----------------------- | --------------------------- |
+| ZenML dashboard | <http://localhost:8080> | `default` / (empty)         |
+| MLflow          | <http://localhost:5000> | none                        |
+| STAC API        | <http://localhost:8082> | none                        |
+| MinIO console   | <http://localhost:9001> | `minioadmin` / `minioadmin` |
 
 See [Getting Started](docs/getting-started.md) for the full guide. For Kubernetes parity or production deploys, see [`infra/README.md`](infra/README.md).
 
@@ -38,13 +39,13 @@ See [Getting Started](docs/getting-started.md) for the full guide. For Kubernete
 
 ## Examples
 
-Three reference implementations demonstrate the full workflow for each supported task:
+Reference implementations demonstrate the full workflow:
 
-| Example | Task | Model | Path |
-| --- | --- | --- | --- |
-| Segmentation | Semantic segmentation | UNet (torchgeo) | [`examples/segmentation/`](examples/segmentation/) |
-| Classification | Binary classification | ResNet18 (torchvision) | [`examples/classification/`](examples/classification/) |
-| Detection | Object detection | YOLOv11n (ultralytics) | [`examples/detection/`](examples/detection/) |
+| Example              | Task                  | Model                               | Run                                              |
+| -------------------- | --------------------- | ----------------------------------- | ------------------------------------------------ |
+| Building footprints  | Semantic segmentation | DINOv3 ViT-S/16 + UperNet (PyTorch) | `just example dinov3s_buildings`                 |
+| Solid waste grid     | Semantic segmentation | YOLO26x classifier (ultralytics)    | `just example yolo_swag_waste_grid_segmentation` |
+| RGB pixels (minimal) | Semantic segmentation | Logistic regression (scikit-learn)  | `just example sklearn_rgb_segmentation`          |
 
 ## Commands
 
@@ -52,7 +53,7 @@ Run `just` to see all recipes.
 
 ```bash
 just setup     # install deps + bring up stack + register ZenML stack
-just example   # run all 3 example pipelines
+just example   # run both example pipelines
 just down      # stop the stack (state preserved, fast restart)
 just up        # restart after `just down`
 just tear      # destroy stack + volumes + local ZenML state
@@ -65,11 +66,11 @@ just commit    # run pre-commit hooks + commitizen
 
 ## Key Concepts
 
-| Concept | Description |
-| --- | --- |
-| **Base model** | Reusable ML blueprint (weights, code, Docker image, STAC item) |
-| **Local model** | Finetuned model produced by ZenML pipeline on user data |
-| **STAC catalog** | Model/dataset registry with [MLM](https://github.com/stac-extensions/mlm) and [Version](https://github.com/stac-extensions/version) extensions |
-| **ZenML pipeline** | Orchestrated training and inference workflows |
+| Concept            | Description                                                                                                                                    |
+| ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Base model**     | Reusable ML blueprint (weights, code, Docker image, STAC item)                                                                                 |
+| **Local model**    | Finetuned model produced by ZenML pipeline on user data                                                                                        |
+| **STAC catalog**   | Model/dataset registry with [MLM](https://github.com/stac-extensions/mlm) and [Version](https://github.com/stac-extensions/version) extensions |
+| **ZenML pipeline** | Orchestrated training and inference workflows                                                                                                  |
 
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/hotosm/fAIr-models)

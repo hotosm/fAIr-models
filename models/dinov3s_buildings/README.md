@@ -1,25 +1,23 @@
 # dinov3s-buildings
 
-Binary building-footprint segmentation for very high resolution RGB aerial imagery, built on a frozen DINOv3-**ViT-S/16** encoder with a UperNet decoder. Output is GeoJSON polygons in EPSG:4326, one per detected building, with a per-polygon confidence score. Approximately **6.6x smaller** than the [dinov3l-buildings](../dinov3l_buildings) ViT-L variant, trading ~10 pp Banepa instance F1 for size and inference cost.
+Binary building-footprint segmentation for very high resolution RGB aerial imagery, built on a frozen DINOv3-**ViT-S/16** encoder with a UperNet decoder. Output is GeoJSON polygons in EPSG:4326, one per detected building, with a per-polygon confidence score. Approximately **6.6x smaller** than the `dinov3l-buildings` ViT-L variant, trading ~10 pp Banepa instance F1 for size and inference cost.
 
 ## Summary
 
-| | |
-|---|---|
-| Task | Building footprint extraction |
-| Input | 3-band RGB GeoTIFF chips, VHR (~30 cm GSD) |
-| Output | GeoJSON `FeatureCollection` of `Polygon` features in EPSG:4326, each with `class` and `score` |
-| Coverage | Global; trained on the HOT VHR Building Segmentation dataset (~37k chips worldwide) |
+|           |                                                                                                                 |
+| --------- | --------------------------------------------------------------------------------------------------------------- |
+| Task      | Building footprint extraction                                                                                   |
+| Input     | 3-band RGB GeoTIFF chips, VHR (~30 cm GSD)                                                                      |
+| Output    | GeoJSON `FeatureCollection` of `Polygon` features in EPSG:4326, each with `class` and `score`                   |
+| Coverage  | Global; trained on the HOT VHR Building Segmentation dataset (~37k chips worldwide)                             |
 | Use cases | Edge / constrained-infra inference, batch building inventory where size matters more than the last few pp of F1 |
-| License | Apache-2.0 |
+| License   | Apache-2.0                                                                                                      |
 
-## When to pick this over `dinov3l-buildings`
+## Operating envelope
 
-- Edge or CPU-only deployment where the larger model's 1.4 GB ONNX is impractical.
-- Batch jobs over very large areas where ~3x faster per-tile inference materially shifts the wall clock.
-- Acceptable trade: ~10 pp lower Banepa instance F1 vs the ViT-L variant. Pixel quality on matched buildings is the same; this model simply matches fewer of them.
-
-Pick `dinov3l-buildings` if instance F1 is the headline metric and you have GPU or sufficient CPU budget.
+- Edge or CPU-only deployment: the ~210 MB ONNX runs where a 1.4 GB model is impractical.
+- Batch jobs over very large areas: ~3x faster per-tile inference materially shifts the wall clock.
+- Accuracy: Banepa instance F1 is ~10 pp below the ViT-L variant. Pixel quality on matched buildings is the same; this model matches fewer of them, so instance F1 is where the size reduction shows.
 
 ## Intended use
 
@@ -69,14 +67,14 @@ Drop a directory of RGB OAM chips and a single `labels.geojson` of OSM building 
 
 Catalog defaults come from a 30-trial Optuna TPE post-process HPO on a 1000-chip project-stratified sample of `hotosm/vhr-building-segmentation` (train+test, 70 projects, max 15 chips/project). Objective is the shape-aware composite scored via [polymetrics](https://github.com/kshitijrajsharma/polymetrics) (see below). They differ from `dinov3l-buildings`' defaults because the smaller backbone produces slightly different mask characteristics.
 
-| Parameter | Default | Meaning |
-|---|---:|---|
-| `confidence_threshold` | 0.4371 | Mask probability above which a pixel counts as foreground during watershed seeding |
-| `simplify_m` | 0.9626 | Douglas-Peucker simplification tolerance in metres (EPSG:3857) |
-| `regularize_area_threshold` | 0.4949 | Minimum polygon-area / MBR-area ratio for the rectangle-substitution step |
-| `regularize_overlap_tol_m2` | 3.9251 | Maximum new neighbour overlap allowed when substituting a polygon with its MBR |
-| `min_area_m2` | 2.6465 | Polygons smaller than this area are dropped |
-| `seed_min_distance` | 6 | Minimum pixel distance between watershed seeds in the predicted distance map |
+| Parameter                   | Default | Meaning                                                                            |
+| --------------------------- | ------: | ---------------------------------------------------------------------------------- |
+| `confidence_threshold`      |  0.4371 | Mask probability above which a pixel counts as foreground during watershed seeding |
+| `simplify_m`                |  0.9626 | Douglas-Peucker simplification tolerance in metres (EPSG:3857)                     |
+| `regularize_area_threshold` |  0.4949 | Minimum polygon-area / MBR-area ratio for the rectangle-substitution step          |
+| `regularize_overlap_tol_m2` |  3.9251 | Maximum new neighbour overlap allowed when substituting a polygon with its MBR     |
+| `min_area_m2`               |  2.6465 | Polygons smaller than this area are dropped                                        |
+| `seed_min_distance`         |       6 | Minimum pixel distance between watershed seeds in the predicted distance map       |
 
 Per-area fine-tune re-tunes these via the `tune_postprocess` step on the user's own val set.
 
@@ -100,13 +98,13 @@ The `score` is the mean predicted mask probability across the pixels belonging t
 
 ### Model size
 
-| | DINO Buildings Small (this) | DINO Buildings Large |
-|---|---:|---:|
-| Total parameters | ~53 M | ~343 M |
-| Trainable parameters (decoder + neck + heads) | ~31 M | ~43 M |
-| Frozen encoder | ~22 M (ViT-S/16) | ~300 M (ViT-L/16) |
-| Lightning ckpt size (state_dict + AdamW moments) | 462 MB | 1.73 GB |
-| ONNX file size (self-contained, inference-ready) | 210 MB | 1.42 GB |
+|                                                  | DINO Buildings Small (this) | DINO Buildings Large |
+| ------------------------------------------------ | --------------------------: | -------------------: |
+| Total parameters                                 |                       ~53 M |               ~343 M |
+| Trainable parameters (decoder + neck + heads)    |                       ~31 M |                ~43 M |
+| Frozen encoder                                   |            ~22 M (ViT-S/16) |    ~300 M (ViT-L/16) |
+| Lightning ckpt size (state_dict + AdamW moments) |                      462 MB |              1.73 GB |
+| ONNX file size (self-contained, inference-ready) |                      210 MB |              1.42 GB |
 
 ### Reference inference benchmark
 
@@ -114,27 +112,28 @@ Standardised CPU-only baseline for capacity planning. Single-threaded ONNX runti
 
 **Workload**: One 512x512 RGB tile, sliding window 256 stride 128 = 9 forward passes per tile.
 
-| Metric | Small (this) | Large | Ratio |
-|---|---:|---:|---:|
-| Cold session load | 0.64 s | 3.31 s | 5.2x |
-| Per-window forward (one 256x256) | 1.20 s median | 3.02 s median | 2.5x |
-| End-to-end one 512x512 tile | **11.01 s** | 27.54 s | **2.5x** |
-| Peak process RAM during inference | 591 MB | 3036 MB | 5.1x |
+| Metric                            |  Small (this) |         Large |    Ratio |
+| --------------------------------- | ------------: | ------------: | -------: |
+| Cold session load                 |        0.64 s |        3.31 s |     5.2x |
+| Per-window forward (one 256x256)  | 1.20 s median | 3.02 s median |     2.5x |
+| End-to-end one 512x512 tile       |   **11.01 s** |       27.54 s | **2.5x** |
+| Peak process RAM during inference |        591 MB |       3036 MB |     5.1x |
 
 ### Estimating larger AOIs
 
 For an N x N raster (px) at stride 128:
+
 - forwards per tile = ceil((N - 256) / 128 + 1)^2
 - total time ≈ session_load + forwards × per_window_time + ~0.5 s vectorise overhead
 
 Examples on this baseline (single-thread):
 
-| Raster | Forwards | Small | Large |
-|---|---:|---:|---:|
-| 512 x 512 | 9 | ~11 s | ~28 s |
-| 1024 x 1024 | 49 | ~59 s | ~2.5 min |
-| 2048 x 2048 | 225 | ~4.5 min | ~11 min |
-| 4096 x 4096 | 961 | ~19 min | ~48 min |
+| Raster      | Forwards |    Small |    Large |
+| ----------- | -------: | -------: | -------: |
+| 512 x 512   |        9 |    ~11 s |    ~28 s |
+| 1024 x 1024 |       49 |    ~59 s | ~2.5 min |
+| 2048 x 2048 |      225 | ~4.5 min |  ~11 min |
+| 4096 x 4096 |      961 |  ~19 min |  ~48 min |
 
 ## Architecture
 
@@ -160,9 +159,9 @@ Native input 256x256
 
 ### HF VHR test split (7236 global tiles, raster-level instance matching)
 
-| Pixel IoU | Precision | Recall | F1@0.5 | avg vertices | orthogonality |
-| ---: | ---: | ---: | ---: | ---: | ---: |
-| **0.4276** | 0.154 | 0.300 | **0.204** | 4.90 | 0.687 |
+|  Pixel IoU | Precision | Recall |    F1@0.5 | avg vertices | orthogonality |
+| ---------: | --------: | -----: | --------: | -----------: | ------------: |
+| **0.4276** |     0.154 |  0.300 | **0.204** |         4.90 |         0.687 |
 
 GT reference (HF mask polygons): avg vertices 4.30, orthogonality 0.91.
 
@@ -170,15 +169,15 @@ GT reference (HF mask polygons): avg vertices 4.30, orthogonality 0.91.
 
 `tune_postprocess` is the per-area equivalent; numbers here use the catalog defaults shipped above (1000-chip HF VHR HPO).
 
-| Metric | Zero-shot | Per-area fine-tuned (15 ep, lr=1e-4, 102 train / 18 val chips) |
-| --- | ---: | ---: |
-| Pixel IoU | **0.495** | **0.604** |
-| Precision | 0.354 | 0.394 |
-| Recall | 0.261 | 0.295 |
-| F1@0.5 | **0.300** | **0.337** |
-| Mean IoU (matched) | 0.677 | 0.690 |
-| avg vertices | 5.28 | 5.85 |
-| orthogonality | 0.706 | 0.616 |
+| Metric             | Zero-shot | Per-area fine-tuned (15 ep, lr=1e-4, 102 train / 18 val chips) |
+| ------------------ | --------: | -------------------------------------------------------------: |
+| Pixel IoU          | **0.495** |                                                      **0.604** |
+| Precision          |     0.354 |                                                          0.394 |
+| Recall             |     0.261 |                                                          0.295 |
+| F1@0.5             | **0.300** |                                                      **0.337** |
+| Mean IoU (matched) |     0.677 |                                                          0.690 |
+| avg vertices       |      5.28 |                                                           5.85 |
+| orthogonality      |     0.706 |                                                          0.616 |
 
 GT reference (OSM polygons): avg vertices 5.30, orthogonality 0.95.
 

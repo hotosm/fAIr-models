@@ -215,6 +215,8 @@ examples/*/config/*.yaml
 .zen
 artifacts
 *.pkl
+# The minimal example model ships a tiny seed checkpoint as its base weights.
+!models/sklearn_rgb_segmentation/checkpoint/seed.pkl
 
 examples/data
 
@@ -247,3 +249,4 @@ docs/schemas/
 runs
 CLAUDE.md
 .vscode/*
+.claude/

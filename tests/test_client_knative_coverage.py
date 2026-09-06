@@ -119,7 +119,7 @@ def _build_item(item_id: str, properties: dict[str, Any] | None = None) -> pysta
     )
 
 
-def _build_base_model_item(item_id: str = "resnet18-classification") -> pystac.Item:
+def _build_base_model_item(item_id: str = "dinov3s-buildings") -> pystac.Item:
     item = _build_item(
         item_id,
         {
@@ -220,7 +220,7 @@ def test_pipeline_module_and_base_model_resolution(monkeypatch) -> None:
     base_item.add_asset(
         "mlm:inference-endpoint",
         pystac.Asset(
-            href="https://resnet18-classification.predict.fair.example.com/predict",
+            href="https://dinov3s-buildings.predict.fair.example.com/predict",
             media_type="application/json",
             roles=["mlm:inference-endpoint"],
         ),
@@ -234,7 +234,7 @@ def test_pipeline_module_and_base_model_resolution(monkeypatch) -> None:
     )
     monkeypatch.setattr(client, "_get_backend", lambda: backend)
 
-    expected = "https://resnet18-classification.predict.fair.example.com/predict"
+    expected = "https://dinov3s-buildings.predict.fair.example.com/predict"
     assert client._resolve_predict_url(base_item, BASE_MODELS_COLLECTION, None) == expected
     assert client._resolve_predict_url(local_model, LOCAL_MODELS_COLLECTION, None) == expected
     # explicit override wins over the STAC asset
@@ -286,7 +286,7 @@ def test_mirror_asset_to_artifact_store_updates_asset_href(monkeypatch) -> None:
     client._mirror_asset_to_artifact_store(item, "checkpoint", BASE_MODELS_COLLECTION)
     assert (
         item.assets["checkpoint"].href
-        == "https://cdn.example.com/bucket/base-models/resnet18-classification/checkpoint/checkpoint.pt"
+        == "https://cdn.example.com/bucket/base-models/dinov3s-buildings/checkpoint/checkpoint.pt"
     )
 
     monkeypatch.setattr(client, "_artifact_store_prefix", lambda: None)
@@ -320,16 +320,19 @@ def test_setup_register_base_model_and_register_dataset_paths(monkeypatch, tmp_p
     monkeypatch.setattr(client_module, "find_previous_active_item", lambda *args, **kwargs: previous)
     monkeypatch.setattr(client_module, "archive_previous_version", lambda *args, **kwargs: archived.append("done"))
     monkeypatch.setattr(client, "_upload_assets_if_remote", lambda *args, **kwargs: None)
+    # Pin the cluster probe so the test is hermetic: register only provisions a service
+    # when Serving is installed, which must not depend on the host running the tests.
+    monkeypatch.setattr(knative_module, "_knative_serving_installed", lambda: False)
     monkeypatch.setattr(knative_module, "ensure_knative_service", lambda published: ensured.append(published.id))
 
-    assert client.register_base_model("base.json") == "resnet18-classification"
+    assert client.register_base_model("base.json") == "dinov3s-buildings"
     assert item.properties["version"] == "2"
     assert archived == ["done"]
-    assert ensured == [], "registration must never provision a KNative service"
+    assert ensured == [], "registration does not provision a KNative service when Serving is absent"
 
     client._stac_api_url = "https://stac.example.com"
-    assert client.register_base_model("base.json") == "resnet18-classification"
-    assert ensured == [], "a remote STAC backend must not provision a KNative service either"
+    assert client.register_base_model("base.json") == "dinov3s-buildings"
+    assert ensured == [], "a remote STAC backend does not provision a KNative service when Serving is absent"
     client._stac_api_url = None
 
     source_labels = tmp_path / "labels.geojson"
@@ -584,7 +587,7 @@ def test_knative_helpers_and_service_upsert(monkeypatch) -> None:
         knative_module._module_from_entrypoint("pkg.module")
 
     manifest = knative_module.build_knative_manifest(_build_base_model_item())
-    assert manifest["metadata"]["name"] == "resnet18-classification"
+    assert manifest["metadata"]["name"] == "dinov3s-buildings"
     assert manifest["spec"]["template"]["spec"]["containers"][0]["image"] == "https://example.com/model.onnx"
 
     missing_inference = _build_item("missing-inference")
@@ -616,14 +619,14 @@ def test_knative_helpers_and_service_upsert(monkeypatch) -> None:
     assert patched == ["patched"]
 
     api = DummyCustomObjectsApi(
-        items=[{"metadata": {"name": "resnet18-classification"}}],
-        missing_names={"resnet18-classification"},
+        items=[{"metadata": {"name": "dinov3s-buildings"}}],
+        missing_names={"dinov3s-buildings"},
     )
     knative_module._upsert_knative_service(api, manifest, knative_module.DEFAULT_NAMESPACE)
-    assert api.created[0]["metadata"]["name"] == "resnet18-classification"
+    assert api.created[0]["metadata"]["name"] == "dinov3s-buildings"
     api.missing_names.clear()
     knative_module._upsert_knative_service(api, manifest, knative_module.DEFAULT_NAMESPACE)
-    assert api.patched[-1]["metadata"]["name"] == "resnet18-classification"
+    assert api.patched[-1]["metadata"]["name"] == "dinov3s-buildings"
 
     # ensure_knative_service: happy upsert + fail-loud when Serving is absent
     upserted: list[str] = []
@@ -764,12 +767,10 @@ def test_register_base_model_records_endpoint_when_service_is_live(monkeypatch: 
         lambda url, **kwargs: probed.update(url=url, **kwargs),
     )
 
-    assert client.register_base_model("base.json") == "resnet18-classification"
-    assert probed["url"] == "https://resnet18-classification.predict.fair.example.com/health"
+    assert client.register_base_model("base.json") == "dinov3s-buildings"
+    assert probed["url"] == "https://dinov3s-buildings.predict.fair.example.com/health"
     assert probed["timeout"] == 12.0
-    assert item.assets["mlm:inference-endpoint"].href == (
-        "https://resnet18-classification.predict.fair.example.com/predict"
-    )
+    assert item.assets["mlm:inference-endpoint"].href == ("https://dinov3s-buildings.predict.fair.example.com/predict")
     assert [collection for collection, _ in backend.published] == [BASE_MODELS_COLLECTION]
 
 
@@ -800,7 +801,7 @@ def test_register_base_model_probes_the_endpoint_declared_on_the_item(monkeypatc
     probed: list[str] = []
     monkeypatch.setattr(knative_module, "probe_service_health", lambda url, **_: probed.append(url))
 
-    assert client.register_base_model("base.json") == "resnet18-classification"
+    assert client.register_base_model("base.json") == "dinov3s-buildings"
     assert probed == ["https://serving.internal:8443/health"]
     assert item.assets["mlm:inference-endpoint"].href == "https://serving.internal:8443/predict"
 
@@ -815,7 +816,7 @@ def test_register_base_model_skips_the_probe_without_a_domain(monkeypatch: pytes
 
     monkeypatch.setattr(knative_module, "probe_service_health", _fail)
 
-    assert client.register_base_model("base.json") == "resnet18-classification"
+    assert client.register_base_model("base.json") == "dinov3s-buildings"
     assert "mlm:inference-endpoint" not in item.assets
     assert len(backend.published) == 1
 
@@ -859,4 +860,4 @@ def test_ensure_knative_service_verifies_when_timeout_set(monkeypatch: pytest.Mo
     monkeypatch.setattr(knative_module, "_wait_until_ready", lambda *a: waited.append(a[1]))
     monkeypatch.setenv("FAIR_KNATIVE_VERIFY_TIMEOUT", "5")
     knative_module.ensure_knative_service(_build_base_model_item())
-    assert waited == ["resnet18-classification"]
+    assert waited == ["dinov3s-buildings"]

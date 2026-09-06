@@ -1,15 +1,13 @@
 """Shared pytest fixtures for model pipeline tests.
 
-Reads model metadata from stac-item.json. Per-model conftest provides a
-generate_toy_dataset fixture that creates chips, labels, and a dataset
-STAC item in a tmp directory. Mocks ZenML/MLflow instrumentation so step
-tests run without a live server.
+Per-model conftest provides a generate_toy_dataset fixture that creates chips,
+labels, and a dataset STAC item in a tmp directory. Mocks ZenML/MLflow
+instrumentation so step tests run without a live server.
 """
 
 from __future__ import annotations
 
 import contextlib
-import json
 import os
 from contextlib import contextmanager
 from pathlib import Path
@@ -38,34 +36,6 @@ def model_dir(request: pytest.FixtureRequest) -> Path:
 
 
 @pytest.fixture(scope="session")
-def model_stac_item(model_dir: Path) -> dict[str, Any]:
-    return json.loads((model_dir / "stac-item.json").read_text())
-
-
-@pytest.fixture(scope="session")
-def task_type(model_stac_item: dict[str, Any]) -> str:
-    tasks = model_stac_item["properties"].get("mlm:tasks", [])
-    return tasks[0] if tasks else "unknown"
-
-
-@pytest.fixture(scope="session")
-def chip_size(model_stac_item: dict[str, Any]) -> int:
-    shape = model_stac_item["properties"]["mlm:input"][0]["input"]["shape"]
-    return shape[-1]
-
-
-@pytest.fixture(scope="session")
-def class_names(model_stac_item: dict[str, Any]) -> list[str]:
-    classes = model_stac_item["properties"]["mlm:output"][0]["classification:classes"]
-    return [cls["name"] for cls in classes]
-
-
-@pytest.fixture(scope="session")
-def num_classes(class_names: list[str]) -> int:
-    return len(class_names)
-
-
-@pytest.fixture(scope="session")
 def toy_chips(generate_toy_dataset: dict[str, Path]) -> Path:
     return generate_toy_dataset["chips"]
 
@@ -73,11 +43,6 @@ def toy_chips(generate_toy_dataset: dict[str, Path]) -> Path:
 @pytest.fixture(scope="session")
 def toy_labels(generate_toy_dataset: dict[str, Path]) -> Path:
     return generate_toy_dataset["labels"]
-
-
-@pytest.fixture(scope="session")
-def dataset_stac_item(generate_toy_dataset: dict[str, Path]) -> Path:
-    return generate_toy_dataset["dataset_stac_item"]
 
 
 @pytest.fixture()

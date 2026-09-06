@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       model:
-        description: "Model dir under models/ (e.g. unet_segmentation)"
+        description: "Model dir under models/ (e.g. dinov3s_buildings)"
         required: true
         type: string
       pr:

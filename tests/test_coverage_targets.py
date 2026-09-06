@@ -289,7 +289,7 @@ def test_backend_and_dataclass_registration_branches(
         item_id="demo-base",
         geometry=base_geometry,
         mlm_name="demo-base",
-        mlm_architecture="resnet18",
+        mlm_architecture="tinycnn",
         mlm_tasks=["classification"],
         mlm_framework="PyTorch",
         mlm_framework_version="2.0",
@@ -685,8 +685,7 @@ def test_model_validator_reports_unreadable_test_steps(tmp_path: Path, monkeypat
 
 
 def test_apply_zenml_patch_tolerates_missing_server_models(monkeypatch: pytest.MonkeyPatch) -> None:
-    reloaded = importlib.reload(patch_module)
-    assert hasattr(reloaded, "_apply")
+    importlib.reload(patch_module)
 
     real_import = builtins.__import__
 
@@ -698,4 +697,5 @@ def test_apply_zenml_patch_tolerates_missing_server_models(monkeypatch: pytest.M
     monkeypatch.setattr(builtins, "__import__", _fake_import)
     monkeypatch.delenv("FAIR_SKIP_ZENML_PATCH", raising=False)
 
-    patch_module._apply()
+    # When server_models cannot be imported, _apply must swallow it and return None.
+    assert patch_module._apply() is None

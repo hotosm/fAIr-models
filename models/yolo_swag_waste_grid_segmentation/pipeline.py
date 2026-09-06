@@ -28,7 +28,6 @@ def _get_device() -> str:
 def _download_checkpoint(url: str) -> Path:
     from upath import UPath
 
-    print(url)
     local_path = Path(tempfile.mkdtemp()) / UPath(url).name
     local_path.write_bytes(UPath(url).read_bytes())
     return local_path
@@ -67,7 +66,7 @@ def _log_yolo_loss_history(model: Any) -> None:
         log_loss_history(train_losses, val_losses)
 
 
-def _restore_checkpoint(trained_model: Any):
+def _restore_checkpoint(trained_model: Any) -> Any:
     from ultralytics import YOLO
 
     if isinstance(trained_model, YOLO):
@@ -174,14 +173,11 @@ def predict(session: Any, input_images: str, params: dict[str, Any], bbox: list[
             if arr is None or arr.size == 0:
                 continue
 
-            arr = arr.astype(np.float32) / 255.0
-            resized = [
-                np.asarray(
-                    Image.fromarray(arr[c]).resize((MODEL_INPUT_SIZE, MODEL_INPUT_SIZE), Image.Resampling.BILINEAR)
-                )
-                for c in range(arr.shape[0])
-            ]
-            batch = np.stack(resized, axis=0)[np.newaxis, ...].astype(np.float32)
+            rgb = np.ascontiguousarray(np.transpose(arr, (1, 2, 0)))
+            resized = Image.fromarray(rgb, mode="RGB").resize(
+                (MODEL_INPUT_SIZE, MODEL_INPUT_SIZE), Image.Resampling.BILINEAR
+            )
+            batch = np.asarray(resized).transpose(2, 0, 1)[np.newaxis, ...].astype(np.float32) / 255.0
 
             probs = np.asarray(session.run(None, {input_name: batch})[0]).reshape(-1)
             waste_confidence = float(probs[waste_idx])
@@ -235,7 +231,7 @@ def _subset_chips_dir(chips_path: str, fraction: float) -> str:
     return str(subset)
 
 
-def pick_utm_crs(lon: float, lat: float):
+def pick_utm_crs(lon: float, lat: float) -> Any:
     import geopandas as gpd
 
     gdf = gpd.GeoSeries(gpd.points_from_xy([lon], [lat]), crs="EPSG:4326")
@@ -271,7 +267,7 @@ def build_mosaic(chip_paths: list[Path]) -> Path:
     return out_path
 
 
-def load_labels(labels_path: Path, target_crs):
+def load_labels(labels_path: Path, target_crs) -> Any:
     import geopandas as gpd
 
     labels = gpd.read_file(labels_path)
@@ -282,14 +278,6 @@ def load_labels(labels_path: Path, target_crs):
     if "label" not in labels.columns:
         labels["label"] = 1
     return labels.reset_index(drop=True)
-
-
-def load_labels_merged(labels_path: Path, target_crs):
-    labels = load_labels(labels_path, target_crs)
-
-    waste = labels[labels["label"] == 1]
-    background = labels[labels["label"] == 0]
-    return waste.geometry.union_all(), None if background.empty else background.geometry.union_all()
 
 
 def split_cells(cells, source_polygons, val_ratio: float, test_ratio: float, seed: int) -> dict[int, str]:
@@ -324,7 +312,7 @@ def split_cells(cells, source_polygons, val_ratio: float, test_ratio: float, see
     return split_by_cell
 
 
-def build_grid_gdf(bounds_proj, cell_size: float, crs):
+def build_grid_gdf(bounds_proj, cell_size: float, crs) -> Any:
     import math
 
     import geopandas as gpd
@@ -354,7 +342,7 @@ def classify_cells(
     mosaic_ds=None,
     utm_to_mosaic=None,
     nodata=None,
-):
+) -> Any:
     grid_gdf = grid_gdf.copy()
     intersections = grid_gdf.geometry.intersection(labels_union)
     grid_gdf["overlap_fraction"] = (intersections.area / grid_gdf.geometry.area).fillna(0.0)
@@ -412,7 +400,7 @@ def read_cell_array_from_mosaic(mosaic_ds, cell_geom, utm_to_mosaic, nodata) -> 
 
     if nodata is not None:
         mask = (arr == nodata).all(axis=0)
-        if mask.mean() > 0.8:  # min covered area, same as min threshold as for waste intersetcion maybe?
+        if mask.mean() > 0.8:  # drop cells that are more than 80% nodata
             return None
     return arr
 
@@ -448,7 +436,7 @@ def reset_yolo_dirs(yolo_dir: Path) -> None:
             (yolo_dir / split / cls).mkdir(parents=True)
 
 
-def projected_bounds(bounds, source_crs, target_crs):
+def projected_bounds(bounds, source_crs, target_crs) -> tuple[float, float, float, float]:
     from pyproj import Transformer
 
     to_proj = Transformer.from_crs(source_crs, target_crs, always_xy=True)

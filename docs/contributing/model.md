@@ -10,11 +10,11 @@ platform.
 
 ## Reference Implementations
 
-| Model | Task | Architecture | Directory |
-|---|---|---|---|
-| UNet segmentation | Semantic segmentation | UNet (torchgeo) | [`models/unet_segmentation/`](https://github.com/hotosm/fAIr-models/tree/develop/models/unet_segmentation) |
-| ResNet18 classification | Binary classification | ResNet18 (torchvision) | [`models/resnet18_classification/`](https://github.com/hotosm/fAIr-models/tree/develop/models/resnet18_classification) |
-| YOLOv11n detection | Object detection | YOLOv11 nano (ultralytics) | [`models/yolo11n_detection/`](https://github.com/hotosm/fAIr-models/tree/develop/models/yolo11n_detection) |
+| Model                | Task                  | Architecture                        | Directory                                                                                                                                  |
+| -------------------- | --------------------- | ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| DINOv3 buildings     | Semantic segmentation | DINOv3 ViT-S/16 + UperNet (PyTorch) | [`models/dinov3s_buildings/`](https://github.com/hotosm/fAIr-models/tree/develop/models/dinov3s_buildings)                                 |
+| YOLO SWAG waste grid | Semantic segmentation | YOLO26x classifier (ultralytics)    | [`models/yolo_swag_waste_grid_segmentation/`](https://github.com/hotosm/fAIr-models/tree/develop/models/yolo_swag_waste_grid_segmentation) |
+| RGB segmentation     | Semantic segmentation | Logistic regression (scikit-learn)  | [`models/sklearn_rgb_segmentation/`](https://github.com/hotosm/fAIr-models/tree/develop/models/sklearn_rgb_segmentation)                   |
 
 ## Model Scope
 
@@ -24,12 +24,12 @@ All imagery is sourced from [OpenAerialMap](https://openaerialmap.org/).
 
 ### Supported Tasks
 
-| Task | STAC value | Label mapping | Typical output |
-| --- | --- | --- | --- |
-| Semantic segmentation | `semantic-segmentation` | `segmentation` | polygons |
-| Instance segmentation | `instance-segmentation` | `segmentation` | polygons |
-| Object detection | `object-detection` | `detection` | boxes or polygons |
-| Classification | `classification` | `classification` | existing geometries with attributes |
+| Task                  | STAC value              | Label mapping    | Typical output                      |
+| --------------------- | ----------------------- | ---------------- | ----------------------------------- |
+| Semantic segmentation | `semantic-segmentation` | `segmentation`   | polygons                            |
+| Instance segmentation | `instance-segmentation` | `segmentation`   | polygons                            |
+| Object detection      | `object-detection`      | `detection`      | boxes or polygons                   |
+| Classification        | `classification`        | `classification` | existing geometries with attributes |
 
 Your `mlm:tasks` must use one or more of these exact values. CI rejects
 anything else.
@@ -40,12 +40,12 @@ fAIr is a humanitarian mapping platform. Models should prioritise features
 that support disaster response, infrastructure mapping, and environmental
 monitoring. Core categories:
 
-| Keyword | Examples |
-| --- | --- |
-| `building` | Residential, commercial, industrial footprints; damaged vs. undamaged assessment |
-| `road` | Highway classification (primary, secondary, tertiary); paved vs. unpaved surface detection |
-| `tree` | Individual canopy, tree cover areas |
-| `water` | Rivers, lakes, ponds, reservoirs |
+| Keyword    | Examples                                                                                   |
+| ---------- | ------------------------------------------------------------------------------------------ |
+| `building` | Residential, commercial, industrial footprints; damaged vs. undamaged assessment           |
+| `road`     | Highway classification (primary, secondary, tertiary); paved vs. unpaved surface detection |
+| `tree`     | Individual canopy, tree cover areas                                                        |
+| `water`    | Rivers, lakes, ponds, reservoirs                                                           |
 
 Other OpenStreetMap feature categories (`landuse`, `bridge`, etc.) are
 welcome as long as they are compatible with the platform's RGB input and
@@ -61,11 +61,11 @@ A model and the dataset it trains on must still share at least one keyword.
     All models receive **3-band RGB GeoTIFF chips** as input. The platform does
     **not** accept non-RGB inputs (e.g. multispectral, SAR, DEM).
 
-| Field | Value |
-| --- | --- |
-| Bands | `red`, `green`, `blue` (3 channels, RGB) |
-| Shape | `[-1, 3, H, W]` where H and W are the chip size |
-| Dimension order | `["batch", "bands", "height", "width"]` |
+| Field           | Value                                           |
+| --------------- | ----------------------------------------------- |
+| Bands           | `red`, `green`, `blue` (3 channels, RGB)        |
+| Shape           | `[-1, 3, H, W]` where H and W are the chip size |
+| Dimension order | `["batch", "bands", "height", "width"]`         |
 
 Models must normalize the uint8 pixel values (0-255) in
 their `preprocess` function.
@@ -75,11 +75,11 @@ their `preprocess` function.
 fAIr only supports **vector output**. Your model's final output must produce
 GeoJSON geometries of one of these types:
 
-| Geometry type | Keyword | Typical task |
-| --- | --- | --- |
-| `Polygon` | `polygon` | Building footprints, land parcels |
-| `LineString` | `line` | Roads, waterways |
-| `Point` | `point` | Tree detection, POI extraction |
+| Geometry type | Keyword   | Typical task                      |
+| ------------- | --------- | --------------------------------- |
+| `Polygon`     | `polygon` | Building footprints, land parcels |
+| `LineString`  | `line`    | Roads, waterways                  |
+| `Point`       | `point`   | Tree detection, POI extraction    |
 
 Your `stac-item.json` must declare exactly which geometry type the model
 produces via the `keywords` array. CI enforces that at least one of `polygon`,
@@ -96,9 +96,10 @@ consumption.
 data/sample/
   train/
     oam/             # RGB GeoTIFF chips (OAM-{x}-{y}-{z}.tif, ≥30cm GSD)
-    osm/             # GeoJSON labels (osm_features_*.geojson)
-  predict/
+    osm/             # GeoJSON labels (labels.geojson)
+  test/
     oam/             # Input chips for inference
+    osm/             # GeoJSON labels (labels.geojson)
     predictions/     # Output directory (model writes here)
 ```
 
@@ -153,17 +154,27 @@ functions that the platform discovers and dispatches automatically.
 
 ### Required Exports
 
-CI AST-parses `pipeline.py` and expects the names below. The signatures
-are the contract ; use these exact argument names.
+The signatures are the contract ; use these exact argument names.
 
-| Export | Kind | Wired to |
-| --- | --- | --- |
-| `training_pipeline` | `@pipeline` | Platform finetuning dispatch |
-| `inference_pipeline` | `@pipeline` | Platform inference dispatch (batch) |
-| `split_dataset` | `@step` | CI AST check |
-| `preprocess` | function | `mlm:input[].pre_processing_function` |
-| `postprocess` | function | `mlm:output[].post_processing_function` |
-| `predict` | function | Live HTTP serving + batch `run_inference` step |
+CI AST-parses `pipeline.py` and `tests/test_steps.py` (via
+`fair/utils/model_validator.py`) and fails when any of these names are missing:
+
+| Export                                                                              | Kind        | CI check                           |
+| ----------------------------------------------------------------------------------- | ----------- | ---------------------------------- |
+| `training_pipeline`                                                                 | `@pipeline` | AST check in `pipeline.py`         |
+| `inference_pipeline`                                                                | `@pipeline` | AST check in `pipeline.py`         |
+| `split_dataset`                                                                     | `@step`     | AST check in `pipeline.py`         |
+| `test_split_dataset`, `test_train_model`, `test_evaluate_model`, `test_export_onnx` | functions   | AST check in `tests/test_steps.py` |
+
+The following are wired by convention or referenced from the STAC item. They are
+not AST-checked by CI, so their names must match what the STAC item and serving
+runtime reference:
+
+| Export        | Kind     | Wired to                                       |
+| ------------- | -------- | ---------------------------------------------- |
+| `preprocess`  | function | `mlm:input[].pre_processing_function`          |
+| `postprocess` | function | `mlm:output[].post_processing_function`        |
+| `predict`     | function | Live HTTP serving + batch `run_inference` step |
 
 ```python title="pipeline.py contract"
 from typing import Annotated, Any
@@ -214,12 +225,12 @@ flowchart LR
     D -.->|onnx path| E
 ```
 
-| Step | Purpose |
-| --- | --- |
-| `split_dataset` | Split data, log metadata, return `split_info` |
-| `train_model` | Train on **train split only** |
-| `evaluate_model` | Evaluate on **val split only**, log metrics |
-| `export_onnx` | Export ONNX, validate with `onnx.checker.check_model()` |
+| Step             | Purpose                                                 |
+| ---------------- | ------------------------------------------------------- |
+| `split_dataset`  | Split data, log metadata, return `split_info`           |
+| `train_model`    | Train on **train split only**                           |
+| `evaluate_model` | Evaluate on **val split only**, log metrics             |
+| `export_onnx`    | Export ONNX, validate with `onnx.checker.check_model()` |
 
 The `split_info` dict returned by `split_dataset` is passed as a dependency
 to both `train_model` and `evaluate_model`. This enforces step ordering
@@ -290,14 +301,14 @@ def split_dataset(
 
 The `split_info` dict must contain:
 
-| Key | Type | Description |
-| --- | --- | --- |
-| `strategy` | string | `"random"`, `"spatial"`, or custom |
-| `val_ratio` | float | Actual validation ratio used |
-| `seed` | int | Random seed for reproducibility |
-| `train_count` | int | Number of training samples |
-| `val_count` | int | Number of validation samples |
-| `description` | string | Human-readable explanation |
+| Key           | Type   | Description                        |
+| ------------- | ------ | ---------------------------------- |
+| `strategy`    | string | `"random"`, `"spatial"`, or custom |
+| `val_ratio`   | float  | Actual validation ratio used       |
+| `seed`        | int    | Random seed for reproducibility    |
+| `train_count` | int    | Number of training samples         |
+| `val_count`   | int    | Number of validation samples       |
+| `description` | string | Human-readable explanation         |
 
 The metadata flows through the promotion pipeline into the local model
 STAC item as `fair:split`, giving users full visibility into how each
@@ -429,11 +440,11 @@ def export_onnx(
 Inference runs on ONNX via a single `predict(session, input_images, params)`
 function. The same function powers three paths:
 
-| Path | Entrypoint | Runtime |
-| --- | --- | --- |
-| Live HTTP serving | KNative service, `fair/serve/base.py` routes `POST /predict` | distroless image, scale-to-zero |
-| Batch (`client.predict`) | `inference_pipeline` → `run_inference` step → `predict(...)` | ZenML image |
-| Local / test | Direct call to `predict(...)` with a stubbed ONNX session | any |
+| Path                     | Entrypoint                                                   | Runtime                         |
+| ------------------------ | ------------------------------------------------------------ | ------------------------------- |
+| Live HTTP serving        | KNative service, `fair/serve/base.py` routes `POST /predict` | distroless image, scale-to-zero |
+| Batch (`client.predict`) | `inference_pipeline` → `run_inference` step → `predict(...)` | ZenML image                     |
+| Local / test             | Direct call to `predict(...)` with a stubbed ONNX session    | any                             |
 
 ### Serving a model
 
@@ -528,7 +539,7 @@ code.
         return predictions
     ```
 
-=== "_download_checkpoint"
+=== "\_download_checkpoint"
 
     Download the checkpoint from its HTTPS URL to a local temp file.
     All checkpoint hrefs must be direct HTTPS URLs; framework enums
@@ -552,7 +563,7 @@ code.
 
 ## Dockerfile
 
-Your Dockerfile must be **self-contained** and use **four named stages**:
+Your Dockerfile must be **self-contained** and use **five named stages**:
 
 ```mermaid
 flowchart LR
@@ -562,19 +573,21 @@ flowchart LR
     C -.->|used by CI| E([pytest])
 ```
 
-| Stage | Purpose |
-|---|---|
-| `builder` | Install and compile all training/batch dependencies |
-| `runtime` | Production training + batch image (ML framework + fair-py-ops) |
-| `test` | Extends `runtime` with `fair-py-ops[test]` (pytest + zenml[server]) for CI |
-| `inference` | Distroless ONNX serving image (`fair-py-ops[serve]` only) |
+| Stage               | Purpose                                                                                             |
+| ------------------- | --------------------------------------------------------------------------------------------------- |
+| `builder`           | Install and compile all training/batch dependencies                                                 |
+| `runtime`           | Production training + batch image (ML framework + fair-py-ops)                                      |
+| `test`              | Extends `runtime` with `fair-py-ops[test]` (pytest + zenml[server]) for CI                          |
+| `inference-builder` | Build the serving virtualenv (`fair-py-ops[serve]` + model inference libs) for the distroless stage |
+| `inference`         | Distroless ONNX serving image (`fair-py-ops[serve]` only)                                           |
 
-The `inference` stage uses a two-step distroless build (builder venv ->
-`gcr.io/distroless/cc-debian12:nonroot`) so live serving cold starts and
-image sizes stay small. It installs only `fair-py-ops[serve]` plus the
-model's inference-specific libs (rasterio, pyproj, numpy, Pillow, etc.)
-and copies `pipeline.py` into `/app/models/{name}/pipeline.py`. The CMD
-is `uvicorn fair.serve.base:create_app --factory --host 0.0.0.0 --port 8080`.
+The `inference` stage uses a two-step distroless build (`inference-builder`
+venv -> `gcr.io/distroless/python3-debian12:nonroot`) so live serving cold
+starts and image sizes stay small. It installs only `fair-py-ops[serve]` plus
+the model's inference-specific libs (rasterio, pyproj, numpy, Pillow, etc.)
+and copies `pipeline.py` into `/app/models/{name}/pipeline.py`. It sets
+`ENTRYPOINT ["/app/.venv/bin/python", "-m", "uvicorn"]` with
+`CMD ["fair.serve.base:create_app", "--factory", "--host", "0.0.0.0", "--port", "8080"]`.
 
 Requirements:
 
@@ -586,7 +599,7 @@ Requirements:
 
 CI builds `--target test` to run tests, then pushes only `--target runtime`.
 
-See any existing model Dockerfile (e.g. `models/unet_segmentation/Dockerfile`)
+See any existing model Dockerfile (e.g. `models/dinov3s_buildings/Dockerfile`)
 for the full pattern.
 
 ## Testing
@@ -644,8 +657,8 @@ The shared `models/conftest.py` provides common fixtures (`toy_chips`,
     def test_export_onnx(...): ...
     ```
 
-See `models/resnet18_classification/tests/`, `models/yolo11n_detection/tests/`,
-or `models/unet_segmentation/tests/` for complete working examples.
+See `models/dinov3s_buildings/tests/` or
+`models/yolo_swag_waste_grid_segmentation/tests/` for complete working examples.
 
 Run the tests locally with `just example <your_model>`, which exercises the
 full register → finetune → promote → predict path against the local compose
@@ -672,25 +685,25 @@ validated by CI against the platform's requirements schema.
 
 ### Required Properties
 
-| Property | Type | Description |
-| --- | --- | --- |
-| `title` | string | Human-readable model name (shown in catalog UI) |
-| `description` | string | One-paragraph summary of the model and its intended use |
-| `mlm:name` | string | Model identifier (matches directory name) |
-| `mlm:architecture` | string | Architecture name (e.g. `UNet`, `YOLOv8`) |
-| `mlm:tasks` | string[] | One or more of: `semantic-segmentation`, `instance-segmentation`, `object-detection`, `classification` |
-| `mlm:framework` | string | `PyTorch` or `TensorFlow` |
-| `mlm:framework_version` | string | Framework version |
-| `mlm:pretrained` | boolean | Whether pretrained weights are used |
-| `mlm:pretrained_source` | string | Origin of the pretrained weights: a URL to the paper/dataset/checkpoint, or a descriptive string when no canonical URL exists |
-| `mlm:input` | object[] | Input specification with `pre_processing_function` |
-| `mlm:output` | object[] | Output specification with `post_processing_function` and `classification:classes` |
-| `mlm:hyperparameters` | object | Default training hyperparameters |
-| `keywords` | string[] | Feature tags + task + output geometry type |
-| `version` | string | Semantic version (start with `"1"`) |
-| `license` | string | SPDX license identifier |
-| `fair:metrics_spec` | object[] | Evaluation metrics vocabulary (see below) |
-| `fair:split_spec` | object | Train/val split specification (see below) |
+| Property                | Type     | Description                                                                                                                   |
+| ----------------------- | -------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| `title`                 | string   | Human-readable model name (shown in catalog UI)                                                                               |
+| `description`           | string   | One-paragraph summary of the model and its intended use                                                                       |
+| `mlm:name`              | string   | Model identifier (matches directory name)                                                                                     |
+| `mlm:architecture`      | string   | Architecture name (e.g. `UNet`, `YOLOv8`)                                                                                     |
+| `mlm:tasks`             | string[] | One or more of: `semantic-segmentation`, `instance-segmentation`, `object-detection`, `classification`                        |
+| `mlm:framework`         | string   | `PyTorch` or `TensorFlow`                                                                                                     |
+| `mlm:framework_version` | string   | Framework version                                                                                                             |
+| `mlm:pretrained`        | boolean  | Whether pretrained weights are used                                                                                           |
+| `mlm:pretrained_source` | string   | Origin of the pretrained weights: a URL to the paper/dataset/checkpoint, or a descriptive string when no canonical URL exists |
+| `mlm:input`             | object[] | Input specification with `pre_processing_function`                                                                            |
+| `mlm:output`            | object[] | Output specification with `post_processing_function` and `classification:classes`                                             |
+| `mlm:hyperparameters`   | object   | Default training hyperparameters                                                                                              |
+| `keywords`              | string[] | Feature tags + task + output geometry type                                                                                    |
+| `version`               | string   | Semantic version (start with `"1"`)                                                                                           |
+| `license`               | string   | SPDX license identifier                                                                                                       |
+| `fair:metrics_spec`     | object[] | Evaluation metrics vocabulary (see below)                                                                                     |
+| `fair:split_spec`       | object   | Train/val split specification (see below)                                                                                     |
 
 ### fair:metrics_spec
 
@@ -701,38 +714,30 @@ what `"accuracy"` means (pixel accuracy? per-class? mean IoU?).
 
 Each entry must declare:
 
-| Field | Type | Description |
-| --- | --- | --- |
-| `key` | string | Property key where the metric is stored on the local model STAC item (e.g. `fair:accuracy`) |
-| `name` | string | Human-readable metric name |
-| `description` | string | Precise definition including averaging strategy |
+| Field         | Type   | Description                                                                                 |
+| ------------- | ------ | ------------------------------------------------------------------------------------------- |
+| `key`         | string | Property key where the metric is stored on the local model STAC item (e.g. `fair:accuracy`) |
+| `name`        | string | Human-readable metric name                                                                  |
+| `description` | string | Precise definition including averaging strategy                                             |
 
-=== "Segmentation"
+=== "Building segmentation"
 
-    ```json title="fair:metrics_spec (unet_segmentation)"
+    ```json title="fair:metrics_spec (dinov3s_buildings)"
     "fair:metrics_spec": [
-        {"key": "fair:mean_iou", "name": "Mean IoU", "description": "Mean intersection-over-union across all classes, including background."},
-        {"key": "iou_building", "name": "Building IoU", "description": "Per-class IoU for the 'building' class (matches classification:classes entry)."},
-        {"key": "fair:pixel_accuracy", "name": "Pixel Accuracy", "description": "Fraction of pixels correctly classified across the val split."}
+        {"key": "fair:pixel_iou", "name": "Pixel IoU", "description": "Building-class pixel IoU on the val split: sum of intersection pixels divided by sum of union pixels across all val chips."},
+        {"key": "fair:instance_precision", "name": "Instance Precision @ IoU>0.5", "description": "Fraction of predicted building instances that match a ground-truth instance at IoU>0.5 (panoptic-style matching via torchmetrics)."},
+        {"key": "fair:instance_recall", "name": "Instance Recall @ IoU>0.5", "description": "Fraction of ground-truth building instances matched by a prediction at IoU>0.5."},
+        {"key": "fair:instance_f1", "name": "Instance F1 @ IoU>0.5", "description": "Harmonic mean of instance precision and recall, micro-averaged across the val split."},
+        {"key": "fair:pred_avg_vertices", "name": "Predicted polygon avg vertices", "description": "Mean exterior vertex count across all predicted polygons after DP+MBR-safe regularisation, measured in each polygon's local UTM zone."},
+        {"key": "fair:pred_orthogonality", "name": "Predicted polygon orthogonality", "description": "Mean per-polygon fraction of edges within 5 degrees of the minimum-rotated-rectangle dominant axis. 1.0 = perfectly rectangular, near 0 = jagged/free-form."}
     ]
     ```
 
-=== "Detection"
+=== "Waste grid"
 
-    ```json title="fair:metrics_spec (yolo11n_detection)"
+    ```json title="fair:metrics_spec (yolo_swag_waste_grid_segmentation)"
     "fair:metrics_spec": [
-        {"key": "fair:map50", "name": "mAP@0.5", "description": "Mean average precision at IoU threshold 0.5 across all classes."},
-        {"key": "fair:map50_95", "name": "mAP@0.5:0.95", "description": "Mean average precision averaged over IoU thresholds 0.5 to 0.95."},
-        {"key": "fair:precision", "name": "Precision", "description": "Box-level precision at the default confidence threshold."}
-    ]
-    ```
-
-=== "Classification"
-
-    ```json title="fair:metrics_spec (resnet18_classification)"
-    "fair:metrics_spec": [
-        {"key": "fair:accuracy", "name": "Accuracy", "description": "Top-1 accuracy on the val split."},
-        {"key": "fair:f1", "name": "F1 Score", "description": "Macro-averaged F1 across all classes."}
+        {"key": "fair:accuracy", "name": "Accuracy", "description": "Fraction of correctly classified grid cells across all classes in the evaluation dataset"}
     ]
     ```
 
@@ -776,40 +781,41 @@ The `fair:split_spec` property declares how your model expects training data
 to be split into train and validation sets. This is a **required** property
 on base model STAC items. CI validates its presence and structure.
 
-| Field | Type | Description |
-| --- | --- | --- |
-| `strategy` | string | Split strategy: `"random"`, `"spatial"`, or custom |
-| `default_ratio` | float | Recommended validation ratio (0 < ratio < 1) |
-| `seed` | int | Default random seed for reproducibility |
-| `description` | string | Explanation of how the split works for this model |
+| Field           | Type   | Description                                        |
+| --------------- | ------ | -------------------------------------------------- |
+| `strategy`      | string | Split strategy: `"random"`, `"spatial"`, or custom |
+| `default_ratio` | float  | Recommended validation ratio (0 < ratio < 1)       |
+| `seed`          | int    | Default random seed for reproducibility            |
+| `description`   | string | Explanation of how the split works for this model  |
 
 The split strategy depends on the task type:
 
-| Task | Strategy | Description |
-| --- | --- | --- |
-| Classification | `random` | Seeded shuffle of sorted filenames, split at ratio boundary |
-| Segmentation | `spatial` | `RandomGeoSampler` for train, `GridGeoSampler` for val (non-overlapping tiles) |
-| Detection | `random` | Last N% of sorted image IDs held out for validation |
+| Task           | Strategy  | Description                                                                    |
+| -------------- | --------- | ------------------------------------------------------------------------------ |
+| Classification | `random`  | Seeded shuffle of sorted filenames, split at ratio boundary                    |
+| Segmentation   | `spatial` | `RandomGeoSampler` for train, `GridGeoSampler` for val (non-overlapping tiles) |
+| Detection      | `random`  | Last N% of sorted image IDs held out for validation                            |
 
-=== "Random"
+=== "Spatial block"
 
-    ```json title="fair:split_spec (resnet18_classification)"
-    "fair:split_spec": {
-        "strategy": "random",
-        "default_ratio": 0.2,
-        "seed": 42,
-        "description": "Seeded shuffle of sorted image filenames, first (1 - ratio) for train, remainder for val."
-    }
-    ```
-
-=== "Spatial"
-
-    ```json title="fair:split_spec (unet_segmentation)"
+    ```json title="fair:split_spec (dinov3s_buildings)"
     "fair:split_spec": {
         "strategy": "spatial",
         "default_ratio": 0.2,
         "seed": 42,
-        "description": "RandomGeoSampler over training AOI, GridGeoSampler for non-overlapping val tiles; avoids spatial leakage between splits."
+        "block_size": 4,
+        "description": "Spatial block split on OAM-x-y-z tile coords: chips grouped into (x // block_size, y // block_size) blocks, whole blocks assigned to train or val. Non-OAM filenames fall back to a seeded random split."
+    }
+    ```
+
+=== "Grid stratified"
+
+    ```json title="fair:split_spec (yolo_swag_waste_grid_segmentation)"
+    "fair:split_spec": {
+        "strategy": "grid_5m_stratified_grouped",
+        "default_ratio": 0.1,
+        "seed": 42,
+        "description": "Mosaic chips and build a 5 m x 5 m grid. Cells from each label=1 waste polygon and each label=0 background polygon remain in one split."
     }
     ```
 
@@ -817,6 +823,34 @@ Contributors can define custom split strategies as long as they document the
 approach in `description` and implement the corresponding `split_dataset`
 step. The `val_ratio` and `split_seed` hyperparameters allow users to
 override the defaults at finetuning time.
+
+### fair:preview
+
+The optional `fair:preview` object carries the standardized preview metadata the
+try-now page uses to center the map, pick a zoom, and load the right imagery.
+
+| Field            | Type    | Description                                             |
+| ---------------- | ------- | ------------------------------------------------------- |
+| `center`         | float[] | Map center as `[lon, lat]`                              |
+| `zoom`           | object  | `recommended`, and optional `min` and `max` zoom levels |
+| `imagery`        | object  | Tile source: `url`, `type`, `name`, `attribution`       |
+| `bbox`           | float[] | Optional bounding box `[minx, miny, maxx, maxy]`        |
+| `thumbnail_href` | string  | Optional URL to a static preview image                  |
+| `place`          | object  | Optional `name`, `country`, `country_code`              |
+
+```json title="fair:preview (dinov3s_buildings)"
+"fair:preview": {
+    "center": [-13.23723, 8.47532],
+    "zoom": {"recommended": 19, "min": 14, "max": 22},
+    "imagery": {
+        "url": "https://tiles.openaerialmap.org/.../{z}/{x}/{y}",
+        "type": "tms",
+        "name": "OpenAerialMap - Freetown",
+        "attribution": "OpenAerialMap"
+    },
+    "place": {"name": "Freetown", "country": "Sierra Leone", "country_code": "SL"}
+}
+```
 
 ### Keywords
 
@@ -834,9 +868,9 @@ The `mlm:hyperparameters` object in your STAC item declares default values
 for **both** training and inference. Keys are **prefixed** so the platform
 can route them to the right path:
 
-| Prefix | Goes to |
-| --- | --- |
-| `training.` | `training_pipeline` (after `fair.params.training_params()` strips the prefix) |
+| Prefix       | Goes to                                                                                          |
+| ------------ | ------------------------------------------------------------------------------------------------ |
+| `training.`  | `training_pipeline` (after `fair.params.training_params()` strips the prefix)                    |
 | `inference.` | `predict(..., params=...)` and live HTTP `POST /predict` body (`fair.params.inference_params()`) |
 
 When users finetune your model, the platform reads these defaults and
@@ -858,15 +892,14 @@ Example:
 The STAC schema enforces four keys as **compulsory** in every
 `mlm:hyperparameters` block (base and local models):
 
-| Key | Purpose |
-| --- | --- |
-| `training.epochs` | Training epochs |
-| `training.batch_size` | Training batch size |
-| `training.learning_rate` | Optimizer learning rate |
+| Key                              | Purpose                            |
+| -------------------------------- | ---------------------------------- |
+| `training.epochs`                | Training epochs                    |
+| `training.batch_size`            | Training batch size                |
+| `training.learning_rate`         | Optimizer learning rate            |
 | `inference.confidence_threshold` | Minimum score to keep a prediction |
 
-
-fAIr chips are 256*256; each model handles any internal resize to its native ONNX
+fAIr chips are 256\*256; each model handles any internal resize to its native ONNX
 input size inside `preprocess`.
 
 Your `training_pipeline` receives all hyperparameters as a single
@@ -877,14 +910,14 @@ Validation is declared in the STAC item under `fair:hyperparameters_spec`,
 
 Each entry in `fair:hyperparameters_spec` declares:
 
-| Field | Description |
-| --- | --- |
-| `key` | Hyperparameter name, must also appear in `mlm:hyperparameters` |
-| `type` | One of `int`, `float`, `str`, `bool` |
-| `default` | Default value |
-| `min` / `max` | Bounds for numeric types |
-| `values` | Allowed values for `str` with a fixed choice set |
-| `description` | Short human-readable explanation |
+| Field         | Description                                                    |
+| ------------- | -------------------------------------------------------------- |
+| `key`         | Hyperparameter name, must also appear in `mlm:hyperparameters` |
+| `type`        | One of `int`, `float`, `str`, `bool`                           |
+| `default`     | Default value                                                  |
+| `min` / `max` | Bounds for numeric types                                       |
+| `values`      | Allowed values for `str` with a fixed choice set               |
+| `description` | Short human-readable explanation                               |
 
 ```json title="fair:hyperparameters_spec (excerpt)"
 "fair:hyperparameters_spec": [
@@ -902,14 +935,14 @@ In addition to model-specific hyperparameters, you **must** declare these
 split parameters (the others are recommended unless the training framework
 manages them internally, e.g. Ultralytics):
 
-| Parameter | Required | Description |
-| --- | --- | --- |
-| `val_ratio` | Yes | Fraction of data held out for validation (default 0.2) |
-| `split_seed` | Yes | Random seed for reproducible train/val split (default 42) |
-| `scheduler` | Recommended | LR scheduler: `"cosine"` or `"none"` |
-| `max_grad_norm` | Recommended | Maximum gradient norm for clipping |
+| Parameter       | Required    | Description                                               |
+| --------------- | ----------- | --------------------------------------------------------- |
+| `val_ratio`     | Yes         | Fraction of data held out for validation (default 0.2)    |
+| `split_seed`    | Yes         | Random seed for reproducible train/val split (default 42) |
+| `scheduler`     | Recommended | LR scheduler: `"cosine"` or `"none"`                      |
+| `max_grad_norm` | Recommended | Maximum gradient norm for clipping                        |
 
-See the three reference models under `models/` for working
+See the two reference models under `models/` for working
 `fair:hyperparameters_spec` and `mlm:hyperparameters` blocks.
 
 The platform auto-extracts `chip_size` from `mlm:input[0].input.shape[-1]`
@@ -926,135 +959,120 @@ data_type), `classification:classes` (one entry per output class with
 `name` and `value`), and a `post_processing_function` pointing to your
 `postprocess` entrypoint.
 
-=== "Segmentation"
+=== "Building segmentation"
 
-    ```json title="mlm:input / mlm:output (unet_segmentation)"
+    ```json title="mlm:input / mlm:output (dinov3s_buildings)"
     "mlm:input": [{
-        "name": "rgb",
-        "bands": ["red", "green", "blue"],
+        "name": "RGB chips",
+        "bands": [{"name": "red"}, {"name": "green"}, {"name": "blue"}],
         "input": {
             "shape": [-1, 3, 256, 256],
             "dim_order": ["batch", "bands", "height", "width"],
             "data_type": "float32"
         },
-        "pre_processing_function": "models.unet_segmentation.pipeline:preprocess"
+        "pre_processing_function": {
+            "format": "python",
+            "expression": "models.dinov3s_buildings.pipeline:preprocess"
+        }
     }],
     "mlm:output": [{
-        "name": "mask",
+        "name": "segmentation logits",
         "tasks": ["semantic-segmentation"],
         "result": {
-            "shape": [-1, 2, 256, 256],
-            "dim_order": ["batch", "classes", "height", "width"],
+            "shape": [-1, 3, 256, 256],
+            "dim_order": ["batch", "channel", "height", "width"],
+            "data_type": "float32"
+        },
+        "classification:classes": [
+            {"name": "background", "value": 0, "description": "Non-building pixels"},
+            {"name": "building", "value": 1, "description": "Building footprints"}
+        ],
+        "post_processing_function": {
+            "format": "python",
+            "expression": "models.dinov3s_buildings.pipeline:postprocess"
+        },
+        "bands": []
+    }]
+    ```
+
+=== "Waste grid"
+
+    ```json title="mlm:input / mlm:output (yolo_swag_waste_grid_segmentation)"
+    "mlm:input": [{
+        "name": "RGB chips",
+        "bands": [{"name": "red"}, {"name": "green"}, {"name": "blue"}],
+        "input": {
+            "shape": [-1, 3, 128, 128],
+            "dim_order": ["batch", "bands", "height", "width"],
+            "data_type": "float32"
+        },
+        "pre_processing_function": {
+            "format": "python",
+            "expression": "models.yolo_swag_waste_grid_segmentation.pipeline:preprocess"
+        }
+    }],
+    "mlm:output": [{
+        "name": "waste-segmentation",
+        "tasks": ["semantic-segmentation"],
+        "result": {
+            "shape": [-1, 2],
+            "dim_order": ["batch", "class"],
             "data_type": "float32"
         },
         "classification:classes": [
             {"name": "background", "value": 0},
-            {"name": "building", "value": 1}
+            {"name": "waste", "value": 1}
         ],
-        "post_processing_function": "models.unet_segmentation.pipeline:postprocess"
-    }]
-    ```
-
-=== "Detection"
-
-    ```json title="mlm:input / mlm:output (yolo11n_detection)"
-    "mlm:input": [{
-        "name": "rgb",
-        "bands": ["red", "green", "blue"],
-        "input": {
-            "shape": [-1, 3, 640, 640],
-            "dim_order": ["batch", "bands", "height", "width"],
-            "data_type": "float32"
+        "post_processing_function": {
+            "format": "python",
+            "expression": "models.yolo_swag_waste_grid_segmentation.pipeline:postprocess"
         },
-        "pre_processing_function": "models.yolo11n_detection.pipeline:preprocess"
-    }],
-    "mlm:output": [{
-        "name": "boxes",
-        "tasks": ["object-detection"],
-        "result": {
-            "shape": [-1, 6],
-            "dim_order": ["detections", "xyxy_conf_class"],
-            "data_type": "float32"
-        },
-        "classification:classes": [
-            {"name": "building", "value": 0}
-        ],
-        "post_processing_function": "models.yolo11n_detection.pipeline:postprocess"
-    }]
-    ```
-
-=== "Classification"
-
-    ```json title="mlm:input / mlm:output (resnet18_classification)"
-    "mlm:input": [{
-        "name": "rgb",
-        "bands": ["red", "green", "blue"],
-        "input": {
-            "shape": [-1, 3, 224, 224],
-            "dim_order": ["batch", "bands", "height", "width"],
-            "data_type": "float32"
-        },
-        "pre_processing_function": "models.resnet18_classification.pipeline:preprocess"
-    }],
-    "mlm:output": [{
-        "name": "label",
-        "tasks": ["classification"],
-        "result": {
-            "shape": [-1, 2],
-            "dim_order": ["batch", "classes"],
-            "data_type": "float32"
-        },
-        "classification:classes": [
-            {"name": "no_building", "value": 0},
-            {"name": "building", "value": 1}
-        ],
-        "post_processing_function": "models.resnet18_classification.pipeline:postprocess"
+        "bands": []
     }]
     ```
 
 ### Required Assets
 
-| Asset key | Purpose | Required fields |
-| --- | --- | --- |
-| `checkpoint` | Pretrained torch weights (HTTPS URL) | `mlm:artifact_type` (e.g. `torch.save`) |
-| `model` | ONNX model _(optional for base models, required for local)_ | `mlm:artifact_type`: `onnx` |
-| `source-code` | Link to model source code (git URL) | `mlm:entrypoint` (e.g. `models.your_model.pipeline:predict`) |
-| `mlm:training` | Training Docker image | `href` = Docker image reference |
-| `mlm:inference` | Inference Docker image | `href` = Docker image reference |
-| `readme` | Model documentation (README.md) | _(none)_ |
+| Asset key       | Purpose                                                     | Required fields                                              |
+| --------------- | ----------------------------------------------------------- | ------------------------------------------------------------ |
+| `checkpoint`    | Pretrained torch weights (HTTPS URL)                        | `mlm:artifact_type` (e.g. `torch.save`)                      |
+| `model`         | ONNX model _(optional for base models, required for local)_ | `mlm:artifact_type`: `onnx`                                  |
+| `source-code`   | Link to model source code (git URL)                         | `mlm:entrypoint` (e.g. `models.your_model.pipeline:predict`) |
+| `mlm:training`  | Training Docker image                                       | `href` = Docker image reference                              |
+| `mlm:inference` | Inference Docker image                                      | `href` = Docker image reference                              |
+| `readme`        | Model documentation (README.md)                             | _(none)_                                                     |
 
 ??? example "Concrete assets block"
 
     ```json title="stac-item.json (assets excerpt)"
     "assets": {
         "checkpoint": {
-            "href": "https://huggingface.co/torchgeo/unet/resolve/<commit>/unet.pt",
-            "type": "application/octet-stream; framework=PyTorch",
-            "title": "UNet pretrained weights",
+            "href": "https://huggingface.co/kshitijrajsharma/dinov3-hot-buildings/resolve/main/dinov3s_upernet_hot.ckpt",
+            "type": "application/octet-stream; framework=pytorch",
+            "title": "Pretrained Lightning checkpoint (decoder fine-tuned on HOT VHR)",
             "roles": ["mlm:model", "mlm:weights"],
             "mlm:artifact_type": "torch.save"
         },
         "source-code": {
-            "href": "https://github.com/hotosm/fAIr-models/tree/develop/models/unet_segmentation/pipeline.py",
-            "type": "text/x-python",
-            "title": "UNet pipeline source",
-            "roles": ["mlm:source_code"],
-            "mlm:entrypoint": "models.unet_segmentation.pipeline:predict"
+            "href": "https://github.com/hotosm/fAIr-models/tree/develop/models/dinov3s_buildings",
+            "type": "text/html",
+            "roles": ["code"],
+            "mlm:entrypoint": "models.dinov3s_buildings.pipeline:run_inference"
         },
         "mlm:training": {
-            "href": "ghcr.io/hotosm/fair-models/unet_segmentation:latest",
+            "href": "ghcr.io/hotosm/fair-models/dinov3s_buildings:dev",
             "type": "application/vnd.oci.image.index.v1+json",
             "title": "Training runtime image",
             "roles": ["mlm:training-runtime"]
         },
         "mlm:inference": {
-            "href": "ghcr.io/hotosm/fair-models/unet_segmentation:latest",
+            "href": "ghcr.io/hotosm/fair-models/dinov3s_buildings:dev-inference",
             "type": "application/vnd.oci.image.index.v1+json",
             "title": "Inference runtime image",
             "roles": ["mlm:inference-runtime"]
         },
         "readme": {
-            "href": "https://raw.githubusercontent.com/hotosm/fAIr-models/refs/heads/main/models/unet_segmentation/README.md",
+            "href": "https://raw.githubusercontent.com/hotosm/fAIr-models/refs/heads/develop/models/dinov3s_buildings/README.md",
             "type": "text/markdown",
             "title": "Model README",
             "roles": ["metadata"]
@@ -1112,15 +1130,15 @@ present in the STAC item.
 
 ### What to include
 
-| Section | Content |
-| --- | --- |
-| **Overview** | One-paragraph summary: what the model does, target geography, intended use |
-| **Architecture** | Model type, backbone, input/output shapes, key design choices |
-| **Pretrained source** | Training dataset, paper reference, data license |
-| **Limitations** | Known failure modes, geographic bias, resolution constraints |
-| **Usage** | How to run training/inference locally, example commands |
-| **Citation** | BibTeX or reference if the model or weights come from published work |
-| **License** | License name (must match `properties.license` in `stac-item.json`) |
+| Section               | Content                                                                    |
+| --------------------- | -------------------------------------------------------------------------- |
+| **Overview**          | One-paragraph summary: what the model does, target geography, intended use |
+| **Architecture**      | Model type, backbone, input/output shapes, key design choices              |
+| **Pretrained source** | Training dataset, paper reference, data license                            |
+| **Limitations**       | Known failure modes, geographic bias, resolution constraints               |
+| **Usage**             | How to run training/inference locally, example commands                    |
+| **Citation**          | BibTeX or reference if the model or weights come from published work       |
+| **License**           | License name (must match `properties.license` in `stac-item.json`)         |
 
 Keep it concise. The STAC item already captures hyperparameters, input/output
 specs, and keywords ; the README is for everything else.
@@ -1193,9 +1211,9 @@ flowchart LR
 
 On PR submission, the workflows above run:
 
-1. **Style and core tests** ([style.yml](https://github.com/hotosm/fAIr-models/blob/develop/.github/workflows/style.yml)) : `ruff check`, `ruff format --diff`, `ty check`, and `pytest --cov-fail-under=95` on the `fair/` package.
+1. **Style and core tests** ([style.yml](https://github.com/hotosm/fAIr-models/blob/develop/.github/workflows/style.yml)) : `ruff check`, `ruff format --diff`, `ty check`, and `pytest` with coverage reporting on the `fair/` package.
 2. **STAC + model validation** ([validate-stac.yml](https://github.com/hotosm/fAIr-models/blob/develop/.github/workflows/validate-stac.yml)) : runs `just validate`, which calls `scripts/validate_stac_items.py` (pystac + fAIr schema: `fair:metrics_spec`, `fair:split_spec`, MLM fields, assets, keywords including a geometry type, a supported license) and `scripts/validate_model.py` (AST checks for `training_pipeline`/`inference_pipeline` `@pipeline`, `split_dataset` `@step`, and the four required `tests/test_steps.py` functions).
-3. **Build + test in Docker** ([build-model-images.yml](https://github.com/hotosm/fAIr-models/blob/develop/.github/workflows/build-model-images.yml)) : builds `--target test`, runs `pytest models/<name>/tests/`, then runs `pytest models/test_integration.py -m slow` (the same checks `just test-model` runs locally), builds `--target runtime`, pushes the runtime image as `pr-<num>` (production tags `:latest` and `:v<version>` are gated on default branch), builds `--target inference`, smoke-tests it against the Banepa OAM bbox with baseline + finetuned ONNX, and pushes the inference image as `pr-<num>-inference`.
+3. **Build + test in Docker** ([build-model-images.yml](https://github.com/hotosm/fAIr-models/blob/develop/.github/workflows/build-model-images.yml)) : builds `--target test`, runs `pytest models/<name>/tests/`, then runs `pytest models/test_integration.py -m slow`, builds `--target runtime`, pushes the runtime image as `pr-<num>` (production tags `:latest` and `:v<version>` are gated on default branch), builds `--target inference`, smoke-tests it against the Banepa OAM bbox with baseline + finetuned ONNX, and pushes the inference image as `pr-<num>-inference`.
 4. **kind-cluster E2E** ([test-model.yml](https://github.com/hotosm/fAIr-models/blob/develop/.github/workflows/test-model.yml)) : spins up a kind cluster with the full helmfile stack (ZenML, MLflow, STAC, MinIO) and runs `just example <model>` + `scripts/test_serve.py` against the model. This is the per-PR parity check for `K8s Integration Test`, which only runs on `push: develop`.
 
 All checks must pass before the PR is reviewed.
@@ -1219,9 +1237,8 @@ When all of these commands return cleanly your model is ready to PR. CI re-runs 
 
 ## Reference
 
-- [STAC MLM Extension v1.5.1](https://github.com/stac-extensions/mlm) -- MLM fields spec
+- [STAC MLM Extension v1.5.1](https://github.com/stac-extensions/mlm): MLM fields spec
 - [MLM Best Practices](https://github.com/stac-extensions/mlm/blob/main/best-practices.md)
-- [UNet segmentation model](https://github.com/hotosm/fAIr-models/tree/develop/models/unet_segmentation) -- segmentation reference
-- [ResNet18 classification model](https://github.com/hotosm/fAIr-models/tree/develop/models/resnet18_classification) -- classification reference
-- [YOLOv11n detection model](https://github.com/hotosm/fAIr-models/tree/develop/models/yolo11n_detection) -- detection reference
-- [UNet STAC item](https://github.com/hotosm/fAIr-models/blob/develop/models/unet_segmentation/stac-item.json) -- STAC item template
+- [DINOv3 buildings model](https://github.com/hotosm/fAIr-models/tree/develop/models/dinov3s_buildings): building segmentation reference
+- [YOLO SWAG waste grid model](https://github.com/hotosm/fAIr-models/tree/develop/models/yolo_swag_waste_grid_segmentation): waste grid segmentation reference
+- [DINOv3 buildings STAC item](https://github.com/hotosm/fAIr-models/blob/develop/models/dinov3s_buildings/stac-item.json): STAC item template

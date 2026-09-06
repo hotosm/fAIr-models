@@ -345,13 +345,14 @@ class TestValidateBaseModelItem:
 
 
 class TestMandatoryHyperparameters:
-    def test_missing_training_epochs_flagged(self):
+    def test_training_epochs_optional(self):
+        # Not every framework trains in epochs (e.g. scikit-learn), so epochs is not mandatory.
         item = _valid_base_model()
         hp = dict(item.properties["mlm:hyperparameters"])
         del hp["training.epochs"]
         item.properties["mlm:hyperparameters"] = hp
         errors = validate_item(item)
-        assert any("training.epochs" in e for e in errors)
+        assert not any("training.epochs" in e for e in errors)
 
     def test_missing_inference_confidence_threshold_flagged(self):
         item = _valid_base_model()

@@ -11,11 +11,7 @@
         },
         {
           "type": "object",
-          "required": [
-            "type",
-            "properties",
-            "assets"
-          ],
+          "required": ["type", "properties", "assets"],
           "properties": {
             "type": {
               "const": "Feature"
@@ -50,19 +46,11 @@
             },
             "assets": {
               "type": "object",
-              "required": [
-                "checkpoint",
-                "source-code",
-                "mlm:training",
-                "mlm:inference"
-              ],
+              "required": ["checkpoint", "source-code", "mlm:training", "mlm:inference"],
               "properties": {
                 "checkpoint": {
                   "type": "object",
-                  "required": [
-                    "href",
-                    "mlm:artifact_type"
-                  ],
+                  "required": ["href", "mlm:artifact_type"],
                   "properties": {
                     "href": {
                       "type": "string",
@@ -84,10 +72,7 @@
                 },
                 "model": {
                   "type": "object",
-                  "required": [
-                    "href",
-                    "mlm:artifact_type"
-                  ],
+                  "required": ["href", "mlm:artifact_type"],
                   "properties": {
                     "href": {
                       "type": "string",
@@ -95,17 +80,13 @@
                     },
                     "mlm:artifact_type": {
                       "type": "string",
-                      "enum": [
-                        "onnx"
-                      ]
+                      "enum": ["onnx"]
                     }
                   }
                 },
                 "source-code": {
                   "type": "object",
-                  "required": [
-                    "href"
-                  ],
+                  "required": ["href"],
                   "properties": {
                     "href": {
                       "type": "string",
@@ -119,9 +100,7 @@
                 },
                 "mlm:training": {
                   "type": "object",
-                  "required": [
-                    "href"
-                  ],
+                  "required": ["href"],
                   "properties": {
                     "href": {
                       "type": "string",
@@ -131,9 +110,7 @@
                 },
                 "mlm:inference": {
                   "type": "object",
-                  "required": [
-                    "href"
-                  ],
+                  "required": ["href"],
                   "properties": {
                     "href": {
                       "type": "string",
@@ -151,9 +128,7 @@
   "definitions": {
     "stac_extensions": {
       "type": "object",
-      "required": [
-        "stac_extensions"
-      ],
+      "required": ["stac_extensions"],
       "properties": {
         "stac_extensions": {
           "type": "array",
@@ -171,9 +146,7 @@
           "minItems": 1,
           "items": {
             "type": "object",
-            "required": [
-              "name"
-            ],
+            "required": ["name"],
             "properties": {
               "name": {
                 "type": "string",
@@ -184,12 +157,7 @@
         },
         "fair:split_spec": {
           "type": "object",
-          "required": [
-            "strategy",
-            "default_ratio",
-            "seed",
-            "description"
-          ],
+          "required": ["strategy", "default_ratio", "seed", "description"],
           "properties": {
             "strategy": {
               "type": "string",
@@ -205,6 +173,85 @@
             },
             "description": {
               "type": "string"
+            }
+          }
+        },
+        "fair:preview": {
+          "type": "object",
+          "required": ["center", "zoom", "imagery"],
+          "properties": {
+            "center": {
+              "type": "array",
+              "minItems": 2,
+              "maxItems": 2,
+              "items": {
+                "type": "number"
+              }
+            },
+            "bbox": {
+              "type": "array",
+              "minItems": 4,
+              "maxItems": 4,
+              "items": {
+                "type": "number"
+              }
+            },
+            "zoom": {
+              "type": "object",
+              "required": ["recommended"],
+              "properties": {
+                "recommended": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 24
+                },
+                "min": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 24
+                },
+                "max": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 24
+                }
+              }
+            },
+            "imagery": {
+              "type": "object",
+              "required": ["url"],
+              "properties": {
+                "url": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "type": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "attribution": {
+                  "type": "string"
+                }
+              }
+            },
+            "thumbnail_href": {
+              "type": "string"
+            },
+            "place": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "country": {
+                  "type": "string"
+                },
+                "country_code": {
+                  "type": "string"
+                }
+              }
             }
           }
         },
@@ -231,10 +278,7 @@
         },
         "mlm:framework": {
           "type": "string",
-          "enum": [
-            "PyTorch",
-            "TensorFlow"
-          ]
+          "enum": ["PyTorch", "TensorFlow", "scikit-learn"]
         },
         "mlm:framework_version": {
           "type": "string",
@@ -244,26 +288,18 @@
           "type": "boolean"
         },
         "mlm:pretrained_source": {
-          "type": [
-            "string",
-            "null"
-          ]
+          "type": ["string", "null"]
         },
         "mlm:input": {
           "type": "array",
           "minItems": 1,
           "items": {
             "type": "object",
-            "required": [
-              "pre_processing_function"
-            ],
+            "required": ["pre_processing_function"],
             "properties": {
               "pre_processing_function": {
                 "type": "object",
-                "required": [
-                  "format",
-                  "expression"
-                ],
+                "required": ["format", "expression"],
                 "properties": {
                   "format": {
                     "type": "string"
@@ -279,17 +315,11 @@
           "minItems": 1,
           "items": {
             "type": "object",
-            "required": [
-              "post_processing_function",
-              "classification:classes"
-            ],
+            "required": ["post_processing_function", "classification:classes"],
             "properties": {
               "post_processing_function": {
                 "type": "object",
-                "required": [
-                  "format",
-                  "expression"
-                ],
+                "required": ["format", "expression"],
                 "properties": {
                   "format": {
                     "type": "string"
@@ -301,9 +331,7 @@
                 "type": "array",
                 "items": {
                   "type": "object",
-                  "required": [
-                    "name"
-                  ],
+                  "required": ["name"],
                   "properties": {
                     "name": {
                       "type": "string"
@@ -316,17 +344,12 @@
         },
         "mlm:hyperparameters": {
           "type": "object",
-          "required": [
-            "training.epochs",
-            "training.batch_size",
-            "training.learning_rate",
-            "inference.confidence_threshold"
-          ],
+          "required": ["inference.confidence_threshold"],
           "properties": {
-            "training.epochs": {"type": "integer", "minimum": 1},
-            "training.batch_size": {"type": "integer", "minimum": 1},
-            "training.learning_rate": {"type": "number", "exclusiveMinimum": 0},
-            "inference.confidence_threshold": {"type": "number", "minimum": 0, "maximum": 1}
+            "training.epochs": { "type": "integer", "minimum": 1 },
+            "training.batch_size": { "type": "integer", "minimum": 1 },
+            "training.learning_rate": { "type": "number", "exclusiveMinimum": 0 },
+            "inference.confidence_threshold": { "type": "number", "minimum": 0, "maximum": 1 }
           }
         },
         "keywords": {
@@ -342,22 +365,14 @@
         },
         "license": {
           "type": "string",
-          "enum": [
-            "AGPL-3.0-only",
-            "MIT",
-            "Apache-2.0",
-            "BSD-3-Clause"
-          ]
+          "enum": ["AGPL-3.0-only", "MIT", "Apache-2.0", "BSD-3-Clause"]
         },
         "providers": {
           "type": "array",
           "minItems": 1,
           "items": {
             "type": "object",
-            "required": [
-              "name",
-              "roles"
-            ],
+            "required": ["name", "roles"],
             "properties": {
               "name": {
                 "type": "string",

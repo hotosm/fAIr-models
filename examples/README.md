@@ -15,19 +15,19 @@ just example                        # run all examples end-to-end
 Or one model at a time:
 
 ```bash
-just example unet_segmentation
-just example resnet18_classification
-just example yolo11n_detection
+just example dinov3s_buildings
+just example yolo_swag_waste_grid_segmentation
 ```
 
 ## Overriding hyperparameters
 
 The runner uses STAC `mlm:hyperparameters` defaults. Override any of
-`epochs`, `batch_size`, `learning_rate`, `samples_per_epoch`, `chip_size`
-by invoking python directly:
+`epochs`, `batch_size`, `learning_rate`, `sample_fraction`, `chip_size`
+by invoking python directly. `sample_fraction` is the 0-1 fraction of
+available chips used for training:
 
 ```bash
-uv run python examples/run.py unet_segmentation --epochs 1 --samples-per-epoch 10
+uv run python examples/run.py dinov3s_buildings --epochs 1 --sample-fraction 0.1
 ```
 
 ## How it works
@@ -36,7 +36,7 @@ uv run python examples/run.py unet_segmentation --epochs 1 --samples-per-epoch 1
    `mlm:tasks[0]` and the model id from `id`.
 2. Picks the matching dataset at `data/sample/buildings-banepa-<task>/stac-item.json`.
 3. Calls `FairClient.setup → register_base_model → register_dataset →
-   finetune → promote → predict`.
+finetune → promote → predict`.
 4. Predicts on `data/sample/test/oam/`.
 
 Each step runs inside the model's docker image (via ZenML's docker
@@ -45,13 +45,13 @@ orchestrator). KNative serves that same image on a deployed cluster, see
 
 ## Output
 
-| Where | What |
-| --- | --- |
-| <http://localhost:8080> | ZenML dashboard: pipeline runs, steps, artifacts |
-| <http://localhost:5000> | MLflow runs and metrics |
-| <http://localhost:8082/collections> | STAC items for registered models and datasets |
-| <http://localhost:9001> | MinIO browser (login: `minioadmin` / `minioadmin`) |
-| `data/sample/test/predictions/` | Per-task predictions on disk |
+| Where                               | What                                               |
+| ----------------------------------- | -------------------------------------------------- |
+| <http://localhost:8080>             | ZenML dashboard: pipeline runs, steps, artifacts   |
+| <http://localhost:5000>             | MLflow runs and metrics                            |
+| <http://localhost:8082/collections> | STAC items for registered models and datasets      |
+| <http://localhost:9001>             | MinIO browser (login: `minioadmin` / `minioadmin`) |
+| `data/sample/test/predictions/`     | Per-task predictions on disk                       |
 
 ## Adding a new model
 

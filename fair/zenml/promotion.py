@@ -307,8 +307,6 @@ def publish_promoted_model(
         source_imagery=dataset_source_imagery,
     )
 
-    # TODO: Carry `fair:pinned` from the prior version so a retrain of a pinned
-    # May be this is not the best approach , revisit this
     if prev_item is not None and prev_item.properties.get("fair:pinned"):
         item.properties["fair:pinned"] = True
 

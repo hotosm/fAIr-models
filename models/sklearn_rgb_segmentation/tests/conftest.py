@@ -2,6 +2,7 @@
 
 import json
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pytest
@@ -13,6 +14,14 @@ CHIPS_PER_SIDE = 2
 CHIP_PIXELS = 32
 STEP_DEG = 0.001
 BASE_LON, BASE_LAT = 85.5, 27.6
+_EAST, _NORTH = BASE_LON + CHIPS_PER_SIDE * STEP_DEG, BASE_LAT + CHIPS_PER_SIDE * STEP_DEG
+_GEOMETRY = {
+    "type": "Polygon",
+    "coordinates": [
+        [[BASE_LON, BASE_LAT], [_EAST, BASE_LAT], [_EAST, _NORTH], [BASE_LON, _NORTH], [BASE_LON, BASE_LAT]]
+    ],
+}
+_BBOX = [BASE_LON, BASE_LAT, _EAST, _NORTH]
 
 
 def create_toy_data(root: Path) -> dict[str, Path]:
@@ -53,11 +62,45 @@ def create_toy_data(root: Path) -> dict[str, Path]:
                 }
             )
 
-    labels_path = root / "labels.geojson"
-    labels_path.write_text(json.dumps({"type": "FeatureCollection", "features": building_polygons}))
-    return {"chips": chips_dir, "labels": labels_path}
+    labels_dir = root / "labels"
+    labels_dir.mkdir()
+    (labels_dir / "labels.geojson").write_text(json.dumps({"type": "FeatureCollection", "features": building_polygons}))
+
+    stac_path = root / "dataset-stac-item.json"
+    stac_path.write_text(json.dumps(_build_dataset_stac_item(chips_dir, labels_dir), indent=2))
+    return {"chips": chips_dir, "labels": labels_dir, "dataset_stac_item": stac_path}
 
 
 @pytest.fixture
 def generate_toy_dataset(tmp_path: Path) -> dict[str, Path]:
     return create_toy_data(tmp_path)
+
+
+def _build_dataset_stac_item(chips_dir: Path, labels_dir: Path) -> dict[str, Any]:
+    return {
+        "type": "Feature",
+        "stac_version": "1.1.0",
+        "stac_extensions": ["https://stac-extensions.github.io/label/v1.0.1/schema.json"],
+        "id": "toy-sklearn-rgb-segmentation",
+        "geometry": _GEOMETRY,
+        "bbox": _BBOX,
+        "properties": {
+            "datetime": "2026-05-18T00:00:00Z",
+            "description": "Toy sklearn RGB segmentation dataset",
+            "label:type": "vector",
+            "label:tasks": ["segmentation"],
+            "label:classes": [{"name": "building", "classes": ["yes"]}],
+            "label:description": "Segmentation labels",
+            "keywords": ["building"],
+            "fair:user_id": "test",
+            "version": "1",
+            "deprecated": False,
+            "license": "CC-BY-4.0",
+            "providers": [{"name": "HOTOSM", "roles": ["producer"], "url": "https://www.hotosm.org"}],
+        },
+        "assets": {
+            "chips": {"href": str(chips_dir), "type": "image/tiff", "roles": ["data"]},
+            "labels": {"href": str(labels_dir), "type": "application/geo+json", "roles": ["labels"]},
+        },
+        "links": [],
+    }

@@ -5,7 +5,7 @@ icon: lucide/heart-handshake
 # Contributing
 
 Thank you for your interest in contributing to fAIr Models! This project is
-part of [HOT — Humanitarian OpenStreetMap Team](https://www.hotosm.org/) and
+part of [HOT (Humanitarian OpenStreetMap Team)](https://www.hotosm.org/) and
 powers AI-assisted mapping for humanitarian response.
 
 ## Ways to Contribute
@@ -52,11 +52,11 @@ just setup
 2. Make your changes with clear, atomic commits
 3. Ensure all checks pass:
 
-    ```bash title="Run all checks"
-    just lint
-    just test
-    just validate
-    ```
+   ```bash title="Run all checks"
+   just lint
+   just test
+   just validate
+   ```
 
 4. Open a PR against `develop` with a clear description
 5. CI will run lint, typecheck, tests, STAC validation, and model validation

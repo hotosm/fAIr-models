@@ -1,0 +1,193 @@
+{
+  "type": "Feature",
+  "stac_version": "1.1.0",
+  "stac_extensions": [
+    "https://stac-extensions.github.io/mlm/v1.5.1/schema.json",
+    "https://stac-extensions.github.io/version/v1.2.0/schema.json",
+    "https://stac-extensions.github.io/classification/v2.0.0/schema.json",
+    "https://stac-extensions.github.io/file/v2.1.0/schema.json",
+    "https://stac-extensions.github.io/raster/v1.1.0/schema.json",
+    "https://hotosm.github.io/fAIr-models/schemas/v1.0.0/base-model/schema.json"
+  ],
+  "id": "sklearn-rgb-segmentation",
+  "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+      [
+        [-180, -90],
+        [180, -90],
+        [180, 90],
+        [-180, 90],
+        [-180, -90]
+      ]
+    ]
+  },
+  "bbox": [-180, -90, 180, 90],
+  "properties": {
+    "datetime": "2026-01-01T00:00:00Z",
+    "created": "2026-01-01T00:00:00Z",
+    "updated": "2026-01-01T00:00:00Z",
+    "title": "RGB Segmentation (scikit-learn)",
+    "description": "A per-pixel logistic-regression classifier over RGB values, the minimal fAIr reference model. It trains in seconds on CPU with no deep-learning dependencies, so contributors can run the full register, train, export, serve and predict flow on a small machine. Retrainable on any binary segmentation labels.",
+    "mlm:name": "sklearn-rgb-segmentation",
+    "mlm:architecture": "Logistic Regression (per-pixel RGB)",
+    "mlm:tasks": ["semantic-segmentation"],
+    "mlm:framework": "scikit-learn",
+    "mlm:framework_version": "1.8.0",
+    "mlm:pretrained": true,
+    "mlm:pretrained_source": null,
+    "fair:recommended_zoom": 19,
+    "fair:source_imagery": "https://tiles.openaerialmap.org/62d85d11d8499800053796c1/0/62d85d11d8499800053796c2/{z}/{x}/{y}",
+    "fair:preview": {
+      "center": [85.5205, 27.6295],
+      "zoom": { "recommended": 19, "min": 16, "max": 21 },
+      "imagery": {
+        "url": "https://tiles.openaerialmap.org/62d85d11d8499800053796c1/0/62d85d11d8499800053796c2/{z}/{x}/{y}",
+        "type": "tms",
+        "name": "OpenAerialMap - Banepa",
+        "attribution": "OpenAerialMap"
+      },
+      "place": { "name": "Banepa", "country": "Nepal", "country_code": "NP" }
+    },
+    "keywords": ["building", "semantic-segmentation", "polygon"],
+    "license": "Apache-2.0",
+    "version": "1",
+    "deprecated": false,
+    "providers": [
+      {
+        "name": "HOTOSM",
+        "roles": ["producer", "host"],
+        "url": "https://www.hotosm.org",
+        "description": "Humanitarian OpenStreetMap Team"
+      }
+    ],
+    "fair:metrics_spec": [
+      {
+        "key": "building_iou",
+        "name": "Building IoU",
+        "description": "Intersection over union of predicted and labelled building pixels on the held-out chips."
+      }
+    ],
+    "fair:split_spec": {
+      "strategy": "chip_holdout",
+      "default_ratio": 0.2,
+      "seed": 42,
+      "description": "Whole chips are held out for validation with scikit-learn train_test_split; a chip is never split across train and validation."
+    },
+    "fair:hyperparameters_spec": [
+      {
+        "key": "val_ratio",
+        "name": "Validation ratio",
+        "description": "Fraction of chips held out for validation.",
+        "type": "float",
+        "default": 0.2,
+        "min": 0.1,
+        "max": 0.5
+      },
+      {
+        "key": "split_seed",
+        "name": "Split seed",
+        "description": "Random seed for the train and validation split.",
+        "type": "int",
+        "default": 42,
+        "min": 0,
+        "max": 100000
+      },
+      {
+        "key": "max_iter",
+        "name": "Max iterations",
+        "description": "Maximum solver iterations for the logistic regression.",
+        "type": "int",
+        "default": 200,
+        "min": 50,
+        "max": 1000
+      },
+      {
+        "key": "confidence_threshold",
+        "name": "Confidence threshold",
+        "description": "Minimum building probability for a pixel to be kept.",
+        "type": "float",
+        "default": 0.5,
+        "min": 0.0,
+        "max": 1.0
+      }
+    ],
+    "mlm:input": [
+      {
+        "name": "RGB pixels",
+        "bands": [{ "name": "red" }, { "name": "green" }, { "name": "blue" }],
+        "input": {
+          "shape": [-1, 3],
+          "dim_order": ["pixels", "bands"],
+          "data_type": "float32"
+        },
+        "pre_processing_function": {
+          "format": "python",
+          "expression": "models.sklearn_rgb_segmentation.pipeline:preprocess"
+        }
+      }
+    ],
+    "mlm:output": [
+      {
+        "name": "class probabilities",
+        "tasks": ["semantic-segmentation"],
+        "result": {
+          "shape": [-1, 2],
+          "dim_order": ["pixels", "class"],
+          "data_type": "float32"
+        },
+        "classification:classes": [
+          { "name": "background", "value": 0, "description": "Non-building pixels" },
+          { "name": "building", "value": 1, "description": "Building pixels" }
+        ],
+        "post_processing_function": {
+          "format": "python",
+          "expression": "models.sklearn_rgb_segmentation.pipeline:postprocess"
+        }
+      }
+    ],
+    "mlm:hyperparameters": {
+      "training.val_ratio": 0.2,
+      "training.split_seed": 42,
+      "training.max_iter": 200,
+      "inference.confidence_threshold": 0.5
+    }
+  },
+  "assets": {
+    "checkpoint": {
+      "href": "https://raw.githubusercontent.com/hotosm/fAIr-models/refs/heads/develop/models/sklearn_rgb_segmentation/checkpoint/seed.pkl",
+      "type": "application/octet-stream; framework=scikit-learn",
+      "roles": ["mlm:model", "mlm:weights"],
+      "mlm:artifact_type": "pickle",
+      "raster:bands": [{ "name": "red" }, { "name": "green" }, { "name": "blue" }]
+    },
+    "model": {
+      "href": "https://raw.githubusercontent.com/hotosm/fAIr-models/refs/heads/develop/models/sklearn_rgb_segmentation/model/seed.onnx",
+      "type": "application/octet-stream; framework=onnx",
+      "roles": ["mlm:model", "mlm:compiled"],
+      "mlm:artifact_type": "onnx",
+      "raster:bands": [{ "name": "red" }, { "name": "green" }, { "name": "blue" }]
+    },
+    "source-code": {
+      "href": "https://github.com/hotosm/fAIr-models/tree/develop/models/sklearn_rgb_segmentation",
+      "type": "text/html",
+      "roles": ["code"],
+      "mlm:entrypoint": "models.sklearn_rgb_segmentation.pipeline:predict"
+    },
+    "mlm:training": {
+      "href": "ghcr.io/hotosm/fair-models/sklearn_rgb_segmentation:latest",
+      "type": "application/vnd.oci.image.index.v1+json",
+      "roles": ["mlm:training-runtime"]
+    },
+    "mlm:inference": {
+      "href": "ghcr.io/hotosm/fair-models/sklearn_rgb_segmentation:latest-inference",
+      "type": "application/vnd.oci.image.index.v1+json",
+      "roles": ["mlm:inference-runtime"]
+    },
+    "readme": {
+      "href": "https://raw.githubusercontent.com/hotosm/fAIr-models/refs/heads/develop/models/sklearn_rgb_segmentation/README.md",
+      "type": "text/markdown",
+      "roles": ["metadata"]
+    }
+  }
+}

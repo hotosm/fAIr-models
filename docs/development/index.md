@@ -8,7 +8,8 @@ The default dev stack is Docker Compose. See [Getting Started](../getting-starte
 
 ```bash
 just setup    # uv sync + docker compose up + zenml stack register
-just example  # run all 3 pipelines
+just build    # build model images for the local_docker orchestrator
+just example  # run all pipelines
 ```
 
 For production parity (kind cluster + helmfile, mirrors the EKS deployment), see [Kubernetes Dev Stack](k8s.md).

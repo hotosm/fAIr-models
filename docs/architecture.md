@@ -18,17 +18,17 @@ Catalog: fair-models
 |     Each item = complete model card (weights, code, Docker, MLM spec).
 |     Versioned by contributors, registered via CLI utility.
 |     |
-|     +-- Item: unet-segmentation (v1)           category: semantic-segmentation
-|     +-- Item: resnet18-classification (v1)      category: classification
-|     +-- Item: yolo11n-detection (v1)            category: object-detection
+|     +-- Item: dinov3s-buildings (v1)                    category: semantic-segmentation
+|     +-- Item: yolo_swag_waste_grid_segmentation (v1)    category: semantic-segmentation
+|     +-- Item: sklearn-rgb-segmentation (v1)             category: semantic-segmentation
 |
 +-- Collection: local-models
 |     Finetuned models produced by ZenML pipelines.
 |     Only promoted (production) versions appear here.
 |     |
-|     +-- Item: unet-segmentation-finetuned-banepa-v2   (production, latest-version)
-|     +-- Item: unet-segmentation-finetuned-banepa-v1   (deprecated: true)
-|     +-- Item: yolo11n-detection-finetuned-banepa-v1   (production)
+|     +-- Item: dinov3s-buildings-finetuned-banepa-v2   (production, latest-version)
+|     +-- Item: dinov3s-buildings-finetuned-banepa-v1   (deprecated: true)
+|     +-- Item: yolo-swag-waste-grid-segmentation-finetuned-banepa-v1   (production)
 |
 +-- Collection: datasets
       Training data registered via fAIr UI/backend.
@@ -47,8 +47,8 @@ Catalog: fair-models
 
     ### Base model item
 
-    See [`models/unet_segmentation/stac-item.json`](https://github.com/hotosm/fAIr-models/tree/develop/models/unet_segmentation/stac-item.json) for a complete example.
-    All three base models (`unet_segmentation`, `resnet18_classification`, `yolo11n_detection`) follow this structure.
+    See [`models/dinov3s_buildings/stac-item.json`](https://github.com/hotosm/fAIr-models/tree/develop/models/dinov3s_buildings/stac-item.json) for a complete example.
+    The base models (`dinov3s_buildings`, `yolo_swag_waste_grid_segmentation`, `sklearn_rgb_segmentation`) follow this structure.
 
     Key properties: `mlm:name`, `mlm:architecture`, `mlm:tasks`, `mlm:framework`,
     `mlm:input` (with `pre_processing_function`), `mlm:output` (with `post_processing_function`
@@ -80,15 +80,15 @@ Catalog: fair-models
 
 ## Tagging and Classification
 
-| Concept | Standard field | Example values |
-|---|---|---|
-| ML task | `mlm:tasks` | `semantic-segmentation`, `object-detection` |
-| Feature type tags | `keywords` (STAC core) | `building`, `road`, `tree` |
-| Output geometry | `keywords` (STAC core) | `polygon`, `line`, `point` |
-| Output classes | `classification:classes` | `{name: "building", value: 1}` |
-| Dataset label type | `label:type` (Label ext) | `vector`, `raster` |
-| Dataset label task | `label:tasks` (Label ext) | `segmentation`, `detection` |
-| Pre/post processing | `pre_processing_function` / `post_processing_function` (MLM) | Python entrypoint |
+| Concept             | Standard field                                               | Example values                              |
+| ------------------- | ------------------------------------------------------------ | ------------------------------------------- |
+| ML task             | `mlm:tasks`                                                  | `semantic-segmentation`, `object-detection` |
+| Feature type tags   | `keywords` (STAC core)                                       | `building`, `road`, `tree`                  |
+| Output geometry     | `keywords` (STAC core)                                       | `polygon`, `line`, `point`                  |
+| Output classes      | `classification:classes`                                     | `{name: "building", value: 1}`              |
+| Dataset label type  | `label:type` (Label ext)                                     | `vector`, `raster`                          |
+| Dataset label task  | `label:tasks` (Label ext)                                    | `segmentation`, `detection`                 |
+| Pre/post processing | `pre_processing_function` / `post_processing_function` (MLM) | Python entrypoint                           |
 
 ## Compatibility Validation
 
@@ -145,12 +145,12 @@ flowchart TD
     E --> H[STAC: local-models/model-v3 production]
 ```
 
-| ZenML action | STAC effect |
-|---|---|
+| ZenML action          | STAC effect                     |
+| --------------------- | ------------------------------- |
 | Promote to production | Create item, deprecate previous |
-| Archive version | Set `deprecated: true` on item |
-| Delete version | Remove item from collection |
-| Delete model | Remove all items + clean up |
+| Archive version       | Set `deprecated: true` on item  |
+| Delete version        | Remove item from collection     |
+| Delete model          | Remove all items + clean up     |
 
 ### 4. Inference
 
@@ -159,23 +159,23 @@ information to run inference: model weights, inference runtime, input/output spe
 
 ## Identity Model
 
-| Concept | Example | ZenML | STAC |
-|---|---|---|---|
-| Base model | `unet-segmentation` | Not in ZenML MCP | Item in `base-models` |
-| Finetuned model | `unet-segmentation-finetuned-banepa` | ZenML Model (many versions) | Item(s) in `local-models` |
-| Specific version | `unet-segmentation-finetuned-banepa` v2 | ZenML Model Version 2 | Item `unet-segmentation-finetuned-banepa-v2` |
-| Dataset | `buildings-banepa-semantic-segmentation` | Not in ZenML MCP | Item in `datasets` |
+| Concept          | Example                                  | ZenML                       | STAC                                         |
+| ---------------- | ---------------------------------------- | --------------------------- | -------------------------------------------- |
+| Base model       | `dinov3s-buildings`                      | Not in ZenML MCP            | Item in `base-models`                        |
+| Finetuned model  | `dinov3s-buildings-finetuned-banepa`     | ZenML Model (many versions) | Item(s) in `local-models`                    |
+| Specific version | `dinov3s-buildings-finetuned-banepa` v2  | ZenML Model Version 2       | Item `dinov3s-buildings-finetuned-banepa-v2` |
+| Dataset          | `buildings-banepa-semantic-segmentation` | Not in ZenML MCP            | Item in `datasets`                           |
 
 ## Infrastructure
 
-| Component | Local | Production |
-|---|---|---|
-| **STAC Catalog** | pystac JSON catalog | stac-fastapi + pgstac |
-| **ZenML** | SQLite | ZenML Server (PostgreSQL) |
-| **Orchestrator** | `local` | Kubernetes |
-| **Artifact Store** | local filesystem | S3 |
-| **Experiment Tracker** | MLflow | MLflow |
-| **Container Registry** | local Docker | ghcr.io |
+| Component              | Local               | Production                |
+| ---------------------- | ------------------- | ------------------------- |
+| **STAC Catalog**       | pystac JSON catalog | stac-fastapi + pgstac     |
+| **ZenML**              | SQLite              | ZenML Server (PostgreSQL) |
+| **Orchestrator**       | `local_docker`      | Kubernetes                |
+| **Artifact Store**     | local filesystem    | S3                        |
+| **Experiment Tracker** | MLflow              | MLflow                    |
+| **Container Registry** | local Docker        | ghcr.io                   |
 
 ??? abstract "Architecture Decisions"
 

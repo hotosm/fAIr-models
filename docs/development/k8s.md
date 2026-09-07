@@ -34,7 +34,7 @@ just tear             # destroy the cluster
 
 ```bash
 cd ..
-uv run --group example python examples/segmentation/run.py
+uv run python examples/run.py dinov3s_buildings
 ```
 
 ### Verifying results
@@ -53,7 +53,7 @@ uv run --group example python examples/segmentation/run.py
 All services run in namespace `fair` on a kind cluster.
 
 ```text title="Cluster topology (namespace: fair)"
-postgres (PG 17 + PostGIS)           zenml (ghcr.io/hotosm/zenml-postgres:0.93.3)
+postgres (PG 17 + PostGIS)           zenml (ghcr.io/hotosm/zenml-postgres:0.94.2)
   DBs: zenml, fair_models, mlflow      Official Helm chart, OCI registry
         |                               |
         +--- stac-fastapi-pgstac        +--- mlflow (community-charts/mlflow)

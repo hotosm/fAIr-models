@@ -2,7 +2,7 @@
 ONNX from PgStac, POST /predict against OAM TMS over the benchmark test AOI,
 print response.
 
-Usage: test_serve.py <model-dir-name>   (e.g. test_serve.py yolo11n_detection)
+Usage: test_serve.py <model-dir-name>   (e.g. test_serve.py dinov3s_buildings)
 """
 
 import json

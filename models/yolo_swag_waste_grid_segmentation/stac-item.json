@@ -14,46 +14,24 @@
     "type": "Polygon",
     "coordinates": [
       [
-        [
-          -180,
-          -90
-        ],
-        [
-          180,
-          -90
-        ],
-        [
-          180,
-          90
-        ],
-        [
-          -180,
-          90
-        ],
-        [
-          -180,
-          -90
-        ]
+        [-180, -90],
+        [180, -90],
+        [180, 90],
+        [-180, 90],
+        [-180, -90]
       ]
     ]
   },
-  "bbox": [
-    -180,
-    -90,
-    180,
-    90
-  ],
+  "bbox": [-180, -90, 180, 90],
   "properties": {
     "datetime": "2024-01-01T00:00:00Z",
     "created": "2026-07-20T00:00:00Z",
     "updated": "2026-07-20T00:00:00Z",
     "title": "Solid Waste Detection",
-    "description": "A grid-based semantic-segmentation model that classifies 5 m x 5 m UAV-imagery cells as background or waste. The classifier is pretrained on 60 globally distributed OpenAerialMap scenes.",
+    "description": "A grid-based semantic-segmentation model that classifies square UAV-imagery grid cells as background or waste. The classifier is pretrained on 60 globally distributed OpenAerialMap scenes.",
     "mlm:name": "yolo-swag-waste-grid-segmentation",
     "mlm:architecture": "yolo26xcls",
-    "mlm:tasks": [
-      "semantic-segmentation"
-    ],
+    "mlm:tasks": ["semantic-segmentation"],
     "mlm:framework": "PyTorch",
     "mlm:framework_version": "2.10.0",
     "mlm:pretrained": true,
@@ -63,21 +41,26 @@
     "fair:recommended_zoom": 22,
     "fair:min_zoom": 20,
     "fair:max_zoom": 22,
-    "keywords": [
-      "solid-waste",
-      "semantic-segmentation",
-      "polygon"
-    ],
+    "fair:pinned": true,
+    "fair:preview": {
+      "center": [85.5203, 27.6349],
+      "zoom": { "recommended": 18, "min": 14, "max": 22 },
+      "imagery": {
+        "url": "https://tiles.openaerialmap.org/62d85d11d8499800053796c1/0/62d85d11d8499800053796c2/{z}/{x}/{y}",
+        "type": "tms",
+        "name": "OpenAerialMap - Banepā",
+        "attribution": "OpenAerialMap"
+      },
+      "place": { "name": "Banepā", "country": "Nepal", "country_code": "NP" }
+    },
+    "keywords": ["solid-waste", "semantic-segmentation", "polygon"],
     "license": "MIT",
     "version": "1",
     "deprecated": false,
     "providers": [
       {
         "name": "HeiGIT",
-        "roles": [
-          "producer",
-          "host"
-        ],
+        "roles": ["producer", "host"],
         "url": "https://www.heigit.org",
         "description": "Heidelberg Institute for GeoInformation Technology"
       }
@@ -104,18 +87,8 @@
           }
         ],
         "input": {
-          "shape": [
-            -1,
-            3,
-            128,
-            128
-          ],
-          "dim_order": [
-            "batch",
-            "bands",
-            "height",
-            "width"
-          ],
+          "shape": [-1, 3, 128, 128],
+          "dim_order": ["batch", "bands", "height", "width"],
           "data_type": "float32"
         },
         "pre_processing_function": {
@@ -127,18 +100,10 @@
     "mlm:output": [
       {
         "name": "waste-segmentation",
-        "tasks": [
-          "semantic-segmentation"
-        ],
+        "tasks": ["semantic-segmentation"],
         "result": {
-          "shape": [
-            -1,
-            2
-          ],
-          "dim_order": [
-            "batch",
-            "class"
-          ],
+          "shape": [-1, 2],
+          "dim_order": ["batch", "class"],
           "data_type": "float32"
         },
         "description": "Per-cell classification of the grid.",
@@ -176,7 +141,7 @@
       "training.cell_size_m": 5.0,
       "training.sample_fraction": 1.0,
       "inference.confidence_threshold": 0.5,
-      "inference.cell_size_m": 5.0
+      "inference.cell_size_m": 10.0
     },
     "fair:split_spec": {
       "strategy": "grid_5m_stratified_grouped",
@@ -205,7 +170,7 @@
         "key": "learning_rate",
         "type": "float",
         "default": 0.001,
-        "min": 1e-07,
+        "min": 1e-7,
         "max": 1.0,
         "description": "Optimizer learning rate"
       },
@@ -221,11 +186,7 @@
         "key": "optimizer",
         "type": "str",
         "default": "AdamW",
-        "values": [
-          "AdamW",
-          "Adam",
-          "SGD"
-        ],
+        "values": ["AdamW", "Adam", "SGD"],
         "description": "Optimizer algorithm"
       },
       {
@@ -256,10 +217,7 @@
         "key": "scheduler",
         "type": "str",
         "default": "cosine",
-        "values": [
-          "cosine",
-          "none"
-        ],
+        "values": ["cosine", "none"],
         "description": "Learning rate scheduler applied per epoch"
       },
       {
@@ -288,10 +246,10 @@
       {
         "key": "cell_size_m",
         "type": "float",
-        "default": 5.0,
+        "default": 10.0,
         "min": 3.0,
         "max": 10.0,
-        "description": "Edge length, in meters, for training and inference grid cells"
+        "description": "Edge length, in meters, for inference grid cells; training uses training.cell_size_m"
       },
       {
         "key": "sample_fraction",
@@ -308,10 +266,7 @@
       "href": "https://raw.githubusercontent.com/GIScience/solid-waste-detection-for-fAIr/9f62fd1e4de6905a38620c195a6e62bcef280956/data/checkpoint/checkpoint_v1_extra_large.pt",
       "title": "Pretrained YOLO26x-cls model weights for solid waste detection",
       "type": "application/octet-stream; framework=pytorch",
-      "roles": [
-        "mlm:model",
-        "mlm:weights"
-      ],
+      "roles": ["mlm:model", "mlm:weights"],
       "mlm:artifact_type": "torch.save",
       "raster:bands": [
         {
@@ -329,10 +284,7 @@
       "href": "https://media.githubusercontent.com/media/GIScience/solid-waste-detection-for-fAIr/9f62fd1e4de6905a38620c195a6e62bcef280956/data/checkpoint/checkpoint_v1_extra_large.onnx",
       "title": "Portable YOLO26x-cls ONNX inference model",
       "type": "application/octet-stream; framework=onnx",
-      "roles": [
-        "mlm:model",
-        "mlm:compiled"
-      ],
+      "roles": ["mlm:model", "mlm:compiled"],
       "mlm:artifact_type": "onnx",
       "raster:bands": [
         {
@@ -349,33 +301,25 @@
     "source-code": {
       "href": "https://github.com/GIScience/fAIr-models/tree/master/models/yolo_swag_waste_grid_segmentation",
       "type": "text/html",
-      "roles": [
-        "code"
-      ],
+      "roles": ["code"],
       "mlm:entrypoint": "models.yolo_swag_waste_grid_segmentation.pipeline:predict"
     },
     "mlm:training": {
       "href": "ghcr.io/hotosm/fair-models/yolo_swag_waste_grid_segmentation:latest",
       "type": "application/vnd.oci.image.index.v1+json",
       "title": "Training Docker Image",
-      "roles": [
-        "mlm:training-runtime"
-      ]
+      "roles": ["mlm:training-runtime"]
     },
     "mlm:inference": {
       "href": "ghcr.io/hotosm/fair-models/yolo_swag_waste_grid_segmentation:latest-inference",
       "type": "application/vnd.oci.image.index.v1+json",
       "title": "Inference Docker Image",
-      "roles": [
-        "mlm:inference-runtime"
-      ]
+      "roles": ["mlm:inference-runtime"]
     },
     "readme": {
       "href": "https://raw.githubusercontent.com/GIScience/fAIr-models/refs/heads/master/models/yolo_swag_waste_grid_segmentation/README.md",
       "type": "text/markdown",
-      "roles": [
-        "metadata"
-      ],
+      "roles": ["metadata"],
       "title": "Model README"
     }
   },

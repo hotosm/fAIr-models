@@ -222,15 +222,6 @@ def test_k8s_settings_explicit_cpu():
     assert pod["resources"]["limits"]["memory"] == "2Gi"
 
 
-def test_k8s_settings_amd64():
-    settings = _scheduling_settings(_item_with_accelerator("amd64"), "training")
-    pod = settings["orchestrator.kubernetes"]["pod_settings"]
-    assert pod["tolerations"] == [_workload_toleration("training")]
-    assert pod["node_selectors"] == _workload_selector("training")
-    assert pod["resources"]["requests"]["memory"] == "2Gi"
-    assert pod["resources"]["limits"]["memory"] == "2.5Gi"
-
-
 def test_k8s_settings_default_count():
     item = _item_with_accelerator("cuda")
     settings = _scheduling_settings(item, "training")

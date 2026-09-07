@@ -1,5 +1,0 @@
-# BuildKit uses <Dockerfile>.dockerignore automatically (no repo-level side effects)
-*
-!models/resnet18_classification/
-!models/conftest.py
-!models/test_integration.py

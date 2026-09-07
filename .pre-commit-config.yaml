@@ -23,6 +23,15 @@ repos:
         pass_filenames: false
         stages: [pre-push]
 
+      - id: oxfmt
+        name: oxfmt
+        files: ^
+        exclude: ^(?:CHANGELOG\.md|uv\.lock)
+        entry: oxfmt --no-error-on-unmatched-pattern --write
+        language: node
+        types: [text]
+        additional_dependencies: ["oxfmt@0.35.0"]
+
   - repo: https://github.com/commitizen-tools/commitizen
     rev: v4.6.0
     hooks:

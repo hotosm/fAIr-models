@@ -275,7 +275,6 @@ def generate_inference_config(
     # asset (a distroless serving image for Knative live-serving) intentionally
     # omits ZenML/kubernetes. So the batch pipeline uses mlm:training, which has
     # the full toolchain. mlm:inference stays for the Knative live path only.
-    # TODO: May be in future we separate out the docker images
     runtime = model_item.assets.get("mlm:training") or model_item.assets.get("mlm:inference")
     if runtime and runtime.media_type == OCI_IMAGE_INDEX_TYPE:
         docker_cfg: dict[str, Any] = {

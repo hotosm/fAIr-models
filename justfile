@@ -14,7 +14,7 @@ setup:
     @echo "Stack up. ZenML :8080  MLflow :5000  STAC :8082  MinIO :9001"
     @echo "Next: 'just build' to build model images, then 'just example'."
 
-[doc('Build model image(s). No arg = all (e.g. `just build unet_segmentation`)')]
+[doc('Build model image(s). No arg = all (e.g. `just build dinov3s_buildings`)')]
 build model="":
     #!/usr/bin/env bash
     set -euo pipefail
@@ -25,7 +25,7 @@ build model="":
         docker build -f "$d/Dockerfile" --target runtime -t "$href" .
     done
 
-[doc('Run example pipeline(s). No arg = all (e.g. `just example unet_segmentation`)')]
+[doc('Run example pipeline(s). No arg = all (e.g. `just example dinov3s_buildings`)')]
 example model="":
     #!/usr/bin/env bash
     set -euo pipefail

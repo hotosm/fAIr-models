@@ -7,7 +7,7 @@ on:
       - "models/**"
       - "fair/schemas/**"
       - "fair/stac/validators.py"
-      - "fair/zenml/model_validator.py"
+      - "fair/utils/model_validator.py"
   pull_request:
     branches:
       - develop
@@ -15,7 +15,7 @@ on:
       - "models/**"
       - "fair/schemas/**"
       - "fair/stac/validators.py"
-      - "fair/zenml/model_validator.py"
+      - "fair/utils/model_validator.py"
 defaults:
   run:
     shell: bash

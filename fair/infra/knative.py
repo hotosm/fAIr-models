@@ -159,6 +159,10 @@ def build_knative_manifest(
             manifest["spec"]["template"]["spec"]["nodeSelector"] = {selector_key: str(node_pool)}
         else:
             print(f"skip node pool: FAIR_KNATIVE_NODE_SELECTOR_KEY unset; ignoring fair:node_pool '{node_pool}'")
+
+    if "fair:min_scale" in props:
+        annotations = manifest["spec"]["template"]["metadata"].setdefault("annotations", {})
+        annotations["autoscaling.knative.dev/min-scale"] = str(props["fair:min_scale"])
     return manifest
 
 

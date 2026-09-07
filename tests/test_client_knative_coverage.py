@@ -852,6 +852,18 @@ def test_node_pool_selector_key(monkeypatch: pytest.MonkeyPatch) -> None:
     assert "nodeSelector" not in manifest["spec"]["template"]["spec"]
 
 
+def test_min_scale_annotation_from_stac() -> None:
+    key = "autoscaling.knative.dev/min-scale"
+    item = _build_base_model_item()
+    before = knative_module.build_knative_manifest(item)["spec"]["template"]["metadata"]["annotations"][key]
+
+    item.properties["fair:min_scale"] = 1
+    after = knative_module.build_knative_manifest(item)["spec"]["template"]["metadata"]["annotations"][key]
+
+    assert before != "1"
+    assert after == "1"
+
+
 def test_ensure_knative_service_verifies_when_timeout_set(monkeypatch: pytest.MonkeyPatch) -> None:
     waited: list[str] = []
     monkeypatch.setattr(knative_module, "_knative_serving_installed", lambda: True)

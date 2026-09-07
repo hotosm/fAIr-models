@@ -41,6 +41,18 @@
     "fair:recommended_zoom": 22,
     "fair:min_zoom": 20,
     "fair:max_zoom": 22,
+    "fair:pinned": true,
+    "fair:preview": {
+      "center": [85.5203, 27.6349],
+      "zoom": { "recommended": 18, "min": 14, "max": 22 },
+      "imagery": {
+        "url": "https://tiles.openaerialmap.org/62d85d11d8499800053796c1/0/62d85d11d8499800053796c2/{z}/{x}/{y}",
+        "type": "tms",
+        "name": "OpenAerialMap - Banepā",
+        "attribution": "OpenAerialMap"
+      },
+      "place": { "name": "Banepā", "country": "Nepal", "country_code": "NP" }
+    },
     "keywords": ["solid-waste", "semantic-segmentation", "polygon"],
     "license": "MIT",
     "version": "1",

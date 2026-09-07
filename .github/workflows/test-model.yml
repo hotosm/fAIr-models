@@ -76,8 +76,6 @@ jobs:
 
       - name: Deploy stack + register
         run: |
-          docker pull ghcr.io/hotosm/zenml-postgres:0.94.2
-          kind load docker-image ghcr.io/hotosm/zenml-postgres:0.94.2 --name fair
           (cd infra && just up)
           echo "127.0.0.1 minio.fair.svc zenml.fair.svc mlflow.fair.svc stac.fair.svc" | sudo tee -a /etc/hosts
           uv run zenml init

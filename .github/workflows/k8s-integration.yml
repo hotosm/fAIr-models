@@ -53,10 +53,7 @@ jobs:
 
       - name: Deploy stack
         working-directory: infra
-        run: |
-          docker pull ghcr.io/hotosm/zenml-postgres:0.94.2
-          kind load docker-image ghcr.io/hotosm/zenml-postgres:0.94.2 --name fair
-          just up
+        run: just up
 
       - name: Dump ZenML install diagnostics
         if: failure()

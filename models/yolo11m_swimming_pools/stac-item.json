@@ -38,9 +38,20 @@
     "mlm:pretrained_source": "https://huggingface.co/mozilla-ai/swimming-pool-detector",
     "mlm:accelerator": "cuda",
     "mlm:accelerator_count": 1,
+    "fair:pinned": true,
     "fair:recommended_zoom": 18,
-    "fair:preview_location": { "type": "Point", "coordinates": [-7.581913, 42.46223] },
-    "fair:source_imagery": "https://tiles.openaerialmap.org/5d1cecc293e1130005fc0ebb/0/5d1cecc293e1130005fc0ebc/{z}/{x}/{y}",
+    "fair:source_imagery": "https://tiles.openaerialmap.org/690585b76415e43597ffd7ea/0/690585b76415e43597ffd7eb/{z}/{x}/{y}",
+    "fair:preview": {
+      "center": [-13.23723, 8.47532],
+      "zoom": { "recommended": 18, "min": 14, "max": 22 },
+      "imagery": {
+        "url": "https://tiles.openaerialmap.org/690585b76415e43597ffd7ea/0/690585b76415e43597ffd7eb/{z}/{x}/{y}",
+        "type": "tms",
+        "name": "OpenAerialMap - Freetown",
+        "attribution": "OpenAerialMap"
+      },
+      "place": { "name": "Freetown", "country": "Sierra Leone", "country_code": "SL" }
+    },
     "keywords": ["swimming_pool", "object-detection", "polygon"],
     "license": "AGPL-3.0-only",
     "version": "1",

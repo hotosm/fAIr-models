@@ -289,7 +289,7 @@ class TestBuildLocalModelItem:
         ]
         assert dataset_links[0].extra_fields.get("title") == "Buildings Banepa"
 
-    def test_recommended_zoom_inherited_but_not_source_imagery(self):
+    def test_recommended_zoom_not_copied_to_local_top_level(self):
         base = _base_model()
         base.properties["fair:recommended_zoom"] = 19
         base.properties["fair:source_imagery"] = "OpenAerialMap"
@@ -308,7 +308,8 @@ class TestBuildLocalModelItem:
             user_id="osm-42",
             providers=_PROVIDERS,
         )
-        assert local.properties["fair:recommended_zoom"] == 19
+        # Zoom is carried inside fair:preview, not as a top-level field.
+        assert "fair:recommended_zoom" not in local.properties
         assert "fair:source_imagery" not in local.properties
 
     def test_fair_preview_composed_from_base_and_training_aoi(self):
@@ -452,9 +453,9 @@ def test_slugify(text, expected):
 
 
 class TestLocalModelMetricsAndTiming:
-    def test_fair_metrics_stored_directly(self):
+    def test_fair_metrics_nested_under_fair_metrics(self):
         base = _base_model()
-        metrics = {"fair:accuracy": 0.95, "fair:mean_iou": 0.72, "fair:per_class_iou": {"building": 0.81}}
+        metrics = {"accuracy": 0.95, "mean_iou": 0.72, "per_class_iou": {"building": 0.81}}
         local = build_local_model_item(
             base_model_item=base,
             item_id="local-m",
@@ -471,8 +472,13 @@ class TestLocalModelMetricsAndTiming:
             providers=_PROVIDERS,
             metrics=metrics,
         )
-        assert local.properties["fair:accuracy"] == 0.95
-        assert local.properties["fair:per_class_iou"] == {"building": 0.81}
+        # Metrics live in one nested bag, keys stripped of the fair: prefix.
+        assert local.properties["fair:metrics"] == {
+            "accuracy": 0.95,
+            "mean_iou": 0.72,
+            "per_class_iou": {"building": 0.81},
+        }
+        assert "accuracy" not in local.properties
 
     def test_training_timing_stored(self):
         base = _base_model()

@@ -593,7 +593,6 @@ def build_local_model_item(
         "mlm:accelerator_count",
         "fair:metrics_spec",
         "fair:hyperparameters_spec",
-        "fair:recommended_zoom",
     ):
         if field in base_props:
             properties[field] = base_props[field]
@@ -605,7 +604,7 @@ def build_local_model_item(
         properties["fair:preview"] = preview
 
     if metrics:
-        properties.update(metrics)
+        properties["fair:metrics"] = dict(metrics)
 
     if training_started_at:
         properties["fair:training_started_at"] = training_started_at

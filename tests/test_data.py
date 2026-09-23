@@ -222,6 +222,23 @@ class TestUploadItemAssets:
         upload_item_assets(item, "s3://bucket/data", "datasets")
         assert item.assets["chips"].href == "s3://bucket/already-remote"
 
+    def test_skips_runtime_image_refs(self, caplog: pytest.LogCaptureFixture) -> None:
+        item = pystac.Item(
+            id="image-item",
+            geometry={"type": "Point", "coordinates": [0, 0]},
+            bbox=[0, 0, 0, 0],
+            datetime=_NOW,
+            properties={},
+        )
+        pinned = "ghcr.io/hotosm/fair-models/demo@sha256:" + "a" * 64
+        item.add_asset("mlm:training", pystac.Asset(href=pinned))
+        item.add_asset("mlm:inference", pystac.Asset(href=pinned))
+
+        upload_item_assets(item, "s3://bucket/data", "base-models")
+        assert item.assets["mlm:training"].href == pinned
+        assert item.assets["mlm:inference"].href == pinned
+        assert "not found locally" not in caplog.text
+
     def test_returns_item(self, tmp_path: Path) -> None:
         item = self._make_item(tmp_path)
         with patch("fair.utils.data.UPath"):

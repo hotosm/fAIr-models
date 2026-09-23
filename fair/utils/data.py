@@ -21,6 +21,8 @@ from urllib.parse import urlparse
 
 from upath import UPath
 
+from fair.infra.registry import IMAGE_ASSET_KEYS
+
 _PARALLEL_WORKERS = int(os.environ.get("FAIR_PARALLEL_IO_WORKERS", "8"))
 
 if TYPE_CHECKING:
@@ -239,12 +241,12 @@ def upload_item_assets(
     Assets use {data_prefix}/{collection_id}/{item.id}/v{version}/{asset_key}/...
     so archived items retain their files.
     Files are uploaded; directories are uploaded recursively.
-    Remote hrefs are left untouched.
+    Remote hrefs and runtime image references are left untouched.
 
     Returns the item with rewritten hrefs.
     """
     for key, asset in item.assets.items():
-        if _is_remote(asset.href):
+        if _is_remote(asset.href) or key in IMAGE_ASSET_KEYS:
             continue
 
         version = item.properties.get("version", "1")

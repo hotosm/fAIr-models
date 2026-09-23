@@ -20,9 +20,15 @@ spec:
         - image: model
           ports:
             - containerPort: 8080
+          # Knative routes traffic only after this probe passes.
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
           envFrom:
             - secretRef:
                 name: s3-credentials
+                optional: true
           env:
             - name: FAIR_KNATIVE_ONNX_THREADS
               value: "0"

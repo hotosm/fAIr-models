@@ -55,14 +55,14 @@ just up cluster
 
 ## Serving a model
 
-KNative services are registered per model, separately from the STAC registration:
+`fair basemodel register` deploys the model's KNative service, then checks
+`https://<model>.predict.$FAIR_PREDICT_DOMAIN/health`. It does not publish the
+model if the check fails.
 
 ```bash
-fair knative register models/dinov3s_buildings/stac-item.json
 fair knative status dinov3s-buildings
+fair knative reconcile --prune   # match services to active STAC base models
 ```
-
-`fair basemodel register` then checks `https://<model>.predict.$FAIR_PREDICT_DOMAIN/health` and refuses to publish a model whose service is not already serving.
 
 ## Running examples remotely
 

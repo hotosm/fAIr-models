@@ -1,5 +1,7 @@
 """Per-model KNative Service: manifest from a YAML template, applied via the k8s API."""
 
+import hashlib
+import json
 import os
 import time
 from collections.abc import Callable, Iterable
@@ -7,12 +9,19 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
+import httpx
 import pystac
 import yaml
 
 KNATIVE_GROUP = "serving.knative.dev"
 KNATIVE_VERSION = "v1"
 KNATIVE_PLURAL = "services"
+KNATIVE_REVISIONS = "revisions"
+MANAGED_BY_SELECTOR = "app.kubernetes.io/managed-by=fair"
+# Each deployment has an owner label. Services are deleted after their last owner leaves.
+OWNER_LABEL_PREFIX = "fair.hotosm.org/"
+LIVE_OWNER = "live"
+TEMPLATE_HASH_ANNOTATION = "fair.hotosm.org/template-hash"
 
 DEFAULT_NAMESPACE = os.environ.get("FAIR_KNATIVE_NAMESPACE") or "predict"
 # The ksvc shape lives in this YAML so resources/autoscaling/env retune without a code
@@ -51,14 +60,21 @@ def knative_service_host(name: str, namespace: str | None = None) -> str:
     return f"{knative_service_name(name)}.{ns}.svc.cluster.local"
 
 
-def public_service_url(name: str, domain: str) -> str:
-    # Must stay in lock-step with config-domain, domain-template, and the
-    # wildcard Ingress; this is the only place the shape lives.
-    return f"https://{knative_service_name(name)}.predict.{domain}"
+def knative_tag() -> str | None:
+    """Return this deployment's traffic tag, or None for the live route."""
+    return os.environ.get("FAIR_KNATIVE_TAG") or None
 
 
-def public_predict_url(name: str, domain: str) -> str:
-    return f"{public_service_url(name, domain)}/predict"
+def public_service_url(name: str, domain: str, tag: str | None = None) -> str:
+    # Keep this aligned with Knative's domain and tag templates and the wildcard ingress.
+    host = knative_service_name(name)
+    if tag:
+        host = f"{tag}-{host}"
+    return f"https://{host}.predict.{domain}"
+
+
+def public_predict_url(name: str, domain: str, tag: str | None = None) -> str:
+    return f"{public_service_url(name, domain, tag)}/predict"
 
 
 def health_url(endpoint_href: str) -> str:
@@ -77,8 +93,6 @@ def probe_service_health(
     verify: bool = True,
 ) -> None:
     """Return once the service answers 200, raise otherwise."""
-    import httpx
-
     try:
         response = httpx.get(url, timeout=timeout, verify=verify)
     except httpx.HTTPError as exc:
@@ -247,35 +261,187 @@ def _wait_until_ready(api: Any, name: str, namespace: str, timeout: int) -> None
         time.sleep(3)
 
 
+def _owner_label(tag: str | None) -> str:
+    return f"{OWNER_LABEL_PREFIX}{tag or LIVE_OWNER}"
+
+
+def _template_hash(template: dict[str, Any]) -> str:
+    return hashlib.sha256(json.dumps(template, sort_keys=True).encode()).hexdigest()[:16]
+
+
+def _get_service(api: Any, name: str, namespace: str) -> dict[str, Any] | None:
+    from kubernetes.client.exceptions import ApiException
+
+    try:
+        return api.get_namespaced_custom_object(
+            group=KNATIVE_GROUP, version=KNATIVE_VERSION, namespace=namespace, plural=KNATIVE_PLURAL, name=name
+        )
+    except ApiException as exc:
+        if exc.status == 404:
+            return None
+        raise
+
+
+def _revision_with_hash(api: Any, name: str, namespace: str, digest: str) -> str | None:
+    revisions = api.list_namespaced_custom_object(
+        group=KNATIVE_GROUP,
+        version=KNATIVE_VERSION,
+        namespace=namespace,
+        plural=KNATIVE_REVISIONS,
+        label_selector=f"serving.knative.dev/service={name}",
+    )
+    for revision in revisions.get("items", []):
+        metadata = revision.get("metadata") or {}
+        if (metadata.get("annotations") or {}).get(TEMPLATE_HASH_ANNOTATION) == digest:
+            return metadata.get("name")
+    return None
+
+
+def _route_traffic(service: dict[str, Any] | None) -> list[dict[str, Any]]:
+    """Return routes pinned to revisions so updates cannot move them."""
+    routes: list[dict[str, Any]] = []
+    for target in ((service or {}).get("status") or {}).get("traffic") or []:
+        if not target.get("revisionName"):
+            continue
+        route: dict[str, Any] = {"revisionName": target["revisionName"], "percent": int(target.get("percent") or 0)}
+        if target.get("tag"):
+            route["tag"] = target["tag"]
+        routes.append(route)
+    return routes
+
+
+def _desired_traffic(current: list[dict[str, Any]], ours: dict[str, Any], tag: str | None) -> list[dict[str, Any]]:
+    """Replace only this deployment's live or tagged route."""
+    if tag:
+        others = [t for t in current if t.get("tag") != tag and (t.get("tag") or t["percent"])]
+        if not any(t["percent"] for t in others):
+            # Serve the first revision until a live route is registered.
+            others = [{**ours, "percent": 100}, *({**t, "percent": 0} for t in others)]
+        return [*others, {**ours, "tag": tag, "percent": 0}]
+    return [{**ours, "percent": 100}, *({**t, "percent": 0} for t in current if t.get("tag"))]
+
+
+def _patch_service(api: Any, name: str, namespace: str, body: dict[str, Any]) -> None:
+    api.patch_namespaced_custom_object(
+        group=KNATIVE_GROUP, version=KNATIVE_VERSION, namespace=namespace, plural=KNATIVE_PLURAL, name=name, body=body
+    )
+
+
 def ensure_knative_service(
     item: pystac.Item,
     namespace: str | None = None,
     template_path: str | None = None,
 ) -> None:
-    """Apply the ksvc (create or patch, like `kubectl apply`). Raises KnativeNotInstalledError
-    when Knative Serving is absent. Set FAIR_KNATIVE_VERIFY_TIMEOUT>0 to block until Ready."""
+    """Create or update a service without changing other deployments' routes.
+
+    Matching revisions are reused. Set FAIR_KNATIVE_VERIFY_TIMEOUT above zero to wait
+    until ready. Raises KnativeNotInstalledError when Knative Serving is unavailable.
+    """
     if not _knative_serving_installed():
         msg = f"{KNATIVE_GROUP}/{KNATIVE_VERSION} is not registered on the cluster; install KNative Serving first"
         raise KnativeNotInstalledError(msg)
     ns = namespace if namespace is not None else DEFAULT_NAMESPACE
+    tag = knative_tag()
     manifest = build_knative_manifest(item, namespace=ns, template_path=template_path)
+    name = manifest["metadata"]["name"]
+    digest = _template_hash(manifest["spec"]["template"])
+    manifest["spec"]["template"]["metadata"].setdefault("annotations", {})[TEMPLATE_HASH_ANNOTATION] = digest
+    manifest["metadata"]["labels"][_owner_label(tag)] = "true"
+
     api = _custom_objects_api()
+    existing = _get_service(api, name, ns)
+    revision = _revision_with_hash(api, name, ns, digest) if existing else None
+    if revision:
+        # Keep other deployments on their existing revision.
+        del manifest["spec"]["template"]
+    ours: dict[str, Any] = {"revisionName": revision} if revision else {"latestRevision": True}
+    manifest["spec"]["traffic"] = _desired_traffic(_route_traffic(existing), ours, tag)
     _upsert_knative_service(api, manifest, ns)
+
     timeout = int(os.environ.get("FAIR_KNATIVE_VERIFY_TIMEOUT", "0"))
     if timeout > 0:
-        _wait_until_ready(api, manifest["metadata"]["name"], ns, timeout)
+        _wait_until_ready(api, name, ns, timeout)
+        if not revision:
+            # Pin the route so later template changes cannot move it.
+            service = _get_service(api, name, ns) or {}
+            latest = (service.get("status") or {}).get("latestReadyRevisionName")
+            if latest:
+                pinned = _desired_traffic(_route_traffic(service), {"revisionName": latest}, tag)
+                _patch_service(api, name, ns, {"spec": {"traffic": pinned}})
+
+
+def release_knative_service(model_name: str, namespace: str | None = None) -> bool:
+    """Release this deployment's route and delete the service if no owners remain.
+
+    Unlabelled services are treated as live. Returns True when anything is released.
+    """
+    ns = namespace if namespace is not None else DEFAULT_NAMESPACE
+    tag = knative_tag()
+    mine = _owner_label(tag)
+    name = knative_service_name(model_name)
+    api = _custom_objects_api()
+    service = _get_service(api, name, ns)
+    if service is None:
+        return False
+    labels = (service.get("metadata") or {}).get("labels") or {}
+    owners = {k for k, v in labels.items() if k.startswith(OWNER_LABEL_PREFIX) and v == "true"}
+    if mine not in owners and (tag or owners):
+        return False
+    if not owners - {mine}:
+        delete_knative_service(name, namespace=ns)
+        return True
+    current = _route_traffic(service)
+    if tag:
+        traffic = [t for t in current if t.get("tag") != tag]
+    else:
+        tagged = [t for t in current if t.get("tag")]
+        traffic = [{**tagged[0], "percent": 100}, *tagged[1:]] if tagged else current
+    body: dict[str, Any] = {"metadata": {"labels": {mine: None}}}
+    if traffic:
+        body["spec"] = {"traffic": traffic}
+    _patch_service(api, name, ns, body)
+    return True
 
 
 def reconcile_knative_services(
     items: Iterable[pystac.Item],
     namespace: str | None = None,
     template_path: str | None = None,
-) -> list[str]:
-    applied: list[str] = []
+    prune: bool = False,
+) -> dict[str, list[str]]:
+    """Match Knative services to the active base models.
+
+    When pruning, release services absent from `items`. An empty item list never prunes.
+    """
+    if not _knative_serving_installed():
+        msg = f"{KNATIVE_GROUP}/{KNATIVE_VERSION} is not registered on the cluster; install KNative Serving first"
+        raise KnativeNotInstalledError(msg)
+    ns = namespace if namespace is not None else DEFAULT_NAMESPACE
+    result: dict[str, list[str]] = {"applied": [], "removed": [], "failed": []}
+    wanted: set[str] = set()
     for item in items:
-        ensure_knative_service(item, namespace=namespace, template_path=template_path)
-        applied.append(item.id)
-    return applied
+        name = _service_name(item)
+        wanted.add(name)
+        try:
+            ensure_knative_service(item, namespace=ns, template_path=template_path)
+            result["applied"].append(name)
+        except Exception as exc:  # Continue if one item fails.
+            result["failed"].append(f"{name}: {exc}")
+    if prune and not wanted:
+        print("skip prune: no active base models found")
+    elif prune:
+        services = _custom_objects_api().list_namespaced_custom_object(
+            group=KNATIVE_GROUP,
+            version=KNATIVE_VERSION,
+            namespace=ns,
+            plural=KNATIVE_PLURAL,
+            label_selector=MANAGED_BY_SELECTOR,
+        )
+        for service in services.get("items", []):
+            name = service["metadata"]["name"]
+            if name not in wanted and release_knative_service(name, namespace=ns):
+                result["removed"].append(name)
+    return result
 
 
 def _knative_serving_installed() -> bool:

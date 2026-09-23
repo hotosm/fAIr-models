@@ -236,7 +236,8 @@ def upload_item_assets(
 ) -> pystac.Item:
     """Upload local asset files to S3 and rewrite hrefs in-place.
 
-    Deterministic path: {data_prefix}/{collection_id}/{item.id}/{asset_key}/...
+    Assets use {data_prefix}/{collection_id}/{item.id}/v{version}/{asset_key}/...
+    so archived items retain their files.
     Files are uploaded; directories are uploaded recursively.
     Remote hrefs are left untouched.
 
@@ -246,7 +247,8 @@ def upload_item_assets(
         if _is_remote(asset.href):
             continue
 
-        remote_base = f"{data_prefix}/{collection_id}/{item.id}/{key}"
+        version = item.properties.get("version", "1")
+        remote_base = f"{data_prefix}/{collection_id}/{item.id}/v{version}/{key}"
         local = Path(asset.href)
 
         if local.is_dir():

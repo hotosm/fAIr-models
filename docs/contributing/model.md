@@ -448,20 +448,24 @@ function. The same function powers three paths:
 
 ### Serving a model
 
-The KNative service is registered separately from, and before, the STAC item:
+Registering a base model deploys its KNative service first:
 
 ```bash
-fair knative register models/<model>/stac-item.json
-fair knative status <model-name>
+fair basemodel pin models/<model>/stac-item.json   # pin image tags to digests
 fair basemodel register models/<model>/stac-item.json
+fair knative status <model-name>
+fair knative reconcile --prune   # match services to active STAC base models
 ```
 
-`fair knative register` reads the `mlm:inference` image and the `source-code`
-`mlm:entrypoint` straight from the item file, so it runs before the model exists
-in STAC. `fair basemodel register` then requests
-`https://<model>.predict.$FAIR_PREDICT_DOMAIN/health` and refuses to publish
-unless the service answers 200. With `FAIR_PREDICT_DOMAIN` unset there is no
-public endpoint to check, and registration skips it.
+With a STAC API, `fair basemodel register` pins the `mlm:training` and
+`mlm:inference` images to digests. When the cluster is reachable, it deploys the
+service and checks `https://<model>.predict.$FAIR_PREDICT_DOMAIN/health`.
+Publication requires a 200 response. If `FAIR_PREDICT_DOMAIN` is unset, the
+check is skipped. `fair knative register` only deploys the service.
+
+Set `FAIR_KNATIVE_TAG` (for example, to `staging`) to serve the model at
+`https://<tag>-<model>.predict.$FAIR_PREDICT_DOMAIN` without changing the live
+route.
 
 === "inference_pipeline"
 

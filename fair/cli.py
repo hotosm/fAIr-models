@@ -16,6 +16,7 @@ import typer
 
 from fair.client import FairClient
 from fair.datasets import materialize_dataset
+from fair.infra import knative, registry, stack
 from fair.stac.builders import build_dataset_item
 from fair.stac.constants import (
     BASE_MODELS_COLLECTION,
@@ -212,17 +213,29 @@ def basemodel_register(
     typer.echo(_client().register_base_model(str(item)))
 
 
+@basemodel_app.command("pin")
+def basemodel_pin(
+    item: Annotated[Path, typer.Argument(exists=True, dir_okay=False, help="Base model STAC item JSON")],
+) -> None:
+    """Pin runtime image tags to digests in place."""
+    data = json.loads(item.read_text())
+    for key in registry.IMAGE_ASSET_KEYS:
+        asset = data.get("assets", {}).get(key)
+        if asset and "://" not in asset["href"]:
+            asset["href"] = registry.resolve_digest(asset["href"])
+            typer.echo(f"{key}: {asset['href']}")
+    item.write_text(json.dumps(data, indent=2) + "\n")
+
+
 @knative_app.command("register")
 def knative_register(
     item: Annotated[Path, typer.Argument(exists=True, dir_okay=False, help="Model STAC item JSON")],
     namespace: Annotated[str | None, typer.Option(help=_NAMESPACE_HELP)] = None,
 ) -> None:
-    """Create or update the KNative service serving a model, before registering the model itself."""
-    from fair.infra.knative import ensure_knative_service, knative_service_name
-
+    """Create or update a model's KNative service."""
     stac_item = pystac.Item.from_file(str(item))
-    ensure_knative_service(stac_item, namespace=namespace)
-    typer.echo(knative_service_name(stac_item.properties.get("mlm:name") or stac_item.id))
+    knative.ensure_knative_service(stac_item, namespace=namespace)
+    typer.echo(knative.knative_service_name(stac_item.properties.get("mlm:name") or stac_item.id))
 
 
 @knative_app.command("status")
@@ -230,11 +243,21 @@ def knative_status(
     name: Annotated[str, typer.Argument(help="Model name (mlm:name) or STAC item id")],
     namespace: Annotated[str | None, typer.Option(help=_NAMESPACE_HELP)] = None,
 ) -> None:
-    """Show whether a model's KNative service is Ready, and the URL it serves."""
-    from fair.infra.knative import knative_service_status
-
-    ready, url = knative_service_status(name, namespace=namespace)
+    """Show a model service's readiness and URL."""
+    ready, url = knative.knative_service_status(name, namespace=namespace)
     typer.echo(f"ready={ready}\turl={url}")
+
+
+@knative_app.command("reconcile")
+def knative_reconcile(
+    prune: Annotated[bool, typer.Option(help="Release services for models no longer in STAC")] = False,
+    namespace: Annotated[str | None, typer.Option(help=_NAMESPACE_HELP)] = None,
+) -> None:
+    """Match KNative services to active STAC base models."""
+    result = _client().reconcile_knative(knative_namespace=namespace, prune=prune)
+    typer.echo(json.dumps(result))
+    if result["failed"]:
+        raise typer.Exit(1)
 
 
 @knative_app.command("delete")
@@ -243,10 +266,8 @@ def knative_delete(
     namespace: Annotated[str | None, typer.Option(help=_NAMESPACE_HELP)] = None,
 ) -> None:
     """Delete a model's KNative service."""
-    from fair.infra.knative import delete_knative_service, knative_service_name
-
-    delete_knative_service(name, namespace=namespace)
-    typer.echo(f"deleted {knative_service_name(name)}")
+    knative.delete_knative_service(name, namespace=namespace)
+    typer.echo(f"deleted {knative.knative_service_name(name)}")
 
 
 @item_app.command("get")
@@ -322,8 +343,6 @@ def item_deprecate(
 @stack_app.command("up")
 def stack_up() -> None:
     """Start Postgres + MinIO + STAC + MLflow + ZenML and register the ZenML stack."""
-    from fair.infra import stack
-
     stack.up()
     typer.echo("stack up. ZenML :8080  MLflow :5000  STAC :8082  MinIO :9001")
 
@@ -333,8 +352,6 @@ def stack_down(
     volumes: Annotated[bool, typer.Option("--volumes/--keep", help="Also remove volumes and state")] = False,
 ) -> None:
     """Stop the stack (containers only, or --volumes to wipe state)."""
-    from fair.infra import stack
-
     stack.down(volumes=volumes)
     typer.echo("stack down")
 
@@ -342,8 +359,6 @@ def stack_down(
 @stack_app.command("status")
 def stack_status() -> None:
     """Show the status of the stack containers."""
-    from fair.infra import stack
-
     stack.status()
 
 

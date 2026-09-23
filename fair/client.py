@@ -9,6 +9,7 @@ import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+import httpx
 import pystac
 import yaml
 from upath import UPath
@@ -16,7 +17,9 @@ from zenml.client import Client
 from zenml.config import DockerSettings
 from zenml.enums import StackComponentType
 
+from fair.infra import knative, registry
 from fair.params import inference_params
+from fair.stac.api_backend import StacApiBackend
 from fair.stac.builders import (
     BaseModelItemParams,
     DatasetItemParams,
@@ -43,7 +46,6 @@ from fair.zenml.config import generate_inference_config, generate_training_confi
 from fair.zenml.promotion import promote_model_version, publish_promoted_model
 
 if TYPE_CHECKING:
-    from fair.stac.api_backend import StacApiBackend
     from fair.stac.pgstac_backend import PgStacBackend
 
 logger = logging.getLogger(__name__)
@@ -142,12 +144,11 @@ class FairClient:
             return self._cached_backend
         if self._stac_api_url:
             if self._dsn:
+                # pypgstac is optional unless a DSN backend is used.
                 from fair.stac.pgstac_backend import PgStacBackend
 
                 self._cached_backend = PgStacBackend(dsn=self._dsn, stac_api_url=self._stac_api_url)
                 return self._cached_backend
-            from fair.stac.api_backend import StacApiBackend
-
             self._cached_backend = StacApiBackend(self._stac_api_url, api_key=self._stac_api_key)
             return self._cached_backend
         self._cached_backend = StacCatalogManager(self._catalog_path)
@@ -180,7 +181,9 @@ class FairClient:
 
         source_url = asset.href
         filename = UPath(source_url).name or f"{asset_key}.bin"
-        remote_path = f"{prefix}/{collection_id}/{item.id}/{asset_key}/{filename}"
+        # Include the version so archived items retain their weights.
+        version = item.properties.get("version", "1")
+        remote_path = f"{prefix}/{collection_id}/{item.id}/v{version}/{asset_key}/{filename}"
 
         mirror(source_url, remote_path)
         asset.href = s3_uri_to_http_url(remote_path)
@@ -213,6 +216,11 @@ class FairClient:
             raise FairClientError(f"Schema validation failed: {errs}")
         if errs := validate_model_asset_urls(item, required_keys=("checkpoint", "model"), optional_keys=()):
             raise FairClientError(f"Asset URL validation failed: {errs}")
+        if self._stac_api_url:
+            try:
+                registry.pin_image_digests(item)
+            except registry.RegistryError as exc:
+                raise FairClientError(f"Image digest resolution failed: {exc}") from exc
 
         prev = find_previous_active_item(cat, BASE_MODELS_COLLECTION, "mlm:name", item.properties.get("mlm:name"))
         if prev:
@@ -221,14 +229,9 @@ class FairClient:
         else:
             item.properties.setdefault("version", "1")
 
-        # Deploy the per-model predict service (idempotent) when the cluster is reachable,
-        # then advertise + verify it before anything is mirrored, archived, or published,
-        # so a model with no live service leaves no half-written state behind.
-        if self._stac_api_url:
-            from fair.infra.knative import _knative_serving_installed, ensure_knative_service
-
-            if _knative_serving_installed():
-                ensure_knative_service(item, namespace=knative_namespace, template_path=knative_template)
+        # Deploy and verify before uploads or publication to avoid partial state.
+        if self._stac_api_url and knative._knative_serving_installed():
+            knative.ensure_knative_service(item, namespace=knative_namespace, template_path=knative_template)
 
         endpoint_href = self._ensure_inference_endpoint(item)
         if endpoint_href:
@@ -249,6 +252,23 @@ class FairClient:
         print(f"register: base-model {published.id} v{published.properties['version']}")
         return published.id
 
+    def reconcile_knative(
+        self,
+        *,
+        knative_template: str | None = None,
+        knative_namespace: str | None = None,
+        prune: bool = False,
+    ) -> dict[str, list[str]]:
+        """Match KNative services to active STAC base models."""
+        items = [
+            item
+            for item in self._get_backend().list_items(BASE_MODELS_COLLECTION)
+            if not item.properties.get("deprecated")
+        ]
+        return knative.reconcile_knative_services(
+            items, namespace=knative_namespace, template_path=knative_template, prune=prune
+        )
+
     def _ensure_inference_endpoint(self, item: pystac.Item) -> str | None:
         """Public `/predict` URL for the item, derived from the domain when the item omits one."""
         existing = item.assets.get("mlm:inference-endpoint")
@@ -261,9 +281,9 @@ class FairClient:
         if not public_domain:
             return None
 
-        from fair.infra.knative import public_predict_url
-
-        href = public_predict_url(item.properties.get("mlm:name") or item.id, public_domain)
+        href = knative.public_predict_url(
+            item.properties.get("mlm:name") or item.id, public_domain, knative.knative_tag()
+        )
         item.add_asset(
             "mlm:inference-endpoint",
             pystac.Asset(
@@ -276,17 +296,12 @@ class FairClient:
 
     def _verify_predict_service(self, endpoint_href: str) -> None:
         """Refuse to register a model whose KNative service is not already serving."""
-        from fair.infra.knative import (
-            DEFAULT_HEALTH_TIMEOUT,
-            KnativeServiceUnavailableError,
-            health_url,
-            probe_service_health,
-        )
-
-        timeout = float(os.environ.get("FAIR_KNATIVE_HEALTH_TIMEOUT") or DEFAULT_HEALTH_TIMEOUT)
+        timeout = float(os.environ.get("FAIR_KNATIVE_HEALTH_TIMEOUT") or knative.DEFAULT_HEALTH_TIMEOUT)
         try:
-            probe_service_health(health_url(endpoint_href), timeout=timeout, verify=self._predict_verify_ssl())
-        except KnativeServiceUnavailableError as exc:
+            knative.probe_service_health(
+                knative.health_url(endpoint_href), timeout=timeout, verify=self._predict_verify_ssl()
+            )
+        except knative.KnativeServiceUnavailableError as exc:
             raise FairClientError(
                 f"KNative predict service is not serving: {exc}. "
                 "Deploy it first with `fair knative register <stac-item.json>`."
@@ -565,8 +580,6 @@ class FairClient:
         collection: str = LOCAL_MODELS_COLLECTION,
         timeout: float = 120.0,
     ) -> dict[str, Any]:
-        import httpx
-
         cat = self._get_backend()
         try:
             model_item = cat.get_item(collection, model_id)
@@ -775,6 +788,17 @@ class UserScopedFairClient:
         paths: type[DatasetStoragePaths] | None = None,
     ) -> str:
         return self._client.register_dataset(dataset, user_id=self._user_id, paths=paths)
+
+    def reconcile_knative(
+        self,
+        *,
+        knative_template: str | None = None,
+        knative_namespace: str | None = None,
+        prune: bool = False,
+    ) -> dict[str, list[str]]:
+        return self._client.reconcile_knative(
+            knative_template=knative_template, knative_namespace=knative_namespace, prune=prune
+        )
 
     def submit_finetune(
         self,

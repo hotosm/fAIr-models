@@ -12,35 +12,15 @@
     "type": "Polygon",
     "coordinates": [
       [
-        [
-          85.50796508789062,
-          27.62392379022122
-        ],
-        [
-          85.53543090820312,
-          27.62392379022122
-        ],
-        [
-          85.53543090820312,
-          27.638523614271943
-        ],
-        [
-          85.50796508789062,
-          27.638523614271943
-        ],
-        [
-          85.50796508789062,
-          27.62392379022122
-        ]
+        [85.50796508789062, 27.62392379022122],
+        [85.53543090820312, 27.62392379022122],
+        [85.53543090820312, 27.638523614271943],
+        [85.50796508789062, 27.638523614271943],
+        [85.50796508789062, 27.62392379022122]
       ]
     ]
   },
-  "bbox": [
-    85.50796508789062,
-    27.62392379022122,
-    85.53543090820312,
-    27.638523614271943
-  ],
+  "bbox": [85.50796508789062, 27.62392379022122, 85.53543090820312, 27.638523614271943],
   "properties": {
     "datetime": "2024-01-01T00:00:00Z",
     "created": "2024-01-01T00:00:00Z",
@@ -48,27 +28,17 @@
     "title": "buildings-banepa-classification",
     "description": "Binary classification labels (building/no_building) derived from the Banepa OAM+OSM segmentation dataset.",
     "label:type": "raster",
-    "label:tasks": [
-      "classification"
-    ],
+    "label:tasks": ["classification"],
     "label:classes": [
       {
         "name": null,
-        "classes": [
-          "building"
-        ]
+        "classes": ["building"]
       }
     ],
     "label:properties": null,
     "label:description": "Binary building labels derived from segmentation masks",
-    "label:methods": [
-      "automated"
-    ],
-    "keywords": [
-      "building",
-      "classification",
-      "polygon"
-    ],
+    "label:methods": ["automated"],
+    "keywords": ["building", "classification", "polygon"],
     "fair:user_id": "anonymous",
     "version": "1",
     "deprecated": false,
@@ -76,10 +46,7 @@
     "providers": [
       {
         "name": "HOTOSM",
-        "roles": [
-          "producer",
-          "licensor"
-        ],
+        "roles": ["producer", "licensor"],
         "url": "https://www.hotosm.org"
       }
     ]
@@ -88,17 +55,13 @@
     "chips": {
       "href": "../train/oam",
       "type": "image/tiff; application=geotiff",
-      "roles": [
-        "data"
-      ],
+      "roles": ["data"],
       "title": "Training chips"
     },
     "labels": {
       "href": "../train/osm",
       "type": "application/geo+json",
-      "roles": [
-        "labels"
-      ],
+      "roles": ["labels"],
       "title": "OSM building polygons (binary labels derived by chip intersection)"
     }
   },

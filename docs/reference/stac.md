@@ -37,6 +37,6 @@ STAC catalog management, item builders, validators, and backends.
 ## Constants
 
 ::: fair.stac.constants
-    options:
-      show_if_no_docstring: true
-      members_order: alphabetical
+options:
+show_if_no_docstring: true
+members_order: alphabetical

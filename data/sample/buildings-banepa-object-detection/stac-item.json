@@ -12,35 +12,15 @@
     "type": "Polygon",
     "coordinates": [
       [
-        [
-          85.50796508789062,
-          27.62392379022122
-        ],
-        [
-          85.53543090820312,
-          27.62392379022122
-        ],
-        [
-          85.53543090820312,
-          27.638523614271943
-        ],
-        [
-          85.50796508789062,
-          27.638523614271943
-        ],
-        [
-          85.50796508789062,
-          27.62392379022122
-        ]
+        [85.50796508789062, 27.62392379022122],
+        [85.53543090820312, 27.62392379022122],
+        [85.53543090820312, 27.638523614271943],
+        [85.50796508789062, 27.638523614271943],
+        [85.50796508789062, 27.62392379022122]
       ]
     ]
   },
-  "bbox": [
-    85.50796508789062,
-    27.62392379022122,
-    85.53543090820312,
-    27.638523614271943
-  ],
+  "bbox": [85.50796508789062, 27.62392379022122, 85.53543090820312, 27.638523614271943],
   "properties": {
     "datetime": "2024-01-01T00:00:00Z",
     "created": "2024-01-01T00:00:00Z",
@@ -48,29 +28,17 @@
     "title": "buildings-banepa-object-detection",
     "description": "OpenAerialMap chips with OSM building footprints (GeoJSON) for object detection in Banepa, Nepal.",
     "label:type": "vector",
-    "label:tasks": [
-      "object-detection"
-    ],
+    "label:tasks": ["object-detection"],
     "label:classes": [
       {
         "name": "building",
-        "classes": [
-          "building"
-        ]
+        "classes": ["building"]
       }
     ],
-    "label:properties": [
-      "building"
-    ],
+    "label:properties": ["building"],
     "label:description": "Building footprints (GeoJSON polygons) used as object detection labels",
-    "label:methods": [
-      "manual"
-    ],
-    "keywords": [
-      "building",
-      "object-detection",
-      "polygon"
-    ],
+    "label:methods": ["manual"],
+    "keywords": ["building", "object-detection", "polygon"],
     "fair:user_id": "anonymous",
     "version": "1",
     "deprecated": false,
@@ -78,10 +46,7 @@
     "providers": [
       {
         "name": "HOTOSM",
-        "roles": [
-          "producer",
-          "licensor"
-        ],
+        "roles": ["producer", "licensor"],
         "url": "https://www.hotosm.org"
       }
     ]
@@ -90,17 +55,13 @@
     "chips": {
       "href": "../train/oam",
       "type": "image/tiff; application=geotiff",
-      "roles": [
-        "data"
-      ],
+      "roles": ["data"],
       "title": "Training chips"
     },
     "labels": {
       "href": "../train/osm",
       "type": "application/geo+json",
-      "roles": [
-        "labels"
-      ],
+      "roles": ["labels"],
       "title": "OSM building footprints (GeoJSON)"
     }
   },

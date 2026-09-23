@@ -1,22 +1,16 @@
 {
-    "allowed_keywords": [
-        "*"
-    ],
-    "allowed_tasks": [
-        "semantic-segmentation",
-        "instance-segmentation",
-        "object-detection",
-        "classification"
-    ],
-    "allowed_geometry_types": [
-        "polygon",
-        "line",
-        "point"
-    ],
-    "task_label_mapping": {
-        "semantic-segmentation": "segmentation",
-        "instance-segmentation": "segmentation",
-        "object-detection": "detection",
-        "classification": "classification"
-    }
+  "allowed_keywords": ["*"],
+  "allowed_tasks": [
+    "semantic-segmentation",
+    "instance-segmentation",
+    "object-detection",
+    "classification"
+  ],
+  "allowed_geometry_types": ["polygon", "line", "point"],
+  "task_label_mapping": {
+    "semantic-segmentation": "segmentation",
+    "instance-segmentation": "segmentation",
+    "object-detection": "detection",
+    "classification": "classification"
+  }
 }

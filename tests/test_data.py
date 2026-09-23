@@ -197,14 +197,16 @@ class TestUploadItemAssets:
 
         upload_item_assets(item, "s3://bucket/data", "datasets")
 
-        assert item.assets["chips"].href == "https://bucket.s3.us-east-1.amazonaws.com/data/datasets/test-dataset/chips"
+        assert (
+            item.assets["chips"].href == "https://bucket.s3.us-east-1.amazonaws.com/data/datasets/test-dataset/v1/chips"
+        )
         assert (
             item.assets["labels"].href
-            == "https://bucket.s3.us-east-1.amazonaws.com/data/datasets/test-dataset/labels/a.geojson"
+            == "https://bucket.s3.us-east-1.amazonaws.com/data/datasets/test-dataset/v1/labels/a.geojson"
         )
         assert (
             item.assets["download"].href
-            == "https://bucket.s3.us-east-1.amazonaws.com/data/datasets/test-dataset/download/archive.zip"
+            == "https://bucket.s3.us-east-1.amazonaws.com/data/datasets/test-dataset/v1/download/archive.zip"
         )
 
     def test_skips_remote_hrefs(self) -> None:

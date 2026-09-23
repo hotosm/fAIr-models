@@ -136,7 +136,7 @@ def test_get_backend_caches_first_call(monkeypatch: pytest.MonkeyPatch) -> None:
         def __init__(self, *_: object, **__: object) -> None:
             backend_init_count["calls"] += 1
 
-    monkeypatch.setattr("fair.stac.api_backend.StacApiBackend", _SpyBackend)
+    monkeypatch.setattr("fair.client.StacApiBackend", _SpyBackend)
 
     client = FairClient.__new__(FairClient)
     client._zenml_store_url = None

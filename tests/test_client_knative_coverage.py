@@ -286,7 +286,7 @@ def test_mirror_asset_to_artifact_store_updates_asset_href(monkeypatch) -> None:
     client._mirror_asset_to_artifact_store(item, "checkpoint", BASE_MODELS_COLLECTION)
     assert (
         item.assets["checkpoint"].href
-        == "https://cdn.example.com/bucket/base-models/dinov3s-buildings/checkpoint/checkpoint.pt"
+        == "https://cdn.example.com/bucket/base-models/dinov3s-buildings/v1/checkpoint/checkpoint.pt"
     )
 
     monkeypatch.setattr(client, "_artifact_store_prefix", lambda: None)
@@ -827,6 +827,9 @@ class _ReadyApi:
 
     def get_namespaced_custom_object(self, **_: Any) -> dict[str, Any]:
         return {"status": {"conditions": self._conditions}}
+
+    def list_namespaced_custom_object(self, **_: Any) -> dict[str, Any]:
+        return {"items": []}
 
 
 def test_wait_until_ready_states() -> None:

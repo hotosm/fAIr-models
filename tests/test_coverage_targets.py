@@ -253,14 +253,7 @@ def test_backend_and_dataclass_registration_branches(
             self.stac_api_url = stac_api_url
             self.api_key = api_key
 
-    def _fake_import_with_api(name: str, *args: Any, **kwargs: Any) -> Any:
-        if name == "fair.stac.api_backend":
-            return SimpleNamespace(StacApiBackend=_DummyStacApiBackend)
-        if name == "fair.stac.pgstac_backend":
-            return SimpleNamespace(PgStacBackend=_DummyPgStacBackend)
-        return real_import(name, *args, **kwargs)
-
-    monkeypatch.setattr(builtins, "__import__", _fake_import_with_api)
+    monkeypatch.setattr(client_module, "StacApiBackend", _DummyStacApiBackend)
 
     api_backend = FairClient(stac_api_url="https://stac.example.com", config_dir=str(tmp_path))._get_backend()
     assert isinstance(api_backend, _DummyStacApiBackend)

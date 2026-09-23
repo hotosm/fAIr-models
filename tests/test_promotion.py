@@ -348,8 +348,8 @@ def test_publish_stores_fair_metrics(mock_cls, cm):
     mock_cls.return_value = client
     client.get_model_version.return_value = mv
     item = _publish(cm, version=1)
-    assert item.properties["fair:accuracy"] == 0.95
-    assert item.properties["fair:mean_iou"] == 0.80
+    assert item.properties["fair:metrics"] == {"accuracy": 0.95, "mean_iou": 0.80}
+    assert "fair:accuracy" not in item.properties
     assert "other_key" not in item.properties
 
 

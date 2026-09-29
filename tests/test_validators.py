@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 import json
+from pathlib import Path
 from typing import ClassVar
 from unittest.mock import patch
 
@@ -18,6 +19,8 @@ from fair.stac.validators import (
     validate_pipeline_config,
     validate_predictions_geojson,
 )
+
+_DINOV3_STAC_ITEM = Path(__file__).parents[1] / "models" / "dinov3s_buildings" / "stac-item.json"
 
 _MLM_INPUT = [
     {
@@ -485,6 +488,59 @@ class TestValidatePredictionsGeojson:
         }
         errors = validate_predictions_geojson(geojson)
         assert any("geometry" in e for e in errors)
+
+
+def _model_with_prediction_variables() -> pystac.Item:
+    return pystac.Item.from_file(str(_DINOV3_STAC_ITEM))
+
+
+def _polygon_predictions(*properties: dict) -> dict:
+    square = {"type": "Polygon", "coordinates": [[[0, 0], [1, 0], [1, 1], [0, 0]]]}
+    return {
+        "type": "FeatureCollection",
+        "features": [{"type": "Feature", "geometry": square, "properties": props} for props in properties],
+    }
+
+
+class TestPredictionVariables:
+    def test_item_with_declared_variables_is_valid(self):
+        assert validate_item(_model_with_prediction_variables()) == []
+
+    def test_item_rejects_output_variable_missing_from_cube_variables(self):
+        model = _model_with_prediction_variables()
+        del model.properties["cube:variables"]["score"]
+
+        assert "mlm:output 'buildings' variable 'score' has no entry in cube:variables" in validate_item(model)
+
+    def test_predictions_carrying_every_declared_variable_pass(self):
+        model = _model_with_prediction_variables()
+        model.properties["cube:variables"]["class"]["nodata"] = -1
+        predictions = _polygon_predictions({"class": 1, "score": 0.9}, {"class": -1, "score": 0.1})
+
+        assert validate_predictions_geojson(predictions, model) == []
+
+    def test_predictions_missing_a_declared_variable_fail(self):
+        predictions = _polygon_predictions({"class": 1})
+
+        assert validate_predictions_geojson(predictions, _model_with_prediction_variables()) == [
+            "features[0].properties missing declared variable 'score'"
+        ]
+
+    def test_predictions_with_null_properties_fail(self):
+        predictions = _polygon_predictions({"class": 1, "score": 0.5})
+        predictions["features"][0]["properties"] = None
+
+        assert validate_predictions_geojson(predictions, _model_with_prediction_variables()) == [
+            "features[0].properties missing declared variable 'class'",
+            "features[0].properties missing declared variable 'score'",
+        ]
+
+    def test_predictions_with_undeclared_class_value_fail(self):
+        predictions = _polygon_predictions({"class": 7, "score": 0.5})
+
+        assert validate_predictions_geojson(predictions, _model_with_prediction_variables()) == [
+            "features[0].properties.class=7 not in declared values [1]"
+        ]
 
 
 class TestValidateMetricsAgainstSpec:

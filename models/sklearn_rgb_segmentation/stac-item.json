@@ -7,6 +7,7 @@
     "https://stac-extensions.github.io/classification/v2.0.0/schema.json",
     "https://stac-extensions.github.io/file/v2.1.0/schema.json",
     "https://stac-extensions.github.io/raster/v1.1.0/schema.json",
+    "https://stac-extensions.github.io/datacube/v2.3.0/schema.json",
     "https://hotosm.github.io/fAIr-models/schemas/v1.0.0/base-model/schema.json"
   ],
   "id": "sklearn-rgb-segmentation",
@@ -144,8 +145,45 @@
           "format": "python",
           "expression": "models.sklearn_rgb_segmentation.pipeline:postprocess"
         }
+      },
+      {
+        "name": "buildings",
+        "description": "Building polygons traced from the thresholded pixel mask, one row per feature.",
+        "tasks": ["semantic-segmentation"],
+        "result": { "shape": [-1, 2], "dim_order": ["batch", "variables"], "data_type": "float32" },
+        "variables": ["class", "label"],
+        "classification:classes": [
+          { "name": "building", "value": 1, "description": "Building pixels" }
+        ],
+        "post_processing_function": {
+          "format": "python",
+          "expression": "models.sklearn_rgb_segmentation.pipeline:postprocess"
+        }
       }
     ],
+    "cube:dimensions": {
+      "features": {
+        "type": "geometry",
+        "bbox": [-180, -90, 180, 90],
+        "geometry_types": ["Polygon"],
+        "reference_system": 4326
+      }
+    },
+    "cube:variables": {
+      "label": {
+        "dimensions": ["features"],
+        "type": "data",
+        "description": "Class name of the predicted class (building).",
+        "values": ["building"]
+      },
+      "class": {
+        "dimensions": ["features"],
+        "type": "data",
+        "description": "Predicted class value (1 = building).",
+        "values": [1],
+        "data_type": "uint8"
+      }
+    },
     "mlm:hyperparameters": {
       "training.val_ratio": 0.2,
       "training.split_seed": 42,

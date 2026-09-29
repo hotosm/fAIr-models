@@ -11,6 +11,7 @@ from fair.stac.builders import (
     build_dataset_item,
     build_local_model_item,
 )
+from fair.stac.constants import DATACUBE_SCHEMA
 
 _GEOM = {"type": "Polygon", "coordinates": [[[0, -90], [180, -90], [180, 90], [0, 90], [0, -90]]]}
 _MLM_INPUT = [
@@ -311,6 +312,57 @@ class TestBuildLocalModelItem:
         # Zoom is carried inside fair:preview, not as a top-level field.
         assert "fair:recommended_zoom" not in local.properties
         assert "fair:source_imagery" not in local.properties
+
+    def test_prediction_variables_inherited_with_local_extent(self):
+        base = _base_model()
+        base.properties["cube:dimensions"] = {"features": {"type": "geometry", "bbox": [-180, -90, 180, 90]}}
+        base.properties["cube:variables"] = {"class": {"dimensions": ["features"], "type": "data", "values": [1]}}
+        dataset_geometry = {
+            "type": "Polygon",
+            "coordinates": [[[85.51, 27.63], [85.53, 27.63], [85.53, 27.65], [85.51, 27.65], [85.51, 27.63]]],
+        }
+        local = build_local_model_item(
+            base_model_item=base,
+            item_id="local-v1",
+            checkpoint_href="https://example.com/finetuned.pt",
+            onnx_href="https://example.com/finetuned.onnx",
+            mlm_hyperparameters={"epochs": 1},
+            keywords=["building"],
+            base_model_href="../base-models/example-unet/example-unet.json",
+            dataset_href="../datasets/ds-1/ds-1.json",
+            version="2",
+            title="Local UNet v2",
+            description="Finetuned model.",
+            user_id="osm-42",
+            providers=_PROVIDERS,
+            geometry=dataset_geometry,
+        )
+
+        assert local.properties["cube:variables"] == base.properties["cube:variables"]
+        assert local.properties["cube:dimensions"]["features"]["bbox"] == local.bbox
+        assert DATACUBE_SCHEMA in local.stac_extensions
+
+    def test_no_datacube_extension_without_prediction_variables(self):
+        base = _base_model()
+        base.properties["cube:dimensions"] = {"features": {"type": "geometry", "bbox": [-180, -90, 180, 90]}}
+        local = build_local_model_item(
+            base_model_item=base,
+            item_id="local-v1",
+            checkpoint_href="https://example.com/finetuned.pt",
+            onnx_href="https://example.com/finetuned.onnx",
+            mlm_hyperparameters={"epochs": 1},
+            keywords=["building"],
+            base_model_href="../base-models/example-unet/example-unet.json",
+            dataset_href="../datasets/ds-1/ds-1.json",
+            version="2",
+            title="Local UNet v2",
+            description="Finetuned model.",
+            user_id="osm-42",
+            providers=_PROVIDERS,
+        )
+
+        assert DATACUBE_SCHEMA not in local.stac_extensions
+        assert "cube:dimensions" not in local.properties
 
     def test_fair_preview_composed_from_base_and_training_aoi(self):
         base = _base_model()

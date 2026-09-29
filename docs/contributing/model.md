@@ -90,6 +90,39 @@ acceptable as an intermediate step, but the `post_processing_function` must
 ultimately convert to one of the supported geometry types for downstream
 consumption.
 
+Each prediction feature carries properties the STAC item declares, using MLM
+[data variables](https://github.com/stac-extensions/mlm#data-variables). Add a
+second `mlm:output` entry for the post-processed features with a `variables`
+list, a `result.dim_order` of `["batch", "variables"]`, and the
+`classification:classes` of the predicted features. Describe each variable in
+`cube:variables` and the features in a `geometry` dimension of
+`cube:dimensions`, and list the
+[datacube extension](https://github.com/stac-extensions/datacube) in
+`stac_extensions`. The class variable holds the class `value` and declares
+those values in its `values` list. A model can declare more variables, such as
+a confidence score with an `extent` of `[0, 1]`. Declare every property the
+features carry, including descriptive ones such as a class name `label`.
+
+The output's `result.data_type` is one type for the whole row. When the
+variables differ in type, give each variable its own `data_type` in
+`cube:variables` and read types from there. A variable holding text, such as
+`label`, omits `data_type` and lists its allowed text in `values`.
+
+```json title="Prediction variables in stac-item.json"
+"cube:dimensions": {
+  "features": { "type": "geometry", "bbox": [-180, -90, 180, 90], "geometry_types": ["Polygon"] }
+},
+"cube:variables": {
+  "class": { "dimensions": ["features"], "type": "data", "values": [1], "data_type": "uint8" },
+  "score": { "dimensions": ["features"], "type": "data", "extent": [0, 1], "data_type": "float32" }
+}
+```
+
+The integration test fails when a prediction feature misses a declared
+variable or carries an undeclared class value. The fAIr frontend colours
+predictions by `color_hint`, builds the legend from class titles, and shows the
+declared variables on hover.
+
 ### Sample Data Layout
 
 ```text title="data/sample/"

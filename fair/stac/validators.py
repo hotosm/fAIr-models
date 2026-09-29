@@ -21,7 +21,29 @@ def validate_item(item: pystac.Item) -> list[str]:
         errors.append(str(e))
     errors.extend(_validate_keyword_vocabulary(item))
     errors.extend(_validate_hyperparameters_spec_coverage(item))
+    errors.extend(_validate_prediction_variables_declared(item))
     return errors
+
+
+def prediction_output(properties: dict) -> dict | None:
+    """The `mlm:output` entry describing post-processed prediction features through MLM `variables`."""
+    return next((output for output in properties.get("mlm:output", []) if output.get("variables")), None)
+
+
+def _variable_names(output: dict) -> list[str]:
+    return [variable if isinstance(variable, str) else variable["name"] for variable in output["variables"]]
+
+
+def _validate_prediction_variables_declared(item: pystac.Item) -> list[str]:
+    output = prediction_output(item.properties)
+    if output is None:
+        return []
+    declared = item.properties.get("cube:variables", {})
+    return [
+        f"mlm:output '{output['name']}' variable '{name}' has no entry in cube:variables"
+        for name in _variable_names(output)
+        if name not in declared
+    ]
 
 
 _MODEL_ASSET_KEYS: tuple[str, ...] = ("checkpoint", "model")
@@ -201,7 +223,28 @@ def validate_predictions_geojson(
                 )
         if "properties" not in feat:
             errors.append(f"features[{i}] missing 'properties'")
+        elif base_model_item is not None:
+            errors.extend(_validate_feature_variables(i, feat["properties"] or {}, base_model_item.properties))
 
+    return errors
+
+
+def _validate_feature_variables(index: int, feature_properties: dict, model_properties: dict) -> list[str]:
+    output = prediction_output(model_properties)
+    if output is None:
+        return []
+    declared = model_properties.get("cube:variables", {})
+    errors: list[str] = []
+    for name in _variable_names(output):
+        if name not in feature_properties:
+            errors.append(f"features[{index}].properties missing declared variable '{name}'")
+            continue
+        # validate_item guarantees every output variable is declared, so a missing entry is a real error.
+        variable = declared[name]
+        allowed = variable.get("values")
+        value = feature_properties[name]
+        if allowed is not None and value not in allowed and value != variable.get("nodata"):
+            errors.append(f"features[{index}].properties.{name}={value!r} not in declared values {allowed}")
     return errors
 
 

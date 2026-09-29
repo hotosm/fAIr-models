@@ -86,6 +86,9 @@ def test_full_pipeline(
     predict_images: str,
     zenml_server: dict[str, str],
 ) -> None:
+    from fair.stac.constants import LOCAL_MODELS_COLLECTION
+    from fair.stac.validators import validate_predictions_geojson
+
     os.environ.update(zenml_server)
 
     fair_client.setup()
@@ -109,8 +112,9 @@ def test_full_pipeline(
     assert local_model_id
 
     predictions = fair_client.predict(local_model_id, image_path=predict_images)
-    assert predictions["type"] == "FeatureCollection"
-    assert "features" in predictions
+    local_model_item = fair_client._get_backend().get_item(LOCAL_MODELS_COLLECTION, local_model_id)
+    assert predictions["features"]
+    assert validate_predictions_geojson(predictions, local_model_item) == []
 
     export_dir = os.environ.get("FAIR_CI_ONNX_EXPORT_DIR")
     if export_dir:

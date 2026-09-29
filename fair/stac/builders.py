@@ -11,6 +11,7 @@ import pystac
 from fair.stac.constants import (
     BASE_MODEL_EXTENSIONS,
     CONTAINER_REGISTRIES,
+    DATACUBE_SCHEMA,
     DATASET_EXTENSIONS,
     LOCAL_MODEL_EXTENSIONS,
     OCI_IMAGE_INDEX_TYPE,
@@ -513,6 +514,14 @@ def _compose_local_preview(
     return preview
 
 
+def _dimensions_within_bbox(dimensions: dict[str, Any], bbox: list[float]) -> dict[str, Any]:
+    # A geometry dimension's bbox bounds the features, which for a local model is its own extent.
+    return {
+        name: {**dimension, "bbox": bbox} if dimension.get("type") == "geometry" else dimension
+        for name, dimension in dimensions.items()
+    }
+
+
 def build_local_model_item(
     base_model_item: pystac.Item,
     checkpoint_href: str,
@@ -596,6 +605,9 @@ def build_local_model_item(
     ):
         if field in base_props:
             properties[field] = base_props[field]
+    if "cube:variables" in base_props:
+        properties["cube:variables"] = base_props["cube:variables"]
+        properties["cube:dimensions"] = _dimensions_within_bbox(base_props["cube:dimensions"], bbox)
 
     # The dataset's imagery is used because the chips were cut from it.
     properties["fair:coverage"] = coverage_from_bbox(bbox)
@@ -629,7 +641,7 @@ def build_local_model_item(
         bbox=bbox,
         datetime=now,
         properties=properties,
-        stac_extensions=LOCAL_MODEL_EXTENSIONS,
+        stac_extensions=LOCAL_MODEL_EXTENSIONS + ([DATACUBE_SCHEMA] if "cube:variables" in properties else []),
     )
 
     base_mlm_name = base_props.get("mlm:name", "")

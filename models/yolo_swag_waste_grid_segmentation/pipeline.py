@@ -190,6 +190,7 @@ def predict(session: Any, input_images: str, params: dict[str, Any], bbox: list[
                     "type": "Feature",
                     "properties": {
                         "cell_id": int(grid.loc[idx, "cell_id"]),
+                        "class": 1,
                         "label": "waste",
                         "confidence": round(waste_confidence, 4),
                     },

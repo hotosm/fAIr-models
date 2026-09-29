@@ -6,6 +6,7 @@ CLASSIFICATION_SCHEMA = "https://stac-extensions.github.io/classification/v2.0.0
 FILE_SCHEMA = "https://stac-extensions.github.io/file/v2.1.0/schema.json"
 LABEL_SCHEMA = "https://stac-extensions.github.io/label/v1.0.1/schema.json"
 RASTER_SCHEMA = "https://stac-extensions.github.io/raster/v1.1.0/schema.json"
+DATACUBE_SCHEMA = "https://stac-extensions.github.io/datacube/v2.3.0/schema.json"
 
 FAIR_BASE_MODEL_SCHEMA = "https://hotosm.github.io/fAIr-models/schemas/v1.0.0/base-model/schema.json"
 FAIR_LOCAL_MODEL_SCHEMA = "https://hotosm.github.io/fAIr-models/schemas/v1.0.0/local-model/schema.json"

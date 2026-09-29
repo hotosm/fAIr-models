@@ -102,7 +102,9 @@ def predict(session: Any, input_images: str, params: dict[str, Any]) -> dict[str
         mask = postprocess(probs, height, width, threshold)
         for geom, _ in shapes(mask, mask=mask.astype(bool), transform=transform):
             polygon = shapely_transform(lambda x, y, _z=None, t=to_wgs84: t.transform(x, y), shape(geom))
-            features.append({"type": "Feature", "properties": {"label": "building"}, "geometry": mapping(polygon)})
+            features.append(
+                {"type": "Feature", "properties": {"class": 1, "label": "building"}, "geometry": mapping(polygon)}
+            )
     return {"type": "FeatureCollection", "features": features}
 
 

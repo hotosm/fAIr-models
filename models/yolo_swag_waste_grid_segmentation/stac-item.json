@@ -7,6 +7,7 @@
     "https://stac-extensions.github.io/classification/v2.0.0/schema.json",
     "https://stac-extensions.github.io/file/v2.1.0/schema.json",
     "https://stac-extensions.github.io/raster/v1.1.0/schema.json",
+    "https://stac-extensions.github.io/datacube/v2.3.0/schema.json",
     "https://hotosm.github.io/fAIr-models/schemas/v1.0.0/base-model/schema.json"
   ],
   "id": "yolo_swag_waste_grid_segmentation",
@@ -124,8 +125,58 @@
           "expression": "models.yolo_swag_waste_grid_segmentation.pipeline:postprocess"
         },
         "bands": []
+      },
+      {
+        "name": "waste cells",
+        "description": "Grid cells whose waste probability meets confidence_threshold, one row per feature.",
+        "tasks": ["semantic-segmentation"],
+        "result": { "shape": [-1, 4], "dim_order": ["batch", "variables"], "data_type": "float32" },
+        "variables": ["class", "confidence", "cell_id", "label"],
+        "classification:classes": [
+          { "name": "waste", "value": 1, "description": "Grid cell covered by solid waste" }
+        ],
+        "post_processing_function": {
+          "format": "python",
+          "expression": "models.yolo_swag_waste_grid_segmentation.pipeline:postprocess"
+        }
       }
     ],
+    "cube:dimensions": {
+      "features": {
+        "type": "geometry",
+        "bbox": [-180, -90, 180, 90],
+        "geometry_types": ["Polygon"],
+        "reference_system": 4326
+      }
+    },
+    "cube:variables": {
+      "label": {
+        "dimensions": ["features"],
+        "type": "data",
+        "description": "Class name of the predicted class (waste).",
+        "values": ["waste"]
+      },
+      "class": {
+        "dimensions": ["features"],
+        "type": "data",
+        "description": "Predicted class value (1 = waste).",
+        "values": [1],
+        "data_type": "uint8"
+      },
+      "confidence": {
+        "dimensions": ["features"],
+        "type": "data",
+        "description": "Waste probability of the grid cell.",
+        "extent": [0, 1],
+        "data_type": "float32"
+      },
+      "cell_id": {
+        "dimensions": ["features"],
+        "type": "auxiliary",
+        "description": "Grid cell identifier.",
+        "data_type": "int64"
+      }
+    },
     "mlm:hyperparameters": {
       "training.epochs": 20,
       "training.batch_size": 4,

@@ -7,6 +7,7 @@
     "https://stac-extensions.github.io/classification/v2.0.0/schema.json",
     "https://stac-extensions.github.io/file/v2.1.0/schema.json",
     "https://stac-extensions.github.io/raster/v1.1.0/schema.json",
+    "https://stac-extensions.github.io/datacube/v2.3.0/schema.json",
     "https://hotosm.github.io/fAIr-models/schemas/v1.0.0/base-model/schema.json"
   ],
   "id": "dinov3s-buildings",
@@ -147,8 +148,46 @@
           "expression": "models.dinov3s_buildings.pipeline:postprocess"
         },
         "bands": []
+      },
+      {
+        "name": "buildings",
+        "description": "Building polygons after watershed post-processing, one row per feature.",
+        "tasks": ["semantic-segmentation"],
+        "result": { "shape": [-1, 2], "dim_order": ["batch", "variables"], "data_type": "float32" },
+        "variables": ["class", "score"],
+        "classification:classes": [
+          { "name": "building", "value": 1, "description": "Building footprints" }
+        ],
+        "post_processing_function": {
+          "format": "python",
+          "expression": "models.dinov3s_buildings.pipeline:postprocess"
+        }
       }
     ],
+    "cube:dimensions": {
+      "features": {
+        "type": "geometry",
+        "bbox": [-180, -90, 180, 90],
+        "geometry_types": ["Polygon"],
+        "reference_system": 4326
+      }
+    },
+    "cube:variables": {
+      "class": {
+        "dimensions": ["features"],
+        "type": "data",
+        "description": "Predicted class value (1 = building).",
+        "values": [1],
+        "data_type": "uint8"
+      },
+      "score": {
+        "dimensions": ["features"],
+        "type": "data",
+        "description": "Mean building probability over the polygon.",
+        "extent": [0, 1],
+        "data_type": "float32"
+      }
+    },
     "mlm:hyperparameters": {
       "training.epochs": 15,
       "training.batch_size": 8,

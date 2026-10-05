@@ -110,8 +110,7 @@ def _resize_chw(arr: Any, size: int) -> Any:
     from PIL import Image
 
     channels = [
-        np.asarray(Image.fromarray(arr[c]).resize((size, size), Image.Resampling.BILINEAR))
-        for c in range(arr.shape[0])
+        np.asarray(Image.fromarray(arr[c]).resize((size, size), Image.Resampling.BILINEAR)) for c in range(arr.shape[0])
     ]
     return np.stack(channels, axis=0).astype(np.float32)
 
@@ -162,11 +161,13 @@ def postprocess(logits: Any, threshold: float = 0.5) -> Any:
     import skimage.segmentation
     from scipy.ndimage import distance_transform_edt
 
-    def _sigmoid(x: Any) -> Any:
-        return 1.0 / (1.0 + np.exp(-x))
+    # scipy's expit rather than 1/(1+exp(-x)): the naive form overflows for
+    # logits below about -700 and emits a RuntimeWarning on every chip with a
+    # confidently empty region, which is most of them.
+    from scipy.special import expit as _sigmoid
 
     mask_logit = logits[0]  # (H, W)
-    edt_norm = logits[1]    # (H, W)
+    edt_norm = logits[1]  # (H, W)
 
     mask_binary = _sigmoid(mask_logit) > threshold
     edt_binary = _sigmoid(edt_norm) > threshold
@@ -216,12 +217,8 @@ def _vectorize_instance_labels(label_map: Any, transform: Any, crs: Any) -> list
             continue
         if transformer:
             coords = geom["coordinates"]
-            geom["coordinates"] = [
-                [list(transformer.transform(x, y)) for x, y in ring] for ring in coords
-            ]
-        features.append(
-            {"type": "Feature", "properties": {"instance_id": int(value)}, "geometry": geom}
-        )
+            geom["coordinates"] = [[list(transformer.transform(x, y)) for x, y in ring] for ring in coords]
+        features.append({"type": "Feature", "properties": {"instance_id": int(value)}, "geometry": geom})
     return features
 
 
@@ -235,9 +232,8 @@ def predict(session: Any, input_images: str, params: dict[str, Any]) -> dict[str
     Args:
         session:      ONNX InferenceSession.
         input_images: Path (local or cloud) to a directory of GeoTIFF chips.
-        params:       Must contain "confidence_threshold" (float 0–1).
+        params:       Must contain "confidence_threshold" (float 0-1).
     """
-    import numpy as np
 
     from fair.utils.data import resolve_directory
 
@@ -346,7 +342,7 @@ def _train_step(
 
     images, masks = preprocess(batch)
     images, masks = images.to(device), masks.to(device)
-    output = model(images)          # (B, 3, H, W)
+    output = model(images)  # (B, 3, H, W)
     mask_logit = output[:, 0, :, :]  # supervise mask channel only
     loss = _bce_dice_loss(mask_logit, masks)
     optimizer.zero_grad()
@@ -557,11 +553,7 @@ def evaluate_model(
                 intersection[c] += ((preds == c) & (masks == c)).sum().item()
                 union[c] += ((preds == c) | (masks == c)).sum().item()
 
-    resolved_names = (
-        class_names
-        if class_names and len(class_names) == n_classes
-        else ["background", "building"]
-    )
+    resolved_names = class_names if class_names and len(class_names) == n_classes else ["background", "building"]
     per_class_iou = {resolved_names[c]: intersection[c] / max(union[c], 1) for c in range(n_classes)}
 
     accuracy = total_correct / max(total_pixels, 1)
@@ -609,7 +601,14 @@ def export_onnx(
             path,
             input_names=["input"],
             output_names=["output"],
-            dynamic_axes={"input": {0: "batch"}, "output": {0: "batch"}},
+            # Name every dynamic axis. Naming only axis 0 makes ONNX reuse
+            # "batch" for height as well, so the exported signature reads
+            # ["batch", 3, "batch", "Convoutput_dim_3"] and a serving layer
+            # cannot tell the spatial dimensions apart.
+            dynamic_axes={
+                "input": {0: "batch", 2: "height", 3: "width"},
+                "output": {0: "batch", 2: "height", 3: "width"},
+            },
             opset_version=18,
         )
         proto = onnx.load(path)

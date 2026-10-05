@@ -195,6 +195,13 @@
         "description": "Number of random samples drawn per epoch from the dataset"
       },
       {
+        "key": "loss",
+        "type": "str",
+        "default": "bce_dice",
+        "values": ["bce_dice", "bce"],
+        "description": "Segmentation loss on the mask channel"
+      },
+      {
         "key": "optimizer",
         "type": "str",
         "default": "AdamW",

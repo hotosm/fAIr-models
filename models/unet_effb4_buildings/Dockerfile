@@ -16,6 +16,9 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     --index-strategy unsafe-best-match \
     torch==2.10.0 \
     torchgeo==0.9.0 \
+    segmentation-models-pytorch==0.5.0 \
+    scipy \
+    scikit-image \
     onnx \
     onnxscript \
     /tmp/fair-src[k8s,serve]
@@ -60,10 +63,13 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     export SETUPTOOLS_SCM_PRETEND_VERSION=0.0.0 && \
     uv venv && uv pip install \
     /tmp/fair-src[serve] \
+    onnxruntime==1.28.0 \
     rasterio \
     pyproj \
     numpy \
-    Pillow
+    Pillow \
+    scipy \
+    scikit-image
 COPY models/unet_effb4_buildings/pipeline.py /app/models/unet_effb4_buildings/pipeline.py
 
 # Inference stage: distroless runtime for live serving

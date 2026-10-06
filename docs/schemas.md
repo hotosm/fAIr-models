@@ -18,7 +18,9 @@ Extends the [MLM Extension](https://stac-extensions.github.io/mlm/v1.5.1/schema.
 
 **Recommended properties:** `fair:hyperparameters_spec` (declares types, bounds, and defaults for every key in `mlm:hyperparameters`, see [Contributing a Model](contributing/model.md#hyperparameters))
 
-**Required assets:** `checkpoint`, `source-code`, `mlm:training`, `mlm:inference`
+**Required assets:** `checkpoint`, `source-code`, `mlm:inference`
+
+**Optional assets:** `mlm:training` (a base model without it is inference-only and cannot be finetuned)
 
 ## Dataset
 

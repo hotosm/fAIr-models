@@ -55,7 +55,6 @@
               "required": [
                 "checkpoint",
                 "source-code",
-                "mlm:training",
                 "mlm:inference"
               ],
               "properties": {

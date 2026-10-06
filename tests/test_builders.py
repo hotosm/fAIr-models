@@ -1,6 +1,9 @@
 import json
+from importlib.resources import files
+from pathlib import Path
 from typing import Any
 
+import jsonschema
 import pystac
 import pytest
 
@@ -646,3 +649,11 @@ class TestDeriveLocationProps:
         props = derive_location_props({}, [85.51, 27.63, 85.53, 27.65])
         assert "fair:preview_place" not in props
         assert "fair:coverage" in props
+
+
+def test_base_model_without_training_runtime_is_valid() -> None:
+    item = json.loads((Path(__file__).parents[1] / "models/sklearn_rgb_segmentation/stac-item.json").read_text())
+    del item["assets"]["mlm:training"]
+    schema = json.loads(files("fair.schemas").joinpath("v1.0.0/base-model/schema.json").read_text())
+
+    jsonschema.validate(item, schema)

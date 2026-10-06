@@ -450,6 +450,11 @@ class FairClient:
     ) -> tuple[Any, Path]:
         cat = self._get_backend()
         base = cat.get_item(BASE_MODELS_COLLECTION, base_model_id)
+        if "mlm:training" not in base.assets:
+            raise FairClientError(
+                f"Base model '{base_model_id}' has no 'mlm:training' asset: "
+                "it is inference-only and cannot be finetuned"
+            )
         try:
             ds = cat.get_item(DATASETS_COLLECTION, dataset_id)
         except KeyError as exc:

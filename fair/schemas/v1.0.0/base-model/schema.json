@@ -46,7 +46,7 @@
             },
             "assets": {
               "type": "object",
-              "required": ["checkpoint", "source-code", "mlm:training", "mlm:inference"],
+              "required": ["checkpoint", "source-code", "mlm:inference"],
               "properties": {
                 "checkpoint": {
                   "type": "object",

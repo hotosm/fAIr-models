@@ -213,8 +213,8 @@ def generate_training_config(
         ),
     }
 
-    runtime = base_model_item.assets.get("mlm:training")
-    if runtime and runtime.media_type == OCI_IMAGE_INDEX_TYPE:
+    runtime = base_model_item.assets["mlm:training"]
+    if runtime.media_type == OCI_IMAGE_INDEX_TYPE:
         docker_cfg: dict[str, Any] = {
             "parent_image": _normalize_container_href(runtime.href),
             "skip_build": True,
@@ -275,8 +275,11 @@ def generate_inference_config(
     # asset (a distroless serving image for Knative live-serving) intentionally
     # omits ZenML/kubernetes. So the batch pipeline uses mlm:training, which has
     # the full toolchain. mlm:inference stays for the Knative live path only.
-    runtime = model_item.assets.get("mlm:training") or model_item.assets.get("mlm:inference")
-    if runtime and runtime.media_type == OCI_IMAGE_INDEX_TYPE:
+    runtime = model_item.assets.get("mlm:training")
+    if runtime is None:
+        msg = f"Model item '{model_item.id}' has no 'mlm:training' asset; batch inference needs its toolchain"
+        raise KeyError(msg)
+    if runtime.media_type == OCI_IMAGE_INDEX_TYPE:
         docker_cfg: dict[str, Any] = {
             "parent_image": _normalize_container_href(runtime.href),
             "skip_build": True,

@@ -1076,7 +1076,7 @@ data_type), `classification:classes` (one entry per output class with
 | `checkpoint`    | Pretrained torch weights (HTTPS URL)                        | `mlm:artifact_type` (e.g. `torch.save`)                      |
 | `model`         | ONNX model _(optional for base models, required for local)_ | `mlm:artifact_type`: `onnx`                                  |
 | `source-code`   | Link to model source code (git URL)                         | `mlm:entrypoint` (e.g. `models.your_model.pipeline:predict`) |
-| `mlm:training`  | Training Docker image                                       | `href` = Docker image reference                              |
+| `mlm:training`  | Training Docker image _(optional, omit for inference-only)_ | `href` = Docker image reference                              |
 | `mlm:inference` | Inference Docker image                                      | `href` = Docker image reference                              |
 | `readme`        | Model documentation (README.md)                             | _(none)_                                                     |
 

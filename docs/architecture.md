@@ -56,7 +56,8 @@ Catalog: fair-models
     `fair:metrics_spec`, `fair:split_spec`, `fair:hyperparameters_spec`.
 
     Key assets: `checkpoint` (torch weights, HTTPS URL), `model` (ONNX, optional for base models),
-    `source-code` (with `mlm:entrypoint`), `mlm:training` / `mlm:inference` (Docker image OCI references).
+    `source-code` (with `mlm:entrypoint`), `mlm:training` / `mlm:inference` (Docker image OCI references;
+    `mlm:training` is optional, and a base model without it is inference-only).
 
     The `mlm:entrypoint` tells the backend which Python function to call.
     `pre_processing_function` / `post_processing_function` are standard MLM

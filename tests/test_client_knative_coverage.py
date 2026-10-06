@@ -131,6 +131,7 @@ def _build_base_model_item(item_id: str = "dinov3s-buildings") -> pystac.Item:
     item.add_asset("checkpoint", pystac.Asset(href="https://example.com/checkpoint.pt"))
     item.add_asset("model", pystac.Asset(href="https://example.com/model.onnx"))
     item.add_asset("mlm:inference", pystac.Asset(href="https://example.com/model.onnx"))
+    item.add_asset("mlm:training", pystac.Asset(href="https://example.com/training-image"))
     item.add_asset(
         "source-code",
         pystac.Asset(

@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import logging
+import sys
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Literal
 
 from zenml.client import Client
@@ -46,7 +48,7 @@ def get_run_status(run_id: str) -> RunStatus:
     return _normalize_status(run.status)
 
 
-def fetch_run_logs(run_id: str, *, tail: int = 1000) -> list[LogEntry]:
+def fetch_run_logs(run_id: str, *, tail: int = 1000, since: datetime | None = None) -> list[LogEntry]:
     """Fetch run-level logs.
 
     Raises if the active stack has no log store. We never silently return [] when
@@ -61,10 +63,10 @@ def fetch_run_logs(run_id: str, *, tail: int = 1000) -> list[LogEntry]:
             "Configure a log store (e.g. artifact-store-backed) on your stack."
         )
     collection = run.log_collection or []
-    return _collect_entries(log_store, collection, tail)
+    return _collect_entries(log_store, collection, tail, since)
 
 
-def fetch_step_logs(run_id: str, step_name: str, *, tail: int = 1000) -> list[LogEntry]:
+def fetch_step_logs(run_id: str, step_name: str, *, tail: int = 1000, since: datetime | None = None) -> list[LogEntry]:
     """Fetch logs for a single step within a run."""
     client = Client()
     run = client.get_pipeline_run(run_id)
@@ -76,7 +78,7 @@ def fetch_step_logs(run_id: str, step_name: str, *, tail: int = 1000) -> list[Lo
     if log_store is None:
         raise RuntimeError("active ZenML stack has no log_store; cannot fetch step logs.")
     collection = step.log_collection or []
-    return _collect_entries(log_store, collection, tail)
+    return _collect_entries(log_store, collection, tail, since)
 
 
 def list_runs_for_model(model_name: str, *, limit: int = 50) -> list[RunSummary]:
@@ -106,15 +108,16 @@ def list_runs_for_model(model_name: str, *, limit: int = 50) -> list[RunSummary]
     return summaries[:limit]
 
 
-def _collect_entries(log_store: object, collection: list, tail: int) -> list[LogEntry]:
-    out: list[LogEntry] = []
-    for logs_model in collection:
-        remaining = tail - len(out)
-        if remaining <= 0:
-            break
-        entries = log_store.fetch(logs_model=logs_model, limit=remaining)  # type: ignore[attr-defined]
-        out.extend(_to_entry(e) for e in entries)
-    return out
+def _collect_entries(log_store: object, collection: list, tail: int, since: datetime | None) -> list[LogEntry]:
+    """Last `tail` entries, optionally only those after `since`."""
+    raw_entries = [
+        raw
+        for logs_model in collection
+        for raw in log_store.fetch(logs_model=logs_model, limit=sys.maxsize)  # type: ignore[attr-defined]
+    ]
+    if since is not None:
+        raw_entries = [raw for raw in raw_entries if raw.timestamp is not None and raw.timestamp > since]
+    return [_to_entry(raw) for raw in raw_entries[max(len(raw_entries) - tail, 0) :]]
 
 
 _KNOWN_STATUSES: frozenset[str] = frozenset(

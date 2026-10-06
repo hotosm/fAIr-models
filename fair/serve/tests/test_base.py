@@ -1,6 +1,8 @@
 """Tests for the Starlette serving app and ONNX session loader."""
 
+import asyncio
 import importlib
+import json
 import sys
 import textwrap
 from pathlib import Path
@@ -302,3 +304,112 @@ def test_predict_handles_invalid_json_and_pipeline_errors(
             assert failed.json()["error"] == "boom"
     finally:
         sys.path.remove(str(stub_root))
+
+
+def _request(*, client_disconnects: bool) -> Any:
+    """Starlette request whose receive reports a disconnect or blocks like a live client."""
+    from starlette.requests import Request
+
+    body_sent = False
+
+    async def receive() -> dict[str, Any]:
+        nonlocal body_sent
+        if not body_sent:
+            body_sent = True
+            return {"type": "http.request", "body": json.dumps(VALID_REQUEST).encode(), "more_body": False}
+        if client_disconnects:
+            return {"type": "http.disconnect"}
+        await asyncio.Event().wait()
+        return {}
+
+    return Request({"type": "http", "method": "POST", "headers": []}, receive)
+
+
+class _RecordingPipeline:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def predict(self, session: Any, input_images: str, params: dict[str, Any]) -> dict[str, Any]:
+        self.calls += 1
+        return {"type": "FeatureCollection", "features": []}
+
+
+def test_disconnect_during_chip_download_cancels_it_and_skips_predict(monkeypatch: pytest.MonkeyPatch) -> None:
+    from fair.serve import base as serve_base
+
+    download = {"started": False, "finished": False}
+
+    async def slow_fetch_chips(image_uri: str, bbox: list[float], zoom: int, out_dir: str) -> str:
+        download["started"] = True
+        await asyncio.sleep(30)
+        download["finished"] = True
+        return out_dir
+
+    monkeypatch.setattr(serve_base, "_fetch_chips", slow_fetch_chips)
+    monkeypatch.setattr(serve_base, "load_session", lambda model_uri: object())
+    monkeypatch.setattr(serve_base, "_DISCONNECT_POLL_SECONDS", 0.01)
+    pipeline = _RecordingPipeline()
+
+    response = asyncio.run(serve_base._predict(_request(client_disconnects=True), pipeline, False))
+
+    assert response.status_code == 499
+    assert download == {"started": True, "finished": False}
+    assert pipeline.calls == 0
+
+
+def test_disconnect_after_chip_download_skips_predict(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    from fair.serve import base as serve_base
+
+    _patch_fetch_chips(monkeypatch, tmp_path)
+    monkeypatch.setattr(serve_base, "load_session", lambda model_uri: object())
+    pipeline = _RecordingPipeline()
+
+    response = asyncio.run(serve_base._predict(_request(client_disconnects=True), pipeline, False))
+
+    assert response.status_code == 499
+    assert pipeline.calls == 0
+
+
+def test_connected_client_gets_predictions(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    from fair.serve import base as serve_base
+
+    _patch_fetch_chips(monkeypatch, tmp_path)
+    monkeypatch.setattr(serve_base, "load_session", lambda model_uri: object())
+    pipeline = _RecordingPipeline()
+
+    response = asyncio.run(serve_base._predict(_request(client_disconnects=False), pipeline, False))
+
+    assert response.status_code == 200
+    assert pipeline.calls == 1
+
+
+def test_cancelled_handler_cancels_chip_download(monkeypatch: pytest.MonkeyPatch) -> None:
+    from fair.serve import base as serve_base
+
+    download_started = asyncio.Event()
+    download_cancelled = False
+
+    async def slow_fetch_chips(image_uri: str, bbox: list[float], zoom: int, out_dir: str) -> str:
+        nonlocal download_cancelled
+        download_started.set()
+        try:
+            await asyncio.sleep(30)
+        except asyncio.CancelledError:
+            download_cancelled = True
+            raise
+        return out_dir
+
+    monkeypatch.setattr(serve_base, "_fetch_chips", slow_fetch_chips)
+    monkeypatch.setattr(serve_base, "load_session", lambda model_uri: object())
+
+    async def cancel_mid_download() -> None:
+        handler = asyncio.ensure_future(
+            serve_base._predict(_request(client_disconnects=False), _RecordingPipeline(), False)
+        )
+        await download_started.wait()
+        handler.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await handler
+        assert download_cancelled
+
+    asyncio.run(cancel_mid_download())

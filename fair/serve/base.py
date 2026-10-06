@@ -20,12 +20,14 @@ input_images, params)` function. When a pipeline's `predict` also declares a
 `bbox` parameter, the request bbox is forwarded so it can clip work to the AOI.
 """
 
+import asyncio
 import importlib
 import inspect
 import json
 import logging
 import os
 import tempfile
+from collections.abc import Awaitable
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -43,6 +45,12 @@ MODEL_MODULE_ENV = "MODEL_MODULE"
 _ONNX_CACHE_SIZE = 8
 _MIN_ZOOM = 14
 _MAX_ZOOM = 22
+_DISCONNECT_POLL_SECONDS = 0.5
+_CLIENT_CLOSED_REQUEST = 499
+
+
+class ClientDisconnectedError(Exception):
+    """The caller closed the connection before the prediction finished."""
 
 
 def _cors_list(name: str, default: str = "*") -> list[str]:
@@ -142,6 +150,25 @@ async def _fetch_chips(image_uri: str, bbox: list[float], zoom: int, out_dir: st
     )
 
 
+async def _await_unless_disconnected(request: Request, work: Awaitable[str]) -> str:
+    """Await `work`, cancelling it if the client disconnects first."""
+    task = asyncio.ensure_future(work)
+    try:
+        while not task.done():
+            await asyncio.wait({task}, timeout=_DISCONNECT_POLL_SECONDS)
+            if not task.done() and await request.is_disconnected():
+                raise ClientDisconnectedError
+        return task.result()
+    finally:
+        if not task.done():
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                if asyncio.current_task().cancelling():
+                    raise
+
+
 async def _predict(request: Request, pipeline: Any, forward_bbox: bool) -> JSONResponse:
     try:
         payload = await request.json()
@@ -156,9 +183,16 @@ async def _predict(request: Request, pipeline: Any, forward_bbox: bool) -> JSONR
     try:
         session = load_session(parsed["model_uri"])
         with tempfile.TemporaryDirectory(prefix="fair-serve-") as tmp:
-            chips_dir = await _fetch_chips(parsed["image_uri"], parsed["bbox"], parsed["zoom"], tmp)
+            chips_dir = await _await_unless_disconnected(
+                request, _fetch_chips(parsed["image_uri"], parsed["bbox"], parsed["zoom"], tmp)
+            )
+            if await request.is_disconnected():
+                raise ClientDisconnectedError
             predict_kwargs = {"bbox": parsed["bbox"]} if forward_bbox else {}
             result = pipeline.predict(session, chips_dir, parsed["params"], **predict_kwargs)
+    except ClientDisconnectedError:
+        logger.info("client disconnected; prediction skipped")
+        return JSONResponse({"error": "client disconnected"}, status_code=_CLIENT_CLOSED_REQUEST)
     except Exception as exc:
         logger.exception("predict failed")
         return JSONResponse({"error": str(exc)}, status_code=500)

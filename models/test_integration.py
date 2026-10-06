@@ -111,8 +111,17 @@ def test_full_pipeline(
     local_model_id = fair_client.promote(finetuned_id, description="integration test")
     assert local_model_id
 
+    # A one-epoch model rarely clears its tuned threshold; zero makes every pipeline emit features to check.
+    backend = fair_client._get_backend()
+    hyperparameters = backend.get_item(LOCAL_MODELS_COLLECTION, local_model_id).properties["mlm:hyperparameters"]
+    backend.patch_item(
+        LOCAL_MODELS_COLLECTION,
+        local_model_id,
+        {"properties": {"mlm:hyperparameters": {**hyperparameters, "inference.confidence_threshold": 0.0}}},
+    )
+
     predictions = fair_client.predict(local_model_id, image_path=predict_images)
-    local_model_item = fair_client._get_backend().get_item(LOCAL_MODELS_COLLECTION, local_model_id)
+    local_model_item = backend.get_item(LOCAL_MODELS_COLLECTION, local_model_id)
     assert predictions["features"]
     assert validate_predictions_geojson(predictions, local_model_item) == []
 

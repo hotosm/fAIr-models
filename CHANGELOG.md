@@ -12,6 +12,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - add ZenML integration for model promotion and STAC catalog synchronization
 - implement STAC catalog management and builders for datasets and models
 
+## v0.3.14 (2026-10-06)
+
+### Fix
+
+- **cancellation**: fix cancellation in the async serve
+- **bug**: solidwaste
+- integration
+- **add-mlmoutput**: with classification labels for the attributes
+- **registration**: knative registration warning with "Asset 'mlm:training' href not found locally"
+
 ## v0.3.13 (2026-09-23)
 
 ### Fix

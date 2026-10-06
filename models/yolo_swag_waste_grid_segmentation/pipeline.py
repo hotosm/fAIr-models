@@ -249,10 +249,9 @@ def build_mosaic(chip_paths: list[Path]) -> Path:
     with rasterio.open(chip_paths[0]) as ref:
         profile = ref.profile
 
-    photometric = "rgb" if profile.get("count", 1) >= 3 else "minisblack"
-
     merge(
         [str(p) for p in chip_paths],
+        indexes=[1, 2, 3],
         dst_path=str(out_path),
         dst_kwds={
             **profile,
@@ -261,7 +260,7 @@ def build_mosaic(chip_paths: list[Path]) -> Path:
             "blockxsize": 512,
             "blockysize": 512,
             "compress": "deflate",
-            "photometric": photometric,
+            "photometric": "rgb",
         },
         mem_limit=512,
     )

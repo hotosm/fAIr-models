@@ -1,0 +1,352 @@
+{
+  "type": "Feature",
+  "stac_version": "1.1.0",
+  "stac_extensions": [
+    "https://stac-extensions.github.io/mlm/v1.5.1/schema.json",
+    "https://stac-extensions.github.io/version/v1.2.0/schema.json",
+    "https://stac-extensions.github.io/classification/v2.0.0/schema.json",
+    "https://stac-extensions.github.io/file/v2.1.0/schema.json",
+    "https://stac-extensions.github.io/raster/v1.1.0/schema.json",
+    "https://hotosm.github.io/fAIr-models/schemas/v1.0.0/base-model/schema.json"
+  ],
+  "id": "unet-effb4-buildings",
+  "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+      [
+        [-180, -90],
+        [180, -90],
+        [180, 90],
+        [-180, 90],
+        [-180, -90]
+      ]
+    ]
+  },
+  "bbox": [-180, -90, 180, 90],
+  "properties": {
+    "datetime": "2026-09-30T00:00:00Z",
+    "created": "2026-09-30T00:00:00Z",
+    "updated": "2026-09-30T00:00:00Z",
+    "title": "UNet EfficientNet-B4 Building Instance Segmentation",
+    "description": "UNet with EfficientNet-B4 encoder for building instance segmentation from very high resolution RGB aerial imagery. Trained on hotosm/vhr-building-segmentation (18 557 quality-filtered chips). Outputs three channels: binary mask logit, normalised Euclidean distance transform (EDT), and boundary logit. Instance segmentation is performed via marker-controlled watershed on the EDT channel at inference.",
+    "mlm:name": "unet-effb4-buildings",
+    "mlm:architecture": "UNet",
+    "mlm:tasks": [
+      "instance-segmentation"
+    ],
+    "mlm:framework": "PyTorch",
+    "mlm:framework_version": "2.10.0",
+    "mlm:pretrained": true,
+    "mlm:pretrained_source": "https://huggingface.co/nilsho01/unet-effb4-dist3-buildings",
+    "mlm:accelerator": "cuda",
+    "mlm:accelerator_count": 1,
+    "keywords": [
+      "building",
+      "instance-segmentation",
+      "polygon"
+    ],
+    "license": "Apache-2.0",
+    "version": "1",
+    "deprecated": false,
+    "providers": [
+      {
+        "name": "HOTOSM",
+        "roles": [
+          "producer",
+          "host"
+        ],
+        "url": "https://www.hotosm.org",
+        "description": "Humanitarian OpenStreetMap Team"
+      }
+    ],
+    "fair:metrics_spec": [
+      {
+        "key": "fair:accuracy",
+        "name": "Pixel Accuracy",
+        "description": "Fraction of correctly classified pixels (building vs background) on the binary mask channel"
+      },
+      {
+        "key": "fair:mean_iou",
+        "name": "Mean Intersection over Union (macro)",
+        "description": "Macro-averaged IoU across background and building classes on the binary mask channel"
+      },
+      {
+        "key": "fair:per_class_iou",
+        "name": "Per-class Intersection over Union",
+        "description": "IoU for background and building classes, keyed by class name"
+      }
+    ],
+    "mlm:input": [
+      {
+        "name": "RGB chips",
+        "bands": [
+          {"name": "red"},
+          {"name": "green"},
+          {"name": "blue"}
+        ],
+        "input": {
+          "shape": [-1, 3, 256, 256],
+          "dim_order": ["batch", "bands", "height", "width"],
+          "data_type": "float32"
+        },
+        "pre_processing_function": {
+          "format": "python",
+          "expression": "models.unet_effb4_buildings.pipeline:preprocess"
+        }
+      }
+    ],
+    "mlm:output": [
+      {
+        "name": "multi-channel logits",
+        "tasks": [
+          "instance-segmentation"
+        ],
+        "result": {
+          "shape": [-1, 3, 256, 256],
+          "dim_order": ["batch", "channel", "height", "width"],
+          "data_type": "float32"
+        },
+        "classification:classes": [
+          {
+            "name": "mask",
+            "value": 0,
+            "description": "Channel 0: binary building/background mask logit (sigmoid > threshold → foreground)"
+          },
+          {
+            "name": "edt",
+            "value": 1,
+            "description": "Channel 1: normalised Euclidean distance transform logit; peaks indicate instance centres"
+          },
+          {
+            "name": "boundary",
+            "value": 2,
+            "description": "Channel 2: building boundary logit (auxiliary output, not used at inference)"
+          }
+        ],
+        "post_processing_function": {
+          "format": "python",
+          "expression": "models.unet_effb4_buildings.pipeline:postprocess"
+        },
+        "bands": []
+      }
+    ],
+    "mlm:hyperparameters": {
+      "training.epochs": 15,
+      "training.batch_size": 8,
+      "training.learning_rate": 0.00005,
+      "training.weight_decay": 0.0001,
+      "training.samples_per_epoch": 500,
+      "training.optimizer": "AdamW",
+      "training.loss": "bce_dice",
+      "training.val_ratio": 0.2,
+      "training.split_seed": 42,
+      "training.block_size": 4,
+      "training.scheduler": "cosine",
+      "training.max_grad_norm": 1.0,
+      "training.freeze_encoder": true,
+      "inference.confidence_threshold": 0.5
+    },
+    "fair:split_spec": {
+      "strategy": "spatial_block",
+      "default_ratio": 0.2,
+      "seed": 42,
+      "block_size": 4,
+      "description": "Spatial block split (block_size=4 on OAM tile coords): RandomGeoSampler for train, GridGeoSampler for val (non-overlapping tiles)"
+    },
+    "fair:hyperparameters_spec": [
+      {
+        "key": "epochs",
+        "type": "int",
+        "default": 15,
+        "min": 1,
+        "max": 500,
+        "description": "Number of training epochs"
+      },
+      {
+        "key": "batch_size",
+        "type": "int",
+        "default": 8,
+        "min": 1,
+        "max": 128,
+        "description": "Samples per training batch"
+      },
+      {
+        "key": "learning_rate",
+        "type": "float",
+        "default": 0.00005,
+        "min": 1e-07,
+        "max": 1.0,
+        "description": "Optimizer learning rate (decoder only; encoder frozen)"
+      },
+      {
+        "key": "weight_decay",
+        "type": "float",
+        "default": 0.0001,
+        "min": 0.0,
+        "max": 1.0,
+        "description": "L2 regularization weight decay"
+      },
+      {
+        "key": "samples_per_epoch",
+        "type": "int",
+        "default": 500,
+        "min": 1,
+        "max": 100000,
+        "description": "Number of random samples drawn per epoch from the dataset"
+      },
+      {
+        "key": "loss",
+        "type": "str",
+        "default": "bce_dice",
+        "values": ["bce_dice", "bce"],
+        "description": "Segmentation loss on the mask channel"
+      },
+      {
+        "key": "optimizer",
+        "type": "str",
+        "default": "AdamW",
+        "values": ["AdamW", "Adam", "SGD"],
+        "description": "Optimizer algorithm"
+      },
+      {
+        "key": "val_ratio",
+        "type": "float",
+        "default": 0.2,
+        "min": 0.05,
+        "max": 0.5,
+        "description": "Fraction of data held out for validation"
+      },
+      {
+        "key": "split_seed",
+        "type": "int",
+        "default": 42,
+        "min": 0,
+        "max": 2147483647,
+        "description": "Random seed for reproducible train/val split"
+      },
+      {
+        "key": "block_size",
+        "type": "int",
+        "default": 4,
+        "min": 1,
+        "max": 64,
+        "description": "Block size (in OAM tile coordinates) for spatial block split"
+      },
+      {
+        "key": "scheduler",
+        "type": "str",
+        "default": "cosine",
+        "values": ["cosine", "none"],
+        "description": "Learning rate scheduler applied per epoch"
+      },
+      {
+        "key": "max_grad_norm",
+        "type": "float",
+        "default": 1.0,
+        "min": 0.1,
+        "max": 100.0,
+        "description": "Maximum gradient norm for clipping"
+      },
+      {
+        "key": "freeze_encoder",
+        "type": "bool",
+        "default": true,
+        "description": "Freeze EfficientNet-B4 encoder weights during finetuning"
+      },
+      {
+        "key": "confidence_threshold",
+        "type": "float",
+        "default": 0.5,
+        "min": 0.0,
+        "max": 1.0,
+        "description": "Sigmoid threshold applied to the mask and EDT channels at inference"
+      },
+      {
+        "key": "sample_fraction",
+        "type": "float",
+        "default": 1.0,
+        "min": 0.001,
+        "max": 1.0,
+        "description": "Fraction of chip files used during training (stride-sampled; <1.0 enables fast smoke / CI runs)"
+      }
+    ]
+  },
+  "assets": {
+    "checkpoint": {
+      "href": "https://huggingface.co/nilsho01/unet-effb4-dist3-buildings/resolve/main/best.pth",
+      "title": "Pretrained weights (UNet EfficientNet-B4, dist3 head)",
+      "type": "application/octet-stream; framework=pytorch",
+      "roles": [
+        "mlm:model",
+        "mlm:weights"
+      ],
+      "mlm:artifact_type": "torch.save",
+      "raster:bands": [
+        {"name": "red"},
+        {"name": "green"},
+        {"name": "blue"}
+      ]
+    },
+    "model": {
+      "href": "https://huggingface.co/nilsho01/unet-effb4-dist3-buildings/resolve/main/model.onnx",
+      "title": "Portable ONNX inference model",
+      "type": "application/octet-stream; framework=onnx",
+      "roles": [
+        "mlm:model",
+        "mlm:compiled"
+      ],
+      "mlm:artifact_type": "onnx",
+      "raster:bands": [
+        {"name": "red"},
+        {"name": "green"},
+        {"name": "blue"}
+      ]
+    },
+    "source-code": {
+      "href": "https://github.com/hotosm/fAIr-models/tree/main/models/unet_effb4_buildings",
+      "type": "text/html",
+      "roles": [
+        "code"
+      ],
+      "mlm:entrypoint": "models.unet_effb4_buildings.pipeline:predict"
+    },
+    "mlm:training": {
+      "href": "ghcr.io/hotosm/fair-models/unet_effb4_buildings:latest",
+      "type": "application/vnd.oci.image.index.v1+json",
+      "title": "Training Docker Image",
+      "roles": [
+        "mlm:training-runtime"
+      ]
+    },
+    "mlm:inference": {
+      "href": "ghcr.io/hotosm/fair-models/unet_effb4_buildings:latest-inference",
+      "type": "application/vnd.oci.image.index.v1+json",
+      "title": "Inference Docker Image",
+      "roles": [
+        "mlm:inference-runtime"
+      ]
+    },
+    "readme": {
+      "href": "https://raw.githubusercontent.com/hotosm/fAIr-models/refs/heads/main/models/unet_effb4_buildings/README.md",
+      "type": "text/markdown",
+      "roles": [
+        "metadata"
+      ],
+      "title": "Model README"
+    }
+  },
+  "links": [
+    {
+      "rel": "license",
+      "href": "https://www.apache.org/licenses/LICENSE-2.0",
+      "type": "text/html",
+      "title": "Apache License 2.0"
+    },
+    {
+      "rel": "derived_from",
+      "href": "https://huggingface.co/datasets/hotosm/vhr-building-segmentation",
+      "type": "text/html",
+      "title": "hotosm/vhr-building-segmentation training dataset (18 557 quality-filtered chips)"
+    }
+  ]
+}

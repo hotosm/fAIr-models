@@ -1,0 +1,5 @@
+# BuildKit uses <Dockerfile>.dockerignore automatically (no repo-level side effects)
+*
+!models/segformer_parking_lot/
+!models/conftest.py
+!models/test_integration.py

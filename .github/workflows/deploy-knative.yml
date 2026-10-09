@@ -1,0 +1,143 @@
+name: Update K8s Infra
+
+on:
+  workflow_dispatch:
+    inputs:
+      model_name:
+        description: 'Specific model folder to update (e.g. dinov3s_buildings) or "all"'
+        type: string
+        required: false
+        default: 'all'
+  workflow_run:
+    workflows: ["Build Model Images"]
+    types:
+      - completed
+    branches:
+      - develop
+      - staging
+      - main
+
+jobs:
+  update-gitops:
+    runs-on: ubuntu-latest
+    # Only run if triggered manually, OR if the CI build was successful
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    steps:
+      - name: Determine Target Branch and SHA
+        id: context
+        run: |
+          # Differentiate context between a manual run and a workflow_run trigger
+          if [ "${{ github.event_name }}" == "workflow_run" ]; then
+            echo "TARGET_BRANCH=${{ github.event.workflow_run.head_branch }}" >> $GITHUB_ENV
+            echo "TARGET_SHA=${{ github.event.workflow_run.head_sha }}" >> $GITHUB_ENV
+          else
+            echo "TARGET_BRANCH=${{ github.ref_name }}" >> $GITHUB_ENV
+            echo "TARGET_SHA=$GITHUB_SHA" >> $GITHUB_ENV
+          fi
+
+      - name: Checkout fair-models
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          fetch-depth: 2 # Required to run git diff against the previous commit
+
+      - name: Setup Python & uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: "latest"
+
+      - name: Install Dependencies
+        run: |
+          uv sync --group dev
+          # Install yq for safely modifying the k8s-infra YAML
+          sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
+          sudo chmod a+x /usr/local/bin/yq
+
+      - name: Generate GitHub App Token
+        id: generate-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.INFRA_APP_ID }}
+          private-key: ${{ secrets.INFRA_APP_PRIVATE_KEY }}
+          owner: hotosm
+          repositories: k8s-infra
+
+      - name: Checkout k8s-infra
+        uses: actions/checkout@v4
+        with:
+          repository: hotosm/k8s-infra
+          token: ${{ steps.generate-token.outputs.token }}
+          path: k8s-infra
+          ref: ${{ env.TARGET_BRANCH }}
+
+      - name: Update Model Manifests in GitOps
+        run: |
+          # Use the short commit SHA as a unique, immutable tag
+          IMAGE_TAG="sha-${TARGET_SHA::7}"
+          VALUES_FILE="k8s-infra/apps/fair-models/helm/values.yaml"
+          
+          # Dynamically find all directories inside the 'models/' folder
+          ALL_MODELS=$(find models -mindepth 1 -maxdepth 1 -type d -exec basename {} \; | xargs)
+          
+          # Determine which models to update
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            INPUT_MODEL="${{ inputs.model_name }}"
+            
+            if [ -z "$INPUT_MODEL" ] || [ "$INPUT_MODEL" == "all" ]; then
+              echo "Manual trigger detected. Updating ALL models in k8s-infra."
+              CHANGED_MODELS="$ALL_MODELS"
+            else
+              echo "Manual trigger detected. Updating specific model: $INPUT_MODEL"
+              CHANGED_MODELS="$INPUT_MODEL"
+            fi
+          else
+            echo "CI Workflow completion detected. Checking changed files..."
+            
+            # Check if core/global files changed
+            CORE_CHANGED=$(git diff --name-only HEAD~1 HEAD | grep -E '^(pyproject\.toml|uv\.lock|scripts/|\.github/)' || true)
+            
+            if [ -n "$CORE_CHANGED" ]; then
+              echo "Core/shared files changed ($CORE_CHANGED). Updating all models as a safety measure."
+              CHANGED_MODELS="$ALL_MODELS"
+            else
+              # Extract unique model directory names that have changes
+              CHANGED_MODELS=$(git diff --name-only HEAD~1 HEAD | grep '^models/' | awk -F/ '{print $2}' | sort -u || true)
+            fi
+          fi
+          
+          if [ -z "$CHANGED_MODELS" ]; then
+            echo "No models were modified. Skipping GitOps update."
+          else
+            for MODEL_NAME in $CHANGED_MODELS; do
+              if [ -d "models/${MODEL_NAME}" ]; then
+                echo "========================================="
+                echo "Updating GitOps config for ${MODEL_NAME}..."
+                echo "========================================="
+                
+                # 1. Infer Image HREF using your STAC script
+                IMAGE_HREF=$(uv run python scripts/stac_asset.py "models/${MODEL_NAME}/stac-item.json" mlm:inference)
+                
+                # 2. Update the specific model's values in k8s-infra
+                yq -i ".models.${MODEL_NAME}.image = \"${IMAGE_HREF}\"" $VALUES_FILE
+                yq -i ".models.${MODEL_NAME}.tag = \"${IMAGE_TAG}\"" $VALUES_FILE
+              else
+                echo "Warning: Directory models/${MODEL_NAME} does not exist. Skipping."
+              fi
+            done
+          fi
+
+      - name: Commit and Push to k8s-infra
+        run: |
+          cd k8s-infra
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          
+          git add apps/fair-models/helm/values.yaml
+          
+          # Only commit if yq actually modified the values file
+          if ! git diff-index --quiet HEAD; then
+            git commit -m "chore(gitops): update model images to tag sha-${TARGET_SHA::7} [skip ci]"
+            git push origin ${{ env.TARGET_BRANCH }}
+          else
+            echo "No changes to commit."
+          fi

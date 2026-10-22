@@ -4,7 +4,7 @@
 FROM ghcr.io/astral-sh/uv:0.11.8-python3.13-trixie-slim AS builder
 ENV UV_SYSTEM_PYTHON=1 UV_LINK_MODE=copy
 ARG FAIR_PY_OPS_VERSION=0.3.16
-ARG TD_HOT_REF=v0.2.0
+ARG TD_HOT_REF=v0.2.1
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential libgdal-dev git ca-certificates \
@@ -51,7 +51,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 FROM ghcr.io/astral-sh/uv:0.11.8-trixie-slim AS inference-builder
 ENV UV_PYTHON_INSTALL_DIR=/python UV_PYTHON_PREFERENCE=only-managed
 ARG FAIR_PY_OPS_VERSION=0.3.16
-ARG TD_HOT_REF=v0.2.0
+ARG TD_HOT_REF=v0.2.1
 RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 RUN uv python install 3.13

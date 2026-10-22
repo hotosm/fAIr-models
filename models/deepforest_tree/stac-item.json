@@ -314,7 +314,7 @@
         "default": 0.05,
         "min": 0.01,
         "max": 1.0,
-        "description": "Metres per pixel the network sees. Each chip is scaled by its own ground resolution (from the zoom and row in its OAM file name) divided by this value; it must match the value used in training. Chips that would need more than 8x upscaling are rejected."
+        "description": "Metres per pixel the network sees. Each chip is scaled by its own ground resolution (from the zoom and row in its OAM file name) divided by this value; it must match the value used in training. Chips that would need more than 16x upscaling are rejected (zoom 18 needs about 11x and is accepted)."
       },
       {
         "key": "unfreeze_from",

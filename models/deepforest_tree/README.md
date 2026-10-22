@@ -18,7 +18,7 @@ labels. The model never predicts a crown outline, only an axis-aligned box, whic
   There is no sliding window: a 256 px chip is one pass. Its parity with torchvision and the DeepForest package is documented in the library's
   `docs/Theory.md`.
 - The scale is `chip ground resolution / 0.05 m`, where the ground resolution comes from the zoom and row in the chip name
-  `OAM-<x>-<y>-<z>.<ext>` (Web Mercator, `cos(latitude)`); a scale above 8 is rejected. A zoom 20 chip at Freetown (14.8 cm per pixel) is
+  `OAM-<x>-<y>-<z>.<ext>` (Web Mercator, `cos(latitude)`); a scale above 16 is rejected. A zoom 20 chip at Freetown (14.8 cm per pixel) is
   upscaled about 3x. Chips must therefore keep their OAM names.
 - Features carry `class` (always 1), `label` (`tree`), `confidence` and `source` (the chip file name).
 - The container images pin the library by commit SHA (`TD_HOT_REF` in the Dockerfile, one value for both images); update it whenever the
@@ -63,7 +63,7 @@ validation split, measured through the exported ONNX and the same decoding that 
 
 ## Limitations
 
-- Trained on Freetown imagery at zoom 20. Zoom 19 imagery is upscaled about 6x and zoom 18 or lower is rejected; other cities, sensors and
+- Trained on Freetown imagery at zoom 20. Zoom 19 imagery is upscaled about 6x; zoom 18 needs about 11x (accepted, but far outside what was measured, and a 256 px chip then costs about 3.8 GiB of memory on CPU, so it does not fit the 2 Gi inference pod limit) and zoom 17 or lower is rejected; other cities, sensors and
   seasons are unmeasured.
 - Forgetting: on a NEON image the model scores 0.41 F1 against 0.69 for the original checkpoint, so it trades NEON-style performance for
   OAM-style performance.

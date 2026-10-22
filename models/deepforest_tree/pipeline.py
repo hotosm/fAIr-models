@@ -233,6 +233,7 @@ def evaluate_model(
     dataset_labels: str,
     hyperparameters: dict[str, Any],
     split_info: dict[str, Any],
+    class_names: list[str] | None = None,
 ) -> Annotated[dict[str, Any], "metrics"]:
     """Box precision/recall/F1 at IoU 0.5 on the val split, scored through the exported ONNX (`score_session`)."""
     import onnxruntime as ort

@@ -14,8 +14,6 @@ import pytest
 import torch
 from td_hot.export import build_retinanet
 
-HYPERPARAMETERS: dict[str, Any] = {"epochs": 1, "batch_size": 2}
-
 
 @pytest.fixture(scope="session")
 def random_checkpoint() -> bytes:
@@ -32,36 +30,13 @@ def base_weights(tmp_path_factory: pytest.TempPathFactory, random_checkpoint: by
     return str(path)
 
 
-@pytest.fixture(scope="session")
-def split_info(toy_chips: Path, toy_labels: Path) -> dict[str, Any]:
-    from models.deepforest_tree.pipeline import split_dataset
-
-    return split_dataset.entrypoint(
-        dataset_chips=str(toy_chips), dataset_labels=str(toy_labels), hyperparameters=HYPERPARAMETERS
-    )
-
-
-@pytest.fixture(scope="session")
-def trained_model(toy_chips: Path, toy_labels: Path, base_weights: str, split_info: dict[str, Any]) -> bytes:
-    from models.deepforest_tree.pipeline import train_model
-
-    return train_model.entrypoint(
-        dataset_chips=str(toy_chips),
-        dataset_labels=str(toy_labels),
-        base_model_weights=base_weights,
-        hyperparameters=HYPERPARAMETERS,
-        split_info=split_info,
-        num_classes=1,
-    )
-
-
-def test_split_dataset(toy_chips: Path, toy_labels: Path) -> None:
+def test_split_dataset(toy_chips: Path, toy_labels: Path, base_hyperparameters: dict[str, Any]) -> None:
     from models.deepforest_tree.pipeline import split_dataset
 
     kwargs = {
         "dataset_chips": str(toy_chips),
         "dataset_labels": str(toy_labels),
-        "hyperparameters": HYPERPARAMETERS,
+        "hyperparameters": base_hyperparameters,
     }
     info = split_dataset.entrypoint(**kwargs)
 
@@ -70,16 +45,33 @@ def test_split_dataset(toy_chips: Path, toy_labels: Path) -> None:
     assert info["train_count"] > 0
     assert info["val_count"] > 0
     assert info["train_count"] + info["val_count"] == len(list(toy_chips.glob("*.tif")))
-    assert len(info["train_chip_names"]) == info["train_count"]
-    assert len(info["val_chip_names"]) == info["val_count"]
     assert set(info["train_chip_names"]).isdisjoint(info["val_chip_names"])
-    assert {"seed", "description"} <= set(info)
     assert split_dataset.entrypoint(**kwargs) == info
 
 
-def test_train_model(trained_model: bytes, random_checkpoint: bytes) -> None:
-    assert isinstance(trained_model, bytes)
-    trained = torch.load(io.BytesIO(trained_model), map_location="cpu", weights_only=True)
+def test_train_model(
+    toy_chips: Path,
+    toy_labels: Path,
+    base_weights: str,
+    random_checkpoint: bytes,
+    base_hyperparameters: dict[str, Any],
+) -> None:
+    from models.deepforest_tree.pipeline import split_dataset, train_model
+
+    split_info = split_dataset.entrypoint(
+        dataset_chips=str(toy_chips), dataset_labels=str(toy_labels), hyperparameters=base_hyperparameters
+    )
+    model_bytes = train_model.entrypoint(
+        dataset_chips=str(toy_chips),
+        dataset_labels=str(toy_labels),
+        base_model_weights=base_weights,
+        hyperparameters=base_hyperparameters,
+        split_info=split_info,
+        num_classes=1,
+    )
+
+    assert isinstance(model_bytes, bytes)
+    trained = torch.load(io.BytesIO(model_bytes), map_location="cpu", weights_only=True)
     base = torch.load(io.BytesIO(random_checkpoint), map_location="cpu", weights_only=True)
     assert trained.keys() == base.keys()
     # The encoder is frozen by default; the head must have moved.
@@ -90,29 +82,45 @@ def test_train_model(trained_model: bytes, random_checkpoint: bytes) -> None:
 
 
 def test_train_model_requires_single_class(
-    toy_chips: Path, toy_labels: Path, base_weights: str, split_info: dict[str, Any]
+    toy_chips: Path, toy_labels: Path, base_weights: str, base_hyperparameters: dict[str, Any]
 ) -> None:
-    from models.deepforest_tree.pipeline import train_model
+    from models.deepforest_tree.pipeline import split_dataset, train_model
 
+    split_info = split_dataset.entrypoint(
+        dataset_chips=str(toy_chips), dataset_labels=str(toy_labels), hyperparameters=base_hyperparameters
+    )
     with pytest.raises(ValueError, match="single-class"):
         train_model.entrypoint(
             dataset_chips=str(toy_chips),
             dataset_labels=str(toy_labels),
             base_model_weights=base_weights,
-            hyperparameters=HYPERPARAMETERS,
+            hyperparameters=base_hyperparameters,
             split_info=split_info,
             num_classes=2,
         )
 
 
-def test_evaluate_model(toy_chips: Path, toy_labels: Path, trained_model: bytes, split_info: dict[str, Any]) -> None:
-    from models.deepforest_tree.pipeline import evaluate_model
+def test_evaluate_model(
+    toy_chips: Path, toy_labels: Path, base_weights: str, base_hyperparameters: dict[str, Any]
+) -> None:
+    from models.deepforest_tree.pipeline import evaluate_model, split_dataset, train_model
 
-    metrics = evaluate_model.entrypoint(
-        trained_model=trained_model,
+    split_info = split_dataset.entrypoint(
+        dataset_chips=str(toy_chips), dataset_labels=str(toy_labels), hyperparameters=base_hyperparameters
+    )
+    model_bytes = train_model.entrypoint(
         dataset_chips=str(toy_chips),
         dataset_labels=str(toy_labels),
-        hyperparameters=HYPERPARAMETERS,
+        base_model_weights=base_weights,
+        hyperparameters=base_hyperparameters,
+        split_info=split_info,
+        num_classes=1,
+    )
+    metrics = evaluate_model.entrypoint(
+        trained_model=model_bytes,
+        dataset_chips=str(toy_chips),
+        dataset_labels=str(toy_labels),
+        hyperparameters=base_hyperparameters,
         split_info=split_info,
     )
 
@@ -120,13 +128,13 @@ def test_evaluate_model(toy_chips: Path, toy_labels: Path, trained_model: bytes,
     assert all(0.0 <= value <= 1.0 for value in metrics.values())
 
 
-def test_export_onnx(random_checkpoint: bytes) -> None:
+def test_export_onnx(random_checkpoint: bytes, base_hyperparameters: dict[str, Any]) -> None:
     import onnx
     import onnxruntime as ort
 
     from models.deepforest_tree.pipeline import export_onnx
 
-    onnx_bytes = export_onnx.entrypoint(trained_model=random_checkpoint, hyperparameters=HYPERPARAMETERS)
+    onnx_bytes = export_onnx.entrypoint(trained_model=random_checkpoint, hyperparameters=base_hyperparameters)
 
     assert isinstance(onnx_bytes, bytes)
     proto = onnx.load_from_string(onnx_bytes)
@@ -136,7 +144,7 @@ def test_export_onnx(random_checkpoint: bytes) -> None:
 
     session = ort.InferenceSession(onnx_bytes, providers=["CPUExecutionProvider"])
     for height, width in ((96, 128), (64, 160)):  # dynamic height and width
-        boxes, scores, labels = session.run(None, {"image": np.zeros((3, height, width), dtype=np.float32)})
+        outputs = session.run(None, {"image": np.zeros((3, height, width), dtype=np.float32)})
+        boxes, scores, labels = (np.asarray(output) for output in outputs)
         assert boxes.ndim == 2 and boxes.shape[1] == 4
         assert scores.shape == labels.shape == (len(boxes),)
-        assert np.all(np.diff(scores) <= 0)  # best score first

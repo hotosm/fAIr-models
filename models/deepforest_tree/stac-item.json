@@ -1,0 +1,418 @@
+{
+  "type": "Feature",
+  "stac_version": "1.1.0",
+  "stac_extensions": [
+    "https://stac-extensions.github.io/mlm/v1.5.1/schema.json",
+    "https://stac-extensions.github.io/version/v1.2.0/schema.json",
+    "https://stac-extensions.github.io/classification/v2.0.0/schema.json",
+    "https://stac-extensions.github.io/file/v2.1.0/schema.json",
+    "https://stac-extensions.github.io/raster/v1.1.0/schema.json",
+    "https://stac-extensions.github.io/datacube/v2.3.0/schema.json",
+    "https://hotosm.github.io/fAIr-models/schemas/v1.0.0/base-model/schema.json"
+  ],
+  "id": "deepforest-tree",
+  "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+      [
+        [-180, -90],
+        [180, -90],
+        [180, 90],
+        [-180, 90],
+        [-180, -90]
+      ]
+    ]
+  },
+  "bbox": [-180, -90, 180, 90],
+  "properties": {
+    "datetime": "2026-10-19T00:00:00Z",
+    "created": "2026-10-19T00:00:00Z",
+    "updated": "2026-10-22T00:00:00Z",
+    "title": "Detect tree crowns",
+    "description": "DeepForest RetinaNet (ResNet-50 + FPN) detector for individual tree crowns in RGB aerial imagery, one box polygon per crown. The weights are the Weecology NEON checkpoint (airborne RGB at about 10 cm per pixel) fine-tuned on 34,005 OpenAerialMap chips of Freetown (zoom 20, about 15 cm per pixel) with OSM tree points turned into boxes (NEON_OAM). On the held-out Freetown test split it reaches box F1 0.46 at IoU 0.4 (precision 0.40, recall 0.55, confidence 0.10); the NEON domain is partly forgotten (F1 0.41 on a NEON image against 0.69 for the original checkpoint), so the model is tuned for imagery like Freetown's. Inference scales each chip to the model's resolution from the zoom and row in its OAM file name, then runs one ONNX pass (normalisation, anchors and box decoding are inside the graph); confidence filtering, NMS and georeferencing run in the pinned td-hot library.",
+    "mlm:name": "deepforest-tree",
+    "mlm:architecture": "RetinaNet ResNet-50 FPN",
+    "mlm:tasks": ["object-detection"],
+    "mlm:framework": "PyTorch",
+    "mlm:framework_version": "2.14.1",
+    "mlm:pretrained": true,
+    "mlm:pretrained_source": "https://huggingface.co/AbdelrahmanU3/NEON_OAM",
+    "mlm:accelerator": "cuda",
+    "mlm:accelerator_count": 1,
+    "fair:recommended_zoom": 20,
+    "fair:source_imagery": "https://tiles.openaerialmap.org/690585b76415e43597ffd7ea/0/690585b76415e43597ffd7eb/{z}/{x}/{y}",
+    "fair:preview": {
+      "center": [-13.23723, 8.47532],
+      "zoom": { "recommended": 20, "min": 19, "max": 22 },
+      "imagery": {
+        "url": "https://tiles.openaerialmap.org/690585b76415e43597ffd7ea/0/690585b76415e43597ffd7eb/{z}/{x}/{y}",
+        "type": "tms",
+        "name": "OpenAerialMap - Freetown",
+        "attribution": "OpenAerialMap"
+      },
+      "place": { "name": "Freetown", "country": "Sierra Leone", "country_code": "SL" }
+    },
+    "keywords": ["tree", "object-detection", "polygon"],
+    "license": "MIT",
+    "version": "1",
+    "deprecated": false,
+    "providers": [
+      {
+        "name": "Weecology (DeepForest)",
+        "roles": ["producer", "licensor"],
+        "url": "https://huggingface.co/weecology/deepforest-tree",
+        "description": "Authors of the DeepForest tree-crown detector and the NEON checkpoint (MIT)."
+      },
+      {
+        "name": "Abdelrahman Katkat",
+        "roles": ["processor"],
+        "url": "https://github.com/AbdelrahmanKatkat/td-hot",
+        "description": "Author of td-hot (scale-aware preprocessing, RetinaNet decoding, georeferencing, training and scoring) and of the NEON_OAM Freetown fine-tune."
+      },
+      {
+        "name": "HOTOSM",
+        "roles": ["host", "processor"],
+        "url": "https://www.hotosm.org",
+        "description": "Humanitarian OpenStreetMap Team"
+      }
+    ],
+    "fair:metrics_spec": [
+      {
+        "key": "fair:precision",
+        "name": "Box Precision @ IoU>=0.5",
+        "description": "Fraction of predicted tree boxes that match a ground-truth box at IoU>=0.5 (greedy one-to-one matching by descending confidence), micro-averaged over the val split, with the default confidence threshold of 0.1."
+      },
+      {
+        "key": "fair:recall",
+        "name": "Box Recall @ IoU>=0.5",
+        "description": "Fraction of ground-truth tree boxes matched by a prediction at IoU>=0.5, micro-averaged over the val split."
+      },
+      {
+        "key": "fair:f1",
+        "name": "Box F1 @ IoU>=0.5",
+        "description": "Harmonic mean of box precision and recall over the val split."
+      }
+    ],
+    "mlm:input": [
+      {
+        "name": "RGB chip",
+        "bands": [{ "name": "red" }, { "name": "green" }, { "name": "blue" }],
+        "input": {
+          "shape": [3, -1, -1],
+          "dim_order": ["bands", "height", "width"],
+          "data_type": "float32"
+        },
+        "pre_processing_function": {
+          "format": "python",
+          "expression": "models.deepforest_tree.pipeline:preprocess"
+        }
+      }
+    ],
+    "mlm:output": [
+      {
+        "name": "candidate boxes",
+        "description": "ONNX output boxes: XYXY candidates in model-input pixels, best score first, before NMS.",
+        "tasks": ["object-detection"],
+        "result": {
+          "shape": [-1, 4],
+          "dim_order": ["detections", "coordinate"],
+          "data_type": "float32"
+        },
+        "classification:classes": [{ "name": "tree", "value": 1, "description": "Tree crown" }],
+        "post_processing_function": {
+          "format": "python",
+          "expression": "models.deepforest_tree.pipeline:postprocess"
+        },
+        "bands": []
+      },
+      {
+        "name": "candidate scores",
+        "description": "ONNX output scores: sigmoid score of each candidate box.",
+        "tasks": ["object-detection"],
+        "result": { "shape": [-1], "dim_order": ["detections"], "data_type": "float32" },
+        "classification:classes": [{ "name": "tree", "value": 1, "description": "Tree crown" }],
+        "post_processing_function": {
+          "format": "python",
+          "expression": "models.deepforest_tree.pipeline:postprocess"
+        },
+        "bands": []
+      },
+      {
+        "name": "candidate labels",
+        "description": "ONNX output labels: class index of each candidate (always 0, the single tree class).",
+        "tasks": ["object-detection"],
+        "result": { "shape": [-1], "dim_order": ["detections"], "data_type": "int64" },
+        "classification:classes": [{ "name": "tree", "value": 1, "description": "Tree crown" }],
+        "post_processing_function": {
+          "format": "python",
+          "expression": "models.deepforest_tree.pipeline:postprocess"
+        },
+        "bands": []
+      },
+      {
+        "name": "tree crowns",
+        "description": "Tree crown boxes after confidence filtering and non-maximum suppression, one polygon per feature.",
+        "tasks": ["object-detection"],
+        "result": { "shape": [-1, 4], "dim_order": ["batch", "variables"], "data_type": "float32" },
+        "variables": ["class", "label", "confidence", "source"],
+        "classification:classes": [{ "name": "tree", "value": 1, "description": "Tree crown" }],
+        "post_processing_function": {
+          "format": "python",
+          "expression": "models.deepforest_tree.pipeline:postprocess"
+        }
+      }
+    ],
+    "cube:dimensions": {
+      "features": {
+        "type": "geometry",
+        "bbox": [-180, -90, 180, 90],
+        "geometry_types": ["Polygon"],
+        "reference_system": 4326
+      }
+    },
+    "cube:variables": {
+      "class": {
+        "dimensions": ["features"],
+        "type": "data",
+        "description": "Predicted class value (1 = tree).",
+        "values": [1],
+        "data_type": "uint8"
+      },
+      "label": {
+        "dimensions": ["features"],
+        "type": "data",
+        "description": "Class name of the predicted class (tree).",
+        "values": ["tree"]
+      },
+      "confidence": {
+        "dimensions": ["features"],
+        "type": "data",
+        "description": "Sigmoid score of the detection.",
+        "extent": [0, 1],
+        "data_type": "float32"
+      },
+      "source": {
+        "dimensions": ["features"],
+        "type": "auxiliary",
+        "description": "File name of the chip the box was detected in."
+      }
+    },
+    "mlm:hyperparameters": {
+      "training.epochs": 5,
+      "training.batch_size": 2,
+      "training.learning_rate": 0.001,
+      "training.val_ratio": 0.2,
+      "training.split_seed": 42,
+      "training.block_size": 4,
+      "training.freeze_encoder": true,
+      "training.unfreeze_from": "none",
+      "training.encoder_lr_factor": 1.0,
+      "training.max_grad_norm": 1.0,
+      "training.scheduler": "cosine",
+      "training.warmup_steps": 0,
+      "training.epoch_fraction": 1.0,
+      "inference.confidence_threshold": 0.1,
+      "inference.nms_threshold": 0.05,
+      "inference.model_gsd_m": 0.05
+    },
+    "fair:split_spec": {
+      "strategy": "spatial",
+      "default_ratio": 0.2,
+      "seed": 42,
+      "block_size": 4,
+      "description": "Spatial block split on OAM-x-y-z tile coords: chips grouped into (x // block_size, y // block_size) blocks, whole blocks assigned to train or val, because neighbouring chips share canopy and trees cut at chip borders. Chips must be named OAM-x-y-z.tif; any other name is rejected."
+    },
+    "fair:hyperparameters_spec": [
+      {
+        "key": "epochs",
+        "type": "int",
+        "default": 5,
+        "min": 1,
+        "max": 500,
+        "description": "Finetuning epochs"
+      },
+      {
+        "key": "batch_size",
+        "type": "int",
+        "default": 2,
+        "min": 1,
+        "max": 16,
+        "description": "Chips per training batch. Each chip is scaled to the model's resolution (about 3x at zoom 20) before the network, so memory per chip is high when the encoder is trainable."
+      },
+      {
+        "key": "learning_rate",
+        "type": "float",
+        "default": 0.001,
+        "min": 1e-7,
+        "max": 1.0,
+        "description": "SGD learning rate (momentum 0.9); DeepForest's default is 0.001"
+      },
+      {
+        "key": "val_ratio",
+        "type": "float",
+        "default": 0.2,
+        "min": 0.05,
+        "max": 0.5,
+        "description": "Fraction of chips held out as spatial val. Blocks are added to val until this share of the chips is reached."
+      },
+      {
+        "key": "split_seed",
+        "type": "int",
+        "default": 42,
+        "min": 0,
+        "max": 2147483647,
+        "description": "Seed for block ordering in the spatial split"
+      },
+      {
+        "key": "block_size",
+        "type": "int",
+        "default": 4,
+        "min": 1,
+        "max": 32,
+        "description": "Side length in TMS tile units of the spatial block that keeps adjacent chips together; larger blocks separate train and val more strongly."
+      },
+      {
+        "key": "freeze_encoder",
+        "type": "bool",
+        "default": true,
+        "description": "Keep the ResNet-50 body frozen and train only the FPN and detection heads (recommended for small datasets; much lower memory; keeps what the NEON checkpoint learned). BatchNorm statistics always stay frozen."
+      },
+      {
+        "key": "max_grad_norm",
+        "type": "float",
+        "default": 1.0,
+        "min": 0.0,
+        "max": 100.0,
+        "description": "Gradient clipping norm. 0 disables clipping."
+      },
+      {
+        "key": "scheduler",
+        "type": "str",
+        "default": "cosine",
+        "values": ["cosine", "none"],
+        "description": "Learning-rate schedule: cosine decays the rate to 0 over all batches of the run (stepped per batch), none keeps it constant"
+      },
+      {
+        "key": "confidence_threshold",
+        "type": "float",
+        "default": 0.1,
+        "min": 0.0,
+        "max": 1.0,
+        "description": "Minimum sigmoid score of a kept tree box. A confidence sweep on the Freetown validation set gave the best F1 at 0.10 (0.3 gave 0.41, against 0.55 at the tuned value); fine-tuned scores run lower than the original NEON model's. Raise it to cut false positives."
+      },
+      {
+        "key": "nms_threshold",
+        "type": "float",
+        "default": 0.05,
+        "min": 0.0,
+        "max": 1.0,
+        "description": "IoU above which overlapping boxes of one chip are suppressed. Very strict by default (DeepForest); on the Freetown validation set the best F1 was flat from 0.01 to 0.05 and fell steadily when raised to 0.5."
+      },
+      {
+        "key": "model_gsd_m",
+        "type": "float",
+        "default": 0.05,
+        "min": 0.01,
+        "max": 1.0,
+        "description": "Metres per pixel the network sees. Each chip is scaled by its own ground resolution (from the zoom and row in its OAM file name) divided by this value; it must match the value used in training. Chips that would need more than 8x upscaling are rejected."
+      },
+      {
+        "key": "unfreeze_from",
+        "type": "str",
+        "default": "none",
+        "values": ["none", "layer4", "layer3", "layer2", "layer1"],
+        "description": "With a frozen encoder, still train the ResNet stages from this one on. layer4 matched a fully unfrozen model on Freetown validation F1 (0.482 against 0.480 in a short test) while keeping 82% of the NEON F1 against 66%. Needs freeze_encoder true."
+      },
+      {
+        "key": "encoder_lr_factor",
+        "type": "float",
+        "default": 1.0,
+        "min": 0.01,
+        "max": 1.0,
+        "description": "Learning-rate multiplier for the encoder weights that train (those unfrozen by unfreeze_from or freeze_encoder false). The NEON_OAM run used 0.385 (1/2.6, the discriminative fine-tuning rule) with unfreeze_from layer4."
+      },
+      {
+        "key": "warmup_steps",
+        "type": "int",
+        "default": 0,
+        "min": 0,
+        "max": 100000,
+        "description": "Batches over which the learning rate ramps up linearly from near zero. The NEON_OAM run used 300."
+      },
+      {
+        "key": "epoch_fraction",
+        "type": "float",
+        "default": 1.0,
+        "min": 0.01,
+        "max": 1.0,
+        "description": "Each epoch trains on a fresh random fraction of the train chips instead of all of them. On large datasets of overlapping chips, short epochs give more validation points; the NEON_OAM run used 0.2 for 20 epochs."
+      }
+    ]
+  },
+  "assets": {
+    "checkpoint": {
+      "href": "https://huggingface.co/AbdelrahmanU3/NEON_OAM/resolve/35cc87122b84ea40ec419455ddbff6aa1e552766/NEON_OAM.pt",
+      "title": "NEON_OAM: DeepForest NEON tree-crown RetinaNet fine-tuned on OAM Freetown chips (torchvision state dict)",
+      "type": "application/octet-stream; framework=pytorch",
+      "roles": ["mlm:model", "mlm:weights"],
+      "mlm:artifact_type": "torch.save",
+      "file:size": 129138147,
+      "file:checksum": "122050a697a93af5250d3309b845124247b779f3bbef4f057a3cd4297119b4a996c2",
+      "raster:bands": [{ "name": "red" }, { "name": "green" }, { "name": "blue" }]
+    },
+    "model": {
+      "href": "https://huggingface.co/AbdelrahmanU3/NEON_OAM/resolve/35cc87122b84ea40ec419455ddbff6aa1e552766/NEON_OAM.onnx",
+      "title": "NEON_OAM ONNX (td-hot contract: image 3xHxW in [0,1] -> boxes, scores, labels)",
+      "type": "application/octet-stream; framework=onnx",
+      "roles": ["mlm:model", "mlm:compiled"],
+      "mlm:artifact_type": "onnx",
+      "file:size": 128982920,
+      "file:checksum": "12208ec8e089c1ee6515eb9b6d007375a60a95cf5eb7439195df90693e7a7169e291",
+      "raster:bands": [{ "name": "red" }, { "name": "green" }, { "name": "blue" }]
+    },
+    "source-code": {
+      "href": "https://github.com/hotosm/fAIr-models/tree/develop/models/deepforest_tree",
+      "type": "text/html",
+      "roles": ["code"],
+      "mlm:entrypoint": "models.deepforest_tree.pipeline:predict"
+    },
+    "mlm:training": {
+      "href": "ghcr.io/hotosm/fair-models/deepforest_tree:dev",
+      "type": "application/vnd.oci.image.index.v1+json",
+      "title": "Training Docker Image",
+      "roles": ["mlm:training-runtime"]
+    },
+    "mlm:inference": {
+      "href": "ghcr.io/hotosm/fair-models/deepforest_tree:dev-inference",
+      "type": "application/vnd.oci.image.index.v1+json",
+      "title": "Inference Docker Image",
+      "roles": ["mlm:inference-runtime"]
+    },
+    "readme": {
+      "href": "https://raw.githubusercontent.com/hotosm/fAIr-models/refs/heads/develop/models/deepforest_tree/README.md",
+      "type": "text/markdown",
+      "roles": ["metadata"],
+      "title": "Model README"
+    }
+  },
+  "links": [
+    {
+      "rel": "license",
+      "href": "https://opensource.org/license/mit",
+      "type": "text/html",
+      "title": "MIT License"
+    },
+    {
+      "rel": "cite-as",
+      "href": "https://doi.org/10.1111/2041-210X.13472",
+      "type": "text/html",
+      "title": "Weinstein et al. 2020, DeepForest: A Python package for RGB deep learning tree crown delineation"
+    },
+    {
+      "rel": "cite-as",
+      "href": "https://doi.org/10.3390/rs11111309",
+      "type": "text/html",
+      "title": "Weinstein et al. 2019, Individual Tree-Crown Detection in RGB Imagery Using Semi-Supervised Deep Learning Neural Networks"
+    }
+  ]
+}

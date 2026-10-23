@@ -1,0 +1,409 @@
+{
+  "type": "Feature",
+  "stac_version": "1.1.0",
+  "stac_extensions": [
+    "https://stac-extensions.github.io/mlm/v1.5.1/schema.json",
+    "https://stac-extensions.github.io/version/v1.2.0/schema.json",
+    "https://stac-extensions.github.io/classification/v2.0.0/schema.json",
+    "https://stac-extensions.github.io/file/v2.1.0/schema.json",
+    "https://stac-extensions.github.io/raster/v1.1.0/schema.json",
+    "https://stac-extensions.github.io/datacube/v2.3.0/schema.json",
+    "https://hotosm.github.io/fAIr-models/schemas/v1.0.0/base-model/schema.json"
+  ],
+  "id": "dinov3s-road-surface-classification",
+  "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+      [
+        [-180, -90],
+        [180, -90],
+        [180, 90],
+        [-180, 90],
+        [-180, -90]
+      ]
+    ]
+  },
+  "bbox": [-180, -90, 180, 90],
+  "properties": {
+    "datetime": "2026-05-21T00:00:00Z",
+    "created": "2026-05-18T00:00:00Z",
+    "updated": "2026-05-21T00:00:00Z",
+    "title": "DINO Road Surface",
+    "description": "Frozen DINOv3-ViT-S/16 (LVD1689M) encoder with a Attention Pooling and Linear Classifier for Mulit Instance Learning and Prediction",
+    "mlm:name": "dinov3s-road-surface",
+    "mlm:architecture": "ViT-S/16",
+    "mlm:tasks": ["classification"],
+    "mlm:framework": "PyTorch",
+    "mlm:framework_version": "2.7.1",
+    "mlm:pretrained": true,
+    "mlm:pretrained_source": "https://arxiv.org/abs/2508.10104",
+    "mlm:accelerator": "amd64",
+    "mlm:accelerator_count": 1,
+    "fair:pinned": true,
+    "fair:min_scale": 1,
+    "fair:node_pool": "ml-big8",
+    "fair:cpu_request": "1",
+    "fair:cpu_limit": "2",
+    "fair:memory_request": "4Gi",
+    "fair:memory_limit": "6Gi",
+    "fair:recommended_zoom": 20,
+    "fair:source_imagery": "https://tiles.openaerialmap.org/690585b76415e43597ffd7ea/0/690585b76415e43597ffd7eb/{z}/{x}/{y}",
+    "fair:preview": {
+      "center": [-13.23723, 8.47532],
+      "zoom": { "recommended": 20, "min": 14, "max": 22 },
+      "imagery": {
+        "url": "https://tiles.openaerialmap.org/690585b76415e43597ffd7ea/0/690585b76415e43597ffd7eb/{z}/{x}/{y}",
+        "type": "tms",
+        "name": "OpenAerialMap - Freetown",
+        "attribution": "OpenAerialMap"
+      },
+      "place": { "name": "Freetown", "country": "Sierra Leone", "country_code": "SL" }
+    },
+    "keywords": ["road", "classification", "line"],
+    "license": "MIT",
+    "version": "1",
+    "deprecated": false,
+    "providers": [
+      {
+        "name": "HeiGIT",
+        "roles": ["producer", "processor"],
+        "url": "https://github.com/GIScience/Road-surface-classification-for-FAIR",
+        "description": "Author of the SUSformer classifier."
+      },
+      {
+        "name": "Facebook Research",
+        "roles": ["licensor"],
+        "url": "https://arxiv.org/abs/2508.10104",
+        "description": "DINOv3-ViT-S/16 encoder, used frozen, with finetuned weights."
+      },
+      {
+        "name": "HOTOSM",
+        "roles": ["host"],
+        "url": "https://www.hotosm.org",
+        "description": "Humanitarian OpenStreetMap Team"
+      }
+    ],
+    "fair:metrics_spec": [
+      {
+        "key": "fair:accuracy",
+        "name": "Test Accuracy",
+        "description": "Share of test roads classified correctly (one fixed, unaugmented bag per road)."
+      },
+      {
+        "key": "fair:loss",
+        "name": "Test Loss",
+        "description": "Class-weighted cross-entropy on the test roads."
+      }
+    ],
+    "mlm:input": [
+      {
+        "name": "RGB chips",
+        "bands": [{ "name": "red" }, { "name": "green" }, { "name": "blue" }],
+        "input": {
+          "shape": [-1, 3, 256, 256],
+          "dim_order": ["batch", "bands", "height", "width"],
+          "data_type": "float32"
+        },
+        "pre_processing_function": {
+          "format": "python",
+          "expression": "models.dinov3s_road_surface_classification.pipeline:preprocess"
+        }
+      }
+    ],
+    "mlm:output": [
+      {
+        "name": "road surface logits",
+        "description": "Logits of one road from its bag of patches (all patches of a road form the input batch).",
+        "tasks": ["classification"],
+        "result": {
+          "shape": [1, 2],
+          "dim_order": ["batch", "class"],
+          "data_type": "float32"
+        },
+        "classification:classes": [
+          {
+            "name": "unpaved",
+            "value": 0,
+            "description": "Road surface type without continuous pavement (eg. asphalt, concrete or tarmac) or segmented pavement (eg. sett, cobblestone or paving stones)"
+          },
+          {
+            "name": "paved",
+            "value": 1,
+            "description": "Road surface type with continuous pavement (eg. asphalt, concrete or tarmac) or segmented pavement (eg. sett, cobblestone or paving stones)"
+          }
+        ],
+        "post_processing_function": {
+          "format": "python",
+          "expression": "models.dinov3s_road_surface_classification.pipeline:postprocess"
+        },
+        "bands": []
+      },
+      {
+        "name": "roads",
+        "description": "OSM road LineStrings clipped to the imagery, one row per classified road.",
+        "tasks": ["classification"],
+        "result": {
+          "shape": [-1, 5],
+          "dim_order": ["batch", "variables"],
+          "data_type": "float32"
+        },
+        "variables": ["osm_id", "highway", "class", "label", "confidence"],
+        "classification:classes": [
+          {
+            "name": "unpaved",
+            "value": 0,
+            "description": "Road surface type without continuous pavement or segmented pavement (eg. gravel, earth, pebblestone)"
+          },
+          {
+            "name": "paved",
+            "value": 1,
+            "description": "Road surface type with continuous pavement (eg. asphalt, concrete or tarmac) or segmented pavement (eg. sett, cobblestone or paving stones)"
+          }
+        ],
+        "post_processing_function": {
+          "format": "python",
+          "expression": "models.dinov3s_road_surface_classification.pipeline:postprocess"
+        }
+      }
+    ],
+    "cube:dimensions": {
+      "features": {
+        "type": "geometry",
+        "bbox": [-180, -90, 180, 90],
+        "geometry_types": ["LineString"],
+        "reference_system": 4326
+      }
+    },
+    "cube:variables": {
+      "osm_id": {
+        "dimensions": ["features"],
+        "type": "auxiliary",
+        "description": "OSM way id of the classified road.",
+        "data_type": "int64"
+      },
+      "highway": {
+        "dimensions": ["features"],
+        "type": "auxiliary",
+        "description": "OSM highway tag of the classified road."
+      },
+      "class": {
+        "dimensions": ["features"],
+        "type": "data",
+        "description": "Predicted class value (0 = unpaved, 1 = paved); null when the confidence is below the threshold.",
+        "values": [0, 1],
+        "data_type": "uint8"
+      },
+      "label": {
+        "dimensions": ["features"],
+        "type": "data",
+        "description": "Predicted class name; unknown when the confidence is below the threshold.",
+        "values": ["unpaved", "paved", "unknown"]
+      },
+      "confidence": {
+        "dimensions": ["features"],
+        "type": "data",
+        "description": "Softmax probability of the predicted class.",
+        "extent": [0, 1],
+        "data_type": "float32"
+      }
+    },
+    "mlm:hyperparameters": {
+      "training.epochs": 10,
+      "training.val_ratio": 0.2,
+      "training.test_ratio": 0.2,
+      "training.split_seed": 42,
+      "training.id_column": "osm_id",
+      "training.n_clusters": 10,
+      "training.batch_size": 8,
+      "training.learning_rate": 0.001,
+      "training.gate_accuracy": 0.95,
+      "training.replay_bags_per_step": 20,
+      "training.encoder_uri": "https://media.githubusercontent.com/media/GIScience/Road-surface-classification-for-FAIR/28be8d376443fc3224133c4f9e0a1c673fdf12f0/data/weights/dinov3_encoder.zip",
+      "training.replay_bank_uri": "https://media.githubusercontent.com/media/GIScience/Road-surface-classification-for-FAIR/28be8d376443fc3224133c4f9e0a1c673fdf12f0/data/replay_bank_2000_features.pt",
+      "inference.confidence_threshold": 0.5,
+      "inference.highway_values": "motorway,motorway_link,trunk,trunk_link,primary,primary_link,secondary,secondary_link,tertiary,tertiary_link,unclassified,residential,living_street,service,track,road,footway,path,pedestrian,cycleway,bridleway",
+      "inference.exclude_tags": "footway=sidewalk,footway=crossing"
+    },
+    "fair:split_spec": {
+      "strategy": "spatial",
+      "default_ratio": 0.2,
+      "seed": 42,
+      "n_clusters": 10,
+      "description": "Spatial cluster split by road id: roads are grouped by id_column (default osm_id) so all roads of one id stay together; the ids form n_clusters spatially compact clusters of equal size by their centroid (recursive bisection along the longer side), and in seeded random order test gets test_ratio and val default_ratio of the clusters (at least one each), the rest is train. Not stratified by class."
+    },
+    "fair:hyperparameters_spec": [
+      {
+        "key": "epochs",
+        "type": "int",
+        "default": 10,
+        "min": 1,
+        "max": 100,
+        "description": "Passes over the train roads (one random bag per road each time); val loss and accuracy are logged after every epoch."
+      },
+      {
+        "key": "val_ratio",
+        "type": "float",
+        "default": 0.2,
+        "min": 0.05,
+        "max": 0.5,
+        "description": "Share of each class's labelled roads held out for validation."
+      },
+      {
+        "key": "split_seed",
+        "type": "int",
+        "default": 42,
+        "min": 0,
+        "max": 2147483647,
+        "description": "Seed of the block order in the spatial split."
+      },
+      {
+        "key": "id_column",
+        "type": "str",
+        "default": "osm_id",
+        "description": "Label column identifying a road, by default the OSM way id; all roads with one id stay on one side of the split. Labels without osm_id name their own id column here."
+      },
+      {
+        "key": "test_ratio",
+        "type": "float",
+        "default": 0.2,
+        "min": 0.05,
+        "max": 0.5,
+        "description": "Share of the labelled roads held out as test; used only by evaluate_model."
+      },
+      {
+        "key": "n_clusters",
+        "type": "int",
+        "default": 10,
+        "min": 3,
+        "max": 1000,
+        "description": "Number of equal-size spatial clusters of the road ids; whole clusters go to train, val and test, so each cluster is one share step (10 clusters = 10% steps). Fewer clusters = stronger spatial separation."
+      },
+      {
+        "key": "batch_size",
+        "type": "int",
+        "default": 8,
+        "min": 1,
+        "max": 256,
+        "description": "Train roads per batch (one optimizer step), with one random bag (1-4 patches) each; an epoch takes ceil(train roads / batch_size) batches, the last one can be smaller. Replay bags come on top."
+      },
+      {
+        "key": "learning_rate",
+        "type": "float",
+        "default": 0.001,
+        "min": 0.0001,
+        "max": 0.01,
+        "description": "Constant AdamW learning rate of the classifier head (backbone and attention pool are frozen)."
+      },
+      {
+        "key": "gate_accuracy",
+        "type": "float",
+        "default": 0.95,
+        "min": 0.0,
+        "max": 1.01,
+        "description": "Base-model accuracy on all labelled roads of the scene (train, val and test) at or above which fine-tuning is skipped and the base model is returned."
+      },
+      {
+        "key": "replay_bags_per_step",
+        "type": "int",
+        "default": 20,
+        "min": 1,
+        "max": 100,
+        "description": "Replay bank bags (half per class) mixed into every batch, so the head keeps working on the base training scenes."
+      },
+      {
+        "key": "encoder_uri",
+        "type": "str",
+        "default": "https://media.githubusercontent.com/media/GIScience/Road-surface-classification-for-FAIR/28be8d376443fc3224133c4f9e0a1c673fdf12f0/data/weights/dinov3_encoder.zip",
+        "description": "Fine-tuned DINOv3 ViT-S/16 encoder state_dict (DINOv3 License), as encoder.pt or a .zip holding it; loaded with the base head."
+      },
+      {
+        "key": "replay_bank_uri",
+        "type": "str",
+        "default": "https://media.githubusercontent.com/media/GIScience/Road-surface-classification-for-FAIR/28be8d376443fc3224133c4f9e0a1c673fdf12f0/data/replay_bank_2000_features.pt",
+        "description": "Replay bank of per-patch encoder features from the base model's training scenes (2000 bags)."
+      },
+      {
+        "key": "confidence_threshold",
+        "type": "float",
+        "default": 0.5,
+        "min": 0.5,
+        "max": 0.99,
+        "description": "Below this softmax confidence a road is classed unknown."
+      },
+      {
+        "key": "highway_values",
+        "type": "str",
+        "default": "motorway,motorway_link,trunk,trunk_link,primary,primary_link,secondary,secondary_link,tertiary,tertiary_link,unclassified,residential,living_street,service,track,road,footway,path,pedestrian,cycleway,bridleway",
+        "description": "Comma-separated OSM highway values of the ways to classify; only these are fetched from OSM and predicted. The default covers roads, tracks and smaller ways (footway, path, pedestrian, cycleway, bridleway) and leaves out steps, corridors, platforms and ways under construction."
+      },
+      {
+        "key": "exclude_tags",
+        "type": "str",
+        "default": "footway=sidewalk,footway=crossing",
+        "description": "Comma-separated key=value OSM tags; ways carrying any of them are not classified. The default leaves out sidewalks and crossings mapped as separate footways."
+      }
+    ]
+  },
+  "assets": {
+    "checkpoint": {
+      "href": "https://media.githubusercontent.com/media/GIScience/Road-surface-classification-for-FAIR/28be8d376443fc3224133c4f9e0a1c673fdf12f0/data/weights/head.pt",
+      "title": "Pretrained road surface classifier head (attention-MIL pooling + classifier, without the encoder)",
+      "type": "application/octet-stream; framework=pytorch",
+      "roles": ["mlm:model", "mlm:weights"],
+      "mlm:artifact_type": "torch.save",
+      "raster:bands": [{ "name": "red" }, { "name": "green" }, { "name": "blue" }]
+    },
+    "model": {
+      "href": "https://raw.githubusercontent.com/GIScience/Road-surface-classification-for-FAIR/f92eeb2b4c7903eaaf34ead8879732b9e38f2c96/data/weights/dinov3s_road_surface.onnx",
+      "title": "Portable ONNX inference model (base model; DINOv3 License bundled in the file's metadata)",
+      "type": "application/octet-stream; framework=onnx",
+      "roles": ["mlm:model", "mlm:compiled"],
+      "mlm:artifact_type": "onnx",
+      "raster:bands": [{ "name": "red" }, { "name": "green" }, { "name": "blue" }]
+    },
+    "source-code": {
+      "href": "https://github.com/GIScience/fAIr-models/tree/master/models/dinov3s_road_surface_classification",
+      "type": "text/html",
+      "roles": ["code"],
+      "mlm:entrypoint": "models.dinov3s_road_surface_classification.pipeline:run_inference"
+    },
+    "mlm:training": {
+      "href": "ghcr.io/hotosm/fair-models/dinov3s_road_surface_classification:latest",
+      "type": "application/vnd.oci.image.index.v1+json",
+      "title": "Training Docker Image",
+      "roles": ["mlm:training-runtime"]
+    },
+    "mlm:inference": {
+      "href": "ghcr.io/hotosm/fair-models/dinov3s_road_surface_classification:latest-inference",
+      "type": "application/vnd.oci.image.index.v1+json",
+      "title": "Inference Docker Image",
+      "roles": ["mlm:inference-runtime"]
+    },
+    "readme": {
+      "href": "https://raw.githubusercontent.com/GIScience/fAIr-models/refs/heads/master/models/dinov3s_road_surface_classification/README.md",
+      "type": "text/markdown",
+      "roles": ["metadata"],
+      "title": "Model README"
+    }
+  },
+  "links": [
+    {
+      "rel": "license",
+      "href": "https://spdx.org/licenses/MIT.html",
+      "type": "text/html",
+      "title": "MIT License (code)"
+    },
+    {
+      "rel": "license",
+      "href": "https://github.com/facebookresearch/dinov3/blob/main/LICENSE.md",
+      "type": "text/html",
+      "title": "DINOv3 License (weights, incl. the ONNX model; built with DINOv3)"
+    },
+    {
+      "rel": "cite-as",
+      "href": "https://doi.org/10.5281/zenodo.23396797",
+      "type": "text/html",
+      "title": "Global SUSformer"
+    }
+  ]
+}

@@ -83,7 +83,7 @@ def _dataset_item() -> pystac.Item:
         label_tasks=["segmentation"],
         label_classes=[{"name": "building", "classes": ["building"]}],
         keywords=["building"],
-        chips_href="chips/",
+        chips_hrefs={"image": "chips/"},
         labels_href="labels.geojson",
         title="buildings-banepa",
         description="Test dataset.",
@@ -145,7 +145,22 @@ def _publish(cm: StacCatalogManager, version: int = 1, **kw: Any) -> pystac.Item
         keywords=kw.get("keywords", ["building"]),
         geometry=kw.get("geometry"),
         title=kw.get("title"),
+        providers=kw.get("providers"),
     )
+
+
+@patch("fair.zenml.promotion.Client")
+def test_publish_names_the_given_provider_and_falls_back_to_the_user_id(mock_cls, cm):
+    mv, client = _mock_mv({"epochs": 1})
+    mock_cls.return_value = client
+    client.get_model_version.return_value = mv
+
+    named = _publish(cm, providers=[{"name": "mapper", "roles": ["producer"]}])
+    assert named.properties["providers"] == [{"name": "mapper", "roles": ["producer"]}]
+
+    mv.id = "fake-uuid-v2"
+    unnamed = _publish(cm, version=2)
+    assert unnamed.properties["providers"] == [{"name": "osm-test", "roles": ["producer"]}]
 
 
 @patch("fair.zenml.promotion.Client")

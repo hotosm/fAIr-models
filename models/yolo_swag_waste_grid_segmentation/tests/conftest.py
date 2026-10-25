@@ -123,7 +123,7 @@ def _build_dataset_stac_item(chips_dir: Path, labels_dir: Path) -> dict[str, Any
             "providers": [{"name": "HOTOSM", "roles": ["producer"], "url": "https://www.hotosm.org"}],
         },
         "assets": {
-            "chips": {"href": str(chips_dir), "type": "image/tiff", "roles": ["data"]},
+            "chips-image": {"href": str(chips_dir), "type": "image/tiff", "roles": ["data"]},
             "labels": {"href": str(labels_dir), "type": "application/geo+json", "roles": ["labels"]},
         },
         "links": [],

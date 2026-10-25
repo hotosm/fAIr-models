@@ -149,6 +149,7 @@ def publish_promoted_model(
     geometry: dict[str, Any] | None = None,
     thumbnail_href: str | None = None,
     paths: type[LocalModelStoragePaths] | None = None,
+    providers: list[dict[str, Any]] | None = None,
 ) -> pystac.Item:
     paths_cls = paths if paths is not None else LocalModelStoragePaths
     client = Client()
@@ -272,7 +273,8 @@ def publish_promoted_model(
 
     title = title or f"{model_name} v{version}"
 
-    providers = [{"name": user_id, "roles": ["producer"]}]
+    if providers is None:
+        providers = [{"name": user_id, "roles": ["producer"]}]
 
     item = build_local_model_item(
         base_model_item=base_model_item,

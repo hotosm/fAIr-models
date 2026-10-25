@@ -365,7 +365,18 @@
         },
         "license": {
           "type": "string",
-          "enum": ["AGPL-3.0-only", "MIT", "Apache-2.0", "BSD-3-Clause"]
+          "enum": [
+            "AGPL-3.0-only",
+            "MIT",
+            "Apache-2.0",
+            "BSD-3-Clause",
+            "CC-BY-4.0",
+            "CC-BY-SA-4.0",
+            "CC-BY-NC-4.0",
+            "CC-BY-NC-SA-4.0",
+            "CC0-1.0",
+            "ODbL-1.0"
+          ]
         },
         "providers": {
           "type": "array",

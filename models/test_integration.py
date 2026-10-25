@@ -17,6 +17,8 @@ from typing import Any
 
 import pytest
 
+from fair.stac.inputs import IMAGE_INPUT
+
 
 @pytest.fixture(scope="module")
 def work_dir(tmp_path_factory: pytest.TempPathFactory) -> Path:
@@ -41,8 +43,15 @@ def dataset_stac_item(generate_toy_dataset: dict[str, Any]) -> Path:
 
 
 @pytest.fixture(scope="module")
-def predict_images(generate_toy_dataset: dict[str, Any]) -> str:
-    return str(generate_toy_dataset["chips"])
+def predict_images(generate_toy_dataset: dict[str, Any]) -> dict[str, str]:
+    """Chips per model input; the toy data of a model with more than one input names them itself."""
+    return generate_toy_dataset.get("predict_images", {IMAGE_INPUT: str(generate_toy_dataset["chips"])})
+
+
+@pytest.fixture(scope="module")
+def predict_params(generate_toy_dataset: dict[str, Any]) -> dict[str, Any] | None:
+    """Inference parameters a model needs beyond its STAC defaults."""
+    return generate_toy_dataset.get("predict_params")
 
 
 @pytest.fixture(scope="module")
@@ -83,7 +92,8 @@ def test_full_pipeline(
     fair_client: Any,
     model_dir: Path,
     dataset_stac_item: Path,
-    predict_images: str,
+    predict_images: dict[str, str],
+    predict_params: dict[str, Any] | None,
     zenml_server: dict[str, str],
 ) -> None:
     from fair.stac.constants import LOCAL_MODELS_COLLECTION
@@ -120,7 +130,7 @@ def test_full_pipeline(
         {"properties": {"mlm:hyperparameters": {**hyperparameters, "inference.confidence_threshold": 0.0}}},
     )
 
-    predictions = fair_client.predict(local_model_id, image_path=predict_images)
+    predictions = fair_client.predict(local_model_id, input_images=predict_images, params=predict_params)
     local_model_item = backend.get_item(LOCAL_MODELS_COLLECTION, local_model_id)
     assert predictions["features"]
     assert validate_predictions_geojson(predictions, local_model_item) == []

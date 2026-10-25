@@ -2,12 +2,15 @@ from __future__ import annotations
 
 import logging
 import os
+from collections.abc import Mapping
 from typing import Any
 
 import pystac
 
 from fair.params import inference_params, training_params
 from fair.stac.constants import CONTAINER_REGISTRIES, OCI_IMAGE_INDEX_TYPE
+from fair.stac.inputs import dataset_chips_assets, input_names, require_imagery_for_inputs
+from fair.stac.validators import validate_inference_params
 from fair.utils.data import http_url_to_s3_uri
 
 logger = logging.getLogger(__name__)
@@ -137,15 +140,14 @@ def generate_training_config(
     class_names = _extract_class_names(props.get("mlm:output", []))
 
     ds_props = dataset_item.assets
-    chips_asset = ds_props.get("chips")
-    labels_asset = ds_props.get("labels")
-    if chips_asset is None:
-        msg = f"Dataset item '{dataset_item.id}' missing 'chips' asset"
+    chips_assets = dataset_chips_assets(base_model_item, dataset_item)
+    if missing := [name for name in input_names(base_model_item) if name not in chips_assets]:
+        msg = f"Dataset item '{dataset_item.id}' has no chips for model input(s): {', '.join(missing)}"
         raise KeyError(msg)
+    labels_asset = ds_props.get("labels")
     if labels_asset is None:
         msg = f"Dataset item '{dataset_item.id}' missing 'labels' asset"
         raise KeyError(msg)
-    chips_href = http_url_to_s3_uri(chips_asset.href)
     labels_href = http_url_to_s3_uri(labels_asset.href)
 
     checkpoint_asset = base_model_item.assets.get("checkpoint")
@@ -166,7 +168,7 @@ def generate_training_config(
 
     parameters: dict[str, Any] = {
         "base_model_weights": http_url_to_s3_uri(checkpoint_asset.href),
-        "dataset_chips": chips_href,
+        "dataset_chips": {name: http_url_to_s3_uri(ds_props[key].href) for name, key in chips_assets.items()},
         "dataset_labels": labels_href,
         "hyperparameters": hyperparams,
     }
@@ -247,8 +249,10 @@ def generate_training_config(
 
 def generate_inference_config(
     model_item: pystac.Item,
-    input_images_path: str,
+    input_images: Mapping[str, str],
+    overrides: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    """`input_images` maps each of the model's input names to its chips path."""
     # Works for both base-model and local-model items (same MLM structure)
     props = model_item.properties
 
@@ -257,10 +261,17 @@ def generate_inference_config(
         msg = f"Model item '{model_item.id}' missing 'model' (ONNX) asset"
         raise KeyError(msg)
 
+    params = inference_params(props.get("mlm:hyperparameters", {}))
+    if overrides:
+        validate_inference_params(overrides, model_item)
+        params.update(overrides)
+
+    names = require_imagery_for_inputs(model_item, input_images)
+    chips = {name: http_url_to_s3_uri(input_images[name]) for name in names}
     parameters: dict[str, Any] = {
         "model_uri": http_url_to_s3_uri(model_asset.href),
-        "input_images": http_url_to_s3_uri(input_images_path),
-        "inference_params": inference_params(props.get("mlm:hyperparameters", {})),
+        "input_images": chips,
+        "inference_params": params,
     }
 
     config: dict[str, Any] = {

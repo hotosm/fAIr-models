@@ -7,6 +7,7 @@ from typing import Annotated, Any
 
 from zenml import log_metadata, pipeline, step
 
+from fair.stac.inputs import IMAGE_INPUT
 from fair.zenml.instrumentation import log_evaluation_results, mlflow_training_context
 from fair.zenml.materializers import CheckpointBytesMaterializer, ONNXMaterializer
 
@@ -107,7 +108,9 @@ def postprocess(output: Any) -> list[dict[str, Any]]:
     ]
 
 
-def predict(session: Any, input_images: str, params: dict[str, Any], bbox: list[float] | None = None) -> dict[str, Any]:
+def predict(
+    session: Any, input_images: dict[str, str], params: dict[str, Any], bbox: list[float] | None = None
+) -> dict[str, Any]:
     import numpy as np
     import rasterio
     from PIL import Image
@@ -124,7 +127,7 @@ def predict(session: Any, input_images: str, params: dict[str, Any], bbox: list[
     input_name = session.get_inputs()[0].name
     waste_idx = CLASS_NAMES.index("waste")
 
-    input_path = resolve_directory(input_images)
+    input_path = resolve_directory(input_images[IMAGE_INPUT])
     chip_paths = (
         [input_path]
         if input_path.is_file()
@@ -543,7 +546,7 @@ def _resolve_yolo_dir_for_step(
 
 @step
 def split_dataset(
-    dataset_chips: str,
+    dataset_chips: dict[str, str],
     dataset_labels: str,
     hyperparameters: dict[str, Any],
 ) -> Annotated[dict[str, Any], "split_info_artifact"]:
@@ -553,7 +556,7 @@ def split_dataset(
     waste_overlap_threshold = hyperparameters.get("waste_overlap_threshold", 0.8)
     cell_size_m = hyperparameters.get("cell_size_m", CELL_SIZE_M)
 
-    chips_path = _subset_chips_dir(dataset_chips, hyperparameters.get("sample_fraction", 1.0))
+    chips_path = _subset_chips_dir(dataset_chips[IMAGE_INPUT], hyperparameters.get("sample_fraction", 1.0))
     yolo_dir, train_counts, val_counts, test_counts = _prepare_yolo_classification_dataset(
         chips_path,
         dataset_labels,
@@ -596,7 +599,7 @@ def split_dataset(
 
 @step(output_materializers={"trained_model_artifact": CheckpointBytesMaterializer})
 def train_model(
-    dataset_chips: str,
+    dataset_chips: dict[str, str],
     dataset_labels: str,
     base_model_weights: str,
     hyperparameters: dict[str, Any],
@@ -623,7 +626,7 @@ def train_model(
         raise ValueError(msg)
 
     yolo_dir = _resolve_yolo_dir_for_step(
-        dataset_chips,
+        dataset_chips[IMAGE_INPUT],
         dataset_labels,
         hyperparameters,
         split_info,
@@ -667,7 +670,7 @@ def train_model(
 @step
 def evaluate_model(
     trained_model: Any,
-    dataset_chips: str,
+    dataset_chips: dict[str, str],
     dataset_labels: str,
     hyperparameters: dict[str, Any],
     split_info: dict[str, Any],
@@ -676,7 +679,7 @@ def evaluate_model(
     chip_size = hyperparameters.get("chip_size", MODEL_INPUT_SIZE)
 
     yolo_dir = _resolve_yolo_dir_for_step(
-        dataset_chips,
+        dataset_chips[IMAGE_INPUT],
         dataset_labels,
         hyperparameters,
         split_info,
@@ -716,7 +719,7 @@ def export_onnx(trained_model: Any) -> Annotated[bytes, "onnx_model"]:
 @step
 def run_inference(
     model_uri: str,
-    input_images: str,
+    input_images: dict[str, str],
     inference_params: dict[str, Any],
 ) -> Annotated[dict[str, Any], "predictions"]:
     from fair.serve.base import load_session
@@ -728,7 +731,7 @@ def run_inference(
 @pipeline
 def training_pipeline(
     base_model_weights: str,
-    dataset_chips: str,
+    dataset_chips: dict[str, str],
     dataset_labels: str,
     num_classes: int,
     hyperparameters: dict[str, Any],
@@ -759,7 +762,7 @@ def training_pipeline(
 @pipeline
 def inference_pipeline(
     model_uri: str,
-    input_images: str,
+    input_images: dict[str, str],
     inference_params: dict[str, Any],
 ) -> None:
     run_inference(

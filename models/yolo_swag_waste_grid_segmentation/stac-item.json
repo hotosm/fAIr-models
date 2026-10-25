@@ -75,7 +75,7 @@
     ],
     "mlm:input": [
       {
-        "name": "RGB chips",
+        "name": "image",
         "bands": [
           {
             "name": "red"

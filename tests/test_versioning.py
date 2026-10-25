@@ -28,7 +28,7 @@ def _make_dataset(item_id: str, version: str = "1", deprecated: bool = False) ->
         label_tasks=["segmentation"],
         label_classes=[],
         keywords=["building"],
-        chips_href="chips/",
+        chips_hrefs={"image": "chips/"},
         labels_href="labels.geojson",
         title="Test",
         description="Test dataset.",

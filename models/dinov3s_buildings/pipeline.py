@@ -7,6 +7,7 @@ from typing import Annotated, Any
 
 from zenml import log_metadata, pipeline, step
 
+from fair.stac.inputs import IMAGE_INPUT
 from fair.utils.data import resolve_directory
 from fair.zenml.instrumentation import log_evaluation_results, mlflow_training_context
 from fair.zenml.materializers import ONNXMaterializer
@@ -33,11 +34,11 @@ DEFAULT_INFERENCE_PARAMS: dict[str, Any] = {
 }
 
 
-def predict(session: Any, input_images: str, params: dict[str, Any]) -> dict[str, Any]:
+def predict(session: Any, input_images: dict[str, str], params: dict[str, Any]) -> dict[str, Any]:
     """Module-level predict for `fair.serve.base`. Delegates to `predict_session`."""
     from dinov3_hot.serve import predict_session
 
-    return predict_session(session, Path(resolve_directory(input_images)), params)
+    return predict_session(session, Path(resolve_directory(input_images[IMAGE_INPUT])), params)
 
 
 def preprocess(image_path: Any) -> Any:
@@ -64,7 +65,7 @@ def postprocess(logits: Any, confidence_threshold: float = DEFAULT_INFERENCE_PAR
 
 @step
 def split_dataset(
-    dataset_chips: str,
+    dataset_chips: dict[str, str],
     dataset_labels: str,
     hyperparameters: dict[str, Any],
 ) -> Annotated[dict[str, Any], "split_info"]:
@@ -72,7 +73,7 @@ def split_dataset(
     from dinov3_hot.dataset import compute_dataset_stats, spatial_split
     from dinov3_hot.serve import HOT_MEAN, HOT_STD
 
-    chips_dir = resolve_directory(dataset_chips, "*.tif*")
+    chips_dir = resolve_directory(dataset_chips[IMAGE_INPUT], "*.tif*")
     chip_names = sorted(p.name for p in chips_dir.glob("*.tif"))
 
     val_ratio = hyperparameters.get("val_ratio", 0.2)
@@ -107,7 +108,7 @@ def split_dataset(
 
 @step
 def train_model(
-    dataset_chips: str,
+    dataset_chips: dict[str, str],
     dataset_labels: str,
     base_model_weights: str,
     hyperparameters: dict[str, Any],
@@ -139,7 +140,7 @@ def train_model(
         json.dumps({"mean": split_info["norm_mean"], "std": split_info["norm_std"]})
     )
 
-    chips_dir = resolve_directory(dataset_chips, "*.tif*")
+    chips_dir = resolve_directory(dataset_chips[IMAGE_INPUT], "*.tif*")
     labels_geojson = resolve_labels_geojson(Path(resolve_directory(dataset_labels, "*.geojson")))
     pretrained = download_checkpoint(base_model_weights)
     encoder_ckpt = hf_hub_download(repo_id=cfg.hf_ckpt_repo, filename=cfg.hf_ckpt_file)
@@ -190,7 +191,7 @@ def train_model(
 @step
 def evaluate_model(
     trained_model: Any,
-    dataset_chips: str,
+    dataset_chips: dict[str, str],
     dataset_labels: str,
     hyperparameters: dict[str, Any],
     split_info: dict[str, Any],
@@ -202,7 +203,7 @@ def evaluate_model(
     from dinov3_hot.paths import resolve_labels_geojson
     from geomltoolkits.raster.burn import burn_labels
 
-    chips_dir = resolve_directory(dataset_chips, "*.tif*")
+    chips_dir = resolve_directory(dataset_chips[IMAGE_INPUT], "*.tif*")
     labels_geojson = resolve_labels_geojson(Path(resolve_directory(dataset_labels, "*.geojson")))
     masks_dir = Path(tempfile.mkdtemp()) / "masks"
     burn_labels(
@@ -227,7 +228,7 @@ def evaluate_model(
 @step
 def tune_postprocess(
     trained_model: Any,
-    dataset_chips: str,
+    dataset_chips: dict[str, str],
     dataset_labels: str,
     hyperparameters: dict[str, Any],
     split_info: dict[str, Any],
@@ -237,7 +238,7 @@ def tune_postprocess(
     from dinov3_hot.tune import tune_postprocess_run
 
     n_trials = int(hyperparameters.get("tune_postprocess_trials", 30))
-    chips_dir = resolve_directory(dataset_chips, "*.tif*")
+    chips_dir = resolve_directory(dataset_chips[IMAGE_INPUT], "*.tif*")
     labels_geojson = resolve_labels_geojson(Path(resolve_directory(dataset_labels, "*.geojson")))
 
     result = tune_postprocess_run(
@@ -257,7 +258,7 @@ def tune_postprocess(
 @step
 def run_inference(
     model_uri: str,
-    input_images: str,
+    input_images: dict[str, str],
     inference_params: dict[str, Any],
 ) -> Annotated[dict[str, Any], "predictions"]:
     """ONNX inference via `dinov3_hot.serve.predict_session`."""
@@ -267,7 +268,7 @@ def run_inference(
 
     return predict_session(
         load_session(model_uri),
-        Path(resolve_directory(input_images)),
+        Path(resolve_directory(input_images[IMAGE_INPUT])),
         inference_params,
     )
 
@@ -314,7 +315,7 @@ def export_onnx(
 @pipeline
 def training_pipeline(
     base_model_weights: str,
-    dataset_chips: str,
+    dataset_chips: dict[str, str],
     dataset_labels: str,
     num_classes: int,
     hyperparameters: dict[str, Any],
@@ -353,7 +354,7 @@ def training_pipeline(
 @pipeline
 def inference_pipeline(
     model_uri: str,
-    input_images: str,
+    input_images: dict[str, str],
     inference_params: dict[str, Any],
 ) -> None:
     run_inference(

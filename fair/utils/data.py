@@ -12,18 +12,22 @@ from __future__ import annotations
 import logging
 import os
 import re
+import shutil
 import tempfile
 import zipfile
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import IO, TYPE_CHECKING
 from urllib.parse import urlparse
 
+import aiohttp
 from upath import UPath
 
 from fair.infra.registry import IMAGE_ASSET_KEYS
+from fair.stac.inputs import INPUT_NAME_PATTERN, input_chips_asset
 
 _PARALLEL_WORKERS = int(os.environ.get("FAIR_PARALLEL_IO_WORKERS", "8"))
+_HTTP_READ_TIMEOUT_SECONDS = 120
 
 if TYPE_CHECKING:
     import pystac
@@ -120,7 +124,16 @@ def resolve_path(href: str, local_dir: Path | None = None) -> Path:
 
     dest.parent.mkdir(parents=True, exist_ok=True)
     logger.info("Downloading %s -> %s", href, dest)
-    dest.write_bytes(UPath(href).read_bytes())
+    # Writes to a unique temporary file and renames it on completion, so only a whole download reaches `dest`.
+    with tempfile.NamedTemporaryFile(dir=dest.parent, prefix=f"{dest.name}.", suffix=".part", delete=False) as target:
+        partial = Path(target.name)
+        try:
+            with _open_streaming(UPath(href)) as reader:
+                shutil.copyfileobj(reader, target.file)
+            target.flush()
+            partial.replace(dest)
+        finally:
+            partial.unlink(missing_ok=True)
     return dest
 
 
@@ -147,34 +160,23 @@ def resolve_directory(href: str, pattern: str = "*", local_dir: Path | None = No
     return locals_[0].parent
 
 
-def create_dataset_archive(
-    chips_dir: str,
-    labels_dir: str,
-    output_path: str,
-) -> str:
-    """Zip chips and labels directories into a single archive.
-
-    Args:
-        chips_dir: Path (local or s3://) to the chips directory.
-        labels_dir: Path (local or s3://) to the labels directory.
-        output_path: Local path for the output .zip file.
-
-    Returns:
-        The output_path after the archive is written.
-    """
-    chips = Path(chips_dir) if not _is_remote(chips_dir) else resolve_directory(chips_dir)
-    labels = Path(labels_dir) if not _is_remote(labels_dir) else resolve_directory(labels_dir)
+def create_dataset_archive(chips_dirs: dict[str, str], labels_dir: str, output_path: str) -> str:
+    """Zip each input's chips under `chips-<input name>/` and the labels into `output_path`, from local or
+    s3:// paths; returns `output_path`."""
+    if invalid := [name for name in chips_dirs if not INPUT_NAME_PATTERN.fullmatch(name)]:
+        raise ValueError(f"input names must be slugs to become archive folders: {invalid}")
+    folders = {input_chips_asset(name): directory for name, directory in chips_dirs.items()}
+    folders["labels"] = labels_dir
 
     out = Path(output_path)
     out.parent.mkdir(parents=True, exist_ok=True)
 
     with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as zf:
-        for f in sorted(chips.rglob("*")):
-            if f.is_file():
-                zf.write(f, Path("chips") / f.relative_to(chips))
-        for f in sorted(labels.rglob("*")):
-            if f.is_file():
-                zf.write(f, Path("labels") / f.relative_to(labels))
+        for name, source in folders.items():
+            directory = Path(source) if not _is_remote(source) else resolve_directory(source)
+            for file_path in sorted(directory.rglob("*")):
+                if file_path.is_file():
+                    zf.write(file_path, Path(name) / file_path.relative_to(directory))
 
     logger.info("Created dataset archive: %s", out)
     return str(out)
@@ -194,6 +196,15 @@ def upload_storage_options() -> dict:
     if not acl:
         return {}
     return {"s3_additional_kwargs": {"ACL": acl}}
+
+
+def _open_streaming(path: UPath) -> IO[bytes]:
+    """Read handle for `path`; HTTP sources drop aiohttp's 5-minute total timeout, which cuts off multi-GB
+    weights, and fail once no data arrives for `_HTTP_READ_TIMEOUT_SECONDS`."""
+    if path.protocol not in ("http", "https"):
+        return path.open("rb")
+    timeout = aiohttp.ClientTimeout(total=None, sock_connect=30, sock_read=_HTTP_READ_TIMEOUT_SECONDS)
+    return UPath(str(path), client_kwargs={"timeout": timeout}).open("rb")
 
 
 def mirror(src: str | Path, dest: str | Path) -> None:
@@ -224,7 +235,8 @@ def mirror(src: str | Path, dest: str | Path) -> None:
 
     if src_path.is_file():
         dest_path = UPath(dest_str, **upload_storage_options())
-        dest_path.write_bytes(src_path.read_bytes())
+        with _open_streaming(src_path) as source, dest_path.open("wb") as target:
+            shutil.copyfileobj(source, target)
         logger.info("Mirrored %s -> %s", src_path, dest_path)
         return
 

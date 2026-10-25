@@ -40,7 +40,6 @@
     "mlm:accelerator": "cuda",
     "mlm:accelerator_count": 1,
     "fair:recommended_zoom": 20,
-    "fair:source_imagery": "https://tiles.openaerialmap.org/690585b76415e43597ffd7ea/0/690585b76415e43597ffd7eb/{z}/{x}/{y}",
     "fair:preview": {
       "center": [-13.23723, 8.47532],
       "zoom": { "recommended": 20, "min": 19, "max": 22 },
@@ -95,7 +94,7 @@
     ],
     "mlm:input": [
       {
-        "name": "RGB chip",
+        "name": "image",
         "bands": [{ "name": "red" }, { "name": "green" }, { "name": "blue" }],
         "input": {
           "shape": [3, -1, -1],

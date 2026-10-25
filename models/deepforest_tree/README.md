@@ -36,12 +36,12 @@ was filled with the mean colour. It trained 23.6 million weights (the last ResNe
 a random 20% of the tiles each, with SGD (learning rate 1e-3, encoder learning rate x0.385), 300 warmup steps and a per-batch cosine schedule.
 The best epoch by validation loss (epoch 14) is the published file. The recipe is reproducible with `scripts/finetune.py` in td-hot.
 
-| Measured on | Box precision | Recall | F1 | Setting |
-|---|---|---|---|---|
-| Freetown validation (3,457 chips) | n/a | n/a | 0.554 | IoU 0.4, best of a confidence sweep (0.10) |
-| Freetown test (5,244 chips, never used for choices) | 0.395 | 0.546 | 0.458 | IoU 0.4, confidence 0.10, NMS 0.05 |
-| Freetown test | 0.302 | 0.418 | 0.351 | IoU 0.5, confidence 0.10, NMS 0.05 |
-| One NEON test image (61 trees) | 0.594 | 0.311 | 0.409 | the original NEON checkpoint scores 0.692 |
+| Measured on                                         | Box precision | Recall | F1    | Setting                                    |
+| --------------------------------------------------- | ------------- | ------ | ----- | ------------------------------------------ |
+| Freetown validation (3,457 chips)                   | n/a           | n/a    | 0.554 | IoU 0.4, best of a confidence sweep (0.10) |
+| Freetown test (5,244 chips, never used for choices) | 0.395         | 0.546  | 0.458 | IoU 0.4, confidence 0.10, NMS 0.05         |
+| Freetown test                                       | 0.302         | 0.418  | 0.351 | IoU 0.5, confidence 0.10, NMS 0.05         |
+| One NEON test image (61 trees)                      | 0.594         | 0.311  | 0.409 | the original NEON checkpoint scores 0.692  |
 
 The labels are boxes derived from OSM points and a diameter, so they are noisy; the scores are lower at IoU 0.5 than at 0.4.
 
@@ -54,7 +54,7 @@ and only the FPN and detection heads are trained, which keeps memory low, limits
 test on Freetown, `layer4` matched the fully unfrozen model and kept more of the NEON skill. BatchNorm statistics are never updated. The weights
 of the best epoch by validation loss are kept, and training stops early after `early_stop_patience` epochs without improvement.
 
-Label polygons are converted to their bounding boxes in chip pixels, so tree labels must be polygons; points and lines are ignored. Chips with
+Label polygons are converted to their bounding boxes in chip pixels. A tree point becomes a square crown with a side of its `diameter_crown` in metres, or 5 m without a numeric one; lines are ignored. Chips with
 no label are skipped for training but kept in the validation split, where they count against precision.
 
 The train and validation chips are split in spatial blocks on OAM tile coordinates, because neighbouring chips share canopy and trees cut at

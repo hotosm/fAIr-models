@@ -30,7 +30,7 @@ Extends the [Label Extension](https://stac-extensions.github.io/label/v1.0.1/sch
 
 **Required properties:** `title`, `description`, `label:type`, `label:tasks`, `label:classes`, `keywords`, `fair:user_id`, `version`, `deprecated`
 
-**Required assets:** `chips`, `labels`
+**Required assets:** `labels`, and the chips of each model input as `chips-<input name>`. The chips of one tile carry the same filename in every input, and the imagery of each input is linked with `rel` `source` and the title `Imagery for input <input name>`. A dataset whose chips are a single `chips` asset gives them to the `image` input of a model with one input.
 
 ## Local Model (Finetuned)
 

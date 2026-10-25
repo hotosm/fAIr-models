@@ -38,7 +38,6 @@
     "mlm:pretrained": true,
     "mlm:pretrained_source": null,
     "fair:recommended_zoom": 19,
-    "fair:source_imagery": "https://tiles.openaerialmap.org/62d85d11d8499800053796c1/0/62d85d11d8499800053796c2/{z}/{x}/{y}",
     "fair:preview": {
       "center": [85.5205, 27.6295],
       "zoom": { "recommended": 19, "min": 16, "max": 21 },
@@ -115,7 +114,7 @@
     ],
     "mlm:input": [
       {
-        "name": "RGB pixels",
+        "name": "image",
         "bands": [{ "name": "red" }, { "name": "green" }, { "name": "blue" }],
         "input": {
           "shape": [-1, 3],

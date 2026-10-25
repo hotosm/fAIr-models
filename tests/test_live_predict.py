@@ -38,6 +38,7 @@ def _build_base_model_item(*, with_endpoint: bool = True) -> pystac.Item:
         datetime=datetime.now(UTC),
         properties={
             "mlm:name": "dinov3s-buildings",
+            "mlm:input": [{"name": "image"}],
             "mlm:hyperparameters": {"inference.confidence_threshold": 0.5},
         },
     )
@@ -81,7 +82,7 @@ def test_predict_live_reads_endpoint_from_stac(monkeypatch) -> None:
 
     result = client.predict_live(
         "dinov3s-buildings",
-        image_uri="https://tiles.openaerialmap.org/abc/{z}/{x}/{y}",
+        imagery={"image": "https://tiles.openaerialmap.org/abc/{z}/{x}/{y}"},
         bbox=[85.5, 27.6, 85.52, 27.63],
         zoom=18,
         collection=BASE_MODELS_COLLECTION,
@@ -92,7 +93,8 @@ def test_predict_live_reads_endpoint_from_stac(monkeypatch) -> None:
     assert captured["kwargs"]["verify"] is False
     sent = captured["kwargs"]["json"]
     assert sent["params"] == {"confidence_threshold": 0.5}
-    assert sent["image_uri"] == "https://tiles.openaerialmap.org/abc/{z}/{x}/{y}"
+    assert sent["imagery"] == {"image": "https://tiles.openaerialmap.org/abc/{z}/{x}/{y}"}
+    assert "image_uri" not in sent
     assert sent["bbox"] == [85.5, 27.6, 85.52, 27.63]
     assert sent["zoom"] == 18
     assert sent["model_uri"] == "https://example.com/model.onnx"
@@ -114,7 +116,7 @@ def test_predict_live_explicit_override_wins_over_stac(monkeypatch) -> None:
 
     client.predict_live(
         "dinov3s-buildings",
-        image_uri="https://tiles.openaerialmap.org/abc/{z}/{x}/{y}",
+        imagery={"image": "https://tiles.openaerialmap.org/abc/{z}/{x}/{y}"},
         bbox=[85.5, 27.6, 85.52, 27.63],
         zoom=18,
         predict_base_url="http://127.0.0.1:8080/predict",
@@ -135,8 +137,39 @@ def test_predict_live_missing_endpoint_asset_raises(monkeypatch) -> None:
     with pytest.raises(FairClientError, match="mlm:inference-endpoint"):
         client.predict_live(
             "dinov3s-buildings",
-            image_uri="https://tiles.openaerialmap.org/abc/{z}/{x}/{y}",
+            imagery={"image": "https://tiles.openaerialmap.org/abc/{z}/{x}/{y}"},
             bbox=[85.5, 27.6, 85.52, 27.63],
             zoom=18,
             collection=BASE_MODELS_COLLECTION,
         )
+
+
+def _post_capturing_payload(monkeypatch, captured: dict[str, Any]) -> None:
+    def fake_post(url: str, **kwargs: Any) -> _StubResponse:
+        captured.update(kwargs["json"])
+        return _StubResponse()
+
+    monkeypatch.setattr(httpx, "post", fake_post)
+
+
+def test_predict_live_rejects_imagery_that_misses_a_model_input(monkeypatch) -> None:
+    import pytest
+
+    from fair.client import FairClientError
+
+    item = _build_base_model_item()
+    item.properties["mlm:input"] = [{"name": "post"}, {"name": "pre"}]
+    client = FairClient(stac_api_url="https://stac.example.com", dsn="postgresql://example")
+    monkeypatch.setattr(client, "_get_backend", lambda: _StubBackend(item))
+    sent: dict[str, Any] = {}
+    _post_capturing_payload(monkeypatch, sent)
+
+    with pytest.raises(FairClientError, match="reads imagery for inputs"):
+        client.predict_live(
+            "dinov3s-buildings",
+            imagery={"post": "https://tiles.openaerialmap.org/abc/{z}/{x}/{y}"},
+            bbox=[85.5, 27.6, 85.52, 27.63],
+            zoom=18,
+            collection=BASE_MODELS_COLLECTION,
+        )
+    assert sent == {}

@@ -1,13 +1,9 @@
-"""deepforest-tree: DeepForest RetinaNet-ResNet50 (NEON) tree-crown detector, finetuned on OAM chips.
-
-Everything model-specific lives in the pinned `td-hot` library: scale-aware preprocessing, the ONNX contract (the graph
-holds normalisation, anchors and box decoding), confidence filtering and NMS, georeferencing, label boxes, training and
-scoring. This module only wires those calls into the ZenML steps and the fAIr serving contract. Heavy imports (torch and
-the td_hot training code) stay inside functions, so the distroless inference image (onnxruntime, no torch) can import
-this module and reach `predict`.
-"""
+"""deepforest-tree: DeepForest RetinaNet-ResNet50 tree-crown detector on OAM chips, with the model logic in the pinned
+`td-hot` library; heavy imports stay inside functions so the onnxruntime-only inference image can import `predict`."""
 
 import io
+import json
+import math
 import os
 import shutil
 import tempfile
@@ -16,6 +12,7 @@ from typing import Annotated, Any
 
 from zenml import log_metadata, pipeline, step
 
+from fair.stac.inputs import IMAGE_INPUT
 from fair.utils.data import resolve_directory, resolve_path
 from fair.zenml.instrumentation import log_evaluation_results, mlflow_training_context
 from fair.zenml.materializers import CheckpointBytesMaterializer, ONNXMaterializer
@@ -26,13 +23,15 @@ CLASS_LABEL = "tree"
 IOU_MATCH = 0.5  # box IoU at which a prediction counts as a true positive
 MIN_BOX_PX = 2.0  # clipped label boxes thinner than this are degenerate for the box loss
 CHIP_SUFFIXES = {".tif", ".tiff"}
+DEFAULT_CROWN_M = 5.0  # crown side of a tree point without a numeric `diameter_crown`
+METRES_PER_DEGREE = 111_320  # spherical approximation, within 1% of WGS84 latitude degrees
 
 
-def predict(session: Any, input_images: str, params: dict[str, Any]) -> dict[str, Any]:
+def predict(session: Any, input_images: dict[str, str], params: dict[str, Any]) -> dict[str, Any]:
     """Module-level predict for `fair.serve.base`: `td_hot.predict_session`, features renamed to the fAIr schema."""
     from td_hot import predict_session
 
-    collection = predict_session(session, resolve_directory(input_images), params)
+    collection = predict_session(session, resolve_directory(input_images[IMAGE_INPUT]), params)
     for feature in collection["features"]:
         props = feature["properties"]
         feature["properties"] = {
@@ -95,6 +94,41 @@ def _resolve_labels_geojson(labels_href: str) -> Path:
     return path
 
 
+def _with_point_crowns(labels: Path) -> Path:
+    """The labels with each tree point as a square crown of its `diameter_crown` metres, as OSM maps trees as points."""
+    collection = json.loads(labels.read_text())
+    if not any((feature.get("geometry") or {}).get("type") == "Point" for feature in collection["features"]):
+        return labels
+    collection["features"] = [_point_crown(feature) for feature in collection["features"]]
+    crowns = Path(tempfile.mkdtemp()) / "labels.geojson"
+    crowns.write_text(json.dumps(collection))
+    return crowns
+
+
+def _point_crown(feature: dict[str, Any]) -> dict[str, Any]:
+    if (feature.get("geometry") or {}).get("type") != "Point":
+        return feature
+    lon, lat = feature["geometry"]["coordinates"][:2]
+    properties = feature.get("properties") or {}
+    tags = properties.get("tags") or properties
+    try:
+        side_m = float(tags.get("diameter_crown") or DEFAULT_CROWN_M)
+    except ValueError:  # a free-text diameter such as "3 m" takes the default side
+        side_m = DEFAULT_CROWN_M
+    if not (math.isfinite(side_m) and side_m > 0):
+        side_m = DEFAULT_CROWN_M
+    half_lat = side_m / 2 / METRES_PER_DEGREE
+    half_lon = half_lat / math.cos(math.radians(lat))
+    ring = [
+        [lon - half_lon, lat - half_lat],
+        [lon + half_lon, lat - half_lat],
+        [lon + half_lon, lat + half_lat],
+        [lon - half_lon, lat + half_lat],
+        [lon - half_lon, lat - half_lat],
+    ]
+    return {**feature, "geometry": {"type": "Polygon", "coordinates": [ring]}}
+
+
 def _chip_names(chips_dir: Path) -> list[str]:
     return sorted(p.name for p in chips_dir.iterdir() if p.suffix.lower() in CHIP_SUFFIXES)
 
@@ -106,7 +140,7 @@ def _labeled_boxes(chips_dir: Path, labels_href: str) -> dict[str, list[dict[str
     """
     from td_hot.dataset import labels_for_chips
 
-    boxes = labels_for_chips(chips_dir, _resolve_labels_geojson(labels_href))
+    boxes = labels_for_chips(chips_dir, _with_point_crowns(_resolve_labels_geojson(labels_href)))
     return {
         name: [b for b in rows if b["x2"] - b["x1"] >= MIN_BOX_PX and b["y2"] - b["y1"] >= MIN_BOX_PX]
         for name, rows in boxes.items()
@@ -128,7 +162,7 @@ def _restore_model(checkpoint: bytes) -> Any:
 
 @step
 def split_dataset(
-    dataset_chips: str,
+    dataset_chips: dict[str, str],
     dataset_labels: str,
     hyperparameters: dict[str, Any],
 ) -> Annotated[dict[str, Any], "split_info"]:
@@ -136,9 +170,9 @@ def split_dataset(
     from td_hot import parse_split_params, spatial_split
 
     cfg = parse_split_params(hyperparameters)
-    chip_names = _chip_names(resolve_directory(dataset_chips, "*.tif*"))
+    chip_names = _chip_names(resolve_directory(dataset_chips[IMAGE_INPUT], "*.tif*"))
     if not chip_names:
-        raise FileNotFoundError(f"no .tif chips found at {dataset_chips}")
+        raise FileNotFoundError(f"no .tif chips found at {dataset_chips[IMAGE_INPUT]}")
     train_names, val_names = spatial_split(chip_names, cfg.val_ratio, cfg.split_seed, block_size=cfg.block_size)
 
     info = {
@@ -164,7 +198,7 @@ def split_dataset(
 
 @step(output_materializers={"trained_model_artifact": CheckpointBytesMaterializer})
 def train_model(
-    dataset_chips: str,
+    dataset_chips: dict[str, str],
     dataset_labels: str,
     base_model_weights: str,
     hyperparameters: dict[str, Any],
@@ -184,7 +218,7 @@ def train_model(
     if num_classes != 1:
         raise ValueError(f"deepforest-tree is a single-class detector, got num_classes={num_classes}")
 
-    chips_dir = resolve_directory(dataset_chips, "*.tif*")
+    chips_dir = resolve_directory(dataset_chips[IMAGE_INPUT], "*.tif*")
     boxes = _labeled_boxes(chips_dir, dataset_labels)
     train_names = _labelled(split_info["train_chip_names"], boxes)
     if not train_names:
@@ -229,7 +263,7 @@ def train_model(
 @step
 def evaluate_model(
     trained_model: Any,
-    dataset_chips: str,
+    dataset_chips: dict[str, str],
     dataset_labels: str,
     hyperparameters: dict[str, Any],
     split_info: dict[str, Any],
@@ -240,7 +274,7 @@ def evaluate_model(
     from td_hot.evaluate import score_session
     from td_hot.export import export_onnx_bytes
 
-    chips_dir = resolve_directory(dataset_chips, "*.tif*")
+    chips_dir = resolve_directory(dataset_chips[IMAGE_INPUT], "*.tif*")
     boxes = _labeled_boxes(chips_dir, dataset_labels)
     session = ort.InferenceSession(export_onnx_bytes(_restore_model(trained_model)), providers=["CPUExecutionProvider"])
     scores = score_session(
@@ -271,7 +305,7 @@ def export_onnx(
 @step
 def run_inference(
     model_uri: str,
-    input_images: str,
+    input_images: dict[str, str],
     inference_params: dict[str, Any],
 ) -> Annotated[dict[str, Any], "predictions"]:
     from fair.serve.base import load_session
@@ -282,7 +316,7 @@ def run_inference(
 @pipeline
 def training_pipeline(
     base_model_weights: str,
-    dataset_chips: str,
+    dataset_chips: dict[str, str],
     dataset_labels: str,
     num_classes: int,
     hyperparameters: dict[str, Any],
@@ -313,7 +347,7 @@ def training_pipeline(
 @pipeline
 def inference_pipeline(
     model_uri: str,
-    input_images: str,
+    input_images: dict[str, str],
     inference_params: dict[str, Any],
 ) -> None:
     run_inference(

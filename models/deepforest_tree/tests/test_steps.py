@@ -34,7 +34,7 @@ def test_split_dataset(toy_chips: Path, toy_labels: Path, base_hyperparameters: 
     from models.deepforest_tree.pipeline import split_dataset
 
     kwargs = {
-        "dataset_chips": str(toy_chips),
+        "dataset_chips": {"image": str(toy_chips)},
         "dataset_labels": str(toy_labels),
         "hyperparameters": base_hyperparameters,
     }
@@ -59,10 +59,10 @@ def test_train_model(
     from models.deepforest_tree.pipeline import split_dataset, train_model
 
     split_info = split_dataset.entrypoint(
-        dataset_chips=str(toy_chips), dataset_labels=str(toy_labels), hyperparameters=base_hyperparameters
+        dataset_chips={"image": str(toy_chips)}, dataset_labels=str(toy_labels), hyperparameters=base_hyperparameters
     )
     model_bytes = train_model.entrypoint(
-        dataset_chips=str(toy_chips),
+        dataset_chips={"image": str(toy_chips)},
         dataset_labels=str(toy_labels),
         base_model_weights=base_weights,
         hyperparameters=base_hyperparameters,
@@ -87,11 +87,11 @@ def test_train_model_requires_single_class(
     from models.deepforest_tree.pipeline import split_dataset, train_model
 
     split_info = split_dataset.entrypoint(
-        dataset_chips=str(toy_chips), dataset_labels=str(toy_labels), hyperparameters=base_hyperparameters
+        dataset_chips={"image": str(toy_chips)}, dataset_labels=str(toy_labels), hyperparameters=base_hyperparameters
     )
     with pytest.raises(ValueError, match="single-class"):
         train_model.entrypoint(
-            dataset_chips=str(toy_chips),
+            dataset_chips={"image": str(toy_chips)},
             dataset_labels=str(toy_labels),
             base_model_weights=base_weights,
             hyperparameters=base_hyperparameters,
@@ -106,10 +106,10 @@ def test_evaluate_model(
     from models.deepforest_tree.pipeline import evaluate_model, split_dataset, train_model
 
     split_info = split_dataset.entrypoint(
-        dataset_chips=str(toy_chips), dataset_labels=str(toy_labels), hyperparameters=base_hyperparameters
+        dataset_chips={"image": str(toy_chips)}, dataset_labels=str(toy_labels), hyperparameters=base_hyperparameters
     )
     model_bytes = train_model.entrypoint(
-        dataset_chips=str(toy_chips),
+        dataset_chips={"image": str(toy_chips)},
         dataset_labels=str(toy_labels),
         base_model_weights=base_weights,
         hyperparameters=base_hyperparameters,
@@ -118,7 +118,7 @@ def test_evaluate_model(
     )
     metrics = evaluate_model.entrypoint(
         trained_model=model_bytes,
-        dataset_chips=str(toy_chips),
+        dataset_chips={"image": str(toy_chips)},
         dataset_labels=str(toy_labels),
         hyperparameters=base_hyperparameters,
         split_info=split_info,

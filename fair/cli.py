@@ -23,6 +23,7 @@ from fair.stac.constants import (
     DATASETS_COLLECTION,
     LOCAL_MODELS_COLLECTION,
 )
+from fair.stac.inputs import IMAGE_INPUT
 
 app = typer.Typer(no_args_is_help=True, add_completion=False, help="fAIr model-ops CLI.")
 dataset_app = typer.Typer(no_args_is_help=True, help="Build and register training datasets.")
@@ -115,7 +116,7 @@ def dataset_build(
         label_tasks=label_tasks,
         label_classes=label_classes,
         keywords=keyword_list,
-        chips_href=chips_href,
+        chips_hrefs={IMAGE_INPUT: chips_href},
         labels_href=labels_href,
         title=resolved_title,
         description="",
@@ -124,7 +125,7 @@ def dataset_build(
         geometry=geometry,
         bbox=bbox,
         source_imagery=tms,
-        source_imagery_href=tms,
+        imagery_hrefs={IMAGE_INPUT: tms},
         geometry_type=geometry_type,  # type: ignore[arg-type]
     )
 

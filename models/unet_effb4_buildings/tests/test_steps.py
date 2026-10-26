@@ -19,13 +19,13 @@ MODEL_DIR = Path(__file__).resolve().parents[1]
 
 
 class Chip:
-    """A 3-channel logit volume built to order: mask, EDT seeds, boundary."""
+    """A 4-channel logit volume built to order: mask, EDT, boundary, centreness."""
 
     SIZE = 64
     HIGH, LOW = 8.0, -8.0
 
     def __init__(self) -> None:
-        self.logits = np.full((3, self.SIZE, self.SIZE), self.LOW, np.float32)
+        self.logits = np.full((4, self.SIZE, self.SIZE), self.LOW, np.float32)
 
     def terrace(self) -> Chip:
         """One mask blob spanning two buildings, with a seed in each half."""
@@ -33,11 +33,20 @@ class Chip:
         self.logits[1, 24:40, 14:30] = self.HIGH
         self.logits[1, 24:40, 34:50] = self.HIGH
         self.logits[2, 20:44, 31:33] = self.HIGH
+        self.logits[3, 28:36, 18:26] = self.HIGH
+        self.logits[3, 28:36, 38:46] = self.HIGH
         return self
 
     def single(self) -> Chip:
         self.logits[0, 20:44, 10:30] = self.HIGH
         self.logits[1, 24:40, 14:26] = self.HIGH
+        self.logits[3, 28:36, 16:24] = self.HIGH
+        return self
+
+    def speck(self) -> Chip:
+        """A 4 x 4 px detection, below the default minimum instance size."""
+        self.logits[0, 2:6, 2:6] = self.HIGH
+        self.logits[3, 3:5, 3:5] = self.HIGH
         return self
 
     def mask_components(self) -> int:
@@ -84,6 +93,25 @@ def test_threshold_cannot_grow_the_footprint() -> None:
     loose = (postprocess(chip.logits, threshold=0.1) > 0).sum()
     tight = (postprocess(chip.logits, threshold=0.9) > 0).sum()
     assert tight <= loose
+
+
+def test_small_instances_are_dropped() -> None:
+    from models.unet_effb4_buildings.pipeline import postprocess
+
+    chip = Chip().single().speck()
+    assert instance_count(postprocess(chip.logits)) == 1
+    assert instance_count(postprocess(chip.logits, min_instance_px=0)) == 2
+
+
+def test_d4_views_round_trip() -> None:
+    """Every TTA view must be mapped back onto the original pixel grid."""
+    from models.unet_effb4_buildings.pipeline import _d4_mean, _d4_views
+
+    batch = np.random.rand(1, 4, 16, 16).astype(np.float32)
+    views = _d4_views(batch)
+    assert views.shape == (8, 4, 16, 16)
+    assert len({v.tobytes() for v in views}) == 8, "views must be distinct"
+    np.testing.assert_allclose(_d4_mean(views), batch[0], rtol=1e-6)
 
 
 def test_preprocess_normalises_and_binarises() -> None:
@@ -150,7 +178,7 @@ def _train_one_epoch(toy: dict[str, Path]):
         base_model_weights="",
         hyperparameters=TOY_HYPERPARAMETERS,
         split_info=info,
-        num_classes=3,
+        num_classes=4,
     )
     return model, info
 
@@ -174,7 +202,7 @@ def test_evaluate_model(generate_toy_dataset: dict[str, Path]) -> None:
         dataset_labels=str(generate_toy_dataset["labels"]),
         hyperparameters=TOY_HYPERPARAMETERS,
         split_info=info,
-        num_classes=3,
+        num_classes=4,
     )
     assert isinstance(metrics, dict) and metrics
     for name, value in metrics.items():
@@ -193,7 +221,7 @@ def test_export_onnx(generate_toy_dataset: dict[str, Path]) -> None:
     blob = export_onnx.entrypoint(
         trained_model=model,
         hyperparameters=TOY_HYPERPARAMETERS,
-        num_classes=3,
+        num_classes=4,
     )
     assert isinstance(blob, bytes) and len(blob) > 0
 

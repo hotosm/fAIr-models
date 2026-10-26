@@ -1,12 +1,10 @@
 # unet-effb4-buildings
 
-Building footprint instance segmentation for HOT's fAIr. Trained on a pool of
-**18,557 chips** filtered from
-[hotosm/vhr-building-segmentation](https://huggingface.co/datasets/hotosm/vhr-building-segmentation)
-by a label-quality classifier, after manual review established that **27.2% of
-that dataset's labels** (n = 6,459 reviewed) are unusable.
+Building footprint instance segmentation for HOT's fAIr. A U-Net with an
+EfficientNet-B4 encoder predicts four channels per pixel; buildings are
+separated by a watershed seeded from the centreness channel.
 
-Weights and config: [nilsho01/unet-effb4-dist3-buildings](https://huggingface.co/nilsho01/unet-effb4-dist3-buildings)
+Weights and config: [nilsho01/unet-buildings-autorun-v2](https://huggingface.co/nilsho01/unet-buildings-autorun-v2)
 
 ## Summary
 
@@ -15,103 +13,68 @@ Weights and config: [nilsho01/unet-effb4-dist3-buildings](https://huggingface.co
 | Task | Building footprint instance segmentation |
 | Input | 3-band RGB GeoTIFF chips, VHR (~30 cm GSD), 256 × 256 |
 | Output | GeoJSON `FeatureCollection` of `Polygon` features in EPSG:4326 |
-| Coverage | Global; training pool covers 19 countries across 3 regions (Myanmar 61%, Africa 21%, other 18%) |
-| License | Apache-2.0 |
+| Training pool | 19,199 chips from 21 countries (4,379 with buildings, 96,848 building instances) |
+| License | Apache-2.0 (code and weights); data attribution below |
 
 ## Results
 
-Mean ± sd over five cross-validation folds. Threshold selected on each fold's
-own validation split, never on a test set. The published fold (fold 3) was
-selected by highest validation PQ.
+Panoptic quality (PQ = SQ × RQ) on chips that contain buildings. Ground-truth
+instances are connected components of the label mask, instances under 30 px are
+ignored, predictions are averaged over the 8 flips/transposes (d4 TTA), and the
+decode settings were selected on validation. Nothing was tuned on the benchmark.
 
-### nilsho01/vhr-buildings-benchmark-v1 (400 chips, reviewed and corrected labels)
+| | val PQ | val SQ | val RQ | bench PQ | bench SQ | bench RQ |
+|---|---|---|---|---|---|---|
+| previous version of this model (`dist3` head) | 56.06 | 79.03 | 70.93 | 49.30 | 76.28 | 64.63 |
+| **this model** | **57.30** | **79.53** | **72.06** | **51.08** | **76.69** | **66.60** |
 
-| model | PQ | SQ | RQ | pixel F1 | pixel IoU |
-|---|---|---|---|---|---|
-| **this model (5 folds)** | **47.79 ± 0.23** | **75.44 ± 0.17** | **63.35 ± 0.27** | **84.43 ± 0.11** | **73.05 ± 0.16** |
-| shipped dinov3s_upernet_hot | 33.92 | 72.08 | 47.06 | 83.03 | 70.98 |
+Validation is a spatially blocked cross-validation fold (2,651 chips, 1,532 with
+buildings). The benchmark is
+[nilsho01/vhr-buildings-benchmark-v1](https://huggingface.co/datasets/nilsho01/vhr-buildings-benchmark-v1)
+(400 chips with reviewed labels). Both rows are single training runs (one seed).
+A from-scratch rerun of the `dist3` recipe reproduced its score to the second
+decimal, which suggests run-to-run noise below the 1.2–1.8 PQ gap shown here,
+but that was not measured for this model.
 
-This benchmark is disadvantageous to this model: all 400 chips lie in
-vhr-buildings' train split, so the shipped baseline trained on every chip it is
-scored on, and this model never saw one.
+fAIr runs inference **without** TTA by default because TTA costs 8 forward
+passes per chip. On the predecessor of this model, dropping TTA cost about
+1 PQ. Set `tta` to `true` to reproduce the table.
 
-### hotosm/vhr-building-segmentation test (7,236 chips, raw OSM labels)
+### Breakdown (PQ, this model)
 
-Neither model trained on this split.
-
-| metric | this model (5 folds) | shipped DINOv3 |
+| stratum | val | bench |
 |---|---|---|
-| **PQ** | **30.02 ± 0.26** | 27.81 |
-| **SQ** | **78.45 ± 0.29** | 76.82 |
-| **RQ** | **38.28 ± 0.30** | 36.20 |
-| pixel F1 | 60.46 ± 0.48 | **61.50** |
-| pixel IoU | 43.33 ± 0.49 | **44.41** |
+| size 0–8 px | 12.64 | 11.58 |
+| size 8–12 px | 33.02 | 29.67 |
+| size 12–16 px | 46.27 | 43.30 |
+| size 16–24 px | 58.53 | 54.59 |
+| size 24–40 px | 67.54 | 59.14 |
+| size 40+ px | 69.40 | 62.11 |
+| density 1–9 buildings | 60.78 | 56.76 |
+| density 10–49 | 59.84 | 51.61 |
+| density 50+ | 49.13 | 49.54 |
+| Africa | 57.07 | 51.49 |
+| Myanmar | 57.36 | 52.08 |
+| other regions | 58.23 | 43.32 |
+| pixel IoU | 77.75 | 74.41 |
+| empty chips with ≥ 1 false positive | 10.2 % | 10.9 % |
 
-Ahead on instance metrics, behind on pixel metrics by ~1 point. The shipped
-model predicts 75% of the true object count against this model's ~116%: a model
-that under-predicts is rewarded by an area-weighted metric and penalised by an
-object-weighted one.
-
-### How the baseline was decoded
-
-Both families emit three channels but order them differently — this model as
-`[mask, interior, boundary]`, `dinov3_hot` as `[mask, boundary, signed distance]`.
-The baseline's channels were reordered and its signed distance mapped from
-[-1, 1] to [0, 1] so that one decoder and one threshold protocol apply to both.
-
-The baseline was decoded with that shared decoder, **not** with its own tuned
-post-processing (`h_maxima_depth` 0.2, `seed_min_distance` 6, `min_area_m2`,
-Douglas-Peucker simplification, regularisation). Holding the decoder fixed
-isolates what the network predicts, but it means these numbers are not the
-baseline's shipped operating point and are not comparable to figures published
-elsewhere for it.
-
-### What the held-out split measures
-
-The `test` split is drawn from the same OpenStreetMap-derived labelling process
-as `train` and was not reviewed, so there is no reason to expect its labels to
-be cleaner. Manual review of 6,459 `train` chips found 27.2% carrying errors
-severe enough to make them unusable — shifted footprints, missing buildings, and
-annotations with no building under them. Applied to the two splits, the
-label-quality classifier passes `test` chips at close to the rate it passes
-`train` chips, which is consistent with a comparable noise level.
-
-The errors are not distributed uniformly. They concentrate by country and by
-background type, which makes them learnable: a model trained on the unfiltered
-pool can acquire a region's labelling convention, including its systematic
-shift, and is then rewarded for reproducing it here. A model trained on filtered
-labels predicts the building rather than the convention and is penalised for the
-difference. The comparison on this split therefore does not isolate segmentation
-quality from agreement with a particular annotation style.
-
-This split is reported because it is the one the shipped model is evaluated on
-and excluding it would be a convenient omission. The reviewed benchmark above is
-the comparison this work puts forward.
-
-### Per fold
-
-| fold | val PQ | benchmark PQ | hotosm test PQ |
-|---|---|---|---|
-| 0 | 43.50 | 47.90 | 29.98 |
-| 1 | 44.48 | 47.67 | 30.33 |
-| 2 | 43.58 | 47.68 | 29.62 |
-| **3** | **45.73** (selected) | 47.57 | 30.16 |
-| 4 | 44.78 | **48.14** | 30.03 |
-
-Selecting on the benchmark instead would have given fold 4 (48.14 PQ) — that
-would be selection on the test set. The published weights use fold 3.
+Size is the side of the square of equal area (√area in px); a 40 px side is a
+building of about 1,600 px.
 
 ## Known Limitations
 
-**False-positive rate on empty chips**: 37.4% ± 2.3 of chips containing no
-buildings receive at least one spurious detection on the hotosm test split,
-against 8.3% for the shipped model (15.8–19.8% on the reviewed benchmark). The
-rate rose as training data was added. Likely a domain-coverage effect: the
-training pool is ~61% Myanmar, and vhr-buildings' validation and test splits
-contain no Myanmar at all.
-
-**Touching buildings**: the watershed step separates most touching instances,
-but dense informal settlements with very small gaps may still be merged.
+- **Very small buildings** (under 8 px side) are weak: PQ 12.6 on validation and
+  11.6 on the benchmark.
+- **False positives on empty chips**: 10.9 % of empty benchmark chips receive at
+  least one spurious detection (10.2 % on validation).
+- **Merges versus splits**: centreness seeds split fewer large buildings than the
+  previous distance-transform seeds but merge more touching ones. This was
+  measured on the predecessor of this model, which uses the same recipe.
+- **Fine-tuning supervises only the mask channel.** The decoder is shared by all
+  four channels, so fine-tuning may also shift the centreness channel that seeds
+  the watershed. How well touching buildings are separated after fine-tuning has
+  not been measured.
 
 ## Why Instance Metrics
 
@@ -122,58 +85,54 @@ the same four separated but traced one pixel too wide score pixel IoU 86 and PQ
 
 ## Usage
 
-Three output channels: mask logit, per-instance normalised distance transform
-(EDT), instance boundary logit. Instances come from marker-controlled watershed
-seeded by channel 1 — connected components on channel 0 alone merges roughly
-2.3 buildings per blob.
+Four output channels: mask, normalised distance transform, boundary,
+centreness. Instances come from a marker-controlled watershed seeded by the
+h-maxima of the centreness channel inside the mask. The decode settings are in
+`best_threshold.json["decode"]` (mask threshold 0.5, h 0.4, minimum 30 px, d4 TTA).
 
 ```python
 import json, torch, numpy as np, segmentation_models_pytorch as smp
-import scipy.ndimage, skimage.segmentation
 from huggingface_hub import hf_hub_download
+from scipy import ndimage
+from skimage.morphology import h_maxima
+from skimage.segmentation import watershed
 
-repo = "nilsho01/unet-effb4-dist3-buildings"
-thr  = json.load(open(hf_hub_download(repo, "best_threshold.json")))["threshold"]  # 0.50
+repo = "nilsho01/unet-buildings-autorun-v2"
+dec = json.load(open(hf_hub_download(repo, "best_threshold.json")))["decode"]
 
-net = smp.Unet(encoder_name="efficientnet-b4", encoder_weights=None,
-               in_channels=3, classes=3)
-net.load_state_dict(torch.load(hf_hub_download(repo, "best.pth"),
-                               map_location="cpu")["model"])
+net = smp.Unet(encoder_name="efficientnet-b4", encoder_weights=None, in_channels=3, classes=4)
+net.load_state_dict(torch.load(hf_hub_download(repo, "best.pth"), map_location="cpu"))
 net.eval()
 
-# x: float32 tensor [1, 3, 256, 256], ImageNet-normalised
+# x: float32 tensor [1, 3, 256, 256], ImageNet-normalised RGB
 with torch.no_grad():
     prob = torch.sigmoid(net(x))[0].numpy()
 
-mask = prob[0] > thr
-edt  = prob[1]
-seeds = scipy.ndimage.label((edt > 0.5) & mask)[0]
-dist  = scipy.ndimage.distance_transform_edt(mask)
-instances = skimage.segmentation.watershed(-dist, markers=seeds, mask=mask)
+mask = prob[0] > dec["mask_threshold"]
+cent = prob[3].copy()
+cent[~mask] = cent[mask].min() if mask.any() else 0
+seeds = ndimage.label(h_maxima(cent, dec["h"]).astype(bool) & mask)[0]
+inst = watershed(-ndimage.distance_transform_edt(mask), markers=seeds, mask=mask)
+sizes = np.bincount(inst.ravel())
+inst[np.isin(inst, np.flatnonzero(sizes < dec["min_instance_px"]))] = 0
 ```
 
-`best_threshold.json` matters — folds selected 0.40–0.50, and the operating
-point is not interchangeable between folds.
+`model.onnx` in the same repository is the same network at opset 18 with a
+dynamic batch dimension; it matches the PyTorch output to 6e-5.
 
-## Architecture
+## Architecture and Training
 
-`smp.Unet`, EfficientNet-B4 encoder (ImageNet), decoder channels 256/128/64/32/16,
-`dist3` head (3 output channels). 40 epochs, batch 32, Adam at 2e-3 (decoder) /
-2e-4 (encoder), 256 × 256, seed 42. Folds split by 4 × 4 spatial tile blocks —
-adjacent OAM tiles share buildings, so a per-chip split leaks.
+`smp.Unet`, EfficientNet-B4 encoder (ImageNet), `dist4` head (4 output
+channels). 60 epochs, batch 32, Adam at 2e-3 (decoder) / 2e-4 (encoder), EMA
+0.99, 256 × 256, seed 42. The published checkpoint is the epoch with the best
+validation PQ (60 of 60). Folds are split by spatial tile blocks, because
+adjacent OAM tiles share buildings and a per-chip split leaks.
 
-## Label Quality
-
-6,459 chips were reviewed manually; 27.2% were unusable — 1,471 needing
-correction (label shifted relative to imagery) and 287 with labels too poor to
-correct. The surviving 4,701 reviewed chips formed the quality-classifier
-training set. The classifier was then applied to the full ~57k hotosm dataset;
-the training pool of 18,557 chips has estimated label quality > 90%.
-
-The quality classifier uses:
-1. A frozen EfficientNet-B4 UNet run on each chip to extract prediction features
-   (IoU, coverage, etc.)
-2. A small XGBoost classifier trained on reviewed chips
+Training data is the pool from
+[hotosm/vhr-building-segmentation](https://huggingface.co/datasets/hotosm/vhr-building-segmentation)
+plus 3,293 chips from the Open Cities AI Challenge (tier 1). Most of the Open
+Cities chips from Zanzibar are empty rural imagery and were kept as negative
+examples.
 
 ## Fine-tuning
 
@@ -185,8 +144,15 @@ coordinates to prevent data leakage.
 ## Licence and Attribution
 
 Model weights: Apache-2.0. Available at
-[nilsho01/unet-effb4-dist3-buildings](https://huggingface.co/nilsho01/unet-effb4-dist3-buildings).
+[nilsho01/unet-buildings-autorun-v2](https://huggingface.co/nilsho01/unet-buildings-autorun-v2).
 
-Training data: [hotosm/vhr-building-segmentation](https://huggingface.co/datasets/hotosm/vhr-building-segmentation)
-— OpenAerialMap imagery + OpenStreetMap labels, ODbL. No other footprint source
-contributed to the weights or to the filtering.
+Training data:
+- [hotosm/vhr-building-segmentation](https://huggingface.co/datasets/hotosm/vhr-building-segmentation):
+  imagery © OpenAerialMap contributors; labels © OpenStreetMap contributors,
+  ODbL-1.0.
+- Open Cities AI Challenge tier 1 (GFDRR Labs, Radiant MLHub, 2020;
+  [doi 10.34911/rdnt.f94cxb](https://doi.org/10.34911/rdnt.f94cxb)): imagery
+  CC BY 4.0, labels ODbL-1.0. Please attribute "Open Cities AI Challenge,
+  GFDRR Labs / Radiant MLHub, 2020".
+
+No CC BY-NC data (e.g. RAMP) was used for this model.

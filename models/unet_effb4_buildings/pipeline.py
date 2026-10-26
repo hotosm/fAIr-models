@@ -1,18 +1,21 @@
 """ZenML pipeline for UNet EfficientNet-B4 instance segmentation of buildings.
 
 Entrypoints referenced by models/unet_effb4_buildings/stac-item.json.
-Pretrained weights: nilsho01/unet-effb4-dist3-buildings (Hugging Face).
+Pretrained weights: nilsho01/unet-buildings-autorun-v2 (Hugging Face).
 
 Architecture: smp.Unet(encoder_name="efficientnet-b4", encoder_weights=None,
-              in_channels=3, classes=3)
-Output channels:
+              in_channels=3, classes=4)
+Output channels (dist4 head):
   [0] mask logit        — binary building / background
-  [1] normalised EDT    — distance transform used to separate touching instances
+  [1] normalised EDT    — distance transform (auxiliary, not used at inference)
   [2] boundary logit    — building boundary (auxiliary, not used at inference)
+  [3] centreness logit  — instance centres, seeds the watershed
 
 Postprocessing uses marker-controlled watershed:
-  seeds  = scipy.ndimage.label((sigmoid(edt) > 0.5) & mask_binary)[0]
-  labels = skimage.segmentation.watershed(-edt_scipy, markers=seeds, mask=mask_binary)
+  seeds  = scipy.ndimage.label(h_maxima(centreness, h) & mask)[0]
+  labels = skimage.segmentation.watershed(-edt(mask), markers=seeds, mask=mask)
+then drops instances smaller than min_instance_px. Optional d4 TTA averages
+sigmoid outputs over the 8 flips/transposes before decoding.
 
 Fine-tuning: encoder frozen, decoder only; BCE+Dice on mask channel; spatial
 block split (block_size=4 on OAM tile coords).
@@ -31,7 +34,16 @@ MODEL_INPUT_SIZE = 256
 IMAGENET_MEAN = (0.485, 0.456, 0.406)
 IMAGENET_STD = (0.229, 0.224, 0.225)
 
-HF_REPO = "nilsho01/unet-effb4-dist3-buildings"
+HF_REPO = "nilsho01/unet-buildings-autorun-v2"
+NUM_OUTPUT_CHANNELS = 4
+MASK_CHANNEL, CENTRENESS_CHANNEL = 0, 3
+
+# Decode config selected on validation (best_threshold.json["decode"] on HF)
+DEFAULT_SEED_H = 0.4
+DEFAULT_MIN_INSTANCE_PX = 30
+
+# d4 group as (quarter turns, horizontal flip); applied in this order, undone in reverse
+D4_TRANSFORMS = tuple((k, flip) for k in range(4) for flip in (False, True))
 
 
 # ---------------------------------------------------------------------------
@@ -94,7 +106,7 @@ def _load_hf_weights(device: str) -> tuple[Any, float]:
     return state_dict, threshold
 
 
-def _build_model(num_output_channels: int = 3) -> Any:
+def _build_model(num_output_channels: int = NUM_OUTPUT_CHANNELS) -> Any:
     import segmentation_models_pytorch as smp
 
     return smp.Unet(
@@ -146,45 +158,84 @@ def preprocess(batch: dict[str, Any]) -> tuple[Any, Any]:
     return images, masks
 
 
-def postprocess(logits: Any, threshold: float = 0.5) -> Any:
-    """Watershed instance segmentation from 3-channel raw model output.
+def decode_probabilities(
+    prob: Any,
+    threshold: float = 0.5,
+    h: float = DEFAULT_SEED_H,
+    min_instance_px: int = DEFAULT_MIN_INSTANCE_PX,
+) -> Any:
+    """Watershed instance segmentation from 4-channel sigmoid probabilities (4, H, W).
+
+    Seeds are h-maxima of the centreness channel inside the mask; instances
+    smaller than min_instance_px are dropped to background.
+    """
+    import numpy as np
+    from scipy import ndimage
+    from skimage.morphology import h_maxima
+    from skimage.segmentation import watershed
+
+    mask = prob[MASK_CHANNEL] > threshold
+    if not mask.any():
+        return np.zeros(mask.shape, np.int32)
+
+    # Flatten the centreness outside the mask so no maximum is found there
+    centreness = prob[CENTRENESS_CHANNEL].astype(np.float64)
+    centreness[~mask] = centreness[mask].min()
+    seeds = ndimage.label(h_maxima(centreness, h).astype(bool) & mask)[0]
+    if seeds.max() == 0:
+        seeds = ndimage.label(mask)[0]
+
+    labels = watershed(-ndimage.distance_transform_edt(mask), markers=seeds, mask=mask)
+    sizes = np.bincount(labels.ravel())
+    labels[np.isin(labels, np.flatnonzero(sizes < min_instance_px))] = 0
+    return labels.astype(np.int32)
+
+
+def postprocess(
+    logits: Any,
+    threshold: float = 0.5,
+    h: float = DEFAULT_SEED_H,
+    min_instance_px: int = DEFAULT_MIN_INSTANCE_PX,
+) -> Any:
+    """Watershed instance segmentation from 4-channel raw model output.
 
     Args:
-        logits: numpy array (3, H, W) — raw model output before activation.
-        threshold: sigmoid threshold applied to mask and EDT channels.
+        logits: numpy array (4, H, W) — raw model output before activation.
+        threshold: sigmoid threshold applied to the mask channel.
+        h: minimum peak height for a centreness maximum to seed an instance.
+        min_instance_px: instances below this area (pixels) are removed.
 
     Returns:
         Integer label array (H, W): 0 = background, 1..N = individual instances.
     """
-    import numpy as np
-    import scipy.ndimage
-    import skimage.segmentation
-    from scipy.ndimage import distance_transform_edt
-
     # scipy's expit rather than 1/(1+exp(-x)): the naive form overflows for
     # logits below about -700 and emits a RuntimeWarning on every chip with a
     # confidently empty region, which is most of them.
-    from scipy.special import expit as _sigmoid
+    from scipy.special import expit
 
-    mask_logit = logits[0]  # (H, W)
-    edt_norm = logits[1]  # (H, W)
+    return decode_probabilities(expit(logits), threshold=threshold, h=h, min_instance_px=min_instance_px)
 
-    mask_binary = _sigmoid(mask_logit) > threshold
-    edt_binary = _sigmoid(edt_norm) > threshold
 
-    # Seeds are connected components that are inside both mask and edt peaks
-    seed_mask = edt_binary & mask_binary
-    markers, _ = scipy.ndimage.label(seed_mask)
+def _d4_views(batch: Any) -> Any:
+    """Stack the 8 d4 views of a (1, C, H, W) batch into (8, C, H, W)."""
+    import numpy as np
 
-    if markers.max() == 0:
-        # No seeds found — return the plain binary mask as a single instance
-        result = mask_binary.astype(np.int32)
-        return result
+    views = []
+    for k, flip in D4_TRANSFORMS:
+        view = np.rot90(batch, k, axes=(2, 3))
+        views.append(view[..., ::-1] if flip else view)
+    return np.ascontiguousarray(np.concatenate(views, axis=0))
 
-    # Distance map for watershed (negative so peaks become basins)
-    dist = distance_transform_edt(mask_binary)
-    labels = skimage.segmentation.watershed(-dist, markers=markers, mask=mask_binary)
-    return labels.astype(np.int32)
+
+def _d4_mean(outputs: Any) -> Any:
+    """Undo each d4 view of an (8, C, H, W) output and average to (C, H, W)."""
+    import numpy as np
+
+    restored = []
+    for out, (k, flip) in zip(outputs, D4_TRANSFORMS, strict=True):
+        out = out[..., ::-1] if flip else out
+        restored.append(np.rot90(out, -k, axes=(1, 2)))
+    return np.mean(restored, axis=0)
 
 
 def _preprocess_onnx_image(img_path: Any) -> tuple[Any, Any, Any]:
@@ -232,14 +283,20 @@ def predict(session: Any, input_images: str, params: dict[str, Any]) -> dict[str
     Args:
         session:      ONNX InferenceSession.
         input_images: Path (local or cloud) to a directory of GeoTIFF chips.
-        params:       Must contain "confidence_threshold" (float 0-1).
+        params:       Must contain "confidence_threshold" (float 0-1). Optional:
+                      "seed_h", "min_instance_px", "tta" (d4 test-time augmentation,
+                      8 forward passes per chip).
     """
+    from scipy.special import expit
 
     from fair.utils.data import resolve_directory
 
     if "confidence_threshold" not in params:
         raise ValueError("params['confidence_threshold'] is required")
     threshold = float(params["confidence_threshold"])
+    h = float(params.get("seed_h", DEFAULT_SEED_H))
+    min_instance_px = int(params.get("min_instance_px", DEFAULT_MIN_INSTANCE_PX))
+    tta = bool(params.get("tta", False))
     input_name = session.get_inputs()[0].name
 
     input_dir = resolve_directory(input_images)
@@ -252,9 +309,11 @@ def predict(session: Any, input_images: str, params: dict[str, Any]) -> dict[str
     features: list[dict[str, Any]] = []
     for img_path in img_paths:
         batch, transform, crs = _preprocess_onnx_image(img_path)
-        raw = session.run(None, {input_name: batch})[0]  # (1, 3, H, W)
-        logits_chw = raw[0]  # (3, H, W)
-        label_map = postprocess(logits_chw, threshold=threshold)
+        if tta:
+            prob = _d4_mean(expit(session.run(None, {input_name: _d4_views(batch)})[0]))
+        else:
+            prob = expit(session.run(None, {input_name: batch})[0][0])  # (4, H, W)
+        label_map = decode_probabilities(prob, threshold=threshold, h=h, min_instance_px=min_instance_px)
         features.extend(_vectorize_instance_labels(label_map, transform, crs))
     return _build_feature_collection(features)
 
@@ -342,8 +401,8 @@ def _train_step(
 
     images, masks = preprocess(batch)
     images, masks = images.to(device), masks.to(device)
-    output = model(images)  # (B, 3, H, W)
-    mask_logit = output[:, 0, :, :]  # supervise mask channel only
+    output = model(images)  # (B, 4, H, W)
+    mask_logit = output[:, MASK_CHANNEL, :, :]  # supervise mask channel only
     loss = _bce_dice_loss(mask_logit, masks)
     optimizer.zero_grad()
     loss.backward()
@@ -579,7 +638,7 @@ def run_inference(
 def export_onnx(
     trained_model: Any,
     hyperparameters: dict[str, Any],
-    num_classes: int = 3,
+    num_classes: int = NUM_OUTPUT_CHANNELS,
 ) -> Annotated[bytes, "onnx_model"]:
     import os
     import tempfile

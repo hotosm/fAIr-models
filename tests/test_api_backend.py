@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime
 from typing import Any
 
@@ -113,6 +114,41 @@ def test_list_items_returns_features() -> None:
     backend = _make_backend(handler)
     items = backend.list_items("datasets", limit=10)
     assert [i.id for i in items] == ["ds-1", "ds-2"]
+
+
+def _paged_handler(bodies: list[dict]):
+    """Two search pages, the first linking to the second the way stac-fastapi-pgstac does."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        bodies.append(body)
+        if "token" not in body:
+            next_body = {**body, "token": "next:p2"}
+            next_link = {"rel": "next", "method": "POST", "href": str(request.url), "body": next_body}
+            return httpx.Response(200, json={"features": [_build_dummy_item("ds-1").to_dict()], "links": [next_link]})
+        return httpx.Response(200, json={"features": [_build_dummy_item("ds-2").to_dict()], "links": []})
+
+    return handler
+
+
+def test_list_items_follows_next_links_to_the_last_page() -> None:
+    bodies: list[dict] = []
+    backend = _make_backend(_paged_handler(bodies))
+
+    items = backend.list_items("datasets")
+
+    assert [i.id for i in items] == ["ds-1", "ds-2"]
+    assert bodies[1]["token"] == "next:p2"
+
+
+def test_list_items_stops_paging_once_the_limit_is_reached() -> None:
+    bodies: list[dict] = []
+    backend = _make_backend(_paged_handler(bodies))
+
+    items = backend.list_items("datasets", limit=1)
+
+    assert [i.id for i in items] == ["ds-1"]
+    assert len(bodies) == 1
 
 
 def test_delete_item_tolerates_404() -> None:

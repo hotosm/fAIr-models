@@ -9,6 +9,7 @@ from fair.stac.collections import initialize_catalog
 from fair.stac.constants import DATASETS_COLLECTION
 from fair.stac.versioning import (
     add_version_links,
+    delete_item_with_archives,
     deprecate_and_link_successor,
     find_previous_active_item,
     normalize_version_link_hrefs,
@@ -148,6 +149,35 @@ class TestNormalizeVersionLinkHrefs:
         related = next(lnk for lnk in item.links if lnk.rel == "related")
         assert absolute.target == "https://api/already-absolute/x.json"
         assert related.target == "../../datasets/ds-2/ds-2.json"
+
+
+class TestDeleteItemWithArchives:
+    def test_deletes_the_item_and_only_its_own_archives(self, cm: StacCatalogManager) -> None:
+        cm.publish_item(DATASETS_COLLECTION, _make_dataset("ds-1", version="3"))
+        cm.publish_item(DATASETS_COLLECTION, _make_dataset("ds-1-v2", version="2", deprecated=True))
+        cm.publish_item(DATASETS_COLLECTION, _make_dataset("ds-10"))
+
+        deleted = delete_item_with_archives(cm, DATASETS_COLLECTION, "ds-1")
+
+        assert deleted == ["ds-1-v2", "ds-1"]
+        assert [item.id for item in cm.list_items(DATASETS_COLLECTION)] == ["ds-10"]
+
+    def test_keeps_a_live_item_whose_id_looks_like_an_archive(self, cm: StacCatalogManager) -> None:
+        cm.publish_item(DATASETS_COLLECTION, _make_dataset("ds-1", version="3"))
+        cm.publish_item(DATASETS_COLLECTION, _make_dataset("ds-1-v2"))
+
+        assert delete_item_with_archives(cm, DATASETS_COLLECTION, "ds-1") == ["ds-1"]
+        assert cm.item_exists(DATASETS_COLLECTION, "ds-1-v2")
+
+    def test_deletes_the_archive_carrying_the_item_version(self, cm: StacCatalogManager) -> None:
+        cm.publish_item(DATASETS_COLLECTION, _make_dataset("ds-1"))
+        cm.publish_item(DATASETS_COLLECTION, _make_dataset("ds-1-v1", deprecated=True))
+
+        assert delete_item_with_archives(cm, DATASETS_COLLECTION, "ds-1") == ["ds-1-v1", "ds-1"]
+
+    def test_missing_item_raises(self, cm: StacCatalogManager) -> None:
+        with pytest.raises(KeyError):
+            delete_item_with_archives(cm, DATASETS_COLLECTION, "absent")
 
 
 class TestDeprecateAndLinkSuccessor:

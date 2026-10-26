@@ -409,13 +409,13 @@
       "mlm:entrypoint": "models.dinov3s_buildings.pipeline:run_inference"
     },
     "mlm:training": {
-      "href": "ghcr.io/hotosm/fair-models/dinov3s_buildings:dev",
+      "href": "ghcr.io/hotosm/fair-models/dinov3s_buildings:latest",
       "type": "application/vnd.oci.image.index.v1+json",
       "title": "Training Docker Image",
       "roles": ["mlm:training-runtime"]
     },
     "mlm:inference": {
-      "href": "ghcr.io/hotosm/fair-models/dinov3s_buildings:dev-inference",
+      "href": "ghcr.io/hotosm/fair-models/dinov3s_buildings:latest-inference",
       "type": "application/vnd.oci.image.index.v1+json",
       "title": "Inference Docker Image",
       "roles": ["mlm:inference-runtime"]

@@ -376,13 +376,13 @@
       "mlm:entrypoint": "models.deepforest_tree.pipeline:predict"
     },
     "mlm:training": {
-      "href": "ghcr.io/hotosm/fair-models/deepforest_tree:dev",
+      "href": "ghcr.io/hotosm/fair-models/deepforest_tree:latest",
       "type": "application/vnd.oci.image.index.v1+json",
       "title": "Training Docker Image",
       "roles": ["mlm:training-runtime"]
     },
     "mlm:inference": {
-      "href": "ghcr.io/hotosm/fair-models/deepforest_tree:dev-inference",
+      "href": "ghcr.io/hotosm/fair-models/deepforest_tree:latest-inference",
       "type": "application/vnd.oci.image.index.v1+json",
       "title": "Inference Docker Image",
       "roles": ["mlm:inference-runtime"]

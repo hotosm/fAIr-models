@@ -8,6 +8,7 @@ import pystac
 from pypgstac.db import PgstacDB
 from pypgstac.load import Loader, Methods
 
+from fair.stac.api_backend import search_collection
 from fair.stac.collections import (
     create_base_models_collection,
     create_datasets_collection,
@@ -78,14 +79,7 @@ class PgStacBackend:
         return resp.status_code == 200
 
     def list_items(self, collection_id: str, *, limit: int | None = None) -> list[pystac.Item]:
-        url = f"{self._stac_api_url}/search"
-        payload: dict[str, object] = {"collections": [collection_id]}
-        if limit is not None:
-            payload["limit"] = limit
-        resp = self._http.post(url, json=payload)
-        resp.raise_for_status()
-        features = resp.json().get("features", [])
-        return [pystac.Item.from_dict(f) for f in features]
+        return search_collection(self._http, self._stac_api_url, collection_id, limit=limit)
 
     def patch_item(self, collection_id: str, item_id: str, patch: dict) -> pystac.Item:
         # pgstac's loader has no native PATCH; do a get + merge + upsert

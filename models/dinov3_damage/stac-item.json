@@ -57,6 +57,11 @@
         "type": "tms",
         "name": "Vantor post-flood"
       },
+      "pre_imagery": {
+        "url": "https://api.imagery.hotosm.org/raster/collections/openaerialmap/tiles/WebMercatorQuad/{z}/{x}/{y}?ids=6a92f09910691da75dd828c3,6a90c0f1d8f7b27f66739990&assets=visual",
+        "type": "tms",
+        "name": "Vantor pre-flood"
+      },
       "place": {
         "name": "Bhote Koshi flood extent",
         "country": "Nepal",
@@ -460,13 +465,13 @@
       "mlm:entrypoint": "models.dinov3_damage.pipeline:run_inference"
     },
     "mlm:training": {
-      "href": "ghcr.io/hotosm/fair-models/dinov3_damage:dev",
+      "href": "ghcr.io/hotosm/fair-models/dinov3_damage:latest",
       "type": "application/vnd.oci.image.index.v1+json",
       "title": "Training Docker Image",
       "roles": ["mlm:training-runtime"]
     },
     "mlm:inference": {
-      "href": "ghcr.io/hotosm/fair-models/dinov3_damage:dev-inference",
+      "href": "ghcr.io/hotosm/fair-models/dinov3_damage:latest-inference",
       "type": "application/vnd.oci.image.index.v1+json",
       "title": "Inference Docker Image",
       "roles": ["mlm:inference-runtime"]

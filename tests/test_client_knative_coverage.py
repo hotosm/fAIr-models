@@ -15,6 +15,8 @@ from kubernetes.client.exceptions import ApiException
 import fair.client as client_module
 import fair.infra.knative as knative_module
 from fair.client import FairClient, FairClientError
+from fair.stac.catalog_manager import StacCatalogManager
+from fair.stac.collections import initialize_catalog
 from fair.stac.constants import BASE_MODELS_COLLECTION, DATASETS_COLLECTION, LOCAL_MODELS_COLLECTION
 
 
@@ -1069,3 +1071,67 @@ def test_predict_checks_imagery_and_params_before_uploading(monkeypatch, tmp_pat
     with pytest.raises(ValueError):
         client.submit_predict(local_model_id=local_model.id, input_images=input_images, params=params)
     assert uploads == []
+
+
+@pytest.fixture
+def deletable_model(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> tuple[FairClient, StacCatalogManager]:
+    catalog_path = str(tmp_path / "catalog.json")
+    initialize_catalog(catalog_path)
+    catalog = StacCatalogManager(catalog_path)
+    catalog.publish_item(BASE_MODELS_COLLECTION, _build_base_model_item("dinov3s-buildings"))
+    client = FairClient(catalog_path=catalog_path)
+    monkeypatch.setattr(client, "_get_backend", lambda: catalog)
+    return client, catalog
+
+
+@pytest.mark.parametrize(
+    ("stac_api_url", "cluster", "removed"),
+    [
+        ("https://stac.example.com", True, ["dinov3s-buildings"]),
+        ("https://stac.example.com", False, []),
+        (None, True, []),
+    ],
+)
+def test_delete_base_model_removes_the_service_only_where_one_can_exist(
+    monkeypatch: pytest.MonkeyPatch, deletable_model, stac_api_url: str | None, cluster: bool, removed: list[str]
+) -> None:
+    client, catalog = deletable_model
+    client._stac_api_url = stac_api_url
+    monkeypatch.setattr(knative_module, "cluster_configured", lambda: cluster)
+    deleted: list[str] = []
+    monkeypatch.setattr(knative_module, "delete_knative_service", lambda name, namespace=None: deleted.append(name))
+
+    assert client.delete_base_model("dinov3s-buildings") == ["dinov3s-buildings"]
+
+    assert deleted == removed
+    assert not catalog.item_exists(BASE_MODELS_COLLECTION, "dinov3s-buildings")
+
+
+def test_delete_base_model_keeps_stac_when_the_service_delete_fails(
+    monkeypatch: pytest.MonkeyPatch, deletable_model
+) -> None:
+    client, catalog = deletable_model
+    client._stac_api_url = "https://stac.example.com"
+    monkeypatch.setattr(knative_module, "cluster_configured", lambda: True)
+
+    def unreachable(name: str, namespace: str | None = None) -> None:
+        raise ApiException(status=503)
+
+    monkeypatch.setattr(knative_module, "delete_knative_service", unreachable)
+
+    with pytest.raises(ApiException):
+        client.delete_base_model("dinov3s-buildings")
+
+    assert catalog.item_exists(BASE_MODELS_COLLECTION, "dinov3s-buildings")
+
+
+def test_cluster_configured_is_false_without_any_kubernetes_config(monkeypatch: pytest.MonkeyPatch) -> None:
+    from kubernetes import config
+
+    def missing() -> None:
+        raise config.ConfigException("no config")
+
+    monkeypatch.setattr(config, "load_incluster_config", missing)
+    monkeypatch.setattr(config, "load_kube_config", missing)
+
+    assert knative_module.cluster_configured() is False

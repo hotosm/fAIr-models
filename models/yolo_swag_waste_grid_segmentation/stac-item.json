@@ -44,15 +44,14 @@
     "fair:max_zoom": 22,
     "fair:pinned": true,
     "fair:preview": {
-      "center": [-0.22085, 5.54999],
-      "zoom": { "recommended": 20, "min": 14, "max": 22 },
+      "center": [-13.05, 8.3381],
+      "zoom": { "recommended": 18, "min": 14, "max": 22 },
       "imagery": {
-        "url": "https://tiles.openaerialmap.org/66e40c88cd0baa0001b6212d/0/66e40c88cd0baa0001b6212e/{z}/{x}/{y}",
+        "url": "https://api.imagery.hotosm.org/raster/collections/openaerialmap/items/6aae46379ed4c3b5f2d117f9/tiles/WebMercatorQuad/{z}/{x}/{y}?assets=visual",
         "type": "tms",
-        "name": "Oldfadama Agbogloshie_combined_low_compression",
         "attribution": "OpenAerialMap"
       },
-      "place": { "name": "", "country": "Ghana", "country_code": "GH" }
+      "place": { "name": "Waterloo", "country": "Sierra Leone", "country_code": "SL" }
     },
     "keywords": ["solid-waste", "semantic-segmentation", "polygon"],
     "license": "MIT",

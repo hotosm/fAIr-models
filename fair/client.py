@@ -42,7 +42,7 @@ from fair.stac.validators import (
     validate_item,
     validate_model_asset_urls,
 )
-from fair.stac.versioning import archive_previous_version, find_previous_active_item
+from fair.stac.versioning import archive_previous_version, delete_item_with_archives, find_previous_active_item
 from fair.utils.data import (
     count_chips,
     create_dataset_archive,
@@ -262,6 +262,17 @@ class FairClient:
         published = cat.publish_item(BASE_MODELS_COLLECTION, item)
         print(f"register: base-model {published.id} v{published.properties['version']}")
         return published.id
+
+    def delete_base_model(self, item_id: str, *, knative_namespace: str | None = None) -> list[str]:
+        """Remove the model's KNative service, then its STAC versions; a cluster API error stops the delete."""
+        cat = self._get_backend()
+        item = cat.get_item(BASE_MODELS_COLLECTION, item_id)
+        if self._stac_api_url and knative.cluster_configured():
+            knative.delete_knative_service(item.properties.get("mlm:name") or item.id, namespace=knative_namespace)
+        return delete_item_with_archives(cat, BASE_MODELS_COLLECTION, item_id)
+
+    def delete_dataset(self, item_id: str) -> list[str]:
+        return delete_item_with_archives(self._get_backend(), DATASETS_COLLECTION, item_id)
 
     def reconcile_knative(
         self,

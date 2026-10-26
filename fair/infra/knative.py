@@ -180,6 +180,20 @@ def build_knative_manifest(
     return manifest
 
 
+def cluster_configured() -> bool:
+    """Whether an in-cluster or kubeconfig Kubernetes config can be loaded; a stack without one has no services."""
+    from kubernetes import config
+
+    try:
+        config.load_incluster_config()
+    except config.ConfigException:
+        try:
+            config.load_kube_config()
+        except config.ConfigException:
+            return False
+    return True
+
+
 def _custom_objects_api() -> Any:
     from kubernetes import client, config
 

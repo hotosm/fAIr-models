@@ -87,6 +87,24 @@ def deprecate_and_link_successor(
     return backend.publish_item(collection_id, old_item)
 
 
+def delete_item_with_archives(backend: StacBackend, collection_id: str, item_id: str) -> list[str]:
+    """Delete the item and its deprecated `{id}-v{n}` archives; return the deleted ids."""
+    version = int(backend.get_item(collection_id, item_id).properties.get("version", "1"))
+    # A dataset archive carries the item's own version, since a rebuild under the same title gets a new id.
+    candidates = [f"{item_id}-v{n}" for n in range(1, version + 1)]
+    deleted = [
+        archived_id
+        for archived_id in candidates
+        if backend.item_exists(collection_id, archived_id)
+        and backend.get_item(collection_id, archived_id).properties.get("deprecated")
+    ]
+    for archived_id in deleted:
+        backend.delete_item(collection_id, archived_id)
+    backend.delete_item(collection_id, item_id)
+    log.info("Deleted %s/%s and %d archived versions", collection_id, item_id, len(deleted))
+    return [*deleted, item_id]
+
+
 def archive_previous_version(
     backend: StacBackend,
     collection_id: str,

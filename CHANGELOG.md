@@ -12,6 +12,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - add ZenML integration for model promotion and STAC catalog synchronization
 - implement STAC catalog management and builders for datasets and models
 
+## v0.3.17 (2026-10-26)
+
+### Feat
+
+- **damage**: model with pre and post support and image input
+- **deepforest-tree**: add deepforest-tree model with Docker support and testing framework
+
+### Fix
+
+- **infra**: replace MinIO and ZenML images that no longer exist
+
 ## v0.3.16 (2026-10-06)
 
 ### Fix

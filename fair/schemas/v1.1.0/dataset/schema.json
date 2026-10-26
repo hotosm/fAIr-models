@@ -11,11 +11,7 @@
         },
         {
           "type": "object",
-          "required": [
-            "type",
-            "properties",
-            "assets"
-          ],
+          "required": ["type", "properties", "assets"],
           "properties": {
             "type": {
               "const": "Feature"
@@ -43,16 +39,11 @@
             },
             "assets": {
               "type": "object",
-              "required": [
-                "chips",
-                "labels"
-              ],
+              "required": ["chips", "labels"],
               "properties": {
                 "chips": {
                   "type": "object",
-                  "required": [
-                    "href"
-                  ],
+                  "required": ["href"],
                   "properties": {
                     "href": {
                       "type": "string",
@@ -62,9 +53,7 @@
                 },
                 "labels": {
                   "type": "object",
-                  "required": [
-                    "href"
-                  ],
+                  "required": ["href"],
                   "properties": {
                     "href": {
                       "type": "string",
@@ -74,9 +63,7 @@
                 },
                 "download": {
                   "type": "object",
-                  "required": [
-                    "href"
-                  ],
+                  "required": ["href"],
                   "properties": {
                     "href": {
                       "type": "string",
@@ -86,9 +73,7 @@
                 },
                 "thumbnail": {
                   "type": "object",
-                  "required": [
-                    "href"
-                  ],
+                  "required": ["href"],
                   "properties": {
                     "href": {
                       "type": "string",
@@ -106,9 +91,7 @@
   "definitions": {
     "stac_extensions": {
       "type": "object",
-      "required": [
-        "stac_extensions"
-      ],
+      "required": ["stac_extensions"],
       "properties": {
         "stac_extensions": {
           "type": "array",
@@ -134,10 +117,7 @@
         },
         "label:type": {
           "type": "string",
-          "enum": [
-            "vector",
-            "raster"
-          ]
+          "enum": ["vector", "raster"]
         },
         "label:tasks": {
           "type": "array",
@@ -149,24 +129,15 @@
           "type": "array",
           "items": {
             "type": "object",
-            "required": [
-              "name",
-              "classes"
-            ],
+            "required": ["name", "classes"],
             "properties": {
               "name": {
-                "type": [
-                  "string",
-                  "null"
-                ]
+                "type": ["string", "null"]
               },
               "classes": {
                 "type": "array",
                 "items": {
-                  "type": [
-                    "string",
-                    "number"
-                  ]
+                  "type": ["string", "number"]
                 }
               }
             }
@@ -202,10 +173,7 @@
           "minItems": 1,
           "items": {
             "type": "object",
-            "required": [
-              "name",
-              "roles"
-            ],
+            "required": ["name", "roles"],
             "properties": {
               "name": {
                 "type": "string"

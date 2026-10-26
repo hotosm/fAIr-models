@@ -9,7 +9,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 ARG DDA_REF=c0c709df8409a4855faeeb69426ee206187a0111
 ARG DINOV3_HOT_REF=dee030eec385aca489be152eea2a96ddf255a2ef
 ARG DINOV3_REF=6876159a11b4df116f30f667f8c9888617df0751
-ARG FAIR_PY_OPS_VERSION=0.3.16
+ARG FAIR_PY_OPS_VERSION=0.3.17
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv pip install --no-sources \
     "dda @ git+https://github.com/hotosm/dda@${DDA_REF}" \
@@ -38,7 +38,7 @@ ENTRYPOINT ["/usr/local/bin/python"]
 # Test stage: pytest extras for CI.
 FROM runtime AS test
 COPY --from=ghcr.io/astral-sh/uv:0.11.8 /uv /usr/local/bin/uv
-ARG FAIR_PY_OPS_VERSION=0.3.16
+ARG FAIR_PY_OPS_VERSION=0.3.17
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv pip install --system "fair-py-ops[test]==${FAIR_PY_OPS_VERSION}"
 
@@ -50,7 +50,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends git ca-certific
 RUN uv python install 3.13
 WORKDIR /app
 ARG DDA_REF=c0c709df8409a4855faeeb69426ee206187a0111
-ARG FAIR_PY_OPS_VERSION=0.3.16
+ARG FAIR_PY_OPS_VERSION=0.3.17
 RUN --mount=type=cache,target=/python/.cache/uv \
     uv venv && uv pip install \
     "fair-py-ops[serve]==${FAIR_PY_OPS_VERSION}" \

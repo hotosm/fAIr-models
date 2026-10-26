@@ -3,7 +3,7 @@
 # (the NVIDIA driver is injected by the device plugin) and falls back to CPU in CI.
 FROM ghcr.io/astral-sh/uv:0.11.8-python3.13-trixie-slim AS builder
 ENV UV_SYSTEM_PYTHON=1 UV_LINK_MODE=copy
-ARG FAIR_PY_OPS_VERSION=0.3.16
+ARG FAIR_PY_OPS_VERSION=0.3.17
 ARG TD_HOT_REF=v0.2.1
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -42,7 +42,7 @@ ENTRYPOINT ["/usr/local/bin/python"]
 
 # Test stage: pytest extras for CI.
 FROM runtime AS test
-ARG FAIR_PY_OPS_VERSION=0.3.16
+ARG FAIR_PY_OPS_VERSION=0.3.17
 COPY --from=ghcr.io/astral-sh/uv:0.11.8 /uv /usr/local/bin/uv
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv pip install --system "fair-py-ops[test]==${FAIR_PY_OPS_VERSION}"
@@ -50,7 +50,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 # Inference builder: distroless-ready CPU venv (ONNX serving, no torch).
 FROM ghcr.io/astral-sh/uv:0.11.8-trixie-slim AS inference-builder
 ENV UV_PYTHON_INSTALL_DIR=/python UV_PYTHON_PREFERENCE=only-managed
-ARG FAIR_PY_OPS_VERSION=0.3.16
+ARG FAIR_PY_OPS_VERSION=0.3.17
 ARG TD_HOT_REF=v0.2.1
 RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates \
     && rm -rf /var/lib/apt/lists/*

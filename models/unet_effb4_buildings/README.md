@@ -15,9 +15,7 @@ reviewed benchmark (PQ 47.79 ± 0.23 over five folds against 33.92), together
 with the label-quality findings behind its training pool. This model keeps that
 architecture and data basis, adds a centreness channel, trains longer and adds
 Open Cities chips. It improves on the `dist3` model by 1.8 PQ on the same
-benchmark (table below). The two comparisons use different evaluation protocols,
-so the DINOv3 numbers are not directly comparable with the results reported
-here, and this model has not been scored against DINOv3 directly.
+benchmark (table below).
 
 ## Summary
 

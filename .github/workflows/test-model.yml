@@ -26,9 +26,11 @@ env:
   PR_NUMBER: ${{ inputs.pr || github.event.pull_request.number }}
 
 jobs:
-  test:
+  resolve:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    outputs:
+      name: ${{ steps.model.outputs.name }}
+      trainable: ${{ steps.model.outputs.trainable }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -42,6 +44,18 @@ jobs:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: python3 .github/scripts/resolve_model.py
+
+  # Trains the model end to end on a kind cluster; prediction-only models are covered by build-model-images.
+  test:
+    needs: resolve
+    if: needs.resolve.outputs.trainable == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.PR_NUMBER && format('refs/pull/{0}/merge', env.PR_NUMBER) || github.ref }}
+          fetch-depth: 0
 
       - uses: astral-sh/setup-uv@v8.0.0
         with:
@@ -66,7 +80,7 @@ jobs:
 
       - name: Install deps + build image
         env:
-          MODEL: ${{ steps.model.outputs.name }}
+          MODEL: ${{ needs.resolve.outputs.name }}
         run: |
           uv sync --extra k8s --extra serve
           docker pull ghcr.io/hotosm/fair-models/fair-dev-cli:latest
@@ -89,7 +103,7 @@ jobs:
 
       - name: Run example
         env:
-          MODEL: ${{ steps.model.outputs.name }}
+          MODEL: ${{ needs.resolve.outputs.name }}
           FAIR_CI: "1"
           FAIR_FORCE_CPU: "1"
           FAIR_LABEL_DOMAIN: fair
@@ -103,7 +117,7 @@ jobs:
 
       - name: Smoke-test + save predictions
         env:
-          MODEL: ${{ steps.model.outputs.name }}
+          MODEL: ${{ needs.resolve.outputs.name }}
         run: |
           mkdir -p ci-artifacts
           uv run python scripts/test_serve.py "$MODEL" \
@@ -113,6 +127,6 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: smoke-predictions-${{ steps.model.outputs.name }}
-          path: ci-artifacts/${{ steps.model.outputs.name }}-predictions.geojson
+          name: smoke-predictions-${{ needs.resolve.outputs.name }}
+          path: ci-artifacts/${{ needs.resolve.outputs.name }}-predictions.geojson
           if-no-files-found: ignore

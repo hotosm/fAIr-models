@@ -37,6 +37,7 @@ from fair.stac.inputs import (
 )
 from fair.stac.location import derive_location_props
 from fair.stac.validators import (
+    is_trainable,
     validate_compatibility,
     validate_inference_params,
     validate_item,
@@ -225,7 +226,7 @@ class FairClient:
         item.properties.update(derive_location_props(item.properties, item.bbox))
         if errs := validate_item(item):
             raise FairClientError(f"Schema validation failed: {errs}")
-        if errs := validate_model_asset_urls(item, required_keys=("checkpoint", "model"), optional_keys=()):
+        if errs := validate_model_asset_urls(item):
             raise FairClientError(f"Asset URL validation failed: {errs}")
         if self._stac_api_url:
             try:
@@ -251,7 +252,7 @@ class FairClient:
         if self._upload_artifacts:
             self._mirror_asset_to_artifact_store(item, "checkpoint", BASE_MODELS_COLLECTION)
             self._mirror_asset_to_artifact_store(item, "model", BASE_MODELS_COLLECTION)
-            if errs := validate_model_asset_urls(item, required_keys=("checkpoint", "model"), optional_keys=()):
+            if errs := validate_model_asset_urls(item):
                 raise FairClientError(f"Mirrored asset URL validation failed: {errs}")
         self._upload_assets_if_remote(item, BASE_MODELS_COLLECTION)
 
@@ -476,7 +477,7 @@ class FairClient:
     ) -> tuple[Any, Path]:
         cat = self._get_backend()
         base = cat.get_item(BASE_MODELS_COLLECTION, base_model_id)
-        if "mlm:training" not in base.assets:
+        if not is_trainable(base.assets):
             raise FairClientError(
                 f"Base model '{base_model_id}' has no 'mlm:training' asset: "
                 "it is inference-only and cannot be finetuned"

@@ -1,0 +1,190 @@
+{
+  "type": "Feature",
+  "stac_version": "1.1.0",
+  "stac_extensions": [
+    "https://stac-extensions.github.io/mlm/v1.5.1/schema.json",
+    "https://stac-extensions.github.io/version/v1.2.0/schema.json",
+    "https://stac-extensions.github.io/classification/v2.0.0/schema.json",
+    "https://stac-extensions.github.io/file/v2.1.0/schema.json",
+    "https://stac-extensions.github.io/raster/v1.1.0/schema.json",
+    "https://stac-extensions.github.io/datacube/v2.3.0/schema.json",
+    "https://hotosm.github.io/fAIr-models/schemas/v1.0.0/base-model/schema.json"
+  ],
+  "id": "unet-tree-segmentation",
+  "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+      [
+        [-180, -90],
+        [180, -90],
+        [180, 90],
+        [-180, 90],
+        [-180, -90]
+      ]
+    ]
+  },
+  "bbox": [-180, -90, 180, 90],
+  "properties": {
+    "datetime": "2026-10-27T00:00:00Z",
+    "created": "2026-10-27T00:00:00Z",
+    "updated": "2026-10-27T00:00:00Z",
+    "title": "Freetown Trees",
+    "description": "A U-Net that segments tree crowns in RGB aerial imagery and returns them as polygons. It is a prediction-only model: it serves live and batch predictions and cannot be finetuned.",
+    "mlm:name": "unet-tree-segmentation",
+    "mlm:architecture": "U-Net",
+    "mlm:tasks": ["semantic-segmentation"],
+    "mlm:framework": "PyTorch",
+    "mlm:framework_version": "2.11.0",
+    "mlm:pretrained": true,
+    "mlm:pretrained_source": null,
+    "mlm:accelerator": "amd64",
+    "fair:recommended_zoom": 19,
+    "fair:preview": {
+      "center": [-13.298, 8.4947],
+      "zoom": { "recommended": 19, "min": 18, "max": 20 },
+      "imagery": {
+        "url": "https://tiles.openaerialmap.org/690585b76415e43597ffd7ea/0/690585b76415e43597ffd7eb/{z}/{x}/{y}",
+        "type": "tms",
+        "name": "OpenAerialMap - Freetown",
+        "attribution": "OpenAerialMap"
+      },
+      "place": { "name": "Freetown", "country": "Sierra Leone", "country_code": "SL" }
+    },
+    "keywords": ["tree", "semantic-segmentation", "polygon"],
+    "license": "CC-BY-4.0",
+    "version": "1",
+    "deprecated": false,
+    "providers": [
+      {
+        "name": "HOT Open Mapping Hub West and Northern Africa",
+        "roles": ["producer", "licensor"],
+        "description": "Trained the U-Net and exported it to ONNX."
+      },
+      {
+        "name": "HOTOSM",
+        "roles": ["host"],
+        "url": "https://www.hotosm.org",
+        "description": "Humanitarian OpenStreetMap Team"
+      }
+    ],
+    "fair:hyperparameters_spec": [
+      {
+        "key": "confidence_threshold",
+        "name": "Confidence threshold",
+        "description": "Minimum tree probability for a pixel to be kept.",
+        "type": "float",
+        "default": 0.5,
+        "min": 0.0,
+        "max": 1.0
+      }
+    ],
+    "mlm:input": [
+      {
+        "name": "image",
+        "bands": [{ "name": "red" }, { "name": "green" }, { "name": "blue" }],
+        "input": {
+          "shape": [-1, 3, 256, 256],
+          "dim_order": ["batch", "bands", "height", "width"],
+          "data_type": "float32"
+        },
+        "value_scaling": [
+          { "type": "min-max", "minimum": 0, "maximum": 255 },
+          { "type": "min-max", "minimum": 0, "maximum": 255 },
+          { "type": "min-max", "minimum": 0, "maximum": 255 }
+        ],
+        "pre_processing_function": {
+          "format": "python",
+          "expression": "models.unet_tree_segmentation.pipeline:preprocess"
+        }
+      }
+    ],
+    "mlm:output": [
+      {
+        "name": "class logits",
+        "description": "Background and tree logits for every pixel; softmax over the class axis gives the probabilities.",
+        "tasks": ["semantic-segmentation"],
+        "result": {
+          "shape": [-1, 2, 256, 256],
+          "dim_order": ["batch", "class", "height", "width"],
+          "data_type": "float32"
+        },
+        "classification:classes": [
+          { "name": "background", "value": 0, "description": "Non-tree pixels" },
+          { "name": "tree", "value": 1, "description": "Tree crown pixels" }
+        ],
+        "post_processing_function": {
+          "format": "python",
+          "expression": "models.unet_tree_segmentation.pipeline:postprocess"
+        }
+      },
+      {
+        "name": "tree crowns",
+        "description": "Tree crown polygons traced from the thresholded pixel mask, one row per feature.",
+        "tasks": ["semantic-segmentation"],
+        "result": { "shape": [-1, 2], "dim_order": ["batch", "variables"], "data_type": "float32" },
+        "variables": ["class", "label"],
+        "classification:classes": [{ "name": "tree", "value": 1, "description": "Tree crown pixels" }],
+        "post_processing_function": {
+          "format": "python",
+          "expression": "models.unet_tree_segmentation.pipeline:postprocess"
+        }
+      }
+    ],
+    "cube:dimensions": {
+      "features": {
+        "type": "geometry",
+        "bbox": [-180, -90, 180, 90],
+        "geometry_types": ["Polygon"],
+        "reference_system": 4326
+      }
+    },
+    "cube:variables": {
+      "label": {
+        "dimensions": ["features"],
+        "type": "data",
+        "description": "Class name of the predicted class (tree).",
+        "values": ["tree"]
+      },
+      "class": {
+        "dimensions": ["features"],
+        "type": "data",
+        "description": "Predicted class value (1 = tree).",
+        "values": [1],
+        "data_type": "uint8"
+      }
+    },
+    "mlm:hyperparameters": {
+      "inference.confidence_threshold": 0.5
+    }
+  },
+  "assets": {
+    "model": {
+      "href": "https://huggingface.co/datasets/kshitijrajsharma/share/resolve/main/unet_tree_segmentation_all.onnx",
+      "type": "application/octet-stream; framework=onnx",
+      "roles": ["mlm:model", "mlm:compiled"],
+      "mlm:artifact_type": "onnx",
+      "raster:bands": [{ "name": "red" }, { "name": "green" }, { "name": "blue" }]
+    },
+    "source-code": {
+      "href": "https://github.com/hotosm/fAIr-models/tree/develop/models/unet_tree_segmentation",
+      "type": "text/html",
+      "roles": ["code"],
+      "mlm:entrypoint": "models.unet_tree_segmentation.pipeline:predict"
+    },
+    "mlm:inference": {
+      "href": "ghcr.io/hotosm/fair-models/unet_tree_segmentation:latest-inference",
+      "type": "application/vnd.oci.image.index.v1+json",
+      "roles": ["mlm:inference-runtime"]
+    },
+    "batch-inference": {
+      "href": "ghcr.io/hotosm/fair-models/unet_tree_segmentation:latest",
+      "type": "application/vnd.oci.image.index.v1+json",
+      "roles": ["mlm:inference-runtime"]
+    },
+    "readme": {
+      "href": "https://raw.githubusercontent.com/hotosm/fAIr-models/refs/heads/develop/models/unet_tree_segmentation/README.md",
+      "type": "text/markdown",
+      "roles": ["metadata"]
+    }
+  }
+}

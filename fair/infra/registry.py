@@ -5,6 +5,8 @@ import re
 import httpx
 import pystac
 
+from fair.stac.constants import BATCH_INFERENCE_ASSET, TRAINING_ASSET
+
 _ACCEPT = ", ".join(
     (
         "application/vnd.oci.image.index.v1+json",
@@ -13,7 +15,7 @@ _ACCEPT = ", ".join(
         "application/vnd.docker.distribution.manifest.v2+json",
     )
 )
-IMAGE_ASSET_KEYS = ("mlm:training", "mlm:inference")
+IMAGE_ASSET_KEYS = (TRAINING_ASSET, "mlm:inference", BATCH_INFERENCE_ASSET)
 
 
 class RegistryError(Exception):

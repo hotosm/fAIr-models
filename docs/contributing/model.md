@@ -195,7 +195,8 @@ models/your_model/
 ## pipeline.py
 
 This is the core of your contribution. It must export two `@pipeline`-decorated
-functions that the platform discovers and dispatches automatically.
+functions that the platform discovers and dispatches automatically (one for a
+[prediction-only model](#prediction-only-models)).
 
 ### Required Exports
 
@@ -210,6 +211,25 @@ CI AST-parses `pipeline.py` and `tests/test_steps.py` (via
 | `inference_pipeline`                                                                | `@pipeline` | AST check in `pipeline.py`         |
 | `split_dataset`                                                                     | `@step`     | AST check in `pipeline.py`         |
 | `test_split_dataset`, `test_train_model`, `test_evaluate_model`, `test_export_onnx` | functions   | AST check in `tests/test_steps.py` |
+
+### Prediction-only models
+
+A model with an existing ONNX file and no training code can be contributed for
+predictions only. Its `stac-item.json` has no `mlm:training` asset and needs no
+`checkpoint` asset, `fair:metrics_spec` or `fair:split_spec`; the `model` asset
+(the ONNX file) and `mlm:inference` are required. Such a model cannot be
+finetuned: the platform refuses training requests for it.
+
+Live predictions run in the `inference` image. Batch predictions run as a ZenML
+pipeline, which needs the full toolchain image built from the Dockerfile `runtime`
+target (CI builds that target for every model); reference it in a
+`batch-inference` asset with the role `mlm:inference-runtime`. Without that asset
+the model serves live predictions only.
+
+CI checks less for these models: `pipeline.py` needs `inference_pipeline`, and
+`tests/test_steps.py` needs `test_run_inference`. The image build workflow builds
+the `test`, `runtime` and `inference` targets and smoke-tests the `inference`
+image, and the single-model training workflow is skipped.
 
 The following are wired by convention or referenced from the STAC item. They are
 not AST-checked by CI, so their names must match what the STAC item and serving

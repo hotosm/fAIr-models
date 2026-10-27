@@ -207,6 +207,29 @@ def test_inference_config():
     assert cfg["settings"]["docker"]["parent_image"] == "ghcr.io/hotosm/fair-unet:v1"
 
 
+def test_inference_config_runs_a_prediction_only_model_in_its_batch_inference_image():
+    model = _base_model()
+    training = model.assets.pop("mlm:training")
+    model.add_asset(
+        "batch-inference",
+        pystac.Asset(
+            href="ghcr.io/hotosm/fair-unet:v1-batch", media_type=training.media_type, roles=["mlm:inference-runtime"]
+        ),
+    )
+
+    cfg = generate_inference_config(model, {"image": "/data/input/"})
+
+    assert cfg["settings"]["docker"]["parent_image"] == "ghcr.io/hotosm/fair-unet:v1-batch"
+
+
+def test_inference_config_needs_a_full_toolchain_image():
+    model = _base_model()
+    del model.assets["mlm:training"]
+
+    with pytest.raises(KeyError, match="batch-inference"):
+        generate_inference_config(model, {"image": "/data/input/"})
+
+
 def test_inference_config_keys_each_input_chips_by_name():
     model = _with_inputs(_local_model(), "post", "pre")
     cfg = generate_inference_config(model, {"pre": "s3://chips/pre", "post": "s3://chips/post"})

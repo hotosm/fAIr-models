@@ -8,7 +8,7 @@ from typing import Any
 import pystac
 
 from fair.params import inference_params, training_params
-from fair.stac.constants import CONTAINER_REGISTRIES, OCI_IMAGE_INDEX_TYPE
+from fair.stac.constants import BATCH_INFERENCE_ASSET, CONTAINER_REGISTRIES, OCI_IMAGE_INDEX_TYPE, TRAINING_ASSET
 from fair.stac.inputs import dataset_chips_assets, input_names, require_imagery_for_inputs
 from fair.stac.validators import validate_inference_params
 from fair.utils.data import http_url_to_s3_uri
@@ -215,7 +215,7 @@ def generate_training_config(
         ),
     }
 
-    runtime = base_model_item.assets["mlm:training"]
+    runtime = base_model_item.assets[TRAINING_ASSET]
     if runtime.media_type == OCI_IMAGE_INDEX_TYPE:
         docker_cfg: dict[str, Any] = {
             "parent_image": _normalize_container_href(runtime.href),
@@ -281,14 +281,13 @@ def generate_inference_config(
         ],
     }
 
-    # Batch inference runs through ZenML (orchestrator pod + step pods on k8s),
-    # which needs zenml + kubernetes + the model's runtime deps. The mlm:inference
-    # asset (a distroless serving image for Knative live-serving) intentionally
-    # omits ZenML/kubernetes. So the batch pipeline uses mlm:training, which has
-    # the full toolchain. mlm:inference stays for the Knative live path only.
-    runtime = model_item.assets.get("mlm:training")
+    # ZenML batch runs need the full toolchain image; mlm:inference is the distroless serving image.
+    runtime = model_item.assets.get(TRAINING_ASSET) or model_item.assets.get(BATCH_INFERENCE_ASSET)
     if runtime is None:
-        msg = f"Model item '{model_item.id}' has no 'mlm:training' asset; batch inference needs its toolchain"
+        msg = (
+            f"Model item '{model_item.id}' has neither '{TRAINING_ASSET}' nor '{BATCH_INFERENCE_ASSET}'; "
+            "batch inference needs a full toolchain image"
+        )
         raise KeyError(msg)
     if runtime.media_type == OCI_IMAGE_INDEX_TYPE:
         docker_cfg: dict[str, Any] = {

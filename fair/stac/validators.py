@@ -5,13 +5,14 @@ import importlib.resources
 import json
 import logging
 import math
+from collections.abc import Mapping
 from typing import Any
 
 import pystac
 
 from fair.params import inference_params
 from fair.schemas import register_fair_schemas
-from fair.stac.constants import FAIR_LOCAL_MODEL_SCHEMA
+from fair.stac.constants import FAIR_LOCAL_MODEL_SCHEMA, TRAINING_ASSET
 from fair.stac.inputs import (
     INPUT_CHIPS_ASSET_PREFIX,
     INPUT_NAME_PATTERN,
@@ -80,16 +81,25 @@ def _validate_prediction_variables_declared(item: pystac.Item) -> list[str]:
 _MODEL_ASSET_KEYS: tuple[str, ...] = ("checkpoint", "model")
 
 
+def is_trainable(assets: Mapping[str, Any]) -> bool:
+    """A base model without a training runtime serves predictions only and cannot be finetuned."""
+    return TRAINING_ASSET in assets
+
+
+def required_model_asset_keys(item: pystac.Item) -> tuple[str, ...]:
+    return _MODEL_ASSET_KEYS if is_trainable(item.assets) else ("model",)
+
+
 def validate_model_asset_urls(
     item: pystac.Item,
     *,
-    required_keys: tuple[str, ...] = ("checkpoint", "model"),
+    required_keys: tuple[str, ...] | None = None,
     optional_keys: tuple[str, ...] = (),
     timeout: float = 10.0,
 ) -> list[str]:
 
     errors: list[str] = []
-    for key in required_keys:
+    for key in required_keys if required_keys is not None else required_model_asset_keys(item):
         asset = item.assets.get(key)
         if asset is None:
             errors.append(f"Missing required asset '{key}'")

@@ -12,6 +12,7 @@ import pytest
 from fair.stac.builders import build_base_model_item, build_dataset_item
 from fair.stac.constants import FAIR_LOCAL_MODEL_SCHEMA
 from fair.stac.validators import (
+    required_model_asset_keys,
     validate_compatibility,
     validate_hyperparameters,
     validate_item,
@@ -907,3 +908,42 @@ def test_wildcard_vocabulary_still_requires_a_shared_keyword(tmp_path):
         )
     assert any("No keywords in common" in e for e in errors)
     assert not any("Unknown" in e for e in errors)
+
+
+def _prediction_only_base_model():
+    item = _valid_base_model()
+    batch_runtime = item.assets.pop("mlm:training")
+    batch_runtime.roles = ["mlm:inference-runtime"]
+    item.add_asset("batch-inference", batch_runtime)
+    del item.assets["checkpoint"]
+    del item.properties["fair:metrics_spec"]
+    del item.properties["fair:split_spec"]
+    return item
+
+
+class TestPredictionOnlyBaseModel:
+    def test_a_model_without_training_runtime_or_checkpoint_is_valid(self):
+        assert validate_item(_prediction_only_base_model()) == []
+
+    def test_a_prediction_only_model_still_needs_its_onnx(self):
+        item = _prediction_only_base_model()
+        item.add_asset("onnx", item.assets.pop("model"))
+
+        assert any("'model' is a required property" in error for error in validate_item(item))
+
+    def test_a_trainable_model_still_needs_its_checkpoint(self):
+        item = _valid_base_model()
+        del item.assets["checkpoint"]
+
+        assert any("'checkpoint' is a required property" in error for error in validate_item(item))
+
+    @pytest.mark.parametrize("training_spec", ["fair:metrics_spec", "fair:split_spec"])
+    def test_a_trainable_model_still_needs_its_training_specs(self, training_spec):
+        item = _valid_base_model()
+        del item.properties[training_spec]
+
+        assert any(f"'{training_spec}' is a required property" in error for error in validate_item(item))
+
+    def test_only_the_onnx_url_is_required_without_a_training_runtime(self):
+        assert required_model_asset_keys(_prediction_only_base_model()) == ("model",)
+        assert required_model_asset_keys(_valid_base_model()) == ("checkpoint", "model")

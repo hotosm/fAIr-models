@@ -74,12 +74,16 @@ def mock_instrumentation():
     ]
     for module_name in _discover_pipeline_modules():
         try:
-            importlib.import_module(module_name)
+            module = importlib.import_module(module_name)
         except ImportError:
             continue
-        patches.append(patch(f"{module_name}.log_metadata"))
-        patches.append(patch(f"{module_name}.mlflow_training_context", _noop_context))
-        patches.append(patch(f"{module_name}.log_evaluation_results"))
+        # Prediction-only modules import none of the training instrumentation.
+        if hasattr(module, "log_metadata"):
+            patches.append(patch(f"{module_name}.log_metadata"))
+        if hasattr(module, "mlflow_training_context"):
+            patches.append(patch(f"{module_name}.mlflow_training_context", _noop_context))
+        if hasattr(module, "log_evaluation_results"):
+            patches.append(patch(f"{module_name}.log_evaluation_results"))
 
     with contextlib.ExitStack() as stack:
         for p in patches:

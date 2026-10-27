@@ -20,7 +20,7 @@ build model="":
     set -euo pipefail
     for d in $([ -n "{{ model }}" ] && echo "models/{{ model }}" || echo models/*); do
         [[ -f "$d/Dockerfile" ]] || continue
-        href=$({{ stac }} "$d/stac-item.json" mlm:training)
+        href=$({{ stac }} "$d/stac-item.json" mlm:training batch-inference) || { echo "==> skipping $(basename "$d"): no batch image"; continue; }
         echo "==> building $(basename "$d") -> $href"
         docker build -f "$d/Dockerfile" --target runtime -t "$href" .
     done

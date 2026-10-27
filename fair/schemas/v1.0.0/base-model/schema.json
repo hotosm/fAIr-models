@@ -12,6 +12,8 @@
         {
           "type": "object",
           "required": ["type", "properties", "assets"],
+          "if": { "properties": { "assets": { "required": ["mlm:training"] } } },
+          "then": { "properties": { "properties": { "required": ["fair:metrics_spec", "fair:split_spec"] } } },
           "properties": {
             "type": {
               "const": "Feature"
@@ -34,8 +36,6 @@
                     "keywords",
                     "version",
                     "license",
-                    "fair:metrics_spec",
-                    "fair:split_spec",
                     "providers"
                   ]
                 },
@@ -46,7 +46,10 @@
             },
             "assets": {
               "type": "object",
-              "required": ["checkpoint", "source-code", "mlm:inference"],
+              "required": ["source-code", "mlm:inference"],
+              "if": { "required": ["mlm:training"] },
+              "then": { "required": ["checkpoint"] },
+              "else": { "required": ["model"] },
               "properties": {
                 "checkpoint": {
                   "type": "object",
@@ -109,6 +112,16 @@
                   }
                 },
                 "mlm:inference": {
+                  "type": "object",
+                  "required": ["href"],
+                  "properties": {
+                    "href": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  }
+                },
+                "batch-inference": {
                   "type": "object",
                   "required": ["href"],
                   "properties": {

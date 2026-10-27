@@ -98,6 +98,7 @@ jobs:
             python -m pytest -o addopts='' models/${{ matrix.name }}/tests/ -v --tb=short --model-dir=models/${{ matrix.name }}
 
       - name: Run integration test
+        if: matrix.trainable
         run: |
           mkdir -p "$PWD/ci-artifacts"
           docker run --rm --entrypoint "" \
@@ -168,6 +169,7 @@ jobs:
             --output "$PWD/ci-artifacts/${{ matrix.name }}-predictions-base.geojson"
 
       - name: Smoke test inference image (finetuned ONNX)
+        if: matrix.trainable
         run: |
           python3 scripts/smoke_test_inference_image.py \
             --image "${{ matrix.name }}:inference" \

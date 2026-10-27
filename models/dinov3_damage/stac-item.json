@@ -363,7 +363,7 @@
         "key": "batch_size",
         "type": "int",
         "default": 2,
-        "min": 1,
+        "min": 2,
         "max": 16,
         "description": "Windows per training batch"
       },

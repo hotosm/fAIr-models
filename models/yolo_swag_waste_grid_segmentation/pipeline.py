@@ -315,6 +315,17 @@ def split_cells(cells, source_polygons, val_ratio: float, test_ratio: float, see
     return split_by_cell
 
 
+def align_bounds_to_labels(bounds_proj, label_bounds, cell_size: float) -> tuple[float, float, float, float]:
+    """Move the grid origin onto the labels' cell phase so cell-sized label squares fill whole cells."""
+    import math
+
+    minx, miny, maxx, maxy = bounds_proj
+    label_minx, label_miny = label_bounds[0], label_bounds[1]
+    minx = label_minx + math.floor((minx - label_minx) / cell_size) * cell_size
+    miny = label_miny + math.floor((miny - label_miny) / cell_size) * cell_size
+    return minx, miny, maxx, maxy
+
+
 def build_grid_gdf(bounds_proj, cell_size: float, crs) -> Any:
     import math
 
@@ -478,13 +489,16 @@ def _prepare_yolo_classification_dataset(
         centroid_lat = (bounds.bottom + bounds.top) / 2
         target_crs = pick_utm_crs(centroid_lon, centroid_lat) if mosaic_crs.is_geographic else mosaic_crs
 
-        grid = build_grid_gdf(projected_bounds(bounds, mosaic_crs, target_crs), cell_size_m, target_crs)
-        utm_to_mosaic = Transformer.from_crs(target_crs, mosaic_crs, always_xy=True)
         label_polygons = load_labels(label_file, target_crs)
         waste_polygons = label_polygons[label_polygons["label"] == 1]
         if waste_polygons.empty:
             msg = "At least one label=1 waste polygon is required"
             raise ValueError(msg)
+        grid_bounds = align_bounds_to_labels(
+            projected_bounds(bounds, mosaic_crs, target_crs), label_polygons.total_bounds, cell_size_m
+        )
+        grid = build_grid_gdf(grid_bounds, cell_size_m, target_crs)
+        utm_to_mosaic = Transformer.from_crs(target_crs, mosaic_crs, always_xy=True)
         waste_union = waste_polygons.geometry.union_all()
         background_polygons = label_polygons[label_polygons["label"] == 0]
         background_union = None if background_polygons.empty else background_polygons.geometry.union_all()

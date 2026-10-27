@@ -12,6 +12,7 @@ import pytest
 from fair.stac.builders import build_base_model_item, build_dataset_item
 from fair.stac.constants import FAIR_LOCAL_MODEL_SCHEMA
 from fair.stac.validators import (
+    batch_runtime,
     required_model_asset_keys,
     validate_compatibility,
     validate_hyperparameters,
@@ -943,6 +944,19 @@ class TestPredictionOnlyBaseModel:
         del item.properties[training_spec]
 
         assert any(f"'{training_spec}' is a required property" in error for error in validate_item(item))
+
+    @pytest.mark.parametrize(
+        ("asset_keys", "expected"),
+        [
+            (("mlm:training", "batch-inference"), "mlm:training"),
+            (("batch-inference", "mlm:inference"), "batch-inference"),
+            (("mlm:inference",), None),
+        ],
+    )
+    def test_batch_runtime_prefers_the_training_image_and_never_the_serving_image(self, asset_keys, expected):
+        assets = {key: key for key in asset_keys}
+
+        assert batch_runtime(assets) == expected
 
     def test_only_the_onnx_url_is_required_without_a_training_runtime(self):
         assert required_model_asset_keys(_prediction_only_base_model()) == ("model",)

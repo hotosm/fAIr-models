@@ -10,7 +10,7 @@ import pystac
 from fair.params import inference_params, training_params
 from fair.stac.constants import BATCH_INFERENCE_ASSET, CONTAINER_REGISTRIES, OCI_IMAGE_INDEX_TYPE, TRAINING_ASSET
 from fair.stac.inputs import dataset_chips_assets, input_names, require_imagery_for_inputs
-from fair.stac.validators import validate_inference_params
+from fair.stac.validators import batch_runtime, validate_inference_params
 from fair.utils.data import http_url_to_s3_uri
 
 logger = logging.getLogger(__name__)
@@ -281,8 +281,7 @@ def generate_inference_config(
         ],
     }
 
-    # ZenML batch runs need the full toolchain image; mlm:inference is the distroless serving image.
-    runtime = model_item.assets.get(TRAINING_ASSET) or model_item.assets.get(BATCH_INFERENCE_ASSET)
+    runtime = batch_runtime(model_item.assets)
     if runtime is None:
         msg = (
             f"Model item '{model_item.id}' has neither '{TRAINING_ASSET}' nor '{BATCH_INFERENCE_ASSET}'; "

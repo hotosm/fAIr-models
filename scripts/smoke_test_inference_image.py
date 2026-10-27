@@ -152,6 +152,7 @@ def main() -> int:
             timeout_seconds=args.predict_timeout,
         )
         if args.output:
+            Path(args.output).parent.mkdir(parents=True, exist_ok=True)
             Path(args.output).write_text(json.dumps(result, indent=2))
         print(json.dumps({"status": "ok", "feature_count": len(result["features"])}))
         return 0

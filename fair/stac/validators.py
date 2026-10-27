@@ -12,7 +12,7 @@ import pystac
 
 from fair.params import inference_params
 from fair.schemas import register_fair_schemas
-from fair.stac.constants import FAIR_LOCAL_MODEL_SCHEMA, TRAINING_ASSET
+from fair.stac.constants import BATCH_INFERENCE_ASSET, FAIR_LOCAL_MODEL_SCHEMA, TRAINING_ASSET
 from fair.stac.inputs import (
     INPUT_CHIPS_ASSET_PREFIX,
     INPUT_NAME_PATTERN,
@@ -84,6 +84,11 @@ _MODEL_ASSET_KEYS: tuple[str, ...] = ("checkpoint", "model")
 def is_trainable(assets: Mapping[str, Any]) -> bool:
     """A base model without a training runtime serves predictions only and cannot be finetuned."""
     return TRAINING_ASSET in assets
+
+
+def batch_runtime(assets: Mapping[str, Any]) -> Any | None:
+    """The full toolchain image that runs batch predictions; the distroless mlm:inference image cannot."""
+    return assets.get(TRAINING_ASSET) or assets.get(BATCH_INFERENCE_ASSET)
 
 
 def required_model_asset_keys(item: pystac.Item) -> tuple[str, ...]:

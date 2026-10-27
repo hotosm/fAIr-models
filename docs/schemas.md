@@ -76,9 +76,12 @@ All items use links from the [Version Extension](https://stac-extensions.github.
 
 | Link relation         | Direction           | Present on                  |
 | --------------------- | ------------------- | --------------------------- |
-| `latest-version`      | self-referencing    | Active items only           |
 | `predecessor-version` | current -> previous | Items with version > 1      |
 | `successor-version`   | old -> new          | Archived (deprecated) items |
+
+In a STAC API catalog, links between its items are stored relative to the catalog root, for example
+`collections/datasets/items/<id>`. stac-fastapi-pgstac resolves them against the URL each request
+used, so the same item links correctly from inside the stack and from its public address.
 
 ### Example
 
@@ -88,7 +91,7 @@ After registering a dataset three times:
 | ------------------------------------------- | ------- | ---------- | ----------------------------------------------------- |
 | `buildings-banepa-semantic-segmentation-v1` | 1       | true       | `successor-version` -> v2                             |
 | `buildings-banepa-semantic-segmentation-v2` | 2       | true       | `successor-version` -> v3                             |
-| `buildings-banepa-semantic-segmentation`    | 3       | false      | `latest-version` -> self, `predecessor-version` -> v2 |
+| `buildings-banepa-semantic-segmentation`    | 3       | false      | `predecessor-version` -> v2                           |
 
 ## Timestamps
 

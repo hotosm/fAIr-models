@@ -257,7 +257,6 @@ def publish_promoted_model(
     seen: set[str] = set()
     kw = [k for k in auto_kw if k and not (k in seen or seen.add(k))]
 
-    # Absolute hrefs for derived_from foreign keys
     base_model_href = catalog_manager.item_href(BASE_MODELS_COLLECTION, base_model_item_id)
     dataset_href = catalog_manager.item_href(DATASETS_COLLECTION, dataset_item_id)
     self_href = catalog_manager.item_href(LOCAL_MODELS_COLLECTION, new_item_id)

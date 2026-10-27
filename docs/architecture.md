@@ -26,7 +26,7 @@ Catalog: fair-models
 |     Finetuned models produced by ZenML pipelines.
 |     Only promoted (production) versions appear here.
 |     |
-|     +-- Item: dinov3s-buildings-finetuned-banepa-v2   (production, latest-version)
+|     +-- Item: dinov3s-buildings-finetuned-banepa-v2   (production)
 |     +-- Item: dinov3s-buildings-finetuned-banepa-v1   (deprecated: true)
 |     +-- Item: yolo-swag-waste-grid-segmentation-finetuned-banepa-v1   (production)
 |
@@ -71,7 +71,7 @@ Catalog: fair-models
     - `derived_from` link pointing to the dataset item used for training
     - `checkpoint` asset (torch weights) + `model` asset (ONNX) pointing to S3 finetuned artifacts
     - Runtime assets reference the same Docker image as parent base model
-    - Version Extension: `version`, `deprecated`, `predecessor-version` / `successor-version` / `latest-version` links
+    - Version Extension: `version`, `deprecated`, `predecessor-version` / `successor-version` links
     - `mlm:hyperparameters` reflects the actual training params used
 
     ### Dataset item

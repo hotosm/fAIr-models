@@ -355,7 +355,6 @@
       "type": "application/octet-stream; framework=pytorch",
       "roles": ["mlm:model", "mlm:weights"],
       "mlm:artifact_type": "torch.save",
-      "file:size": 129138147,
       "file:checksum": "122050a697a93af5250d3309b845124247b779f3bbef4f057a3cd4297119b4a996c2",
       "raster:bands": [{ "name": "red" }, { "name": "green" }, { "name": "blue" }]
     },
@@ -365,7 +364,6 @@
       "type": "application/octet-stream; framework=onnx",
       "roles": ["mlm:model", "mlm:compiled"],
       "mlm:artifact_type": "onnx",
-      "file:size": 128982920,
       "file:checksum": "12208ec8e089c1ee6515eb9b6d007375a60a95cf5eb7439195df90693e7a7169e291",
       "raster:bands": [{ "name": "red" }, { "name": "green" }, { "name": "blue" }]
     },

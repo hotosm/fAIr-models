@@ -12,6 +12,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - add ZenML integration for model promotion and STAC catalog synchronization
 - implement STAC catalog management and builders for datasets and models
 
+## v0.3.21 (2026-10-27)
+
+### Feat
+
+- **onnx**: add support for inference only onnx models in fAIr
+
 ## v0.3.20 (2026-10-27)
 
 ### Fix

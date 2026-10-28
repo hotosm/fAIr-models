@@ -1,0 +1,263 @@
+{
+  "type": "Feature",
+  "stac_version": "1.1.0",
+  "stac_extensions": [
+    "https://stac-extensions.github.io/mlm/v1.5.1/schema.json",
+    "https://stac-extensions.github.io/version/v1.2.0/schema.json",
+    "https://stac-extensions.github.io/classification/v2.0.0/schema.json",
+    "https://stac-extensions.github.io/file/v2.1.0/schema.json",
+    "https://stac-extensions.github.io/raster/v1.1.0/schema.json",
+    "https://stac-extensions.github.io/datacube/v2.3.0/schema.json",
+    "https://hotosm.github.io/fAIr-models/schemas/v1.0.0/base-model/schema.json"
+  ],
+  "id": "deepforest-unet-tree",
+  "geometry": {
+    "type": "Polygon",
+    "coordinates": [[[-180, -90], [180, -90], [180, 90], [-180, 90], [-180, -90]]]
+  },
+  "bbox": [-180, -90, 180, 90],
+  "assets": {
+    "checkpoint": {
+      "href": "https://huggingface.co/AbdelrahmanU3/NEON_OAM/resolve/35cc87122b84ea40ec419455ddbff6aa1e552766/NEON_OAM.pt",
+      "title": "NEON_OAM: DeepForest NEON tree-crown RetinaNet fine-tuned on OAM Freetown chips. Its ResNet-50 initialises the U-Net encoder; the decoder starts untrained",
+      "type": "application/octet-stream; framework=pytorch",
+      "roles": ["mlm:model", "mlm:weights"],
+      "mlm:artifact_type": "torch.save",
+      "file:checksum": "122050a697a93af5250d3309b845124247b779f3bbef4f057a3cd4297119b4a996c2",
+      "raster:bands": [{ "name": "red" }, { "name": "green" }, { "name": "blue" }]
+    },
+    "source-code": {
+      "href": "https://github.com/hotosm/fAIr-models/tree/develop/models/deepforest_unet_tree",
+      "type": "text/html",
+      "roles": ["code"],
+      "mlm:entrypoint": "models.deepforest_unet_tree.pipeline:predict"
+    },
+    "mlm:training": {
+      "href": "ghcr.io/hotosm/fair-models/deepforest_unet_tree:latest",
+      "type": "application/vnd.oci.image.index.v1+json",
+      "title": "Training Docker Image",
+      "roles": ["mlm:training-runtime"]
+    },
+    "mlm:inference": {
+      "href": "ghcr.io/hotosm/fair-models/deepforest_unet_tree:latest-inference",
+      "type": "application/vnd.oci.image.index.v1+json",
+      "title": "Inference Docker Image",
+      "roles": ["mlm:inference-runtime"]
+    },
+    "readme": {
+      "href": "https://raw.githubusercontent.com/hotosm/fAIr-models/refs/heads/develop/models/deepforest_unet_tree/README.md",
+      "type": "text/markdown",
+      "roles": ["metadata"],
+      "title": "Model README"
+    }
+  },
+  "properties": {
+    "datetime": "2026-10-28T00:00:00Z",
+    "created": "2026-10-28T00:00:00Z",
+    "updated": "2026-10-28T00:00:00Z",
+    "title": "Segment tree crowns",
+    "description": "U-Net tree-crown segmenter: a ResNet-50 encoder taken from the DeepForest NEON_OAM detector, with a U-Net decoder trained on OAM chips of Freetown and OSM tree labels (polygons, and tree points turned into crown discs). It predicts the tree canopy of each chip as a probability map and returns one polygon per canopy patch in EPSG:4326, holes included. Inference scales each chip to the model's resolution from the zoom and row in its OAM file name, then runs one ONNX pass; thresholding, polygon tracing and georeferencing run in the pinned ts-hot library. The base checkpoint holds the encoder only, so a decoder must be trained (or a trained U-Net checkpoint supplied) before predictions are meaningful.",
+    "mlm:name": "deepforest-unet-tree",
+    "mlm:architecture": "U-Net (ResNet-50 encoder of DeepForest NEON_OAM, bilinear upsampling decoder)",
+    "mlm:tasks": ["semantic-segmentation"],
+    "mlm:framework": "PyTorch",
+    "mlm:framework_version": "2.14.1",
+    "mlm:pretrained": true,
+    "mlm:pretrained_source": "https://huggingface.co/AbdelrahmanU3/NEON_OAM",
+    "mlm:accelerator": "cuda",
+    "mlm:accelerator_count": 1,
+    "fair:recommended_zoom": 20,
+    "fair:preview": {
+      "center": [-13.23723, 8.47532],
+      "zoom": { "recommended": 20, "min": 19, "max": 22 },
+      "imagery": {
+        "url": "https://tiles.openaerialmap.org/690585b76415e43597ffd7ea/0/690585b76415e43597ffd7eb/{z}/{x}/{y}",
+        "type": "tms",
+        "name": "OpenAerialMap - Freetown",
+        "attribution": "OpenAerialMap"
+      },
+      "place": { "name": "Freetown", "country": "Sierra Leone", "country_code": "SL" }
+    },
+    "keywords": ["tree", "semantic-segmentation", "polygon"],
+    "license": "MIT",
+    "version": "1",
+    "deprecated": false,
+    "providers": [
+      {
+        "name": "Weecology (DeepForest)",
+        "roles": ["producer", "licensor"],
+        "url": "https://huggingface.co/weecology/deepforest-tree",
+        "description": "Authors of the DeepForest tree-crown detector and the NEON checkpoint (MIT)."
+      },
+      {
+        "name": "Abdelrahman Katkat",
+        "roles": ["processor"],
+        "url": "https://github.com/AbdelrahmanKatkat/ts-hot",
+        "description": "Author of ts-hot (the U-Net, the scale-aware preprocessing, polygon decoding, georeferencing, training and scoring)."
+      },
+      {
+        "name": "HOTOSM",
+        "roles": ["host", "processor"],
+        "url": "https://www.hotosm.org",
+        "description": "Humanitarian OpenStreetMap Team"
+      }
+    ],
+    "fair:metrics_spec": [
+      {
+        "key": "fair:precision",
+        "name": "Pixel Precision",
+        "description": "Share of predicted tree pixels that are tree in the labels, summed over the val split at the inference threshold. Labels: polygons, and tree points as crown discs; points without a diameter are ignored."
+      },
+      {
+        "key": "fair:recall",
+        "name": "Pixel Recall",
+        "description": "Share of labelled tree pixels that the model predicts as tree, summed over the val split at the inference threshold."
+      },
+      {
+        "key": "fair:f1",
+        "name": "Pixel F1",
+        "description": "Harmonic mean of pixel precision and recall over the val split."
+      },
+      {
+        "key": "fair:iou",
+        "name": "Pixel IoU",
+        "description": "Intersection over union of the tree class over the val split: intersecting pixels divided by the union of predicted and labelled tree pixels."
+      }
+    ],
+    "mlm:input": [
+      {
+        "name": "image",
+        "bands": [{ "name": "red" }, { "name": "green" }, { "name": "blue" }],
+        "input": {
+          "shape": [3, -1, -1],
+          "dim_order": ["bands", "height", "width"],
+          "data_type": "float32"
+        },
+        "pre_processing_function": {
+          "format": "python",
+          "expression": "models.deepforest_unet_tree.pipeline:preprocess"
+        }
+      }
+    ],
+    "mlm:output": [
+      {
+        "name": "tree probability",
+        "description": "ONNX output `probability`: per-pixel probability of tree canopy in model-input pixels, before thresholding.",
+        "tasks": ["semantic-segmentation"],
+        "result": {
+          "shape": [-1, -1],
+          "dim_order": ["height", "width"],
+          "data_type": "float32"
+        },
+        "classification:classes": [{ "name": "tree", "value": 1, "description": "Tree canopy" }],
+        "post_processing_function": {
+          "format": "python",
+          "expression": "models.deepforest_unet_tree.pipeline:postprocess"
+        },
+        "bands": []
+      },
+      {
+        "name": "tree canopy",
+        "description": "Tree canopy polygons after thresholding, tracing, a minimum area and simplification, one polygon per feature, with holes.",
+        "tasks": ["semantic-segmentation"],
+        "result": { "shape": [-1, 4], "dim_order": ["batch", "variables"], "data_type": "float32" },
+        "variables": ["class", "label", "confidence", "source"],
+        "classification:classes": [{ "name": "tree", "value": 1, "description": "Tree canopy" }],
+        "post_processing_function": {
+          "format": "python",
+          "expression": "models.deepforest_unet_tree.pipeline:predict"
+        }
+      }
+    ],
+    "cube:dimensions": {
+      "features": {
+        "type": "geometry",
+        "bbox": [-180, -90, 180, 90],
+        "geometry_types": ["Polygon"],
+        "reference_system": 4326
+      }
+    },
+    "cube:variables": {
+      "class": {
+        "dimensions": ["features"],
+        "type": "data",
+        "description": "Predicted class value (1 = tree).",
+        "values": [1],
+        "data_type": "uint8"
+      },
+      "label": {
+        "dimensions": ["features"],
+        "type": "data",
+        "description": "Class name of the predicted class (tree).",
+        "values": ["tree"]
+      },
+      "confidence": {
+        "dimensions": ["features"],
+        "type": "data",
+        "description": "Mean probability of the pixels of the polygon.",
+        "extent": [0, 1],
+        "data_type": "float32"
+      },
+      "source": {
+        "dimensions": ["features"],
+        "type": "auxiliary",
+        "description": "File name of the chip the polygon was detected in."
+      }
+    },
+    "mlm:hyperparameters": {
+      "training.epochs": 5,
+      "training.batch_size": 2,
+      "training.learning_rate": 0.001,
+      "training.weight_decay": 0.0001,
+      "training.val_ratio": 0.2,
+      "training.split_seed": 42,
+      "training.block_size": 4,
+      "training.freeze_encoder": true,
+      "training.unfreeze_from": "none",
+      "training.encoder_lr_factor": 1.0,
+      "training.max_grad_norm": 1.0,
+      "training.scheduler": "cosine",
+      "training.warmup_steps": 0,
+      "training.epoch_fraction": 1.0,
+      "training.early_stop_patience": 5,
+      "training.dice_weight": 1.0,
+      "training.model_gsd_m": 0.05,
+      "training.max_input_px": 1024,
+      "inference.model_gsd_m": 0.05,
+      "inference.max_input_px": 1024,
+      "inference.confidence_threshold": 0.5,
+      "inference.min_area_px": 400,
+      "inference.simplify_px": 1.0
+    },
+    "fair:split_spec": {
+      "strategy": "spatial",
+      "default_ratio": 0.2,
+      "seed": 42,
+      "block_size": 4,
+      "description": "Spatial block split on OAM-x-y-z tile coords: chips grouped into (x // block_size, y // block_size) blocks, whole blocks assigned to train or val, because neighbouring chips share canopy and trees cut at chip borders. Chips must be named OAM-x-y-z.tif; any other name is rejected. Chips without a label are kept as background examples."
+    },
+    "fair:hyperparameters_spec": [
+      { "key": "epochs", "type": "int", "default": 5, "min": 1, "max": 500, "description": "Fine-tuning epochs." },
+      { "key": "batch_size", "type": "int", "default": 2, "min": 1, "max": 16, "description": "Chips per training batch. Each chip is scaled to the model's resolution (about 3x at zoom 20) before the network, so memory per chip is high." },
+      { "key": "learning_rate", "type": "float", "default": 0.001, "min": 1e-07, "max": 1.0, "description": "AdamW learning rate of the trainable weights (the encoder uses encoder_lr_factor times this)." },
+      { "key": "weight_decay", "type": "float", "default": 0.0001, "min": 0.0, "max": 1.0, "description": "AdamW weight decay." },
+      { "key": "val_ratio", "type": "float", "default": 0.2, "min": 0.05, "max": 0.5, "description": "Share of the chips held out as spatial validation." },
+      { "key": "split_seed", "type": "int", "default": 42, "min": 0, "max": 2147483647, "description": "Seed for the block order of the spatial split." },
+      { "key": "block_size", "type": "int", "default": 4, "min": 1, "max": 32, "description": "Side of a spatial block, in tile units." },
+      { "key": "freeze_encoder", "type": "bool", "default": true, "description": "Keep the ResNet-50 encoder frozen and train only the decoder. Recommended for small datasets; keeps what the NEON_OAM encoder learned. BatchNorm statistics always stay frozen." },
+      { "key": "unfreeze_from", "type": "str", "default": "none", "values": ["none", "layer4", "layer3", "layer2", "layer1"], "description": "With a frozen encoder, still train the ResNet stages from this one on." },
+      { "key": "encoder_lr_factor", "type": "float", "default": 1.0, "min": 0.01, "max": 1.0, "description": "Learning-rate multiplier for the encoder weights that train." },
+      { "key": "max_grad_norm", "type": "float", "default": 1.0, "min": 0.0, "max": 100.0, "description": "Gradient clipping norm; 0 disables clipping." },
+      { "key": "scheduler", "type": "str", "default": "cosine", "values": ["cosine", "none"], "description": "cosine decays to 0 over all batches of the run; none keeps the learning rate constant." },
+      { "key": "warmup_steps", "type": "int", "default": 0, "min": 0, "max": 100000, "description": "Batches of linear learning-rate ramp-up." },
+      { "key": "epoch_fraction", "type": "float", "default": 1.0, "min": 0.01, "max": 1.0, "description": "Each epoch trains on a fresh random fraction of the chips." },
+      { "key": "early_stop_patience", "type": "int", "default": 5, "min": 1, "max": 100, "description": "Epochs without a better validation loss before training stops." },
+      { "key": "dice_weight", "type": "float", "default": 1.0, "min": 0.0, "max": 10.0, "description": "Weight of the Dice loss next to the binary cross-entropy; 0 uses cross-entropy only." },
+      { "key": "model_gsd_m", "type": "float", "default": 0.05, "min": 0.005, "max": 1.0, "description": "Metres of ground per pixel the network sees. Training and inference must use the same value." },
+      { "key": "max_input_px", "type": "int", "default": 1024, "min": 64, "max": 8192, "description": "Cap on the longest side of a scaled chip, which bounds memory at coarse zooms." },
+      { "key": "confidence_threshold", "type": "float", "default": 0.5, "min": 0.0, "max": 1.0, "description": "Probability from which a pixel is tree canopy." },
+      { "key": "min_area_px", "type": "int", "default": 400, "min": 0, "max": 100000, "description": "Polygons smaller than this many model-input pixels are dropped (400 px is 1 m2 at 0.05 m)." },
+      { "key": "simplify_px", "type": "float", "default": 1.0, "min": 0.0, "max": 50.0, "description": "Douglas-Peucker tolerance in model-input pixels; 0 keeps every pixel edge." }
+    ]
+  }
+}

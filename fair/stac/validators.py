@@ -336,9 +336,8 @@ def validate_metrics_against_spec(
     errors: list[str] = []
     spec = base_model_item.properties.get("fair:metrics_spec", [])
     for entry in spec:
-        name = entry.get("name", "")
-        if name and name not in metrics:
-            errors.append(f"Missing declared metric: {name}")
+        if entry["key"] not in metrics:
+            errors.append(f"Missing declared metric: {entry['key']}")
     return errors
 
 

@@ -77,17 +77,17 @@
     ],
     "fair:metrics_spec": [
       {
-        "key": "fair:precision",
+        "key": "precision",
         "name": "Box Precision @ IoU>=0.5",
         "description": "Fraction of predicted tree boxes that match a ground-truth box at IoU>=0.5 (greedy one-to-one matching by descending confidence), micro-averaged over the val split, with the default confidence threshold of 0.1."
       },
       {
-        "key": "fair:recall",
+        "key": "recall",
         "name": "Box Recall @ IoU>=0.5",
         "description": "Fraction of ground-truth tree boxes matched by a prediction at IoU>=0.5, micro-averaged over the val split."
       },
       {
-        "key": "fair:f1",
+        "key": "f1",
         "name": "Box F1 @ IoU>=0.5",
         "description": "Harmonic mean of box precision and recall over the val split."
       }

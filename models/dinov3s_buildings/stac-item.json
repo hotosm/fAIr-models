@@ -84,32 +84,32 @@
     ],
     "fair:metrics_spec": [
       {
-        "key": "fair:pixel_iou",
+        "key": "pixel_iou",
         "name": "Pixel IoU",
         "description": "Building-class pixel IoU on the val split: sum of intersection pixels divided by sum of union pixels across all val chips."
       },
       {
-        "key": "fair:instance_precision",
+        "key": "instance_precision",
         "name": "Instance Precision @ IoU>0.5",
         "description": "Fraction of predicted building instances that match a ground-truth instance at IoU>0.5 (panoptic-style matching via torchmetrics)."
       },
       {
-        "key": "fair:instance_recall",
+        "key": "instance_recall",
         "name": "Instance Recall @ IoU>0.5",
         "description": "Fraction of ground-truth building instances matched by a prediction at IoU>0.5."
       },
       {
-        "key": "fair:instance_f1",
+        "key": "instance_f1",
         "name": "Instance F1 @ IoU>0.5",
         "description": "Harmonic mean of instance precision and recall, micro-averaged across the val split."
       },
       {
-        "key": "fair:pred_avg_vertices",
+        "key": "pred_avg_vertices",
         "name": "Predicted polygon avg vertices",
         "description": "Mean exterior vertex count across all predicted polygons after DP+MBR-safe regularisation, measured in each polygon's local UTM zone."
       },
       {
-        "key": "fair:pred_orthogonality",
+        "key": "pred_orthogonality",
         "name": "Predicted polygon orthogonality",
         "description": "Mean per-polygon fraction of edges within 5 degrees of the minimum-rotated-rectangle dominant axis. 1.0 = perfectly rectangular, near 0 = jagged/free-form."
       }

@@ -67,7 +67,7 @@
     ],
     "fair:metrics_spec": [
       {
-        "key": "fair:accuracy",
+        "key": "accuracy",
         "name": "Accuracy",
         "description": "Fraction of correctly classified grid cells across all classes in the evaluation dataset"
       }

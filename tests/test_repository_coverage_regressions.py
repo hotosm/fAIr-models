@@ -101,7 +101,7 @@ def _base_model() -> pystac.Item:
         inference_runtime_href="ghcr.io/hotosm/example:infer",
         title="Example Model",
         description="Example model for coverage tests.",
-        fair_metrics_spec=[{"name": "accuracy", "description": "Accuracy", "higher_is_better": True}],
+        fair_metrics_spec=[{"key": "accuracy", "name": "Accuracy", "higher_is_better": True}],
         providers=[{"name": "HOTOSM", "roles": ["producer"]}],
     )
     item.properties["fair:hyperparameters_spec"] = [
@@ -542,7 +542,7 @@ def test_publish_promoted_model_covers_missing_onnx_and_local_store(
 
     mv = MagicMock()
     mv.id = "mv-1"
-    mv.run_metadata = {}
+    mv.run_metadata = {"fair/accuracy": 0.9}
     weights_art = MagicMock()
     weights_art.id = "weights-artifact"
     weights_art.uri = str(weights_dir)

@@ -443,7 +443,8 @@ def evaluate_model(
     promoted STAC item. They must match the entries you declared in
     `fair:metrics_spec`. For per-class IoU, use the names from
     `classification:classes` (e.g. `iou_building`), not numeric indices
-    like `iou_class_0`.
+    like `iou_class_0`. Publishing fails when a key declared in
+    `fair:metrics_spec` is missing from the returned metrics.
 
 #### export_onnx
 
@@ -791,7 +792,7 @@ Each entry must declare:
 
 | Field         | Type   | Description                                                                                 |
 | ------------- | ------ | ------------------------------------------------------------------------------------------- |
-| `key`         | string | Property key where the metric is stored on the local model STAC item (e.g. `fair:accuracy`) |
+| `key`         | string | Key in the local model's `fair:metrics`, as `evaluate_model` returns it (e.g. `accuracy`)   |
 | `name`        | string | Human-readable metric name                                                                  |
 | `description` | string | Precise definition including averaging strategy                                             |
 
@@ -799,12 +800,12 @@ Each entry must declare:
 
     ```json title="fair:metrics_spec (dinov3s_buildings)"
     "fair:metrics_spec": [
-        {"key": "fair:pixel_iou", "name": "Pixel IoU", "description": "Building-class pixel IoU on the val split: sum of intersection pixels divided by sum of union pixels across all val chips."},
-        {"key": "fair:instance_precision", "name": "Instance Precision @ IoU>0.5", "description": "Fraction of predicted building instances that match a ground-truth instance at IoU>0.5 (panoptic-style matching via torchmetrics)."},
-        {"key": "fair:instance_recall", "name": "Instance Recall @ IoU>0.5", "description": "Fraction of ground-truth building instances matched by a prediction at IoU>0.5."},
-        {"key": "fair:instance_f1", "name": "Instance F1 @ IoU>0.5", "description": "Harmonic mean of instance precision and recall, micro-averaged across the val split."},
-        {"key": "fair:pred_avg_vertices", "name": "Predicted polygon avg vertices", "description": "Mean exterior vertex count across all predicted polygons after DP+MBR-safe regularisation, measured in each polygon's local UTM zone."},
-        {"key": "fair:pred_orthogonality", "name": "Predicted polygon orthogonality", "description": "Mean per-polygon fraction of edges within 5 degrees of the minimum-rotated-rectangle dominant axis. 1.0 = perfectly rectangular, near 0 = jagged/free-form."}
+        {"key": "pixel_iou", "name": "Pixel IoU", "description": "Building-class pixel IoU on the val split: sum of intersection pixels divided by sum of union pixels across all val chips."},
+        {"key": "instance_precision", "name": "Instance Precision @ IoU>0.5", "description": "Fraction of predicted building instances that match a ground-truth instance at IoU>0.5 (panoptic-style matching via torchmetrics)."},
+        {"key": "instance_recall", "name": "Instance Recall @ IoU>0.5", "description": "Fraction of ground-truth building instances matched by a prediction at IoU>0.5."},
+        {"key": "instance_f1", "name": "Instance F1 @ IoU>0.5", "description": "Harmonic mean of instance precision and recall, micro-averaged across the val split."},
+        {"key": "pred_avg_vertices", "name": "Predicted polygon avg vertices", "description": "Mean exterior vertex count across all predicted polygons after DP+MBR-safe regularisation, measured in each polygon's local UTM zone."},
+        {"key": "pred_orthogonality", "name": "Predicted polygon orthogonality", "description": "Mean per-polygon fraction of edges within 5 degrees of the minimum-rotated-rectangle dominant axis. 1.0 = perfectly rectangular, near 0 = jagged/free-form."}
     ]
     ```
 
@@ -812,7 +813,7 @@ Each entry must declare:
 
     ```json title="fair:metrics_spec (yolo_swag_waste_grid_segmentation)"
     "fair:metrics_spec": [
-        {"key": "fair:accuracy", "name": "Accuracy", "description": "Fraction of correctly classified grid cells across all classes in the evaluation dataset"}
+        {"key": "accuracy", "name": "Accuracy", "description": "Fraction of correctly classified grid cells across all classes in the evaluation dataset"}
     ]
     ```
 

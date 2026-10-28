@@ -70,7 +70,7 @@ def _base_model(**overrides: Any):
         "inference_runtime_href": "ghcr.io/hotosm/fair-unet:v1",
         "title": "UNet test model",
         "description": "Config test base model.",
-        "fair_metrics_spec": [{"name": "accuracy", "description": "Pixel accuracy", "higher_is_better": True}],
+        "fair_metrics_spec": [{"key": "accuracy", "name": "Pixel accuracy", "higher_is_better": True}],
         "providers": [{"name": "HOTOSM", "roles": ["producer"]}],
     }
     defaults.update(overrides)

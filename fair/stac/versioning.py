@@ -17,10 +17,9 @@ def normalize_version_link_hrefs(
     item_href_factory,
     default_collection_id: str,
 ) -> None:
-    """Rewrite version-link relative hrefs (`../../coll/id/id.json`) to absolute API URLs.
+    """Rewrite version-link relative hrefs (`../../coll/id/id.json`) to the backend's `item_href` form.
 
-    pystac's local-catalog write produces relative hrefs; remote backends need the same
-    links pointing at the API URL the catalog will live at. Use raw `link.target` so we
+    pystac's local-catalog write produces these relative hrefs. Use raw `link.target` so we
     don't trigger pystac's root resolution (which makes HTTP calls).
     """
     for link in item.links:
@@ -56,11 +55,33 @@ def find_previous_active_item(
     return None
 
 
+def relativize_catalog_links(item: pystac.Item, catalog_url: str) -> None:
+    """Store links into this catalog relative to its root; the STAC API resolves them against each request's host."""
+    prefix = f"{catalog_url.rstrip('/')}/"
+    for link in item.links:
+        # The catalog root itself has no relative form; the API regenerates root links on read.
+        if isinstance(link.target, str) and link.target.startswith(prefix) and link.target != prefix:
+            link.target = link.target.removeprefix(prefix)
+
+
+def _is_current_latest_link(item: pystac.Item, link: pystac.Link) -> bool:
+    # STAC Browser marks any item with a latest-version link as outdated.
+    return link.rel == "latest-version" and not item.properties.get("deprecated")
+
+
 def ensure_version_links(item: pystac.Item, self_href: str) -> None:
     if not any(lnk.rel == "self" for lnk in item.links):
         item.add_link(pystac.Link(rel="self", target=self_href, media_type="application/geo+json"))
-    if not item.properties.get("deprecated") and not any(lnk.rel == "latest-version" for lnk in item.links):
-        item.add_link(pystac.Link(rel="latest-version", target=self_href))
+    item.links = [lnk for lnk in item.links if not _is_current_latest_link(item, lnk)]
+
+
+def prepare_api_links(item: pystac.Item, catalog_url: str) -> None:
+    """Shape links for a STAC API: catalog links relative to its root, no self, no latest-version on a current item.
+
+    The API infers self per request, and pystac turns a relative self href into a local file path.
+    """
+    relativize_catalog_links(item, catalog_url)
+    item.links = [lnk for lnk in item.links if lnk.rel != "self" and not _is_current_latest_link(item, lnk)]
 
 
 def add_version_links(
@@ -70,7 +91,6 @@ def add_version_links(
 ) -> None:
     if self_href:
         item.add_link(pystac.Link(rel="self", target=self_href, media_type="application/geo+json"))
-        item.add_link(pystac.Link(rel="latest-version", target=self_href))
     if predecessor_href:
         item.add_link(pystac.Link(rel="predecessor-version", target=predecessor_href))
 
@@ -85,6 +105,24 @@ def deprecate_and_link_successor(
     old_item.links = [lnk for lnk in old_item.links if lnk.rel != "latest-version"]
     old_item.add_link(pystac.Link(rel="successor-version", target=new_item_href))
     return backend.publish_item(collection_id, old_item)
+
+
+def delete_item_with_archives(backend: StacBackend, collection_id: str, item_id: str) -> list[str]:
+    """Delete the item and its deprecated `{id}-v{n}` archives; return the deleted ids."""
+    version = int(backend.get_item(collection_id, item_id).properties.get("version", "1"))
+    # A dataset archive carries the item's own version, since a rebuild under the same title gets a new id.
+    candidates = [f"{item_id}-v{n}" for n in range(1, version + 1)]
+    deleted = [
+        archived_id
+        for archived_id in candidates
+        if backend.item_exists(collection_id, archived_id)
+        and backend.get_item(collection_id, archived_id).properties.get("deprecated")
+    ]
+    for archived_id in deleted:
+        backend.delete_item(collection_id, archived_id)
+    backend.delete_item(collection_id, item_id)
+    log.info("Deleted %s/%s and %d archived versions", collection_id, item_id, len(deleted))
+    return [*deleted, item_id]
 
 
 def archive_previous_version(

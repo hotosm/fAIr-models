@@ -32,11 +32,11 @@ def _stub_run(*, run_id: str = "run-1", status: str = "running", with_logs: bool
     return run
 
 
-def _stub_log_entry(message: str, level: str = "INFO") -> Any:
+def _stub_log_entry(message: str, level: str = "INFO", minute: int = 1) -> Any:
     entry = MagicMock()
     entry.message = message
     entry.level = MagicMock(value=level)
-    entry.timestamp = datetime(2026, 5, 1, 12, 1, tzinfo=UTC)
+    entry.timestamp = datetime(2026, 5, 1, 12, minute, tzinfo=UTC)
     return entry
 
 
@@ -88,7 +88,7 @@ def test_fetch_run_logs_concatenates_collections(mock_client_cls: MagicMock) -> 
 
 
 @patch("fair.zenml.runs.Client")
-def test_fetch_run_logs_respects_tail(mock_client_cls: MagicMock) -> None:
+def test_fetch_run_logs_tail_returns_the_latest_entries(mock_client_cls: MagicMock) -> None:
     client = mock_client_cls.return_value
     run = _stub_run()
     run.log_collection = [MagicMock(), MagicMock()]
@@ -102,8 +102,25 @@ def test_fetch_run_logs_respects_tail(mock_client_cls: MagicMock) -> None:
     client.active_stack.log_store = log_store
 
     entries = fetch_run_logs("run-1", tail=2)
-    assert len(entries) == 2
-    assert log_store.fetch.call_count == 1
+    assert [e.message for e in entries] == ["b", "c"]
+
+
+@patch("fair.zenml.runs.Client")
+def test_fetch_run_logs_since_returns_only_newer_entries(mock_client_cls: MagicMock) -> None:
+    client = mock_client_cls.return_value
+    run = _stub_run()
+    run.log_collection = [MagicMock()]
+    client.get_pipeline_run.return_value = run
+    log_store = MagicMock()
+    log_store.fetch.return_value = [
+        _stub_log_entry("seen", minute=1),
+        _stub_log_entry("boundary", minute=2),
+        _stub_log_entry("new", minute=3),
+    ]
+    client.active_stack.log_store = log_store
+
+    entries = fetch_run_logs("run-1", tail=10, since=datetime(2026, 5, 1, 12, 2, tzinfo=UTC))
+    assert [e.message for e in entries] == ["new"]
 
 
 @patch("fair.zenml.runs.Client")

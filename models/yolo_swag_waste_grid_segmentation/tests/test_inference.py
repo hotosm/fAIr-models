@@ -36,7 +36,7 @@ def test_predict_returns_unique_wgs84_polygons(toy_chips: Path) -> None:
     from models.yolo_swag_waste_grid_segmentation.pipeline import predict
 
     session = _StubSession(_probabilities_for_waste_confidence(0.9))
-    predictions = predict(session, str(toy_chips), {"confidence_threshold": 0.5})
+    predictions = predict(session, {"image": str(toy_chips)}, {"confidence_threshold": 0.5})
 
     assert predictions["type"] == "FeatureCollection"
     assert predictions["features"]
@@ -62,7 +62,7 @@ def test_predict_returns_only_waste_cells_at_or_above_threshold(
     from models.yolo_swag_waste_grid_segmentation.pipeline import predict
 
     session = _StubSession(_probabilities_for_waste_confidence(waste_confidence))
-    predictions = predict(session, str(toy_chips), {"confidence_threshold": 0.5})
+    predictions = predict(session, {"image": str(toy_chips)}, {"confidence_threshold": 0.5})
 
     assert predictions["type"] == "FeatureCollection"
     assert {feature["properties"]["label"] for feature in predictions["features"]} == expected_labels
@@ -75,8 +75,8 @@ def test_predict_clips_grid_to_bbox(toy_chips: Path) -> None:
     session = _StubSession(_probabilities_for_waste_confidence(0.9))
     params = {"confidence_threshold": 0.5}
 
-    full = predict(session, str(toy_chips), params)
-    clipped = predict(session, str(toy_chips), params, bbox=[85.5, 27.6, 85.5002, 27.6004])
+    full = predict(session, {"image": str(toy_chips)}, params)
+    clipped = predict(session, {"image": str(toy_chips)}, params, bbox=[85.5, 27.6, 85.5002, 27.6004])
 
     full_ids = {feature["properties"]["cell_id"] for feature in full["features"]}
     clipped_ids = {feature["properties"]["cell_id"] for feature in clipped["features"]}
@@ -94,4 +94,34 @@ def test_predict_requires_a_confidence_threshold(toy_chips: Path) -> None:
     from models.yolo_swag_waste_grid_segmentation.pipeline import predict
 
     with pytest.raises(ValueError, match="confidence_threshold"):
-        predict(_StubSession(_probabilities_for_waste_confidence(0.9)), str(toy_chips), {})
+        predict(_StubSession(_probabilities_for_waste_confidence(0.9)), {"image": str(toy_chips)}, {})
+
+
+def test_build_mosaic_merges_rgba_and_rgb_chips_into_rgb(tmp_path: Path) -> None:
+    import rasterio
+    from rasterio.transform import from_origin
+
+    from models.yolo_swag_waste_grid_segmentation.pipeline import build_mosaic
+
+    chip_paths = []
+    for index, band_count in enumerate([4, 3]):
+        chip_path = tmp_path / f"chip-{index}.tif"
+        with rasterio.open(
+            chip_path,
+            "w",
+            driver="GTiff",
+            width=8,
+            height=8,
+            count=band_count,
+            dtype="uint8",
+            crs="EPSG:3857",
+            transform=from_origin(index * 8, 8, 1, 1),
+        ) as chip:
+            chip.write(np.full((band_count, 8, 8), 100 + index, dtype="uint8"))
+        chip_paths.append(chip_path)
+
+    with rasterio.open(build_mosaic(chip_paths)) as mosaic:
+        assert mosaic.count == 3
+        assert mosaic.width == 16
+        assert mosaic.read(1)[0, 0] == 100
+        assert mosaic.read(1)[0, 15] == 101

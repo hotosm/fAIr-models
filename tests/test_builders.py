@@ -1,6 +1,9 @@
 import json
+from importlib.resources import files
+from pathlib import Path
 from typing import Any
 
+import jsonschema
 import pystac
 import pytest
 
@@ -12,11 +15,12 @@ from fair.stac.builders import (
     build_local_model_item,
 )
 from fair.stac.constants import DATACUBE_SCHEMA
+from fair.stac.validators import validate_item
 
 _GEOM = {"type": "Polygon", "coordinates": [[[0, -90], [180, -90], [180, 90], [0, 90], [0, -90]]]}
 _MLM_INPUT = [
     {
-        "name": "RGB chips",
+        "name": "image",
         "bands": [{"name": "red"}, {"name": "green"}, {"name": "blue"}],
         "input": {
             "shape": [-1, 3, 512, 512],
@@ -106,7 +110,7 @@ class TestBuildDatasetItem:
             label_tasks=["segmentation"],
             label_classes=[{"name": "building", "classes": ["building"]}],
             keywords=["building"],
-            chips_href="chips/",
+            chips_hrefs={"image": "chips/"},
             labels_href=geojson_path,
             title="Test Dataset",
             description="Chips for testing.",
@@ -117,11 +121,41 @@ class TestBuildDatasetItem:
         assert item.properties["label:type"] == "vector"
         assert item.properties["title"] == "Test Dataset"
         assert item.properties["fair:user_id"] == "osm-user-42"
-        assert item.assets["chips"].href == "chips/"
+        assert item.assets["chips-image"].href == "chips/"
         assert item.assets["download"].media_type == "application/zip"
+        assert "chips" not in item.assets
         bbox = item.bbox
         assert bbox is not None
         assert pytest.approx(bbox[0], abs=0.01) == 85.51
+
+    def test_each_input_gets_its_chips_asset_and_imagery_link(self, geojson_path):
+        item = build_dataset_item(
+            label_type="vector",
+            label_tasks=["segmentation"],
+            label_classes=[{"name": "damage", "classes": ["destroyed"]}],
+            keywords=["building"],
+            chips_hrefs={"post": "chips-post/", "pre": "chips-pre/"},
+            labels_href=geojson_path,
+            title="Damage Dataset",
+            description="Pre and post chips.",
+            user_id="osm-user-42",
+            providers=_PROVIDERS,
+            imagery_hrefs={
+                "post": "https://tiles.example.com/post/{z}/{x}/{y}",
+                "pre": "https://tiles.example.com/pre/{z}/{x}/{y}",
+            },
+        )
+        assert {key: item.assets[key].href for key in ("chips-post", "chips-pre")} == {
+            "chips-post": "chips-post/",
+            "chips-pre": "chips-pre/",
+        }
+        assert item.assets["chips-pre"].title == "Chips for input pre"
+        sources = {link.title: link.get_href() for link in item.links if link.rel == "source"}
+        assert sources == {
+            "Imagery for input post": "https://tiles.example.com/post/{z}/{x}/{y}",
+            "Imagery for input pre": "https://tiles.example.com/pre/{z}/{x}/{y}",
+        }
+        assert validate_item(item) == []
 
     def test_slug_generated_when_item_id_none(self, geojson_path):
         item = build_dataset_item(
@@ -129,7 +163,7 @@ class TestBuildDatasetItem:
             label_tasks=["segmentation"],
             label_classes=[],
             keywords=["building"],
-            chips_href="c/",
+            chips_hrefs={"image": "c/"},
             labels_href=geojson_path,
             title="Buildings Banepa",
             description="D",
@@ -147,7 +181,7 @@ class TestBuildDatasetItem:
                 label_tasks=["segmentation"],
                 label_classes=[],
                 keywords=["building"],
-                chips_href="c/",
+                chips_hrefs={"image": "c/"},
                 labels_href=str(path),
                 title="T",
                 description="D",
@@ -162,7 +196,7 @@ class TestBuildDatasetItem:
             label_tasks=["segmentation"],
             label_classes=[],
             keywords=["building"],
-            chips_href="c/",
+            chips_hrefs={"image": "c/"},
             labels_href=geojson_path,
             title="T",
             description="D",
@@ -173,7 +207,7 @@ class TestBuildDatasetItem:
             providers=providers,
             label_description="Manually labeled buildings",
             label_methods=["manual"],
-            source_imagery_href="https://tiles.oam.org/{z}/{x}/{y}",
+            imagery_hrefs={"image": "https://tiles.oam.org/{z}/{x}/{y}"},
             self_href="https://api/collections/datasets/items/t",
             predecessor_version_href="https://api/collections/datasets/items/t-v1",
         )
@@ -197,7 +231,7 @@ class TestBuildDatasetItem:
             label_tasks=["object-detection"],
             label_classes=[{"name": "highway", "classes": ["primary"]}],
             keywords=["road"],
-            chips_href="c/",
+            chips_hrefs={"image": "c/"},
             labels_href=geojson_path,
             title="T",
             description="D",
@@ -213,7 +247,7 @@ class TestBuildDatasetItem:
             label_tasks=["segmentation"],
             label_classes=[],
             keywords=["building"],
-            chips_href="c/",
+            chips_hrefs={"image": "c/"},
             labels_href=geojson_path,
             title="T",
             description="D",
@@ -290,10 +324,37 @@ class TestBuildLocalModelItem:
         ]
         assert dataset_links[0].extra_fields.get("title") == "Buildings Banepa"
 
+    def test_local_model_copies_the_base_model_license_link(self):
+        base = _base_model()
+        license_link = pystac.Link(
+            rel="license",
+            target="https://creativecommons.org/licenses/by-nc-sa/4.0/legalcode",
+            title="CC BY-NC-SA 4.0",
+            extra_fields={"hreflang": "en"},
+        )
+        base.add_link(license_link)
+        local = build_local_model_item(
+            base_model_item=base,
+            item_id="local-v1",
+            checkpoint_href="https://example.com/finetuned.pt",
+            onnx_href="https://example.com/finetuned.onnx",
+            mlm_hyperparameters={"epochs": 1},
+            keywords=["building"],
+            base_model_href="../base-models/example-unet/example-unet.json",
+            dataset_href="../datasets/ds-1/ds-1.json",
+            version="2",
+            title="Local UNet v2",
+            description="Finetuned model.",
+            user_id="osm-42",
+            providers=_PROVIDERS,
+        )
+        assert [link.to_dict(transform_href=False) for link in local.get_links("license")] == [
+            license_link.to_dict(transform_href=False)
+        ]
+
     def test_recommended_zoom_not_copied_to_local_top_level(self):
         base = _base_model()
         base.properties["fair:recommended_zoom"] = 19
-        base.properties["fair:source_imagery"] = "OpenAerialMap"
         local = build_local_model_item(
             base_model_item=base,
             item_id="local-v1",
@@ -311,7 +372,6 @@ class TestBuildLocalModelItem:
         )
         # Zoom is carried inside fair:preview, not as a top-level field.
         assert "fair:recommended_zoom" not in local.properties
-        assert "fair:source_imagery" not in local.properties
 
     def test_prediction_variables_inherited_with_local_extent(self):
         base = _base_model()
@@ -646,3 +706,11 @@ class TestDeriveLocationProps:
         props = derive_location_props({}, [85.51, 27.63, 85.53, 27.65])
         assert "fair:preview_place" not in props
         assert "fair:coverage" in props
+
+
+def test_base_model_without_training_runtime_is_valid() -> None:
+    item = json.loads((Path(__file__).parents[1] / "models/sklearn_rgb_segmentation/stac-item.json").read_text())
+    del item["assets"]["mlm:training"]
+    schema = json.loads(files("fair.schemas").joinpath("v1.0.0/base-model/schema.json").read_text())
+
+    jsonschema.validate(item, schema)

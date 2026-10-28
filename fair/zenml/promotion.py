@@ -9,7 +9,7 @@ from zenml.enums import ModelStages
 from fair.stac.backend import StacBackend
 from fair.stac.builders import build_local_model_item
 from fair.stac.constants import BASE_MODELS_COLLECTION, DATASETS_COLLECTION, LOCAL_MODELS_COLLECTION
-from fair.stac.validators import validate_item, validate_model_asset_urls
+from fair.stac.validators import validate_item, validate_metrics_against_spec, validate_model_asset_urls
 from fair.stac.versioning import deprecate_and_link_successor, find_previous_active_item
 from fair.utils.data import mirror, s3_uri_to_http_url, upload_storage_options
 from fair.utils.storage import LocalModelStoragePaths
@@ -149,6 +149,7 @@ def publish_promoted_model(
     geometry: dict[str, Any] | None = None,
     thumbnail_href: str | None = None,
     paths: type[LocalModelStoragePaths] | None = None,
+    providers: list[dict[str, Any]] | None = None,
 ) -> pystac.Item:
     paths_cls = paths if paths is not None else LocalModelStoragePaths
     client = Client()
@@ -203,6 +204,11 @@ def publish_promoted_model(
     loss_history = read_loss_history(raw_meta)
     split_info: dict[str, Any] | None = raw_meta.get("fair/split")
 
+    base_model_item = catalog_manager.get_item(BASE_MODELS_COLLECTION, base_model_item_id)
+    if errs := validate_metrics_against_spec(metrics or {}, base_model_item):
+        msg = f"Evaluation metrics do not match the base model's fair:metrics_spec: {errs}"
+        raise RuntimeError(msg)
+
     weights_art = mv.get_artifact("trained_model_artifact")
     if weights_art is None:
         msg = f"No 'trained_model_artifact' artifact found for {model_name} v{version}"
@@ -224,8 +230,6 @@ def publish_promoted_model(
     training_metrics_href: str | None = None
     if loss_history:
         training_metrics_href = _upload_training_metrics(loss_history, new_item_id, artifact_store_prefix, paths_cls)
-
-    base_model_item = catalog_manager.get_item(BASE_MODELS_COLLECTION, base_model_item_id)
 
     base_hyperparams = base_model_item.properties.get("mlm:hyperparameters", {}) or {}
     training_hyperparams = {
@@ -256,7 +260,6 @@ def publish_promoted_model(
     seen: set[str] = set()
     kw = [k for k in auto_kw if k and not (k in seen or seen.add(k))]
 
-    # Absolute hrefs for derived_from foreign keys
     base_model_href = catalog_manager.item_href(BASE_MODELS_COLLECTION, base_model_item_id)
     dataset_href = catalog_manager.item_href(DATASETS_COLLECTION, dataset_item_id)
     self_href = catalog_manager.item_href(LOCAL_MODELS_COLLECTION, new_item_id)
@@ -272,7 +275,8 @@ def publish_promoted_model(
 
     title = title or f"{model_name} v{version}"
 
-    providers = [{"name": user_id, "roles": ["producer"]}]
+    if providers is None:
+        providers = [{"name": user_id, "roles": ["producer"]}]
 
     item = build_local_model_item(
         base_model_item=base_model_item,

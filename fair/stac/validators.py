@@ -4,10 +4,22 @@ import functools
 import importlib.resources
 import json
 import logging
+import math
+from collections.abc import Mapping
+from typing import Any
 
 import pystac
 
+from fair.params import inference_params
 from fair.schemas import register_fair_schemas
+from fair.stac.constants import BATCH_INFERENCE_ASSET, FAIR_LOCAL_MODEL_SCHEMA, TRAINING_ASSET
+from fair.stac.inputs import (
+    INPUT_CHIPS_ASSET_PREFIX,
+    INPUT_NAME_PATTERN,
+    dataset_chips_assets,
+    input_chips_asset,
+    input_names,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -22,6 +34,26 @@ def validate_item(item: pystac.Item) -> list[str]:
     errors.extend(_validate_keyword_vocabulary(item))
     errors.extend(_validate_hyperparameters_spec_coverage(item))
     errors.extend(_validate_prediction_variables_declared(item))
+    errors.extend(_validate_input_names(item))
+    return errors
+
+
+def _validate_input_names(item: pystac.Item) -> list[str]:
+    """Names of `mlm:input` entries and `chips-<name>` assets become asset keys and paths. A local model
+    carries its base model's input names unchecked."""
+    if FAIR_LOCAL_MODEL_SCHEMA in item.stac_extensions:
+        return []
+    asset_names = [
+        key.removeprefix(INPUT_CHIPS_ASSET_PREFIX) for key in item.assets if key.startswith(INPUT_CHIPS_ASSET_PREFIX)
+    ]
+    names = input_names(item)
+    errors = [
+        f"input name {name!r} must start with a lowercase letter or digit, then use only those, '_' or '-'"
+        for name in [*names, *asset_names]
+        if not INPUT_NAME_PATTERN.fullmatch(name)
+    ]
+    if duplicates := sorted({name for name in names if names.count(name) > 1}):
+        errors.append(f"input names must be unique, repeated: {', '.join(duplicates)}")
     return errors
 
 
@@ -49,16 +81,30 @@ def _validate_prediction_variables_declared(item: pystac.Item) -> list[str]:
 _MODEL_ASSET_KEYS: tuple[str, ...] = ("checkpoint", "model")
 
 
+def is_trainable(assets: Mapping[str, Any]) -> bool:
+    """A base model without a training runtime serves predictions only and cannot be finetuned."""
+    return TRAINING_ASSET in assets
+
+
+def batch_runtime(assets: Mapping[str, Any]) -> Any | None:
+    """The full toolchain image that runs batch predictions; the distroless mlm:inference image cannot."""
+    return assets.get(TRAINING_ASSET) or assets.get(BATCH_INFERENCE_ASSET)
+
+
+def required_model_asset_keys(item: pystac.Item) -> tuple[str, ...]:
+    return _MODEL_ASSET_KEYS if is_trainable(item.assets) else ("model",)
+
+
 def validate_model_asset_urls(
     item: pystac.Item,
     *,
-    required_keys: tuple[str, ...] = ("checkpoint", "model"),
+    required_keys: tuple[str, ...] | None = None,
     optional_keys: tuple[str, ...] = (),
     timeout: float = 10.0,
 ) -> list[str]:
 
     errors: list[str] = []
-    for key in required_keys:
+    for key in required_keys if required_keys is not None else required_model_asset_keys(item):
         asset = item.assets.get(key)
         if asset is None:
             errors.append(f"Missing required asset '{key}'")
@@ -171,7 +217,23 @@ def validate_compatibility(
     if model_geom and dataset_geom and not model_geom & dataset_geom:
         errors.append(f"Geometry type mismatch: model={sorted(model_geom)}, dataset={sorted(dataset_geom)}")
 
+    chips_assets = dataset_chips_assets(base_model_item, dataset_item)
+    if missing := [input_chips_asset(name) for name in input_names(base_model_item) if name not in chips_assets]:
+        errors.append(f"Dataset has no chips for the model's inputs: {', '.join(missing)}")
+
     return errors
+
+
+def validate_inference_params(params: dict[str, Any], model_item: pystac.Item) -> None:
+    """Raise ValueError unless every key is a declared, spec'd inference parameter with a valid value."""
+    props = model_item.properties
+    declared = inference_params(props.get("mlm:hyperparameters", {}))
+    spec_keys = {entry["key"] for entry in props.get("fair:hyperparameters_spec", [])}
+    unknown = sorted(key for key in params if key not in declared or key not in spec_keys)
+    if unknown:
+        raise ValueError(f"Unknown inference parameter(s) for '{model_item.id}': {', '.join(unknown)}")
+    if errors := validate_hyperparameters(params, model_item):
+        raise ValueError("; ".join(errors))
 
 
 def validate_pipeline_config(config: dict, *, is_training: bool = True) -> list[str]:
@@ -274,9 +336,8 @@ def validate_metrics_against_spec(
     errors: list[str] = []
     spec = base_model_item.properties.get("fair:metrics_spec", [])
     for entry in spec:
-        name = entry.get("name", "")
-        if name and name not in metrics:
-            errors.append(f"Missing declared metric: {name}")
+        if entry["key"] not in metrics:
+            errors.append(f"Missing declared metric: {entry['key']}")
     return errors
 
 
@@ -343,9 +404,14 @@ def validate_hyperparameters(
         expected_type = entry.get("type")
         if expected_type and expected_type in _SPEC_TYPE_MAP:
             allowed_types = _SPEC_TYPE_MAP[expected_type]
-            if not isinstance(value, allowed_types):
+            # bool is an int subclass, so True would otherwise pass as a number.
+            if not isinstance(value, allowed_types) or (isinstance(value, bool) and expected_type != "bool"):
                 errors.append(f"Hyperparameter '{key}' expected type '{expected_type}', got {type(value).__name__}")
                 continue
+
+        if isinstance(value, float) and not math.isfinite(value):
+            errors.append(f"Hyperparameter '{key}' value {value} is not a finite number")
+            continue
 
         allowed_values = entry.get("values")
         if allowed_values and value not in allowed_values:

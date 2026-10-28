@@ -123,8 +123,9 @@ def test_predict_raises_when_inference_pipeline_returns_no_run(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    model_item = _make_item("local-model", {"fair:base_model_id": "base-1"})
+    model_item = _make_item("local-model", {"fair:base_model_id": "base-1", "mlm:input": [{"name": "image"}]})
     model_item.add_asset("model", pystac.Asset(href="https://example.com/model.onnx"))
+    model_item.add_asset("mlm:training", pystac.Asset(href="https://example.com/training-image"))
     model_item.add_asset(
         "source-code",
         pystac.Asset(
@@ -157,9 +158,9 @@ def test_predict_raises_when_inference_pipeline_returns_no_run(
     monkeypatch.setattr(client_module.importlib, "import_module", lambda _: module)
 
     with pytest.raises(RuntimeError, match="Inference pipeline returned no run"):
-        client.predict("local-model", str(tmp_path))
+        client.predict("local-model", {"image": str(tmp_path)})
 
-    assert uploads == [(str(tmp_path), "s3://bucket/predict/local-model/input")]
+    assert uploads == [(str(tmp_path), "s3://bucket/predict/local-model/input/image")]
 
 
 def test_artifact_store_setup_and_registration_error_paths(
@@ -340,7 +341,7 @@ def test_dataset_and_prediction_error_paths(monkeypatch: pytest.MonkeyPatch, tmp
     missing_chips_path = tmp_path / "dataset-no-chips.json"
     missing_chips.save_object(dest_href=str(missing_chips_path))
 
-    with pytest.raises(FairClientError, match="has no 'chips' asset"):
+    with pytest.raises(FairClientError, match="has no 'chips-<input name>' asset"):
         client.register_dataset(str(missing_chips_path))
 
     missing_labels = _make_item("dataset-no-labels")
@@ -377,12 +378,12 @@ def test_dataset_and_prediction_error_paths(monkeypatch: pytest.MonkeyPatch, tmp
     monkeypatch.setattr(client, "_get_backend", lambda: missing_backend)
 
     with pytest.raises(FairClientError, match="not found in local-models or base-models"):
-        client.predict("missing-model", str(tmp_path))
+        client.predict("missing-model", {"image": str(tmp_path)})
 
     with pytest.raises(FairClientError, match="not found in 'local-models'"):
         client.predict_live(
             "missing-model",
-            image_uri="https://tiles.example.com/{z}/{x}/{y}",
+            imagery={"image": "https://tiles.example.com/{z}/{x}/{y}"},
             bbox=[0.0, 0.0, 1.0, 1.0],
             zoom=18,
         )
@@ -399,7 +400,7 @@ def test_dataset_param_and_finetune_validation_error_paths(
         label_tasks=["detection"],
         label_classes=[{"name": "building"}],
         keywords=["buildings"],
-        chips_href=str(tmp_path / "chips"),
+        chips_hrefs={"image": str(tmp_path / "chips")},
         labels_href=str(tmp_path / "labels.geojson"),
         title="Demo dataset",
         description="Demo dataset",
@@ -426,6 +427,7 @@ def test_dataset_param_and_finetune_validation_error_paths(
             extra_fields={"mlm:entrypoint": "demo.pipeline:training_pipeline"},
         ),
     )
+    base_item.add_asset("mlm:training", pystac.Asset(href="ghcr.io/hotosm/fair-models/demo:latest"))
     dataset_item = _make_item("dataset")
     incompatible_backend = SimpleNamespace(
         get_item=lambda collection, item_id: base_item if collection == "base-models" else dataset_item
@@ -448,6 +450,7 @@ def test_finetune_and_promote_error_paths(monkeypatch: pytest.MonkeyPatch, tmp_p
             extra_fields={"mlm:entrypoint": "demo.pipeline:training_pipeline"},
         ),
     )
+    base_item.add_asset("mlm:training", pystac.Asset(href="ghcr.io/hotosm/fair-models/demo:latest"))
     dataset_item = _make_item("dataset")
 
     missing_dataset_backend = SimpleNamespace(
@@ -692,3 +695,23 @@ def test_apply_zenml_patch_tolerates_missing_server_models(monkeypatch: pytest.M
 
     # When server_models cannot be imported, _apply must swallow it and return None.
     assert patch_module._apply() is None
+
+
+def test_finetune_rejects_inference_only_base_model(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    client = FairClient(config_dir=str(tmp_path))
+    base_item = _make_item("base-model", {"mlm:name": "demo-model"})
+    backend = SimpleNamespace(get_item=lambda collection, item_id: base_item)
+    monkeypatch.setattr(client, "_get_backend", lambda: backend)
+
+    with pytest.raises(FairClientError, match="inference-only"):
+        client.finetune(base_model_id="base-model", dataset_id="dataset", model_name="demo")
+
+
+def test_batch_inference_config_rejects_model_without_training_runtime() -> None:
+    from fair.zenml.config import generate_inference_config
+
+    model_item = _make_item("local-model", {"fair:base_model_id": "base-1"})
+    model_item.add_asset("model", pystac.Asset(href="https://example.com/model.onnx"))
+
+    with pytest.raises(KeyError, match="mlm:training"):
+        generate_inference_config(model_item, {})

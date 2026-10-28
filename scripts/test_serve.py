@@ -29,6 +29,10 @@ def latest_local_model(base_id: str) -> str:
     sys.exit(f"no local-model with fair:base_model_id={base_id}; run 'just example <task>' first")
 
 
+def input_names(stac_item: Path) -> list[str]:
+    return [entry["name"] for entry in json.loads(stac_item.read_text())["properties"]["mlm:input"]]
+
+
 def inference_params(stac_item: Path) -> dict:
     hyp = json.loads(stac_item.read_text())["properties"].get("mlm:hyperparameters", {})
     return {k.removeprefix("inference."): v for k, v in hyp.items() if k.startswith("inference.")}
@@ -101,7 +105,7 @@ def main() -> int:
         wait_for_health()
         payload = {
             "model_uri": model_uri,
-            "image_uri": OAM_TMS,
+            "imagery": dict.fromkeys(input_names(stac_item), OAM_TMS),
             "bbox": BANEPA_BBOX,
             "zoom": ZOOM,
             "params": inference_params(stac_item),

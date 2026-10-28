@@ -18,7 +18,9 @@ Extends the [MLM Extension](https://stac-extensions.github.io/mlm/v1.5.1/schema.
 
 **Recommended properties:** `fair:hyperparameters_spec` (declares types, bounds, and defaults for every key in `mlm:hyperparameters`, see [Contributing a Model](contributing/model.md#hyperparameters))
 
-**Required assets:** `checkpoint`, `source-code`, `mlm:training`, `mlm:inference`
+**Required assets:** `checkpoint`, `source-code`, `mlm:inference`
+
+**Optional assets:** `mlm:training` (a base model without it is inference-only and cannot be finetuned)
 
 ## Dataset
 
@@ -28,7 +30,7 @@ Extends the [Label Extension](https://stac-extensions.github.io/label/v1.0.1/sch
 
 **Required properties:** `title`, `description`, `label:type`, `label:tasks`, `label:classes`, `keywords`, `fair:user_id`, `version`, `deprecated`
 
-**Required assets:** `chips`, `labels`
+**Required assets:** `labels`, and the chips of each model input as `chips-<input name>`. The chips of one tile carry the same filename in every input, and the imagery of each input is linked with `rel` `source` and the title `Imagery for input <input name>`. A dataset whose chips are a single `chips` asset gives them to the `image` input of a model with one input.
 
 ## Local Model (Finetuned)
 
@@ -74,9 +76,12 @@ All items use links from the [Version Extension](https://stac-extensions.github.
 
 | Link relation         | Direction           | Present on                  |
 | --------------------- | ------------------- | --------------------------- |
-| `latest-version`      | self-referencing    | Active items only           |
 | `predecessor-version` | current -> previous | Items with version > 1      |
 | `successor-version`   | old -> new          | Archived (deprecated) items |
+
+In a STAC API catalog, links between its items are stored relative to the catalog root, for example
+`collections/datasets/items/<id>`. stac-fastapi-pgstac resolves them against the URL each request
+used, so the same item links correctly from inside the stack and from its public address.
 
 ### Example
 
@@ -86,7 +91,7 @@ After registering a dataset three times:
 | ------------------------------------------- | ------- | ---------- | ----------------------------------------------------- |
 | `buildings-banepa-semantic-segmentation-v1` | 1       | true       | `successor-version` -> v2                             |
 | `buildings-banepa-semantic-segmentation-v2` | 2       | true       | `successor-version` -> v3                             |
-| `buildings-banepa-semantic-segmentation`    | 3       | false      | `latest-version` -> self, `predecessor-version` -> v2 |
+| `buildings-banepa-semantic-segmentation`    | 3       | false      | `predecessor-version` -> v2                           |
 
 ## Timestamps
 

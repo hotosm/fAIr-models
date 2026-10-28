@@ -47,7 +47,6 @@
     "fair:memory_request": "4Gi",
     "fair:memory_limit": "6Gi",
     "fair:recommended_zoom": 19,
-    "fair:source_imagery": "https://tiles.openaerialmap.org/690585b76415e43597ffd7ea/0/690585b76415e43597ffd7eb/{z}/{x}/{y}",
     "fair:preview": {
       "center": [-13.23723, 8.47532],
       "zoom": { "recommended": 19, "min": 14, "max": 22 },
@@ -85,39 +84,39 @@
     ],
     "fair:metrics_spec": [
       {
-        "key": "fair:pixel_iou",
+        "key": "pixel_iou",
         "name": "Pixel IoU",
         "description": "Building-class pixel IoU on the val split: sum of intersection pixels divided by sum of union pixels across all val chips."
       },
       {
-        "key": "fair:instance_precision",
+        "key": "instance_precision",
         "name": "Instance Precision @ IoU>0.5",
         "description": "Fraction of predicted building instances that match a ground-truth instance at IoU>0.5 (panoptic-style matching via torchmetrics)."
       },
       {
-        "key": "fair:instance_recall",
+        "key": "instance_recall",
         "name": "Instance Recall @ IoU>0.5",
         "description": "Fraction of ground-truth building instances matched by a prediction at IoU>0.5."
       },
       {
-        "key": "fair:instance_f1",
+        "key": "instance_f1",
         "name": "Instance F1 @ IoU>0.5",
         "description": "Harmonic mean of instance precision and recall, micro-averaged across the val split."
       },
       {
-        "key": "fair:pred_avg_vertices",
+        "key": "pred_avg_vertices",
         "name": "Predicted polygon avg vertices",
         "description": "Mean exterior vertex count across all predicted polygons after DP+MBR-safe regularisation, measured in each polygon's local UTM zone."
       },
       {
-        "key": "fair:pred_orthogonality",
+        "key": "pred_orthogonality",
         "name": "Predicted polygon orthogonality",
         "description": "Mean per-polygon fraction of edges within 5 degrees of the minimum-rotated-rectangle dominant axis. 1.0 = perfectly rectangular, near 0 = jagged/free-form."
       }
     ],
     "mlm:input": [
       {
-        "name": "RGB chips",
+        "name": "image",
         "bands": [{ "name": "red" }, { "name": "green" }, { "name": "blue" }],
         "input": {
           "shape": [-1, 3, 256, 256],
@@ -410,13 +409,13 @@
       "mlm:entrypoint": "models.dinov3s_buildings.pipeline:run_inference"
     },
     "mlm:training": {
-      "href": "ghcr.io/hotosm/fair-models/dinov3s_buildings:dev",
+      "href": "ghcr.io/hotosm/fair-models/dinov3s_buildings:latest",
       "type": "application/vnd.oci.image.index.v1+json",
       "title": "Training Docker Image",
       "roles": ["mlm:training-runtime"]
     },
     "mlm:inference": {
-      "href": "ghcr.io/hotosm/fair-models/dinov3s_buildings:dev-inference",
+      "href": "ghcr.io/hotosm/fair-models/dinov3s_buildings:latest-inference",
       "type": "application/vnd.oci.image.index.v1+json",
       "title": "Inference Docker Image",
       "roles": ["mlm:inference-runtime"]

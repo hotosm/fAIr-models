@@ -1,3 +1,11 @@
+# MinIO removed its community images from quay.io and Docker Hub, so the chart's default
+# image tags no longer exist. These are the community-maintained pgsty builds (same layout).
+image:
+  repository: docker.io/pgsty/minio
+  tag: RELEASE.2026-08-04T00-00-00Z
+mcImage:
+  repository: docker.io/pgsty/mc
+  tag: RELEASE.2026-10-18T00-00-00Z
 rootUser: minioadmin
 rootPassword: minioadmin
 mode: standalone

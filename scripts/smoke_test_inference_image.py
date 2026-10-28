@@ -32,7 +32,7 @@ def _predict(
     *,
     base_url: str,
     model_uri: str,
-    image_uri: str,
+    imagery: dict[str, str],
     bbox: list[float],
     zoom: int,
     confidence_threshold: float,
@@ -42,7 +42,7 @@ def _predict(
 ) -> dict[str, Any]:
     payload = {
         "model_uri": model_uri,
-        "image_uri": image_uri,
+        "imagery": imagery,
         "bbox": bbox,
         "zoom": zoom,
         "params": {
@@ -91,6 +91,7 @@ def main() -> int:
     parser.add_argument("--model-module", required=True)
     parser.add_argument("--model-uri", required=True)
     parser.add_argument("--image-uri", required=True, help="TMS/XYZ/WMS/WMTS template URL")
+    parser.add_argument("--stac-item", required=True, help="Item whose mlm:input names receive the imagery")
     parser.add_argument(
         "--bbox",
         required=True,
@@ -138,10 +139,11 @@ def main() -> int:
         bbox = [float(v) for v in args.bbox.split(",")]
         if len(bbox) != 4:
             raise ValueError("--bbox must have 4 comma-separated numbers")
+        inputs = json.loads(Path(args.stac_item).read_text())["properties"]["mlm:input"]
         result = _predict(
             base_url=base_url,
             model_uri=args.model_uri,
-            image_uri=args.image_uri,
+            imagery=dict.fromkeys([entry["name"] for entry in inputs], args.image_uri),
             bbox=bbox,
             zoom=args.zoom,
             confidence_threshold=args.confidence_threshold,
@@ -150,6 +152,7 @@ def main() -> int:
             timeout_seconds=args.predict_timeout,
         )
         if args.output:
+            Path(args.output).parent.mkdir(parents=True, exist_ok=True)
             Path(args.output).write_text(json.dumps(result, indent=2))
         print(json.dumps({"status": "ok", "feature_count": len(result["features"])}))
         return 0

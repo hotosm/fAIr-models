@@ -7,6 +7,7 @@ from typing import Annotated, Any
 
 from zenml import log_metadata, pipeline, step
 
+from fair.stac.inputs import IMAGE_INPUT
 from fair.zenml.instrumentation import log_evaluation_results, mlflow_training_context
 from fair.zenml.materializers import CheckpointBytesMaterializer, ONNXMaterializer
 
@@ -107,7 +108,9 @@ def postprocess(output: Any) -> list[dict[str, Any]]:
     ]
 
 
-def predict(session: Any, input_images: str, params: dict[str, Any], bbox: list[float] | None = None) -> dict[str, Any]:
+def predict(
+    session: Any, input_images: dict[str, str], params: dict[str, Any], bbox: list[float] | None = None
+) -> dict[str, Any]:
     import numpy as np
     import rasterio
     from PIL import Image
@@ -124,7 +127,7 @@ def predict(session: Any, input_images: str, params: dict[str, Any], bbox: list[
     input_name = session.get_inputs()[0].name
     waste_idx = CLASS_NAMES.index("waste")
 
-    input_path = resolve_directory(input_images)
+    input_path = resolve_directory(input_images[IMAGE_INPUT])
     chip_paths = (
         [input_path]
         if input_path.is_file()
@@ -249,10 +252,9 @@ def build_mosaic(chip_paths: list[Path]) -> Path:
     with rasterio.open(chip_paths[0]) as ref:
         profile = ref.profile
 
-    photometric = "rgb" if profile.get("count", 1) >= 3 else "minisblack"
-
     merge(
         [str(p) for p in chip_paths],
+        indexes=[1, 2, 3],
         dst_path=str(out_path),
         dst_kwds={
             **profile,
@@ -261,7 +263,7 @@ def build_mosaic(chip_paths: list[Path]) -> Path:
             "blockxsize": 512,
             "blockysize": 512,
             "compress": "deflate",
-            "photometric": photometric,
+            "photometric": "rgb",
         },
         mem_limit=512,
     )
@@ -311,6 +313,17 @@ def split_cells(cells, source_polygons, val_ratio: float, test_ratio: float, see
     for group in groups[val_count : val_count + test_count]:
         split_by_cell.update(dict.fromkeys(group, "test"))
     return split_by_cell
+
+
+def align_bounds_to_labels(bounds_proj, label_bounds, cell_size: float) -> tuple[float, float, float, float]:
+    """Move the grid origin onto the labels' cell phase so cell-sized label squares fill whole cells."""
+    import math
+
+    minx, miny, maxx, maxy = bounds_proj
+    label_minx, label_miny = label_bounds[0], label_bounds[1]
+    minx = label_minx + math.floor((minx - label_minx) / cell_size) * cell_size
+    miny = label_miny + math.floor((miny - label_miny) / cell_size) * cell_size
+    return minx, miny, maxx, maxy
 
 
 def build_grid_gdf(bounds_proj, cell_size: float, crs) -> Any:
@@ -476,13 +489,16 @@ def _prepare_yolo_classification_dataset(
         centroid_lat = (bounds.bottom + bounds.top) / 2
         target_crs = pick_utm_crs(centroid_lon, centroid_lat) if mosaic_crs.is_geographic else mosaic_crs
 
-        grid = build_grid_gdf(projected_bounds(bounds, mosaic_crs, target_crs), cell_size_m, target_crs)
-        utm_to_mosaic = Transformer.from_crs(target_crs, mosaic_crs, always_xy=True)
         label_polygons = load_labels(label_file, target_crs)
         waste_polygons = label_polygons[label_polygons["label"] == 1]
         if waste_polygons.empty:
             msg = "At least one label=1 waste polygon is required"
             raise ValueError(msg)
+        grid_bounds = align_bounds_to_labels(
+            projected_bounds(bounds, mosaic_crs, target_crs), label_polygons.total_bounds, cell_size_m
+        )
+        grid = build_grid_gdf(grid_bounds, cell_size_m, target_crs)
+        utm_to_mosaic = Transformer.from_crs(target_crs, mosaic_crs, always_xy=True)
         waste_union = waste_polygons.geometry.union_all()
         background_polygons = label_polygons[label_polygons["label"] == 0]
         background_union = None if background_polygons.empty else background_polygons.geometry.union_all()
@@ -544,7 +560,7 @@ def _resolve_yolo_dir_for_step(
 
 @step
 def split_dataset(
-    dataset_chips: str,
+    dataset_chips: dict[str, str],
     dataset_labels: str,
     hyperparameters: dict[str, Any],
 ) -> Annotated[dict[str, Any], "split_info_artifact"]:
@@ -554,7 +570,7 @@ def split_dataset(
     waste_overlap_threshold = hyperparameters.get("waste_overlap_threshold", 0.8)
     cell_size_m = hyperparameters.get("cell_size_m", CELL_SIZE_M)
 
-    chips_path = _subset_chips_dir(dataset_chips, hyperparameters.get("sample_fraction", 1.0))
+    chips_path = _subset_chips_dir(dataset_chips[IMAGE_INPUT], hyperparameters.get("sample_fraction", 1.0))
     yolo_dir, train_counts, val_counts, test_counts = _prepare_yolo_classification_dataset(
         chips_path,
         dataset_labels,
@@ -597,7 +613,7 @@ def split_dataset(
 
 @step(output_materializers={"trained_model_artifact": CheckpointBytesMaterializer})
 def train_model(
-    dataset_chips: str,
+    dataset_chips: dict[str, str],
     dataset_labels: str,
     base_model_weights: str,
     hyperparameters: dict[str, Any],
@@ -624,7 +640,7 @@ def train_model(
         raise ValueError(msg)
 
     yolo_dir = _resolve_yolo_dir_for_step(
-        dataset_chips,
+        dataset_chips[IMAGE_INPUT],
         dataset_labels,
         hyperparameters,
         split_info,
@@ -668,7 +684,7 @@ def train_model(
 @step
 def evaluate_model(
     trained_model: Any,
-    dataset_chips: str,
+    dataset_chips: dict[str, str],
     dataset_labels: str,
     hyperparameters: dict[str, Any],
     split_info: dict[str, Any],
@@ -677,7 +693,7 @@ def evaluate_model(
     chip_size = hyperparameters.get("chip_size", MODEL_INPUT_SIZE)
 
     yolo_dir = _resolve_yolo_dir_for_step(
-        dataset_chips,
+        dataset_chips[IMAGE_INPUT],
         dataset_labels,
         hyperparameters,
         split_info,
@@ -717,7 +733,7 @@ def export_onnx(trained_model: Any) -> Annotated[bytes, "onnx_model"]:
 @step
 def run_inference(
     model_uri: str,
-    input_images: str,
+    input_images: dict[str, str],
     inference_params: dict[str, Any],
 ) -> Annotated[dict[str, Any], "predictions"]:
     from fair.serve.base import load_session
@@ -729,7 +745,7 @@ def run_inference(
 @pipeline
 def training_pipeline(
     base_model_weights: str,
-    dataset_chips: str,
+    dataset_chips: dict[str, str],
     dataset_labels: str,
     num_classes: int,
     hyperparameters: dict[str, Any],
@@ -760,7 +776,7 @@ def training_pipeline(
 @pipeline
 def inference_pipeline(
     model_uri: str,
-    input_images: str,
+    input_images: dict[str, str],
     inference_params: dict[str, Any],
 ) -> None:
     run_inference(

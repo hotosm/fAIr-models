@@ -87,7 +87,7 @@ def test_submit_finetune_runs_in_the_model_image(monkeypatch: pytest.MonkeyPatch
 def test_predict_runs_in_the_model_image(monkeypatch: pytest.MonkeyPatch, client: FairClient, tmp_path) -> None:
     pipeline = _stub_inference(monkeypatch, client, tmp_path)
 
-    assert client.predict("lm-1", str(tmp_path)) == {"predictions": []}
+    assert client.predict("lm-1", {"image": str(tmp_path)}) == {"predictions": []}
 
     assert pipeline.settings["docker"] is client_module._MODEL_IMAGE_DOCKER_SETTINGS
 
@@ -95,7 +95,7 @@ def test_predict_runs_in_the_model_image(monkeypatch: pytest.MonkeyPatch, client
 def test_submit_predict_runs_in_the_model_image(monkeypatch: pytest.MonkeyPatch, client: FairClient, tmp_path) -> None:
     pipeline = _stub_inference(monkeypatch, client, tmp_path)
 
-    assert client.submit_predict(local_model_id="lm-1", image_path=str(tmp_path)) == "run-2"
+    assert client.submit_predict(local_model_id="lm-1", input_images={"image": str(tmp_path)}) == "run-2"
 
     assert pipeline.settings["docker"] is client_module._MODEL_IMAGE_DOCKER_SETTINGS
     assert pipeline.settings["orchestrator"] == {"synchronous": False}

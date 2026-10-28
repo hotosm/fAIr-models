@@ -180,6 +180,20 @@ def build_knative_manifest(
     return manifest
 
 
+def cluster_configured() -> bool:
+    """Whether an in-cluster or kubeconfig Kubernetes config can be loaded; a stack without one has no services."""
+    from kubernetes import config
+
+    try:
+        config.load_incluster_config()
+    except config.ConfigException:
+        try:
+            config.load_kube_config()
+        except config.ConfigException:
+            return False
+    return True
+
+
 def _custom_objects_api() -> Any:
     from kubernetes import client, config
 
@@ -238,7 +252,7 @@ def _upsert_knative_service(api: Any, manifest: dict[str, Any], namespace: str) 
 
 
 def _wait_until_ready(api: Any, name: str, namespace: str, timeout: int) -> None:
-    """Poll the ksvc's Ready condition until True; raise on a failed or timed-out rollout."""
+    """Poll until Ready is True for the ksvc's current generation; raise on a failed or timed-out rollout."""
     deadline = time.monotonic() + timeout
     while True:
         obj = api.get_namespaced_custom_object(
@@ -248,7 +262,9 @@ def _wait_until_ready(api: Any, name: str, namespace: str, timeout: int) -> None
             plural=KNATIVE_PLURAL,
             name=name,
         )
-        conditions = (obj.get("status") or {}).get("conditions") or []
+        status = obj.get("status") or {}
+        current = status.get("observedGeneration") == obj["metadata"]["generation"]
+        conditions = (status.get("conditions") or []) if current else []
         ready = next((c for c in conditions if c.get("type") == "Ready"), None)
         if ready and ready.get("status") == "True":
             return

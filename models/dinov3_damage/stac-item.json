@@ -1,0 +1,506 @@
+{
+  "type": "Feature",
+  "stac_version": "1.1.0",
+  "stac_extensions": [
+    "https://stac-extensions.github.io/mlm/v1.5.1/schema.json",
+    "https://stac-extensions.github.io/version/v1.2.0/schema.json",
+    "https://stac-extensions.github.io/classification/v2.0.0/schema.json",
+    "https://stac-extensions.github.io/file/v2.1.0/schema.json",
+    "https://stac-extensions.github.io/raster/v1.1.0/schema.json",
+    "https://stac-extensions.github.io/datacube/v2.3.0/schema.json",
+    "https://hotosm.github.io/fAIr-models/schemas/v1.0.0/base-model/schema.json"
+  ],
+  "id": "dinov3-damage",
+  "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+      [
+        [-180, -90],
+        [180, -90],
+        [180, 90],
+        [-180, 90],
+        [-180, -90]
+      ]
+    ]
+  },
+  "bbox": [-180, -90, 180, 90],
+  "properties": {
+    "datetime": "2026-10-13T00:00:00Z",
+    "created": "2026-10-13T00:00:00Z",
+    "updated": "2026-10-13T00:00:00Z",
+    "title": "DINO Building Damage",
+    "description": "Frozen DINOv3-ViT-L/16 (SAT-493M) siamese encoder with a UperNet decoder that grades each building footprint as no damage, minor damage, major damage or destroyed by comparing pre-event and post-event RGB imagery. The decoder and heads were trained on the xBD (xView2) building damage dataset. Footprints come from OpenStreetMap or from a GeoJSON passed at prediction time. By default (strict_head), fine-tuning adapts only the localization and damage heads to the labelled buildings of one event.",
+    "mlm:name": "dinov3-damage",
+    "mlm:architecture": "ViT-L/16 siamese + UperNet",
+    "mlm:tasks": ["semantic-segmentation"],
+    "mlm:framework": "PyTorch",
+    "mlm:framework_version": "2.7.1",
+    "mlm:pretrained": true,
+    "mlm:pretrained_source": "https://arxiv.org/abs/1911.09296",
+    "mlm:accelerator": "cuda",
+    "mlm:accelerator_count": 1,
+    "fair:pinned": false,
+    "fair:min_scale": 0,
+    "fair:node_pool": "ml-big8",
+    "fair:cpu_request": "1",
+    "fair:cpu_limit": "4",
+    "fair:memory_request": "4Gi",
+    "fair:memory_limit": "8Gi",
+    "fair:recommended_zoom": 18,
+    "fair:preview": {
+      "center": [85.3767, 28.2648],
+      "zoom": {
+        "recommended": 18
+      },
+      "imagery": {
+        "url": "https://titiler.hotosm.org/cog/tiles/WebMercatorQuad/{z}/{x}/{y}@1x?url=https%3A%2F%2Fproduction-raw-data-api.s3.amazonaws.com%2FISO3%2FNPL%2Fdisasters%2Fnepal-flood%2F2026-08-28%2Fvantor_post_composite_2026-09-01.tif",
+        "type": "tms",
+        "name": "Vantor post-flood"
+      },
+      "pre_imagery": {
+        "url": "https://api.imagery.hotosm.org/raster/collections/openaerialmap/tiles/WebMercatorQuad/{z}/{x}/{y}?ids=6a92f09910691da75dd828c3,6a90c0f1d8f7b27f66739990&assets=visual",
+        "type": "tms",
+        "name": "Vantor pre-flood"
+      },
+      "place": {
+        "name": "Bhote Koshi flood extent",
+        "country": "Nepal",
+        "country_code": "NP"
+      }
+    },
+    "keywords": ["building", "semantic-segmentation", "polygon"],
+    "license": "CC-BY-NC-SA-4.0",
+    "version": "1",
+    "deprecated": false,
+    "providers": [
+      {
+        "name": "Kshitij Raj Sharma",
+        "roles": ["processor"],
+        "url": "https://github.com/hotosm/dda",
+        "description": "Author of the dda damage model recipe (siamese decoder, few-shot head tuning, per-building pooling)."
+      },
+      {
+        "name": "Facebook Research",
+        "roles": ["licensor"],
+        "url": "https://arxiv.org/abs/2508.10104",
+        "description": "DINOv3-ViT-L/16 encoder, used frozen."
+      },
+      {
+        "name": "HOTOSM",
+        "roles": ["producer", "host"],
+        "url": "https://www.hotosm.org",
+        "description": "Humanitarian OpenStreetMap Team"
+      }
+    ],
+    "fair:metrics_spec": [
+      {
+        "key": "dmg_macro_f1",
+        "name": "Damage macro F1",
+        "description": "Mean of the per-class damage F1 scores over building pixels of the val windows, for the classes the labels contain."
+      },
+      {
+        "key": "dmg_f1",
+        "name": "Damage F1 (harmonic)",
+        "description": "Harmonic mean of the per-class damage F1 scores for the classes the labels contain, the xBD damage score."
+      },
+      {
+        "key": "destroyed_f1",
+        "name": "Destroyed F1",
+        "description": "F1 of the destroyed class against all other classes over building pixels of the val windows."
+      },
+      {
+        "key": "loc_iou",
+        "name": "Localization IoU",
+        "description": "Building versus background pixel IoU of the localization head."
+      }
+    ],
+    "mlm:input": [
+      {
+        "name": "post",
+        "description": "Post-event RGB window of 2x2 dataset chips.",
+        "bands": [
+          {
+            "name": "red"
+          },
+          {
+            "name": "green"
+          },
+          {
+            "name": "blue"
+          }
+        ],
+        "input": {
+          "shape": [1, 3, 512, 512],
+          "dim_order": ["batch", "bands", "height", "width"],
+          "data_type": "float32"
+        },
+        "value_scaling": [
+          {
+            "type": "z-score",
+            "mean": 123.675,
+            "stddev": 58.395
+          },
+          {
+            "type": "z-score",
+            "mean": 116.28,
+            "stddev": 57.12
+          },
+          {
+            "type": "z-score",
+            "mean": 103.53,
+            "stddev": 57.375
+          }
+        ],
+        "pre_processing_function": {
+          "format": "python",
+          "expression": "models.dinov3_damage.pipeline:preprocess"
+        }
+      },
+      {
+        "name": "pre",
+        "description": "Pre-event RGB window on the post-event grid.",
+        "bands": [
+          {
+            "name": "red"
+          },
+          {
+            "name": "green"
+          },
+          {
+            "name": "blue"
+          }
+        ],
+        "input": {
+          "shape": [1, 3, 512, 512],
+          "dim_order": ["batch", "bands", "height", "width"],
+          "data_type": "float32"
+        },
+        "value_scaling": [
+          {
+            "type": "z-score",
+            "mean": 123.675,
+            "stddev": 58.395
+          },
+          {
+            "type": "z-score",
+            "mean": 116.28,
+            "stddev": 57.12
+          },
+          {
+            "type": "z-score",
+            "mean": 103.53,
+            "stddev": 57.375
+          }
+        ],
+        "pre_processing_function": {
+          "format": "python",
+          "expression": "models.dinov3_damage.pipeline:preprocess"
+        }
+      }
+    ],
+    "mlm:output": [
+      {
+        "name": "damage",
+        "tasks": ["semantic-segmentation"],
+        "result": {
+          "shape": [1, 4, 512, 512],
+          "dim_order": ["batch", "channel", "height", "width"],
+          "data_type": "float32"
+        },
+        "classification:classes": [
+          {
+            "name": "no-damage",
+            "title": "No damage",
+            "value": 0,
+            "color_hint": "43a047",
+            "description": "No visible damage."
+          },
+          {
+            "name": "minor-damage",
+            "title": "Minor damage",
+            "value": 1,
+            "color_hint": "fdd835",
+            "description": "Minor damage."
+          },
+          {
+            "name": "major-damage",
+            "title": "Major damage",
+            "value": 2,
+            "color_hint": "fb8c00",
+            "description": "Major damage."
+          },
+          {
+            "name": "destroyed",
+            "title": "Destroyed",
+            "value": 3,
+            "color_hint": "e53935",
+            "description": "Destroyed."
+          }
+        ],
+        "post_processing_function": {
+          "format": "python",
+          "expression": "models.dinov3_damage.pipeline:postprocess"
+        }
+      },
+      {
+        "name": "buildings",
+        "description": "Building footprints with their predicted damage, one row per feature.",
+        "tasks": ["semantic-segmentation"],
+        "result": {
+          "shape": [-1, 4],
+          "dim_order": ["batch", "variables"],
+          "data_type": "other"
+        },
+        "variables": ["damage_class", "damage", "damage_confidence", "osm_id"],
+        "classification:classes": [
+          {
+            "name": "no-damage",
+            "title": "No damage",
+            "value": 0,
+            "color_hint": "43a047",
+            "description": "No visible damage."
+          },
+          {
+            "name": "minor-damage",
+            "title": "Minor damage",
+            "value": 1,
+            "color_hint": "fdd835",
+            "description": "Minor damage."
+          },
+          {
+            "name": "major-damage",
+            "title": "Major damage",
+            "value": 2,
+            "color_hint": "fb8c00",
+            "description": "Major damage."
+          },
+          {
+            "name": "destroyed",
+            "title": "Destroyed",
+            "value": 3,
+            "color_hint": "e53935",
+            "description": "Destroyed."
+          },
+          {
+            "name": "no-data",
+            "title": "No data",
+            "value": -1,
+            "color_hint": "9e9e9e",
+            "description": "Less than 90% of the footprint has both pre- and post-event imagery.",
+            "nodata": true
+          }
+        ],
+        "post_processing_function": {
+          "format": "python",
+          "expression": "models.dinov3_damage.pipeline:postprocess"
+        }
+      }
+    ],
+    "cube:dimensions": {
+      "features": {
+        "type": "geometry",
+        "bbox": [-180, -90, 180, 90],
+        "geometry_types": ["Polygon", "MultiPolygon"],
+        "reference_system": 4326
+      }
+    },
+    "cube:variables": {
+      "damage_class": {
+        "dimensions": ["features"],
+        "type": "data",
+        "description": "Predicted damage class value.",
+        "values": [0, 1, 2, 3, -1],
+        "nodata": -1,
+        "data_type": "int8"
+      },
+      "damage": {
+        "dimensions": ["features"],
+        "type": "data",
+        "description": "Name of the predicted damage class.",
+        "values": ["no-damage", "minor-damage", "major-damage", "destroyed", "no-data"]
+      },
+      "damage_confidence": {
+        "dimensions": ["features"],
+        "type": "data",
+        "description": "Mean probability of the predicted class over the footprint; null for no-data footprints.",
+        "extent": [0, 1],
+        "data_type": "float32"
+      },
+      "osm_id": {
+        "dimensions": ["features"],
+        "type": "auxiliary",
+        "description": "OpenStreetMap id of the graded footprint; null for footprints from buildings_geojson_uri.",
+        "data_type": "int64"
+      }
+    },
+    "mlm:hyperparameters": {
+      "training.epochs": 10,
+      "training.batch_size": 2,
+      "training.learning_rate": 0.0001,
+      "training.early_stop_patience": 3,
+      "training.strict_head": true,
+      "training.val_ratio": 0.3,
+      "training.split_seed": 42,
+      "inference.confidence_threshold": 0.0,
+      "inference.buildings_geojson_uri": ""
+    },
+    "fair:split_spec": {
+      "strategy": "spatial",
+      "default_ratio": 0.3,
+      "seed": 42,
+      "description": "Chips are grouped into 2x2 tile blocks, the model's 512 px windows, and whole blocks are assigned to train or val with numpy default_rng(seed)."
+    },
+    "fair:hyperparameters_spec": [
+      {
+        "key": "epochs",
+        "type": "int",
+        "default": 10,
+        "min": 1,
+        "max": 100,
+        "description": "Head fine-tuning epochs"
+      },
+      {
+        "key": "batch_size",
+        "type": "int",
+        "default": 2,
+        "min": 2,
+        "max": 16,
+        "description": "Windows per training batch"
+      },
+      {
+        "key": "learning_rate",
+        "type": "float",
+        "default": 0.0001,
+        "min": 1e-7,
+        "max": 1.0,
+        "description": "Learning rate of the trainable heads"
+      },
+      {
+        "key": "early_stop_patience",
+        "type": "int",
+        "default": 3,
+        "min": 1,
+        "max": 50,
+        "description": "Epochs without a val damage macro F1 gain before training stops"
+      },
+      {
+        "key": "strict_head",
+        "type": "bool",
+        "default": true,
+        "description": "Train only the localization and damage heads. False also trains the decoder, which needs many more labelled buildings."
+      },
+      {
+        "key": "val_ratio",
+        "type": "float",
+        "default": 0.3,
+        "min": 0.05,
+        "max": 0.5,
+        "description": "Share of 2x2 tile blocks held out for validation"
+      },
+      {
+        "key": "split_seed",
+        "type": "int",
+        "default": 42,
+        "min": 0,
+        "max": 2147483647,
+        "description": "Seed of the block split"
+      },
+      {
+        "key": "confidence_threshold",
+        "type": "float",
+        "default": 0.0,
+        "min": 0.0,
+        "max": 1.0,
+        "description": "Minimum damage confidence for a building to be returned; no-data buildings are always kept"
+      },
+      {
+        "key": "buildings_geojson_uri",
+        "type": "str",
+        "default": "",
+        "description": "GeoJSON URL of the footprints to grade; empty uses OpenStreetMap building=* and destroyed:building=* footprints in the area"
+      }
+    ]
+  },
+  "assets": {
+    "checkpoint": {
+      "href": "https://huggingface.co/hotosm/earthquake-damage-assessment-model/resolve/main/model.ckpt",
+      "title": "Pretrained Lightning checkpoint (decoder and heads trained on xBD)",
+      "type": "application/octet-stream; framework=pytorch",
+      "roles": ["mlm:model", "mlm:weights"],
+      "mlm:artifact_type": "torch.save",
+      "raster:bands": [
+        {
+          "name": "red"
+        },
+        {
+          "name": "green"
+        },
+        {
+          "name": "blue"
+        }
+      ]
+    },
+    "model": {
+      "href": "https://huggingface.co/hotosm/earthquake-damage-assessment-model/resolve/main/model.onnx",
+      "title": "Portable ONNX inference model",
+      "type": "application/octet-stream; framework=onnx",
+      "roles": ["mlm:model", "mlm:compiled"],
+      "mlm:artifact_type": "onnx",
+      "raster:bands": [
+        {
+          "name": "red"
+        },
+        {
+          "name": "green"
+        },
+        {
+          "name": "blue"
+        }
+      ]
+    },
+    "source-code": {
+      "href": "https://github.com/hotosm/fAIr-models/tree/develop/models/dinov3_damage",
+      "type": "text/html",
+      "roles": ["code"],
+      "mlm:entrypoint": "models.dinov3_damage.pipeline:run_inference"
+    },
+    "mlm:training": {
+      "href": "ghcr.io/hotosm/fair-models/dinov3_damage:latest",
+      "type": "application/vnd.oci.image.index.v1+json",
+      "title": "Training Docker Image",
+      "roles": ["mlm:training-runtime"]
+    },
+    "mlm:inference": {
+      "href": "ghcr.io/hotosm/fair-models/dinov3_damage:latest-inference",
+      "type": "application/vnd.oci.image.index.v1+json",
+      "title": "Inference Docker Image",
+      "roles": ["mlm:inference-runtime"]
+    },
+    "readme": {
+      "href": "https://raw.githubusercontent.com/hotosm/fAIr-models/refs/heads/develop/models/dinov3_damage/README.md",
+      "type": "text/markdown",
+      "roles": ["metadata"],
+      "title": "Model README"
+    }
+  },
+  "links": [
+    {
+      "rel": "license",
+      "href": "https://creativecommons.org/licenses/by-nc-sa/4.0/legalcode",
+      "type": "text/html",
+      "title": "Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International"
+    },
+    {
+      "rel": "cite-as",
+      "href": "https://arxiv.org/abs/2508.10104",
+      "type": "text/html",
+      "title": "DINOv3 (Siméoni et al., 2025), encoder"
+    },
+    {
+      "rel": "cite-as",
+      "href": "https://github.com/hotosm/dda",
+      "type": "text/html",
+      "title": "dda (Kshitij Raj Sharma), damage decoder, few-shot tuning and per-building pooling"
+    }
+  ]
+}

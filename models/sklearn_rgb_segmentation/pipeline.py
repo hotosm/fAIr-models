@@ -11,6 +11,7 @@ from typing import Annotated, Any
 
 from zenml import log_metadata, pipeline, step
 
+from fair.stac.inputs import IMAGE_INPUT
 from fair.utils.data import resolve_directory
 from fair.zenml.instrumentation import log_evaluation_results, mlflow_training_context
 from fair.zenml.materializers import CheckpointBytesMaterializer, ONNXMaterializer
@@ -73,7 +74,7 @@ def postprocess(probabilities: Any, height: int, width: int, threshold: float) -
     return (np.asarray(probabilities).reshape(height, width) >= threshold).astype(np.uint8)
 
 
-def predict(session: Any, input_images: str, params: dict[str, Any]) -> dict[str, Any]:
+def predict(session: Any, input_images: dict[str, str], params: dict[str, Any]) -> dict[str, Any]:
     import numpy as np
     import rasterio
     from pyproj import Transformer
@@ -85,8 +86,8 @@ def predict(session: Any, input_images: str, params: dict[str, Any]) -> dict[str
     input_name = session.get_inputs()[0].name
     building_idx = CLASS_NAMES.index("building")
 
-    input_path = resolve_directory(input_images)
-    chip_paths = [input_path] if input_path.is_file() else _chip_paths(input_images)
+    input_path = resolve_directory(input_images[IMAGE_INPUT])
+    chip_paths = [input_path] if input_path.is_file() else _chip_paths(input_images[IMAGE_INPUT])
     if not chip_paths:
         msg = f"No georeferenced (.tif) chips found in {input_path}"
         raise FileNotFoundError(msg)
@@ -110,14 +111,14 @@ def predict(session: Any, input_images: str, params: dict[str, Any]) -> dict[str
 
 @step
 def split_dataset(
-    dataset_chips: str,
+    dataset_chips: dict[str, str],
     dataset_labels: str,
     hyperparameters: dict[str, Any],
 ) -> Annotated[dict[str, Any], "split_info"]:
     """Hold out whole chips for validation via sklearn's train_test_split."""
     from sklearn.model_selection import train_test_split
 
-    names = [p.name for p in _chip_paths(dataset_chips)]
+    names = [p.name for p in _chip_paths(dataset_chips[IMAGE_INPUT])]
     train_names, val_names = train_test_split(
         names, test_size=hyperparameters.get("val_ratio", 0.2), random_state=hyperparameters.get("split_seed", 42)
     )
@@ -134,7 +135,7 @@ def split_dataset(
 
 @step(output_materializers={"trained_model_artifact": CheckpointBytesMaterializer})
 def train_model(
-    dataset_chips: str,
+    dataset_chips: dict[str, str],
     dataset_labels: str,
     base_model_weights: str,
     hyperparameters: dict[str, Any],
@@ -150,7 +151,7 @@ def train_model(
     from sklearn.preprocessing import StandardScaler
 
     train = set(split_info["train_chip_names"])
-    chips = [p for p in _chip_paths(dataset_chips) if p.name in train]
+    chips = [p for p in _chip_paths(dataset_chips[IMAGE_INPUT]) if p.name in train]
     x, y = _pixels_and_labels(chips, _label_geoms(dataset_labels))
 
     with mlflow_training_context(hyperparameters, model_name, base_model_id, dataset_id):
@@ -164,7 +165,7 @@ def train_model(
 @step
 def evaluate_model(
     trained_model: bytes,
-    dataset_chips: str,
+    dataset_chips: dict[str, str],
     dataset_labels: str,
     hyperparameters: dict[str, Any],
     split_info: dict[str, Any],
@@ -175,7 +176,7 @@ def evaluate_model(
 
     model = pickle.loads(trained_model)
     val = set(split_info["val_chip_names"])
-    chips = [p for p in _chip_paths(dataset_chips) if p.name in val]
+    chips = [p for p in _chip_paths(dataset_chips[IMAGE_INPUT]) if p.name in val]
     x, y = _pixels_and_labels(chips, _label_geoms(dataset_labels))
 
     metrics = {"building_iou": float(jaccard_score(y, model.predict(x), pos_label=1, zero_division=0))}
@@ -202,7 +203,7 @@ def export_onnx(trained_model: bytes) -> Annotated[bytes, "onnx_model"]:
 @step
 def run_inference(
     model_uri: str,
-    input_images: str,
+    input_images: dict[str, str],
     inference_params: dict[str, Any],
 ) -> Annotated[dict[str, Any], "predictions"]:
     from fair.serve.base import load_session
@@ -213,7 +214,7 @@ def run_inference(
 @pipeline
 def training_pipeline(
     base_model_weights: str,
-    dataset_chips: str,
+    dataset_chips: dict[str, str],
     dataset_labels: str,
     num_classes: int,
     hyperparameters: dict[str, Any],
@@ -244,7 +245,7 @@ def training_pipeline(
 @pipeline
 def inference_pipeline(
     model_uri: str,
-    input_images: str,
+    input_images: dict[str, str],
     inference_params: dict[str, Any],
 ) -> None:
     run_inference(model_uri=model_uri, input_images=input_images, inference_params=inference_params)

@@ -70,6 +70,11 @@ A model and the dataset it trains on must still share at least one keyword.
 Models must normalize the uint8 pixel values (0-255) in
 their `preprocess` function.
 
+Each image a model reads is one `mlm:input`, named with lowercase letters,
+digits, `_` or `-`: `image` for a single image, `post` and `pre` for a pair.
+A dataset holds each input's chips in the asset `chips-<input name>`, and the
+pipelines receive `dataset_chips` and `input_images` as `{input name: path}`.
+
 ### Output Requirements
 
 fAIr only supports **vector output**. Your model's final output must produce
@@ -150,9 +155,9 @@ Before starting, ensure you have:
 
 ## License
 
-!!! danger "Required: Open-source license"
+!!! danger "Required: License"
 
-    Your model **must** use one of these open-source licenses:
+    Your model **must** use one of these licenses:
 
     | License | SPDX identifier |
     | --- | --- |
@@ -160,9 +165,16 @@ Before starting, ensure you have:
     | MIT | `MIT` |
     | Apache 2.0 | `Apache-2.0` |
     | BSD 3-Clause | `BSD-3-Clause` |
+    | Creative Commons Attribution 4.0 | `CC-BY-4.0` |
+    | Creative Commons Attribution-ShareAlike 4.0 | `CC-BY-SA-4.0` |
+    | Creative Commons Attribution-NonCommercial 4.0 | `CC-BY-NC-4.0` |
+    | Creative Commons Attribution-NonCommercial-ShareAlike 4.0 | `CC-BY-NC-SA-4.0` |
+    | Creative Commons Zero 1.0 | `CC0-1.0` |
+    | Open Data Commons Open Database License 1.0 | `ODbL-1.0` |
 
     The license is declared in your `stac-item.json` under `properties.license`.
-    CI rejects any other license value.
+    CI rejects any other license value. Local models fine-tuned from a model
+    carry its `license`.
 
 ## Directory Structure
 
@@ -183,7 +195,8 @@ models/your_model/
 ## pipeline.py
 
 This is the core of your contribution. It must export two `@pipeline`-decorated
-functions that the platform discovers and dispatches automatically.
+functions that the platform discovers and dispatches automatically (one for a
+[prediction-only model](#prediction-only-models)).
 
 ### Required Exports
 
@@ -198,6 +211,25 @@ CI AST-parses `pipeline.py` and `tests/test_steps.py` (via
 | `inference_pipeline`                                                                | `@pipeline` | AST check in `pipeline.py`         |
 | `split_dataset`                                                                     | `@step`     | AST check in `pipeline.py`         |
 | `test_split_dataset`, `test_train_model`, `test_evaluate_model`, `test_export_onnx` | functions   | AST check in `tests/test_steps.py` |
+
+### Prediction-only models
+
+A model with an existing ONNX file and no training code can be contributed for
+predictions only. Its `stac-item.json` has no `mlm:training` asset and needs no
+`checkpoint` asset, `fair:metrics_spec` or `fair:split_spec`; the `model` asset
+(the ONNX file) and `mlm:inference` are required. Such a model cannot be
+finetuned: the platform refuses training requests for it.
+
+Live predictions run in the `inference` image. Batch predictions run as a ZenML
+pipeline, which needs the full toolchain image built from the Dockerfile `runtime`
+target (CI builds that target for every model); reference it in a
+`batch-inference` asset with the role `mlm:inference-runtime`. Without that asset
+the model serves live predictions only.
+
+CI checks less for these models: `pipeline.py` needs `inference_pipeline`, and
+`tests/test_steps.py` needs `test_run_inference`. The image build workflow builds
+the `test`, `runtime` and `inference` targets and smoke-tests the `inference`
+image, and the single-model training workflow is skipped.
 
 The following are wired by convention or referenced from the STAC item. They are
 not AST-checked by CI, so their names must match what the STAC item and serving
@@ -216,7 +248,7 @@ from zenml import pipeline, step
 @pipeline
 def training_pipeline(
     base_model_weights: str,
-    dataset_chips: str,
+    dataset_chips: dict[str, str],
     dataset_labels: str,
     num_classes: int,
     hyperparameters: dict[str, Any],
@@ -225,13 +257,13 @@ def training_pipeline(
 @pipeline
 def inference_pipeline(
     model_uri: str,
-    input_images: str,
+    input_images: dict[str, str],
     inference_params: dict[str, Any] | None = None,
 ) -> None: ...
 
 @step
 def split_dataset(
-    dataset_chips: str,
+    dataset_chips: dict[str, str],
     dataset_labels: str,
     hyperparameters: dict[str, Any],
 ) -> Annotated[dict[str, Any], "split_info"]: ...
@@ -241,7 +273,7 @@ def postprocess(raw_output: Any) -> Any: ...
 
 def predict(
     session: Any,
-    input_images: str,
+    input_images: dict[str, str],
     params: dict[str, Any],
 ) -> dict[str, Any]: ...
 ```
@@ -287,7 +319,7 @@ and guarantees both steps reconstruct the same split.
     @pipeline
     def training_pipeline(
         base_model_weights: str,
-        dataset_chips: str,
+        dataset_chips: dict[str, str],
         dataset_labels: str,
         num_classes: int,
         hyperparameters: dict[str, Any],
@@ -311,14 +343,14 @@ steps. CI enforces its presence via AST parsing.
 ```python
 @step
 def split_dataset(
-    dataset_chips: str,
+    dataset_chips: dict[str, str],
     dataset_labels: str,
     hyperparameters: dict[str, Any],
 ) -> Annotated[dict[str, Any], "split_info"]:
     val_ratio = hyperparameters.get("val_ratio", 0.2)
     seed = hyperparameters.get("split_seed", 42)
 
-    train, val = my_split_logic(dataset_chips, dataset_labels, val_ratio, seed)
+    train, val = my_split_logic(dataset_chips["image"], dataset_labels, val_ratio, seed)
 
     split_info = {
         "strategy": "random",
@@ -357,7 +389,7 @@ per-epoch metrics land in MLflow automatically.
 ```python
 @step
 def train_model(
-    dataset_chips: str,
+    dataset_chips: dict[str, str],
     dataset_labels: str,
     base_model_weights: str,
     hyperparameters: dict[str, Any],
@@ -367,7 +399,7 @@ def train_model(
     with mlflow_training_context(hyperparameters, ...):
         model = build_model(base_model_weights, num_classes)
         train_loader = build_loader(
-            dataset_chips, dataset_labels, split_info, split="train"
+            dataset_chips["image"], dataset_labels, split_info, split="train"
         )
         for epoch in range(hyperparameters["epochs"]):
             loss = run_epoch(model, train_loader)
@@ -392,13 +424,13 @@ platform can copy them onto the promoted local model STAC item.
 @step
 def evaluate_model(
     trained_model: Any,
-    dataset_chips: str,
+    dataset_chips: dict[str, str],
     dataset_labels: str,
     hyperparameters: dict[str, Any],
     split_info: dict[str, Any],
 ) -> Annotated[dict[str, Any], "metrics"]:
     val_loader = build_loader(
-        dataset_chips, dataset_labels, split_info, split="val"
+        dataset_chips["image"], dataset_labels, split_info, split="val"
     )
     metrics = compute_metrics(trained_model, val_loader)
     log_evaluation_results(metrics)
@@ -411,7 +443,8 @@ def evaluate_model(
     promoted STAC item. They must match the entries you declared in
     `fair:metrics_spec`. For per-class IoU, use the names from
     `classification:classes` (e.g. `iou_building`), not numeric indices
-    like `iou_class_0`.
+    like `iou_class_0`. Publishing fails when a key declared in
+    `fair:metrics_spec` is missing from the returned metrics.
 
 #### export_onnx
 
@@ -465,19 +498,24 @@ def export_onnx(
     | `num_classes` | `len(classification:classes)` |
     | `class_names` | `classification:classes[].name` |
     | `chip_size` | `mlm:input[0].input.shape[-1]` |
-    | `dataset_chips` | Dataset `chips` asset href |
+    | `dataset_chips` | `{input name: chips href}` for each `mlm:input`, from the dataset's `chips-<input name>` assets |
     | `dataset_labels` | Dataset `labels` asset href |
 
 ### Inference flow
 
 Inference runs on ONNX via a single `predict(session, input_images, params)`
-function. The same function powers three paths:
+function, where `input_images` maps each `mlm:input` name to a directory of
+that input's chips. The same function powers three paths:
 
 | Path                     | Entrypoint                                                   | Runtime                         |
 | ------------------------ | ------------------------------------------------------------ | ------------------------------- |
 | Live HTTP serving        | KNative service, `fair/serve/base.py` routes `POST /predict` | distroless image, scale-to-zero |
 | Batch (`client.predict`) | `inference_pipeline` → `run_inference` step → `predict(...)` | ZenML image                     |
 | Local / test             | Direct call to `predict(...)` with a stubbed ONNX session    | any                             |
+
+A live request gives `imagery` as `{input name: template URL}`, or `image_uri`
+for the `image` input. Batch predictions take per-request `params`, each an
+`inference.` key of `mlm:hyperparameters` with a `fair:hyperparameters_spec` entry.
 
 ### Serving a model
 
@@ -506,7 +544,7 @@ route.
     @step
     def run_inference(
         model_uri: str,
-        input_images: str,
+        input_images: dict[str, str],
         inference_params: dict[str, Any],
     ) -> Annotated[dict[str, Any], "predictions"]:
         from fair.serve.base import load_session
@@ -516,7 +554,7 @@ route.
     @pipeline
     def inference_pipeline(
         model_uri: str,
-        input_images: str,
+        input_images: dict[str, str],
         inference_params: dict[str, Any] | None = None,
     ) -> None:
         run_inference(
@@ -531,10 +569,10 @@ route.
     ```python
     def predict(
         session: onnxruntime.InferenceSession,
-        input_images: str,
+        input_images: dict[str, str],
         params: dict[str, Any],
     ) -> dict[str, Any]:
-        # 1. Iterate over image files in input_images directory
+        # 1. Iterate over image files in input_images["image"]
         # 2. For each: preprocess, run session, decode
         # 3. Return {"type": "FeatureCollection", "features": [...]}
         ...
@@ -681,7 +719,7 @@ The shared `models/conftest.py` provides common fixtures (`toy_chips`,
 
     def test_split_dataset(generate_toy_dataset, base_hyperparameters):
         info = split_dataset.entrypoint(
-            generate_toy_dataset["chips"],
+            {"image": generate_toy_dataset["chips"]},
             generate_toy_dataset["labels"],
             base_hyperparameters,
         )
@@ -754,7 +792,7 @@ Each entry must declare:
 
 | Field         | Type   | Description                                                                                 |
 | ------------- | ------ | ------------------------------------------------------------------------------------------- |
-| `key`         | string | Property key where the metric is stored on the local model STAC item (e.g. `fair:accuracy`) |
+| `key`         | string | Key in the local model's `fair:metrics`, as `evaluate_model` returns it (e.g. `accuracy`)   |
 | `name`        | string | Human-readable metric name                                                                  |
 | `description` | string | Precise definition including averaging strategy                                             |
 
@@ -762,12 +800,12 @@ Each entry must declare:
 
     ```json title="fair:metrics_spec (dinov3s_buildings)"
     "fair:metrics_spec": [
-        {"key": "fair:pixel_iou", "name": "Pixel IoU", "description": "Building-class pixel IoU on the val split: sum of intersection pixels divided by sum of union pixels across all val chips."},
-        {"key": "fair:instance_precision", "name": "Instance Precision @ IoU>0.5", "description": "Fraction of predicted building instances that match a ground-truth instance at IoU>0.5 (panoptic-style matching via torchmetrics)."},
-        {"key": "fair:instance_recall", "name": "Instance Recall @ IoU>0.5", "description": "Fraction of ground-truth building instances matched by a prediction at IoU>0.5."},
-        {"key": "fair:instance_f1", "name": "Instance F1 @ IoU>0.5", "description": "Harmonic mean of instance precision and recall, micro-averaged across the val split."},
-        {"key": "fair:pred_avg_vertices", "name": "Predicted polygon avg vertices", "description": "Mean exterior vertex count across all predicted polygons after DP+MBR-safe regularisation, measured in each polygon's local UTM zone."},
-        {"key": "fair:pred_orthogonality", "name": "Predicted polygon orthogonality", "description": "Mean per-polygon fraction of edges within 5 degrees of the minimum-rotated-rectangle dominant axis. 1.0 = perfectly rectangular, near 0 = jagged/free-form."}
+        {"key": "pixel_iou", "name": "Pixel IoU", "description": "Building-class pixel IoU on the val split: sum of intersection pixels divided by sum of union pixels across all val chips."},
+        {"key": "instance_precision", "name": "Instance Precision @ IoU>0.5", "description": "Fraction of predicted building instances that match a ground-truth instance at IoU>0.5 (panoptic-style matching via torchmetrics)."},
+        {"key": "instance_recall", "name": "Instance Recall @ IoU>0.5", "description": "Fraction of ground-truth building instances matched by a prediction at IoU>0.5."},
+        {"key": "instance_f1", "name": "Instance F1 @ IoU>0.5", "description": "Harmonic mean of instance precision and recall, micro-averaged across the val split."},
+        {"key": "pred_avg_vertices", "name": "Predicted polygon avg vertices", "description": "Mean exterior vertex count across all predicted polygons after DP+MBR-safe regularisation, measured in each polygon's local UTM zone."},
+        {"key": "pred_orthogonality", "name": "Predicted polygon orthogonality", "description": "Mean per-polygon fraction of edges within 5 degrees of the minimum-rotated-rectangle dominant axis. 1.0 = perfectly rectangular, near 0 = jagged/free-form."}
     ]
     ```
 
@@ -775,7 +813,7 @@ Each entry must declare:
 
     ```json title="fair:metrics_spec (yolo_swag_waste_grid_segmentation)"
     "fair:metrics_spec": [
-        {"key": "fair:accuracy", "name": "Accuracy", "description": "Fraction of correctly classified grid cells across all classes in the evaluation dataset"}
+        {"key": "accuracy", "name": "Accuracy", "description": "Fraction of correctly classified grid cells across all classes in the evaluation dataset"}
     ]
     ```
 
@@ -1001,7 +1039,7 @@ data_type), `classification:classes` (one entry per output class with
 
     ```json title="mlm:input / mlm:output (dinov3s_buildings)"
     "mlm:input": [{
-        "name": "RGB chips",
+        "name": "image",
         "bands": [{"name": "red"}, {"name": "green"}, {"name": "blue"}],
         "input": {
             "shape": [-1, 3, 256, 256],
@@ -1037,7 +1075,7 @@ data_type), `classification:classes` (one entry per output class with
 
     ```json title="mlm:input / mlm:output (yolo_swag_waste_grid_segmentation)"
     "mlm:input": [{
-        "name": "RGB chips",
+        "name": "image",
         "bands": [{"name": "red"}, {"name": "green"}, {"name": "blue"}],
         "input": {
             "shape": [-1, 3, 128, 128],
@@ -1076,7 +1114,7 @@ data_type), `classification:classes` (one entry per output class with
 | `checkpoint`    | Pretrained torch weights (HTTPS URL)                        | `mlm:artifact_type` (e.g. `torch.save`)                      |
 | `model`         | ONNX model _(optional for base models, required for local)_ | `mlm:artifact_type`: `onnx`                                  |
 | `source-code`   | Link to model source code (git URL)                         | `mlm:entrypoint` (e.g. `models.your_model.pipeline:predict`) |
-| `mlm:training`  | Training Docker image                                       | `href` = Docker image reference                              |
+| `mlm:training`  | Training Docker image _(optional, omit for inference-only)_ | `href` = Docker image reference                              |
 | `mlm:inference` | Inference Docker image                                      | `href` = Docker image reference                              |
 | `readme`        | Model documentation (README.md)                             | _(none)_                                                     |
 

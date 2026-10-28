@@ -71,7 +71,7 @@ def _base_model_item() -> pystac.Item:
         inference_runtime_href="ghcr.io/hotosm/fair-unet:v1",
         title="Example UNet",
         description="UNet for building segmentation.",
-        fair_metrics_spec=[{"name": "accuracy", "description": "Pixel accuracy", "higher_is_better": True}],
+        fair_metrics_spec=[{"key": "accuracy", "name": "Pixel accuracy", "higher_is_better": True}],
         providers=[{"name": "HOTOSM", "roles": ["producer"], "url": "https://www.hotosm.org"}],
     )
 
@@ -83,7 +83,7 @@ def _dataset_item() -> pystac.Item:
         label_tasks=["segmentation"],
         label_classes=[{"name": "building", "classes": ["building"]}],
         keywords=["building"],
-        chips_href="chips/",
+        chips_hrefs={"image": "chips/"},
         labels_href="labels.geojson",
         title="buildings-banepa",
         description="Test dataset.",
@@ -98,10 +98,13 @@ def _dataset_item() -> pystac.Item:
     )
 
 
+_EVALUATED = {"fair/accuracy": 0.9}
+
+
 def _mock_mv(params: dict[str, Any] | None = None, *, weights_found: bool = True) -> tuple[MagicMock, MagicMock]:
     mv = MagicMock()
     mv.id = "fake-uuid"
-    mv.run_metadata = {}
+    mv.run_metadata = dict(_EVALUATED)
 
     step = MagicMock()
     step.config.parameters = params or {}
@@ -145,7 +148,22 @@ def _publish(cm: StacCatalogManager, version: int = 1, **kw: Any) -> pystac.Item
         keywords=kw.get("keywords", ["building"]),
         geometry=kw.get("geometry"),
         title=kw.get("title"),
+        providers=kw.get("providers"),
     )
+
+
+@patch("fair.zenml.promotion.Client")
+def test_publish_names_the_given_provider_and_falls_back_to_the_user_id(mock_cls, cm):
+    mv, client = _mock_mv({"epochs": 1})
+    mock_cls.return_value = client
+    client.get_model_version.return_value = mv
+
+    named = _publish(cm, providers=[{"name": "mapper", "roles": ["producer"]}])
+    assert named.properties["providers"] == [{"name": "mapper", "roles": ["producer"]}]
+
+    mv.id = "fake-uuid-v2"
+    unnamed = _publish(cm, version=2)
+    assert unnamed.properties["providers"] == [{"name": "osm-test", "roles": ["producer"]}]
 
 
 @patch("fair.zenml.promotion.Client")
@@ -168,7 +186,7 @@ def test_publish_and_deprecate_previous(mock_cls, cm):
 
     mv2, client2 = _mock_mv({"epochs": 2})
     mv2.id = "fake-uuid-v2"
-    mv2.run_metadata = {}
+    mv2.run_metadata = dict(_EVALUATED)
     mock_cls.return_value = client2
     client2.get_model_version.return_value = mv2
     _publish(cm, version=2)
@@ -232,7 +250,7 @@ def test_publish_inherits_fair_pinned_from_previous_version(mock_cls, cm):
 
     mv2, client2 = _mock_mv({"epochs": 2})
     mv2.id = "fake-uuid-v2"
-    mv2.run_metadata = {}
+    mv2.run_metadata = dict(_EVALUATED)
     mock_cls.return_value = client2
     client2.get_model_version.return_value = mv2
     v2 = _publish(cm, version=2)
@@ -249,7 +267,7 @@ def test_publish_does_not_inherit_pin_when_previous_was_unpinned(mock_cls, cm):
 
     mv2, client2 = _mock_mv({"epochs": 2})
     mv2.id = "fake-uuid-v2"
-    mv2.run_metadata = {}
+    mv2.run_metadata = dict(_EVALUATED)
     mock_cls.return_value = client2
     client2.get_model_version.return_value = mv2
     v2 = _publish(cm, version=2)
@@ -304,7 +322,7 @@ def test_publish_keeps_mlm_name_stable_across_versions(mock_cls, cm):
 
     mv2, client2 = _mock_mv({"epochs": 2})
     mv2.id = "fake-uuid-v2"
-    mv2.run_metadata = {}
+    mv2.run_metadata = dict(_EVALUATED)
     mock_cls.return_value = client2
     client2.get_model_version.return_value = mv2
     v2 = _publish(cm, version=2)
@@ -334,7 +352,7 @@ def test_publish_stores_training_timing(mock_cls, cm):
 @patch("fair.zenml.promotion.Client")
 def test_publish_uses_wall_time_for_duration(mock_cls, cm):
     mv, client = _mock_mv({"epochs": 1})
-    mv.run_metadata = {"fair/training_wall_seconds": 42.5}
+    mv.run_metadata = {**_EVALUATED, "fair/training_wall_seconds": 42.5}
     mock_cls.return_value = client
     client.get_model_version.return_value = mv
     item = _publish(cm, version=1)
@@ -351,6 +369,19 @@ def test_publish_stores_fair_metrics(mock_cls, cm):
     assert item.properties["fair:metrics"] == {"accuracy": 0.95, "mean_iou": 0.80}
     assert "fair:accuracy" not in item.properties
     assert "other_key" not in item.properties
+
+
+@patch("fair.zenml.promotion._upload_model_artifacts")
+@patch("fair.zenml.promotion.Client")
+def test_publish_fails_before_uploading_when_a_declared_metric_is_missing(mock_cls, mock_upload, cm):
+    mv, client = _mock_mv({"epochs": 1})
+    mv.run_metadata = {"fair/mean_iou": 0.8}
+    mock_cls.return_value = client
+    client.get_model_version.return_value = mv
+
+    with pytest.raises(RuntimeError, match="Missing declared metric: accuracy"):
+        _publish(cm)
+    mock_upload.assert_not_called()
 
 
 @patch("fair.zenml.promotion.Client")
@@ -372,6 +403,7 @@ def test_publish_stores_artifact_metadata(mock_cls, cm):
 def test_publish_stores_training_metrics_asset(mock_cls, cm):
     mv, client = _mock_mv({"epochs": 2})
     mv.run_metadata = {
+        **_EVALUATED,
         "fair/loss_history": {"train_loss": [0.5, 0.3], "val_loss": [0.6, 0.4]},
     }
     mock_cls.return_value = client
@@ -457,7 +489,7 @@ def test_delete_model(mock_cls, cm):
 
     mv2, client2 = _mock_mv()
     mv2.id = "fake-uuid-v2"
-    mv2.run_metadata = {}
+    mv2.run_metadata = dict(_EVALUATED)
     mock_cls.return_value = client2
     client2.get_model_version.return_value = mv2
     _publish(cm, version=2)

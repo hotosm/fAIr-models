@@ -12,6 +12,88 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - add ZenML integration for model promotion and STAC catalog synchronization
 - implement STAC catalog management and builders for datasets and models
 
+## v0.3.25 (2026-10-28)
+
+### Fix
+
+- **knative**: ready is true poll until
+- **push**: run pypi publish on tag
+
+## v0.3.24 (2026-10-28)
+
+### Fix
+
+- **metric**: fix metfic key consistency
+
+## v0.3.23 (2026-10-27)
+
+### Fix
+
+- **stacversion**: add relative version from env variable
+
+## v0.3.22 (2026-10-27)
+
+### Fix
+
+- **batchruntime**: add is trainable function support
+
+## v0.3.21 (2026-10-27)
+
+### Feat
+
+- **onnx**: add support for inference only onnx models in fAIr
+
+## v0.3.20 (2026-10-27)
+
+### Fix
+
+- fix cell clipp to label box
+
+## v0.3.19 (2026-10-26)
+
+### Fix
+
+- **versioning**: fix pagination shorten the versioniing
+
+## v0.3.18 (2026-10-26)
+
+### Fix
+
+- **version**: bump fairpyops in model docker images
+
+## v0.3.17 (2026-10-26)
+
+### Feat
+
+- **damage**: model with pre and post support and image input
+- **deepforest-tree**: add deepforest-tree model with Docker support and testing framework
+
+### Fix
+
+- **infra**: replace MinIO and ZenML images that no longer exist
+
+## v0.3.16 (2026-10-06)
+
+### Fix
+
+- **logs**: tail
+
+## v0.3.15 (2026-10-06)
+
+### Fix
+
+- **training**: relax training runtime
+
+## v0.3.14 (2026-10-06)
+
+### Fix
+
+- **cancellation**: fix cancellation in the async serve
+- **bug**: solidwaste
+- integration
+- **add-mlmoutput**: with classification labels for the attributes
+- **registration**: knative registration warning with "Asset 'mlm:training' href not found locally"
+
 ## v0.3.13 (2026-09-23)
 
 ### Fix

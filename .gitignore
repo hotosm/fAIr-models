@@ -243,10 +243,20 @@ soul.md
 .fair-mode
 mlflow.db
 
+# process
+onboard/
+research/
+
 # mkdocs build output
 site/
 docs/schemas/
 runs
-CLAUDE.md
 .vscode/*
 .claude/
+
+
+data/benchmark
+data/sample/train/freetown
+data/free_town
+ci-artifacts
+data/sample/buildings-freetown-instance-segmentation/stac-item.json

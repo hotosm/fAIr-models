@@ -88,6 +88,19 @@ class TestPublishItem:
         loaded = list(items_iter)
         assert loaded[0]["collection"] == "datasets"
 
+    def test_stores_catalog_links_relative_and_no_self(self, _mock_deps, backend):
+        _, mock_loader = _mock_deps
+        mock_loader.reset_mock()
+        item = _make_item()
+        item.add_link(pystac.Link(rel="derived_from", target="http://localhost:8082/collections/datasets/items/ds"))
+
+        backend.publish_item("local-models", item)
+
+        loaded = list(mock_loader.load_items.call_args[0][0])
+        assert {link["rel"]: link["href"] for link in loaded[0]["links"]} == {
+            "derived_from": "collections/datasets/items/ds"
+        }
+
 
 class TestGetItem:
     def test_returns_item(self, _mock_deps, backend):
@@ -155,7 +168,7 @@ class TestItemExists:
 class TestItemHref:
     def test_builds_collection_item_url(self, _mock_deps, backend):
         href = backend.item_href("datasets", "ds-9")
-        assert href == "http://localhost:8082/collections/datasets/items/ds-9"
+        assert href == "collections/datasets/items/ds-9"
 
 
 class TestDeprecateItem:

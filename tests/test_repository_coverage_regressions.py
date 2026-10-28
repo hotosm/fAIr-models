@@ -101,7 +101,7 @@ def _base_model() -> pystac.Item:
         inference_runtime_href="ghcr.io/hotosm/example:infer",
         title="Example Model",
         description="Example model for coverage tests.",
-        fair_metrics_spec=[{"name": "accuracy", "description": "Accuracy", "higher_is_better": True}],
+        fair_metrics_spec=[{"key": "accuracy", "name": "Accuracy", "higher_is_better": True}],
         providers=[{"name": "HOTOSM", "roles": ["producer"]}],
     )
     item.properties["fair:hyperparameters_spec"] = [
@@ -137,7 +137,7 @@ def _dataset_item(tmp_path: Path) -> pystac.Item:
         label_tasks=["segmentation"],
         label_classes=[{"name": "building", "classes": ["building"]}],
         keywords=["building", "polygon", "semantic-segmentation"],
-        chips_href="data/chips",
+        chips_hrefs={"image": "data/chips"},
         labels_href=str(label_path),
         title="Dataset",
         description="Coverage dataset.",
@@ -376,9 +376,10 @@ def test_config_helpers_cover_edge_cases(monkeypatch: pytest.MonkeyPatch, tmp_pa
     assert tracker_config["settings"]["experiment_tracker.mlflow"]["experiment_name"] == "tracked"
 
     base_item = _base_model()
+    base_item.properties["mlm:input"] = [{"name": "image"}]
     dataset_item = _dataset_item(tmp_path)
-    del dataset_item.assets["chips"]
-    with pytest.raises(KeyError, match="missing 'chips' asset"):
+    del dataset_item.assets["chips-image"]
+    with pytest.raises(KeyError, match="has no chips for model input"):
         generate_training_config(base_item, dataset_item, model_name="demo")
 
     dataset_item = _dataset_item(tmp_path)
@@ -394,7 +395,7 @@ def test_config_helpers_cover_edge_cases(monkeypatch: pytest.MonkeyPatch, tmp_pa
     local_model = _local_model()
     del local_model.assets["model"]
     with pytest.raises(KeyError, match=r"missing 'model' \(ONNX\) asset"):
-        generate_inference_config(local_model, "/images")
+        generate_inference_config(local_model, {"image": "/images"})
 
 
 def test_base_model_stac_items_publish_onnx_assets() -> None:
@@ -541,7 +542,7 @@ def test_publish_promoted_model_covers_missing_onnx_and_local_store(
 
     mv = MagicMock()
     mv.id = "mv-1"
-    mv.run_metadata = {}
+    mv.run_metadata = {"fair/accuracy": 0.9}
     weights_art = MagicMock()
     weights_art.id = "weights-artifact"
     weights_art.uri = str(weights_dir)

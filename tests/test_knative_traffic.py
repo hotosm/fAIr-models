@@ -74,6 +74,8 @@ class FakeKnative:
             resolved.append({k: v for k, v in {**route, "revisionName": rev}.items() if k != "latestRevision"})
         svc["status"]["traffic"] = resolved
         svc["status"]["conditions"] = [{"type": "Ready", "status": "True"}]
+        svc["metadata"]["generation"] = svc["metadata"].get("generation", 0) + 1
+        svc["status"]["observedGeneration"] = svc["metadata"]["generation"]
 
     def get_namespaced_custom_object(self, *, name: str, **_: Any) -> dict[str, Any]:
         if name not in self.services:

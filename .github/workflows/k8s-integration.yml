@@ -55,6 +55,14 @@ jobs:
         working-directory: infra
         run: just up
 
+      - name: Dump ZenML install diagnostics
+        if: failure()
+        run: |
+          kubectl get jobs,pods -n fair -o wide || true
+          kubectl describe job -n fair zenml-db-migration || true
+          kubectl logs -n fair job/zenml-db-migration --all-containers || true
+          kubectl get events -n fair --sort-by=.lastTimestamp | tail -n 80 || true
+
       - name: Alias cluster service names to localhost
         run: |
           echo "127.0.0.1 minio.fair.svc zenml.fair.svc mlflow.fair.svc stac.fair.svc" | sudo tee -a /etc/hosts

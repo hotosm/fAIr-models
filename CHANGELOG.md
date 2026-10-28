@@ -12,6 +12,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - add ZenML integration for model promotion and STAC catalog synchronization
 - implement STAC catalog management and builders for datasets and models
 
+## v0.3.25 (2026-10-28)
+
+### Fix
+
+- **knative**: ready is true poll until
+- **push**: run pypi publish on tag
+
 ## v0.3.24 (2026-10-28)
 
 ### Fix

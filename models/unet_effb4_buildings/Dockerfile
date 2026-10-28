@@ -1,31 +1,27 @@
-# Builder stage: install dependencies
-FROM ghcr.io/astral-sh/uv:python3.13-trixie-slim AS builder
+# Builder stage: training + batch dependencies (CPU torch).
+FROM ghcr.io/astral-sh/uv:0.11.8-python3.13-trixie-slim AS builder
 ENV UV_SYSTEM_PYTHON=1 UV_LINK_MODE=copy
+ARG FAIR_PY_OPS_VERSION=0.3.17
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential libgdal-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# TODO: remove universal-pathlib once fair-py-ops is published with it as a dependency
-COPY pyproject.toml README.md fair_zenml_patch.pth /tmp/fair-src/
-COPY fair /tmp/fair-src/fair
 RUN --mount=type=cache,target=/root/.cache/uv \
-    SETUPTOOLS_SCM_PRETEND_VERSION=0.0.0 \
     uv pip install \
     --extra-index-url https://download.pytorch.org/whl/cpu \
     --index-strategy unsafe-best-match \
     torch==2.10.0 \
     torchgeo==0.9.0 \
     segmentation-models-pytorch==0.5.0 \
-    scipy \
-    scikit-image \
-    onnx \
-    onnxscript \
-    /tmp/fair-src[k8s,serve]
+    scipy==1.18.1 \
+    scikit-image==0.26.0 \
+    onnx==1.23.2 \
+    onnxscript==0.7.2 \
+    "fair-py-ops[k8s,serve]==${FAIR_PY_OPS_VERSION}"
 
-# Runtime stage: minimal image
-FROM python:3.13-slim-trixie AS runtime
-
+# Runtime stage: minimal training/batch image.
+FROM python:3.13.13-slim-trixie AS runtime
 WORKDIR /app
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -35,8 +31,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY --from=builder /usr/local/lib/python3.13/site-packages /usr/local/lib/python3.13/site-packages
 COPY --from=builder /usr/local/bin /usr/local/bin
 
-ENV PYTHONUNBUFFERED=1 \
-    PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1
 
 COPY models/unet_effb4_buildings models/unet_effb4_buildings
 COPY models/conftest.py models/conftest.py
@@ -44,35 +39,34 @@ COPY models/test_integration.py models/test_integration.py
 
 ENTRYPOINT ["/usr/local/bin/python"]
 
-# Test stage: adds test dependencies for CI
+# Test stage: pytest extras for CI.
 FROM runtime AS test
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
-COPY --from=builder /tmp/fair-src /tmp/fair-src
+ARG FAIR_PY_OPS_VERSION=0.3.17
+COPY --from=ghcr.io/astral-sh/uv:0.11.8 /uv /usr/local/bin/uv
 RUN --mount=type=cache,target=/root/.cache/uv \
-    SETUPTOOLS_SCM_PRETEND_VERSION=0.0.0 \
-    uv pip install --system /tmp/fair-src[test]
+    uv pip install --system "fair-py-ops[test]==${FAIR_PY_OPS_VERSION}"
 
-# Inference builder stage: distroless-ready venv with serving deps
-FROM ghcr.io/astral-sh/uv:bookworm-slim AS inference-builder
+# Inference builder: distroless-ready CPU venv (ONNX serving, no torch).
+FROM ghcr.io/astral-sh/uv:0.11.8-trixie-slim AS inference-builder
 ENV UV_PYTHON_INSTALL_DIR=/python UV_PYTHON_PREFERENCE=only-managed
+ARG FAIR_PY_OPS_VERSION=0.3.17
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
 RUN uv python install 3.13
 WORKDIR /app
-COPY pyproject.toml README.md fair_zenml_patch.pth /tmp/fair-src/
-COPY fair /tmp/fair-src/fair
-RUN --mount=type=cache,target=/root/.cache/uv \
-    export SETUPTOOLS_SCM_PRETEND_VERSION=0.0.0 && \
+RUN --mount=type=cache,target=/python/.cache/uv \
     uv venv && uv pip install \
-    /tmp/fair-src[serve] \
+    "fair-py-ops[serve]==${FAIR_PY_OPS_VERSION}" \
     onnxruntime==1.28.0 \
-    rasterio \
-    pyproj \
-    numpy \
-    Pillow \
-    scipy \
-    scikit-image
+    rasterio==1.5.2 \
+    pyproj==3.8.0 \
+    numpy==2.5.4 \
+    Pillow==13.0.0 \
+    scipy==1.18.1 \
+    scikit-image==0.26.0
 COPY models/unet_effb4_buildings/pipeline.py /app/models/unet_effb4_buildings/pipeline.py
 
-# Inference stage: distroless runtime for live serving
+# Inference stage: distroless live-serving runtime.
 FROM gcr.io/distroless/python3-debian12:nonroot AS inference
 WORKDIR /app
 COPY --from=inference-builder /python /python
@@ -82,4 +76,3 @@ ENV PATH="/app/.venv/bin:$PATH" PYTHONPATH=/app
 EXPOSE 8080
 ENTRYPOINT ["/app/.venv/bin/python", "-m", "uvicorn"]
 CMD ["fair.serve.base:create_app", "--factory", "--host", "0.0.0.0", "--port", "8080"]
-

@@ -154,7 +154,7 @@ def test_split_dataset(generate_toy_dataset: dict[str, Path]) -> None:
     from models.unet_effb4_buildings.pipeline import split_dataset
 
     info = split_dataset.entrypoint(
-        dataset_chips=str(generate_toy_dataset["chips"]),
+        dataset_chips={"image": str(generate_toy_dataset["chips"])},
         dataset_labels=str(generate_toy_dataset["labels"]),
         hyperparameters=TOY_HYPERPARAMETERS,
     )
@@ -168,12 +168,12 @@ def _train_one_epoch(toy: dict[str, Path]):
     from models.unet_effb4_buildings.pipeline import split_dataset, train_model
 
     info = split_dataset.entrypoint(
-        dataset_chips=str(toy["chips"]),
+        dataset_chips={"image": str(toy["chips"])},
         dataset_labels=str(toy["labels"]),
         hyperparameters=TOY_HYPERPARAMETERS,
     )
     model = train_model.entrypoint(
-        dataset_chips=str(toy["chips"]),
+        dataset_chips={"image": str(toy["chips"])},
         dataset_labels=str(toy["labels"]),
         base_model_weights="",
         hyperparameters=TOY_HYPERPARAMETERS,
@@ -198,7 +198,7 @@ def test_evaluate_model(generate_toy_dataset: dict[str, Path]) -> None:
     model, info = _train_one_epoch(generate_toy_dataset)
     metrics = evaluate_model.entrypoint(
         trained_model=model,
-        dataset_chips=str(generate_toy_dataset["chips"]),
+        dataset_chips={"image": str(generate_toy_dataset["chips"])},
         dataset_labels=str(generate_toy_dataset["labels"]),
         hyperparameters=TOY_HYPERPARAMETERS,
         split_info=info,

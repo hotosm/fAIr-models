@@ -7,6 +7,7 @@
     "https://stac-extensions.github.io/classification/v2.0.0/schema.json",
     "https://stac-extensions.github.io/file/v2.1.0/schema.json",
     "https://stac-extensions.github.io/raster/v1.1.0/schema.json",
+    "https://stac-extensions.github.io/datacube/v2.3.0/schema.json",
     "https://hotosm.github.io/fAIr-models/schemas/v1.0.0/base-model/schema.json"
   ],
   "id": "unet-effb4-buildings",
@@ -26,7 +27,7 @@
   "properties": {
     "datetime": "2026-09-30T00:00:00Z",
     "created": "2026-09-30T00:00:00Z",
-    "updated": "2026-10-26T00:00:00Z",
+    "updated": "2026-10-28T00:00:00Z",
     "title": "UNet EfficientNet-B4 Building Instance Segmentation",
     "description": "UNet with EfficientNet-B4 encoder for building instance segmentation from very high resolution RGB aerial imagery. Trained on 19 199 chips from hotosm/vhr-building-segmentation plus the Open Cities AI Challenge (tier 1). Outputs four channels: binary mask logit, normalised Euclidean distance transform (EDT), boundary logit, and centreness logit. Instance segmentation is performed via marker-controlled watershed seeded by h-maxima of the centreness channel at inference.",
     "mlm:name": "unet-effb4-buildings",
@@ -61,24 +62,24 @@
     ],
     "fair:metrics_spec": [
       {
-        "key": "fair:accuracy",
+        "key": "accuracy",
         "name": "Pixel Accuracy",
         "description": "Fraction of correctly classified pixels (building vs background) on the binary mask channel"
       },
       {
-        "key": "fair:mean_iou",
+        "key": "mean_iou",
         "name": "Mean Intersection over Union (macro)",
         "description": "Macro-averaged IoU across background and building classes on the binary mask channel"
       },
       {
-        "key": "fair:per_class_iou",
+        "key": "per_class_iou",
         "name": "Per-class Intersection over Union",
         "description": "IoU for background and building classes, keyed by class name"
       }
     ],
     "mlm:input": [
       {
-        "name": "RGB chips",
+        "name": "image",
         "bands": [
           {"name": "red"},
           {"name": "green"},
@@ -133,8 +134,67 @@
           "expression": "models.unet_effb4_buildings.pipeline:postprocess"
         },
         "bands": []
+      },
+      {
+        "name": "buildings",
+        "description": "Building polygons after centreness-seeded watershed post-processing, one row per feature.",
+        "tasks": [
+          "instance-segmentation"
+        ],
+        "result": {
+          "shape": [-1, 2],
+          "dim_order": ["batch", "variables"],
+          "data_type": "float32"
+        },
+        "variables": ["class", "score"],
+        "classification:classes": [
+          {
+            "name": "building",
+            "value": 1,
+            "description": "Building footprint"
+          }
+        ],
+        "post_processing_function": {
+          "format": "python",
+          "expression": "models.unet_effb4_buildings.pipeline:postprocess"
+        }
       }
     ],
+    "cube:dimensions": {
+      "features": {
+        "type": "geometry",
+        "bbox": [-180, -90, 180, 90],
+        "geometry_types": ["Polygon"],
+        "reference_system": 4326
+      }
+    },
+    "cube:variables": {
+      "class": {
+        "dimensions": ["features"],
+        "type": "data",
+        "description": "Predicted class value (1 = building).",
+        "values": [1],
+        "data_type": "uint8"
+      },
+      "score": {
+        "dimensions": ["features"],
+        "type": "data",
+        "description": "Mean building-mask probability over the polygon.",
+        "extent": [0, 1],
+        "data_type": "float32"
+      }
+    },
+    "fair:preview": {
+      "center": [85.5203, 27.6349],
+      "zoom": {"recommended": 19, "min": 17, "max": 21},
+      "imagery": {
+        "url": "https://tiles.openaerialmap.org/62d85d11d8499800053796c1/0/62d85d11d8499800053796c2/{z}/{x}/{y}",
+        "type": "tms",
+        "name": "OpenAerialMap - Banepa",
+        "attribution": "OpenAerialMap"
+      },
+      "place": {"name": "Banepa", "country": "Nepal", "country_code": "NP"}
+    },
     "mlm:hyperparameters": {
       "training.epochs": 15,
       "training.batch_size": 8,
@@ -371,6 +431,18 @@
       "href": "https://www.apache.org/licenses/LICENSE-2.0",
       "type": "text/html",
       "title": "Apache License 2.0"
+    },
+    {
+      "rel": "cite-as",
+      "href": "https://arxiv.org/abs/1505.04597",
+      "type": "text/html",
+      "title": "U-Net (Ronneberger et al., 2015), architecture"
+    },
+    {
+      "rel": "cite-as",
+      "href": "https://arxiv.org/abs/1905.11946",
+      "type": "text/html",
+      "title": "EfficientNet (Tan and Le, 2019), encoder"
     },
     {
       "rel": "derived_from",

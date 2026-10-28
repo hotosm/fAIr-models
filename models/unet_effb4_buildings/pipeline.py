@@ -27,6 +27,7 @@ from typing import Annotated, Any
 
 from zenml import log_metadata, pipeline, step
 
+from fair.stac.inputs import IMAGE_INPUT
 from fair.zenml.instrumentation import log_evaluation_results, mlflow_training_context
 from fair.zenml.materializers import ONNXMaterializer
 
@@ -252,16 +253,22 @@ def _preprocess_onnx_image(img_path: Any) -> tuple[Any, Any, Any]:
     return arr[np.newaxis, ...], transform, crs
 
 
-def _vectorize_instance_labels(label_map: Any, transform: Any, crs: Any) -> list[dict[str, Any]]:
-    """Convert an integer instance label map to GeoJSON features in EPSG:4326."""
+def _vectorize_instance_labels(label_map: Any, mask_prob: Any, transform: Any, crs: Any) -> list[dict[str, Any]]:
+    """Convert an integer instance label map to GeoJSON features in EPSG:4326.
+
+    Each feature carries class 1 (building) and its mean mask probability as score.
+    """
     import numpy as np
     import rasterio.features
     from pyproj import Transformer
+    from scipy import ndimage
 
     needs_reproject = crs is not None and str(crs) != "EPSG:4326"
     transformer = Transformer.from_crs(crs, "EPSG:4326", always_xy=True) if needs_reproject else None
 
     label_map = label_map.astype(np.int32)
+    ids = np.unique(label_map[label_map > 0])
+    scores = dict(zip(ids.tolist(), ndimage.mean(mask_prob, labels=label_map, index=ids), strict=True))
     features = []
     for geom, value in rasterio.features.shapes(label_map, transform=transform):
         if value < 1:
@@ -269,7 +276,8 @@ def _vectorize_instance_labels(label_map: Any, transform: Any, crs: Any) -> list
         if transformer:
             coords = geom["coordinates"]
             geom["coordinates"] = [[list(transformer.transform(x, y)) for x, y in ring] for ring in coords]
-        features.append({"type": "Feature", "properties": {"instance_id": int(value)}, "geometry": geom})
+        properties = {"class": 1, "score": round(float(scores[int(value)]), 4)}
+        features.append({"type": "Feature", "properties": properties, "geometry": geom})
     return features
 
 
@@ -277,12 +285,12 @@ def _build_feature_collection(features: list[dict[str, Any]]) -> dict[str, Any]:
     return {"type": "FeatureCollection", "features": features}
 
 
-def predict(session: Any, input_images: str, params: dict[str, Any]) -> dict[str, Any]:
+def predict(session: Any, input_images: dict[str, str], params: dict[str, Any]) -> dict[str, Any]:
     """Run ONNX inference and return a GeoJSON FeatureCollection of building instances.
 
     Args:
         session:      ONNX InferenceSession.
-        input_images: Path (local or cloud) to a directory of GeoTIFF chips.
+        input_images: {"image": path (local or cloud) to a directory of GeoTIFF chips}.
         params:       Must contain "confidence_threshold" (float 0-1). Optional:
                       "seed_h", "min_instance_px", "tta" (d4 test-time augmentation,
                       8 forward passes per chip).
@@ -299,7 +307,7 @@ def predict(session: Any, input_images: str, params: dict[str, Any]) -> dict[str
     tta = bool(params.get("tta", False))
     input_name = session.get_inputs()[0].name
 
-    input_dir = resolve_directory(input_images)
+    input_dir = resolve_directory(input_images[IMAGE_INPUT])
     patterns = ("*.png", "*.tif", "*.tiff")
     img_paths = sorted(p for pat in patterns for p in input_dir.glob(pat))
     if not img_paths:
@@ -314,7 +322,7 @@ def predict(session: Any, input_images: str, params: dict[str, Any]) -> dict[str
         else:
             prob = expit(session.run(None, {input_name: batch})[0][0])  # (4, H, W)
         label_map = decode_probabilities(prob, threshold=threshold, h=h, min_instance_px=min_instance_px)
-        features.extend(_vectorize_instance_labels(label_map, transform, crs))
+        features.extend(_vectorize_instance_labels(label_map, prob[MASK_CHANNEL], transform, crs))
     return _build_feature_collection(features)
 
 
@@ -418,7 +426,7 @@ def _train_step(
 
 @step
 def split_dataset(
-    dataset_chips: str,
+    dataset_chips: dict[str, str],
     dataset_labels: str,
     hyperparameters: dict[str, Any],
 ) -> Annotated[dict[str, Any], "split_info_artifact"]:
@@ -446,7 +454,7 @@ def split_dataset(
 
 @step
 def train_model(
-    dataset_chips: str,
+    dataset_chips: dict[str, str],
     dataset_labels: str,
     base_model_weights: str,
     hyperparameters: dict[str, Any],
@@ -492,7 +500,7 @@ def train_model(
                 param.requires_grad = False
 
         train_loader = _build_dataset(
-            dataset_chips,
+            dataset_chips[IMAGE_INPUT],
             dataset_labels,
             chip_size,
             length=samples_per_epoch,
@@ -502,7 +510,7 @@ def train_model(
             sample_fraction=sample_fraction,
         )
         val_loader = _build_dataset(
-            dataset_chips,
+            dataset_chips[IMAGE_INPUT],
             dataset_labels,
             chip_size,
             length=samples_per_epoch,
@@ -565,7 +573,7 @@ def train_model(
 @step
 def evaluate_model(
     trained_model: Any,
-    dataset_chips: str,
+    dataset_chips: dict[str, str],
     dataset_labels: str,
     hyperparameters: dict[str, Any],
     split_info: dict[str, Any],
@@ -583,7 +591,7 @@ def evaluate_model(
     model.eval()
 
     loader = _build_dataset(
-        dataset_chips,
+        dataset_chips[IMAGE_INPUT],
         dataset_labels,
         chip_size,
         length=0,
@@ -625,7 +633,7 @@ def evaluate_model(
 @step
 def run_inference(
     model_uri: str,
-    input_images: str,
+    input_images: dict[str, str],
     inference_params: dict[str, Any],
 ) -> Annotated[dict[str, Any], "predictions"]:
     from fair.serve.base import load_session
@@ -686,7 +694,7 @@ def export_onnx(
 @pipeline
 def training_pipeline(
     base_model_weights: str,
-    dataset_chips: str,
+    dataset_chips: dict[str, str],
     dataset_labels: str,
     num_classes: int,
     hyperparameters: dict[str, Any],
@@ -722,7 +730,7 @@ def training_pipeline(
 @pipeline
 def inference_pipeline(
     model_uri: str,
-    input_images: str,
+    input_images: dict[str, str],
     inference_params: dict[str, Any],
 ) -> None:
     run_inference(

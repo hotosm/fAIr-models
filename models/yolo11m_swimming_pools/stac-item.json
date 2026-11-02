@@ -123,27 +123,27 @@
     ],
     "fair:metrics_spec": [
       {
-        "key": "fair:precision",
+        "key": "precision",
         "name": "Precision @ IoU 0.50",
         "description": "Share of predicted pools that match a labelled pool at IoU >= 0.50, summed over the val split at the inference confidence threshold. Matching is by confidence, one label per detection."
       },
       {
-        "key": "fair:recall",
+        "key": "recall",
         "name": "Recall @ IoU 0.50",
         "description": "Share of labelled pools matched by a prediction at IoU >= 0.50, summed over the val split at the inference confidence threshold."
       },
       {
-        "key": "fair:f1",
+        "key": "f1",
         "name": "F1 @ IoU 0.50",
         "description": "Harmonic mean of precision and recall at IoU 0.50 over the val split."
       },
       {
-        "key": "fair:map50",
+        "key": "map50",
         "name": "mAP50",
         "description": "Average precision at IoU 0.50 over the val split (101-point interpolation), from all detections down to confidence 0.001 with NMS IoU 0.7, as Ultralytics validates."
       },
       {
-        "key": "fair:map50_95",
+        "key": "map50_95",
         "name": "mAP50-95",
         "description": "Mean of the average precision at IoU 0.50, 0.55, ..., 0.95 over the val split, computed as mAP50."
       }

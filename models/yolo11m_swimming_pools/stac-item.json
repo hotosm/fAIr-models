@@ -497,7 +497,7 @@
       "mlm:entrypoint": "models.yolo11m_swimming_pools.pipeline:predict"
     },
     "mlm:training": {
-      "href": "ghcr.io/hotosm/fair-models/yolo11m_swimming_pools:latest",
+      "href": "ghcr.io/hotosm/fair-models/yolo11m_swimming_pools:dev",
       "type": "application/vnd.oci.image.index.v1+json",
       "title": "Training Docker Image",
       "roles": [
@@ -505,7 +505,7 @@
       ]
     },
     "mlm:inference": {
-      "href": "ghcr.io/hotosm/fair-models/yolo11m_swimming_pools:latest-inference",
+      "href": "ghcr.io/hotosm/fair-models/yolo11m_swimming_pools:dev-inference",
       "type": "application/vnd.oci.image.index.v1+json",
       "title": "Inference Docker Image",
       "roles": [

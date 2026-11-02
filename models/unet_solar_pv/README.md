@@ -1,9 +1,9 @@
 # Solar PV Panels
 
 A U-Net that labels each pixel of an RGB aerial chip as solar panel or background,
-then traces the panel pixels into polygons. It is a prediction-only model: the
-repository holds its ONNX export and the prediction code, with no training
-pipeline, so it serves live and batch predictions and cannot be finetuned.
+then traces the panel pixels into polygons. It serves live and batch predictions,
+and it can be finetuned in fAIr on panels labelled in a new area, which is how it
+is meant to be adapted outside its training region.
 
 ## Task
 
@@ -88,12 +88,31 @@ Pick Solar PV Panels in fAIr, draw an area over true-colour imagery at zoom 20 (
 19) and run a prediction: panels come back as polygons labelled `solar_panel`.
 Raise `confidence_threshold` to keep only the surest panels, or lower it towards
 0.3 to find more arrays at the cost of a few false alarms. Batch predictions run
-the same code through `inference_pipeline`.
+the same code through `inference_pipeline`. To adapt the model to a new city, label
+the panels on some chips there and finetune it.
+
+## Fine-tuning
+
+Fine-tuning starts from the released weights (the `checkpoint` asset, a PyTorch
+`state_dict`) and trains the whole network on the labelled chips with the same
+binary cross-entropy plus Dice loss, randomly turning and flipping each chip. The
+defaults are 15 epochs, batch size 8 and an AdamW learning rate of 0.0001 that
+decays to zero on a cosine schedule. With only a handful of labelled chips,
+`freeze_encoder` keeps the ImageNet and solar features of the encoder and trains
+the decoder alone.
+
+The split is spatial: fAIr names chips after their map tiles, so neighbouring chips
+are grouped into 4 x 4 tile blocks and whole blocks go to validation. Neighbouring
+chips often share a roof or an array, and a random split would let the model be
+scored on panels it trained on. Validation reports solar panel pixel IoU, precision,
+recall and F1 at the confidence threshold, and the finetuned model is exported to
+ONNX with the same input and output as the base model.
 
 ## Limitations
 
-- Trained only on imagery from eastern China. Accuracy drops on African cities,
-  as the Kaduna test shows, most of all for small rooftop arrays.
+- The base model was trained only on imagery from eastern China. Accuracy drops on
+  African cities, as the Kaduna test shows, most of all for small rooftop arrays;
+  finetune on local labels before relying on it there.
 - Corrugated or painted metal roofs and tents in dense informal settlements can be
   mistaken for panels.
 - Expects true-colour RGB. Thermal or false-colour imagery gives meaningless results.

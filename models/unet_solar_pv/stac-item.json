@@ -29,7 +29,7 @@
     "created": "2026-10-30T00:00:00Z",
     "updated": "2026-11-02T00:00:00Z",
     "title": "Solar PV Panels",
-    "description": "A U-Net with a ResNet-34 encoder that segments solar photovoltaic panels in RGB aerial imagery and returns them as polygons. Trained on the Jiang et al. (2021) PV dataset from Jiangsu, China. It is a prediction-only model: it serves live and batch predictions and cannot be finetuned.",
+    "description": "A U-Net with a ResNet-34 encoder that segments solar photovoltaic panels in RGB aerial imagery and returns them as polygons. Trained on the Jiang et al. (2021) PV dataset from Jiangsu, China, and finetunable in fAIr on panels labelled in a new area.",
     "mlm:name": "unet-solar-pv",
     "mlm:architecture": "U-Net",
     "mlm:tasks": ["semantic-segmentation"],
@@ -68,7 +68,114 @@
         "description": "Humanitarian OpenStreetMap Team"
       }
     ],
+    "fair:metrics_spec": [
+      {
+        "key": "iou_solar_panel",
+        "name": "Solar panel IoU",
+        "description": "Intersection over union of predicted and labelled solar panel pixels, summed over all validation chips, at the confidence threshold (default 0.5)."
+      },
+      {
+        "key": "precision_solar_panel",
+        "name": "Solar panel precision",
+        "description": "Share of predicted solar panel pixels that are labelled panel, summed over all validation chips."
+      },
+      {
+        "key": "recall_solar_panel",
+        "name": "Solar panel recall",
+        "description": "Share of labelled solar panel pixels that the model predicts, summed over all validation chips."
+      },
+      {
+        "key": "f1_solar_panel",
+        "name": "Solar panel F1",
+        "description": "Harmonic mean of solar panel pixel precision and recall over all validation chips."
+      }
+    ],
+    "fair:split_spec": {
+      "strategy": "spatial",
+      "default_ratio": 0.2,
+      "seed": 42,
+      "block_size": 4,
+      "description": "Chips named OAM-<x>-<y>-<z>.tif are grouped into block_size x block_size tile blocks, and whole blocks go to train or validation, so the model is scored on areas it did not train on. Other chip names, or a dataset inside a single block, are held out chip by chip."
+    },
     "fair:hyperparameters_spec": [
+      {
+        "key": "epochs",
+        "name": "Epochs",
+        "description": "Passes over the training chips.",
+        "type": "int",
+        "default": 15,
+        "min": 1,
+        "max": 200
+      },
+      {
+        "key": "batch_size",
+        "name": "Batch size",
+        "description": "Chips per training step.",
+        "type": "int",
+        "default": 8,
+        "min": 1,
+        "max": 64
+      },
+      {
+        "key": "learning_rate",
+        "name": "Learning rate",
+        "description": "AdamW learning rate.",
+        "type": "float",
+        "default": 0.0001,
+        "min": 0.000001,
+        "max": 0.01
+      },
+      {
+        "key": "scheduler",
+        "name": "Learning rate schedule",
+        "description": "Cosine decay of the learning rate to zero over training, or a constant rate.",
+        "type": "str",
+        "default": "cosine",
+        "values": ["cosine", "none"]
+      },
+      {
+        "key": "max_grad_norm",
+        "name": "Gradient clipping",
+        "description": "Maximum gradient norm per training step.",
+        "type": "float",
+        "default": 1.0,
+        "min": 0.1,
+        "max": 10.0
+      },
+      {
+        "key": "freeze_encoder",
+        "name": "Freeze encoder",
+        "description": "Train only the U-Net decoder, which suits very small datasets.",
+        "type": "bool",
+        "default": false
+      },
+      {
+        "key": "val_ratio",
+        "name": "Validation ratio",
+        "description": "Share of chips held out for validation.",
+        "type": "float",
+        "default": 0.2,
+        "min": 0.05,
+        "max": 0.5
+      },
+      {
+        "key": "split_seed",
+        "name": "Split seed",
+        "description": "Random seed for the train and validation split and for training.",
+        "type": "int",
+        "default": 42,
+        "min": 0,
+        "max": 100000
+      },
+      {
+        "key": "block_size",
+        "name": "Split block size",
+        "description": "Width in tiles of the square blocks the spatial split keeps together.",
+        "type": "int",
+        "default": 4,
+        "min": 1,
+        "max": 64
+      },
       {
         "key": "confidence_threshold",
         "name": "Confidence threshold",
@@ -155,10 +262,26 @@
       }
     },
     "mlm:hyperparameters": {
+      "training.epochs": 15,
+      "training.batch_size": 8,
+      "training.learning_rate": 0.0001,
+      "training.scheduler": "cosine",
+      "training.max_grad_norm": 1.0,
+      "training.freeze_encoder": false,
+      "training.val_ratio": 0.2,
+      "training.split_seed": 42,
+      "training.block_size": 4,
       "inference.confidence_threshold": 0.5
     }
   },
   "assets": {
+    "checkpoint": {
+      "href": "https://huggingface.co/dexsholex/unet-solar-pv/resolve/main/solar_pv_unet_best.pt",
+      "type": "application/octet-stream; framework=pytorch",
+      "roles": ["mlm:model", "mlm:weights"],
+      "mlm:artifact_type": "torch.save",
+      "raster:bands": [{ "name": "red" }, { "name": "green" }, { "name": "blue" }]
+    },
     "model": {
       "href": "https://huggingface.co/dexsholex/unet-solar-pv/resolve/main/solar_pv_unet.onnx",
       "type": "application/octet-stream; framework=onnx",
@@ -172,13 +295,13 @@
       "roles": ["code"],
       "mlm:entrypoint": "models.unet_solar_pv.pipeline:predict"
     },
+    "mlm:training": {
+      "href": "ghcr.io/hotosm/fair-models/unet_solar_pv:latest",
+      "type": "application/vnd.oci.image.index.v1+json",
+      "roles": ["mlm:training-runtime"]
+    },
     "mlm:inference": {
       "href": "ghcr.io/hotosm/fair-models/unet_solar_pv:latest-inference",
-      "type": "application/vnd.oci.image.index.v1+json",
-      "roles": ["mlm:inference-runtime"]
-    },
-    "batch-inference": {
-      "href": "ghcr.io/hotosm/fair-models/unet_solar_pv:latest",
       "type": "application/vnd.oci.image.index.v1+json",
       "roles": ["mlm:inference-runtime"]
     },

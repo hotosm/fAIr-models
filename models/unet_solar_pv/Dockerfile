@@ -1,10 +1,20 @@
-# Builder stage: batch prediction dependencies (ONNX on CPU, no training stack).
+# Builder stage: training and batch prediction dependencies (GPU torch).
+# PyTorch wheels bundle the CUDA runtime, so a plain python base works on GPU nodes
+# and falls back to CPU in CI.
 FROM ghcr.io/astral-sh/uv:0.11.8-python3.13-trixie-slim AS builder
 ENV UV_SYSTEM_PYTHON=1 UV_LINK_MODE=copy
 ARG FAIR_PY_OPS_VERSION=0.3.17
 
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv pip install \
+    --extra-index-url https://download.pytorch.org/whl/cu126 \
+    --index-strategy unsafe-best-match \
+    torch==2.14.1 torchvision==0.29.1
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv pip install \
+    segmentation-models-pytorch==0.5.0 \
+    onnx==1.23.2 \
+    onnxscript==0.7.2 \
     onnxruntime==1.28.0 \
     rasterio==1.5.1 \
     pyproj==3.7.2 \
@@ -12,7 +22,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     numpy==2.4.2 \
     "fair-py-ops[k8s,serve]==${FAIR_PY_OPS_VERSION}"
 
-# Runtime stage: batch prediction image for the ZenML inference pipeline.
+# Runtime stage: training and batch prediction image for the ZenML pipelines.
 FROM python:3.13.13-slim-trixie AS runtime
 WORKDIR /app
 
@@ -26,15 +36,16 @@ ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1
 
 COPY models/unet_solar_pv models/unet_solar_pv
 COPY models/conftest.py models/conftest.py
+COPY models/test_integration.py models/test_integration.py
 
 ENTRYPOINT ["/usr/local/bin/python"]
 
-# Test stage: pytest extras, plus onnx to build the toy model the tests run.
+# Test stage: pytest extras for CI.
 FROM runtime AS test
 ARG FAIR_PY_OPS_VERSION=0.3.17
 COPY --from=ghcr.io/astral-sh/uv:0.11.8 /uv /usr/local/bin/uv
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv pip install --system "fair-py-ops[test]==${FAIR_PY_OPS_VERSION}" onnx==1.22.0
+    uv pip install --system "fair-py-ops[test]==${FAIR_PY_OPS_VERSION}"
 
 # Inference builder: distroless-ready CPU venv for live serving.
 FROM ghcr.io/astral-sh/uv:0.11.8-trixie-slim AS inference-builder

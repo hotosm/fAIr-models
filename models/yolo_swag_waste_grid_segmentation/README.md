@@ -12,7 +12,7 @@ The pretrained weights, labels, and preparation utilities come from the [YOLO So
 
 The pretrained SWAG dataset covers geographically diverse OpenAerialMap scenes. The map below shows the source training-scene distribution.
 
-[![World map of SWAG training-scene locations](https://raw.githubusercontent.com/GIScience/solid-waste-detection-for-fAIr/dc826f335b5403ed8161f0b6f5656e89aae9b2b8/data/images/Overview.png)](https://github.com/GIScience/solid-waste-detection-for-fAIr/blob/dc826f335b5403ed8161f0b6f5656e89aae9b2b8/data/images/Overview.png)
+[![World map of SWAG training-scene locations](https://raw.githubusercontent.com/GIScience/solid-waste-detection-for-fAIr/3ce37841325d3c118268342970ac005431540f9a/data/images/Overview.png)](https://github.com/GIScience/solid-waste-detection-for-fAIr/blob/dc826f335b5403ed8161f0b6f5656e89aae9b2b8/data/images/Overview.png)
 
 The following examples show 5 m grid-cell waste overlays in different settings. Select an image to view it at full size.
 
@@ -101,7 +101,7 @@ Inference is fixed at batch 1; there is no inference `batch_size` setting.
 
 ## Citation
 
-If you use this model or its pretrained weights, cite [_Open-access model for detecting openly dumped dispersed municipal solid waste from crowdsourced UAV imagery in Sub-Saharan Africa_](https://doi.org/10.48550/arXiv.2605.02316).
+If you use this model or its pretrained weights, cite [_Open-access model for detecting openly dumped dispersed municipal solid waste from crowdsourced UAV imagery in Sub-Saharan Africa_](https://doi.org/10.1016/j.compenvurbsys.2026.102517).
 
 In addition, a citation of the global sourced training data [_Global YOLO SWAG_](https://zenodo.org/records/21874456) is welcome.
 

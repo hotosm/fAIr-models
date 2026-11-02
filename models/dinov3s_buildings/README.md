@@ -50,7 +50,7 @@ A long-running container exposes `POST /predict` on port 8080. Request body:
 ```json
 {
   "model_uri":  "https://huggingface.co/kshitijrajsharma/dinov3-hot-buildings/resolve/main/dinov3s_buildings.onnx",
-  "image_uri":  "https://tiles.openaerialmap.org/.../{z}/{x}/{y}",
+  "imagery":    {"image": "https://tiles.openaerialmap.org/.../{z}/{x}/{y}"},
   "bbox":       [west, south, east, north],
   "zoom":       18,
   "params":     {"confidence_threshold": 0.4371}

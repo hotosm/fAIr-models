@@ -12,6 +12,8 @@
         {
           "type": "object",
           "required": ["type", "properties", "assets"],
+          "if": { "properties": { "assets": { "required": ["mlm:training"] } } },
+          "then": { "properties": { "properties": { "required": ["fair:metrics_spec", "fair:split_spec"] } } },
           "properties": {
             "type": {
               "const": "Feature"
@@ -34,8 +36,6 @@
                     "keywords",
                     "version",
                     "license",
-                    "fair:metrics_spec",
-                    "fair:split_spec",
                     "providers"
                   ]
                 },
@@ -46,7 +46,10 @@
             },
             "assets": {
               "type": "object",
-              "required": ["checkpoint", "source-code", "mlm:training", "mlm:inference"],
+              "required": ["source-code", "mlm:inference"],
+              "if": { "required": ["mlm:training"] },
+              "then": { "required": ["checkpoint"] },
+              "else": { "required": ["model"] },
               "properties": {
                 "checkpoint": {
                   "type": "object",
@@ -117,6 +120,16 @@
                       "minLength": 1
                     }
                   }
+                },
+                "batch-inference": {
+                  "type": "object",
+                  "required": ["href"],
+                  "properties": {
+                    "href": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  }
                 }
               }
             }
@@ -146,8 +159,12 @@
           "minItems": 1,
           "items": {
             "type": "object",
-            "required": ["name"],
+            "required": ["key", "name"],
             "properties": {
+              "key": {
+                "type": "string",
+                "minLength": 1
+              },
               "name": {
                 "type": "string",
                 "minLength": 1
@@ -365,7 +382,18 @@
         },
         "license": {
           "type": "string",
-          "enum": ["AGPL-3.0-only", "MIT", "Apache-2.0", "BSD-3-Clause"]
+          "enum": [
+            "AGPL-3.0-only",
+            "MIT",
+            "Apache-2.0",
+            "BSD-3-Clause",
+            "CC-BY-4.0",
+            "CC-BY-SA-4.0",
+            "CC-BY-NC-4.0",
+            "CC-BY-NC-SA-4.0",
+            "CC0-1.0",
+            "ODbL-1.0"
+          ]
         },
         "providers": {
           "type": "array",

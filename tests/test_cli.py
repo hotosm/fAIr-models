@@ -52,6 +52,30 @@ def test_basemodel_register_delegates(tmp_path, monkeypatch) -> None:
     client.register_base_model.assert_called_once_with(str(item))
 
 
+def test_basemodel_pin_rewrites_image_tags(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr("fair.infra.registry.resolve_digest", lambda ref: ref.rsplit(":", 1)[0] + "@sha256:abc")
+    item = tmp_path / "base.json"
+    item.write_text(
+        json.dumps(
+            {
+                "assets": {
+                    "mlm:training": {"href": "ghcr.io/hotosm/demo:v1"},
+                    "mlm:inference": {"href": "ghcr.io/hotosm/demo:v1-inference"},
+                    "model": {"href": "https://example.com/model.onnx"},
+                }
+            }
+        )
+    )
+
+    result = runner.invoke(app, ["basemodel", "pin", str(item)])
+
+    assert result.exit_code == 0
+    assets = json.loads(item.read_text())["assets"]
+    assert assets["mlm:training"]["href"] == "ghcr.io/hotosm/demo@sha256:abc"
+    assert assets["mlm:inference"]["href"] == "ghcr.io/hotosm/demo@sha256:abc"
+    assert assets["model"]["href"] == "https://example.com/model.onnx"
+
+
 def test_model_train_passes_overrides(monkeypatch) -> None:
     client, _ = _stub_client(monkeypatch)
     client.finetune.return_value = "my-model"
@@ -221,7 +245,7 @@ def test_dataset_build_writes_draft(tmp_path, monkeypatch) -> None:
     drafts = list(out.glob("dataset-*.json"))
     assert len(drafts) == 1
     item = json.loads(drafts[0].read_text())
-    assert item["assets"]["chips"]["href"] == "/data/chips"
+    assert item["assets"]["chips-image"]["href"] == "/data/chips"
     assert item["assets"]["labels"]["href"] == "/data/labels/labels.geojson"
     assert item["properties"]["fair:source_imagery"] == "https://tiles/{z}/{x}/{y}"
     assert any(link["rel"] == "source" for link in item["links"])

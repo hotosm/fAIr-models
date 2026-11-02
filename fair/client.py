@@ -9,6 +9,7 @@ import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+import httpx
 import pystac
 import yaml
 from upath import UPath
@@ -16,7 +17,9 @@ from zenml.client import Client
 from zenml.config import DockerSettings
 from zenml.enums import StackComponentType
 
+from fair.infra import knative, registry
 from fair.params import inference_params
+from fair.stac.api_backend import StacApiBackend
 from fair.stac.builders import (
     BaseModelItemParams,
     DatasetItemParams,
@@ -26,9 +29,21 @@ from fair.stac.builders import (
 from fair.stac.catalog_manager import StacCatalogManager
 from fair.stac.collections import initialize_catalog
 from fair.stac.constants import BASE_MODELS_COLLECTION, DATASETS_COLLECTION, LOCAL_MODELS_COLLECTION
+from fair.stac.inputs import (
+    IMAGE_INPUT,
+    chips_hrefs_by_input,
+    input_imagery_title,
+    require_imagery_for_inputs,
+)
 from fair.stac.location import derive_location_props
-from fair.stac.validators import validate_compatibility, validate_item, validate_model_asset_urls
-from fair.stac.versioning import archive_previous_version, find_previous_active_item
+from fair.stac.validators import (
+    is_trainable,
+    validate_compatibility,
+    validate_inference_params,
+    validate_item,
+    validate_model_asset_urls,
+)
+from fair.stac.versioning import archive_previous_version, delete_item_with_archives, find_previous_active_item
 from fair.utils.data import (
     count_chips,
     create_dataset_archive,
@@ -43,7 +58,6 @@ from fair.zenml.config import generate_inference_config, generate_training_confi
 from fair.zenml.promotion import promote_model_version, publish_promoted_model
 
 if TYPE_CHECKING:
-    from fair.stac.api_backend import StacApiBackend
     from fair.stac.pgstac_backend import PgStacBackend
 
 logger = logging.getLogger(__name__)
@@ -142,12 +156,11 @@ class FairClient:
             return self._cached_backend
         if self._stac_api_url:
             if self._dsn:
+                # pypgstac is optional unless a DSN backend is used.
                 from fair.stac.pgstac_backend import PgStacBackend
 
                 self._cached_backend = PgStacBackend(dsn=self._dsn, stac_api_url=self._stac_api_url)
                 return self._cached_backend
-            from fair.stac.api_backend import StacApiBackend
-
             self._cached_backend = StacApiBackend(self._stac_api_url, api_key=self._stac_api_key)
             return self._cached_backend
         self._cached_backend = StacCatalogManager(self._catalog_path)
@@ -180,7 +193,9 @@ class FairClient:
 
         source_url = asset.href
         filename = UPath(source_url).name or f"{asset_key}.bin"
-        remote_path = f"{prefix}/{collection_id}/{item.id}/{asset_key}/{filename}"
+        # Include the version so archived items retain their weights.
+        version = item.properties.get("version", "1")
+        remote_path = f"{prefix}/{collection_id}/{item.id}/v{version}/{asset_key}/{filename}"
 
         mirror(source_url, remote_path)
         asset.href = s3_uri_to_http_url(remote_path)
@@ -211,8 +226,13 @@ class FairClient:
         item.properties.update(derive_location_props(item.properties, item.bbox))
         if errs := validate_item(item):
             raise FairClientError(f"Schema validation failed: {errs}")
-        if errs := validate_model_asset_urls(item, required_keys=("checkpoint", "model"), optional_keys=()):
+        if errs := validate_model_asset_urls(item):
             raise FairClientError(f"Asset URL validation failed: {errs}")
+        if self._stac_api_url:
+            try:
+                registry.pin_image_digests(item)
+            except registry.RegistryError as exc:
+                raise FairClientError(f"Image digest resolution failed: {exc}") from exc
 
         prev = find_previous_active_item(cat, BASE_MODELS_COLLECTION, "mlm:name", item.properties.get("mlm:name"))
         if prev:
@@ -221,14 +241,9 @@ class FairClient:
         else:
             item.properties.setdefault("version", "1")
 
-        # Deploy the per-model predict service (idempotent) when the cluster is reachable,
-        # then advertise + verify it before anything is mirrored, archived, or published,
-        # so a model with no live service leaves no half-written state behind.
-        if self._stac_api_url:
-            from fair.infra.knative import _knative_serving_installed, ensure_knative_service
-
-            if _knative_serving_installed():
-                ensure_knative_service(item, namespace=knative_namespace, template_path=knative_template)
+        # Deploy and verify before uploads or publication to avoid partial state.
+        if self._stac_api_url and knative._knative_serving_installed():
+            knative.ensure_knative_service(item, namespace=knative_namespace, template_path=knative_template)
 
         endpoint_href = self._ensure_inference_endpoint(item)
         if endpoint_href:
@@ -237,7 +252,7 @@ class FairClient:
         if self._upload_artifacts:
             self._mirror_asset_to_artifact_store(item, "checkpoint", BASE_MODELS_COLLECTION)
             self._mirror_asset_to_artifact_store(item, "model", BASE_MODELS_COLLECTION)
-            if errs := validate_model_asset_urls(item, required_keys=("checkpoint", "model"), optional_keys=()):
+            if errs := validate_model_asset_urls(item):
                 raise FairClientError(f"Mirrored asset URL validation failed: {errs}")
         self._upload_assets_if_remote(item, BASE_MODELS_COLLECTION)
 
@@ -248,6 +263,34 @@ class FairClient:
         published = cat.publish_item(BASE_MODELS_COLLECTION, item)
         print(f"register: base-model {published.id} v{published.properties['version']}")
         return published.id
+
+    def delete_base_model(self, item_id: str, *, knative_namespace: str | None = None) -> list[str]:
+        """Remove the model's KNative service, then its STAC versions; a cluster API error stops the delete."""
+        cat = self._get_backend()
+        item = cat.get_item(BASE_MODELS_COLLECTION, item_id)
+        if self._stac_api_url and knative.cluster_configured():
+            knative.delete_knative_service(item.properties.get("mlm:name") or item.id, namespace=knative_namespace)
+        return delete_item_with_archives(cat, BASE_MODELS_COLLECTION, item_id)
+
+    def delete_dataset(self, item_id: str) -> list[str]:
+        return delete_item_with_archives(self._get_backend(), DATASETS_COLLECTION, item_id)
+
+    def reconcile_knative(
+        self,
+        *,
+        knative_template: str | None = None,
+        knative_namespace: str | None = None,
+        prune: bool = False,
+    ) -> dict[str, list[str]]:
+        """Match KNative services to active STAC base models."""
+        items = [
+            item
+            for item in self._get_backend().list_items(BASE_MODELS_COLLECTION)
+            if not item.properties.get("deprecated")
+        ]
+        return knative.reconcile_knative_services(
+            items, namespace=knative_namespace, template_path=knative_template, prune=prune
+        )
 
     def _ensure_inference_endpoint(self, item: pystac.Item) -> str | None:
         """Public `/predict` URL for the item, derived from the domain when the item omits one."""
@@ -261,9 +304,9 @@ class FairClient:
         if not public_domain:
             return None
 
-        from fair.infra.knative import public_predict_url
-
-        href = public_predict_url(item.properties.get("mlm:name") or item.id, public_domain)
+        href = knative.public_predict_url(
+            item.properties.get("mlm:name") or item.id, public_domain, knative.knative_tag()
+        )
         item.add_asset(
             "mlm:inference-endpoint",
             pystac.Asset(
@@ -276,17 +319,12 @@ class FairClient:
 
     def _verify_predict_service(self, endpoint_href: str) -> None:
         """Refuse to register a model whose KNative service is not already serving."""
-        from fair.infra.knative import (
-            DEFAULT_HEALTH_TIMEOUT,
-            KnativeServiceUnavailableError,
-            health_url,
-            probe_service_health,
-        )
-
-        timeout = float(os.environ.get("FAIR_KNATIVE_HEALTH_TIMEOUT") or DEFAULT_HEALTH_TIMEOUT)
+        timeout = float(os.environ.get("FAIR_KNATIVE_HEALTH_TIMEOUT") or knative.DEFAULT_HEALTH_TIMEOUT)
         try:
-            probe_service_health(health_url(endpoint_href), timeout=timeout, verify=self._predict_verify_ssl())
-        except KnativeServiceUnavailableError as exc:
+            knative.probe_service_health(
+                knative.health_url(endpoint_href), timeout=timeout, verify=self._predict_verify_ssl()
+            )
+        except knative.KnativeServiceUnavailableError as exc:
             raise FairClientError(
                 f"KNative predict service is not serving: {exc}. "
                 "Deploy it first with `fair knative register <stac-item.json>`."
@@ -299,14 +337,13 @@ class FairClient:
         item = pystac.Item.from_file(stac_item_path)
         item.make_asset_hrefs_absolute()
 
-        chips_asset = item.assets.get("chips")
+        chips_hrefs = chips_hrefs_by_input({key: asset.href for key, asset in item.assets.items()})
         labels_asset = item.assets.get("labels")
-        if chips_asset is None:
-            raise FairClientError(f"Dataset item '{item.id}' has no 'chips' asset")
+        if not chips_hrefs:
+            raise FairClientError(f"Dataset item '{item.id}' has no 'chips-<input name>' asset")
         if labels_asset is None:
             raise FairClientError(f"Dataset item '{item.id}' has no 'labels' asset")
 
-        chips_href = chips_asset.href
         labels_href = labels_asset.href
 
         props = item.properties
@@ -319,9 +356,15 @@ class FairClient:
         providers = self._dataset_providers_from_properties(props, item.id)
 
         label_properties = props.get("label:properties")
-        source_imagery_href = next((lnk.get_href() for lnk in item.links if lnk.rel == "source"), None)
+        inputs_by_title = {input_imagery_title(name): name for name in chips_hrefs}
+        imagery_hrefs: dict[str, str] = {}
+        for link in item.links:
+            # A source link without an input title belongs to the image input of a single-image dataset.
+            name = inputs_by_title.get(link.title or "", IMAGE_INPUT if list(chips_hrefs) == [IMAGE_INPUT] else None)
+            if link.rel == "source" and name and (href := link.get_href()):
+                imagery_hrefs[name] = href
 
-        chip_count = count_chips(chips_href)
+        chip_count = count_chips(next(iter(chips_hrefs.values())))
         prev = find_previous_active_item(cat, DATASETS_COLLECTION, "title", title)
         version = str(int(prev.properties["version"]) + 1) if prev else "1"
         predecessor_href = cat.item_href(DATASETS_COLLECTION, prev.id) if prev else None
@@ -329,14 +372,14 @@ class FairClient:
         Path("artifacts").mkdir(exist_ok=True)
         archive_path = Path("artifacts") / f"{title}-v{version}.zip"
         labels_dir_str = _labels_dir_from_href(labels_href)
-        create_dataset_archive(chips_dir=chips_href, labels_dir=labels_dir_str, output_path=str(archive_path))
+        create_dataset_archive(chips_dirs=chips_hrefs, labels_dir=labels_dir_str, output_path=str(archive_path))
 
         dataset_item = build_dataset_item(
             label_type=label_type,
             label_tasks=label_tasks,
             label_classes=label_classes,
             keywords=keywords,
-            chips_href=chips_href,
+            chips_hrefs=chips_hrefs,
             labels_href=labels_href,
             title=title,
             description=description,
@@ -351,7 +394,7 @@ class FairClient:
             label_properties=label_properties,
             label_description=props.get("label:description"),
             label_methods=props.get("label:methods"),
-            source_imagery_href=source_imagery_href,
+            imagery_hrefs=imagery_hrefs,
             predecessor_version_href=predecessor_href,
             download_href=str(archive_path),
         )
@@ -375,10 +418,9 @@ class FairClient:
     ) -> str:
         cat = self._get_backend()
         title = params.title
-        chips_href = params.chips_href
         labels_href = params.labels_href
 
-        chip_count = count_chips(chips_href)
+        chip_count = count_chips(next(iter(params.chips_hrefs.values())))
         prev = find_previous_active_item(cat, DATASETS_COLLECTION, "title", title)
         version = str(int(prev.properties["version"]) + 1) if prev else "1"
         predecessor_href = cat.item_href(DATASETS_COLLECTION, prev.id) if prev else None
@@ -386,7 +428,7 @@ class FairClient:
         Path("artifacts").mkdir(exist_ok=True)
         archive_path = Path("artifacts") / f"{title}-v{version}.zip"
         labels_dir_str = _labels_dir_from_href(labels_href)
-        create_dataset_archive(chips_dir=chips_href, labels_dir=labels_dir_str, output_path=str(archive_path))
+        create_dataset_archive(chips_dirs=params.chips_hrefs, labels_dir=labels_dir_str, output_path=str(archive_path))
 
         fields = dataclasses.asdict(params)
         fields.update(
@@ -435,6 +477,11 @@ class FairClient:
     ) -> tuple[Any, Path]:
         cat = self._get_backend()
         base = cat.get_item(BASE_MODELS_COLLECTION, base_model_id)
+        if not is_trainable(base.assets):
+            raise FairClientError(
+                f"Base model '{base_model_id}' has no 'mlm:training' asset: "
+                "it is inference-only and cannot be finetuned"
+            )
         try:
             ds = cat.get_item(DATASETS_COLLECTION, dataset_id)
         except KeyError as exc:
@@ -491,6 +538,7 @@ class FairClient:
         user_id: str | None = None,
         pipeline_run_id: str | None = None,
         paths: type[LocalModelStoragePaths] | None = None,
+        providers: list[dict[str, Any]] | None = None,
     ) -> str:
         """Promote a finetuned model version to STAC's local-models collection.s"""
         effective_user_id = user_id or self.user_id
@@ -550,6 +598,7 @@ class FairClient:
             keywords=keywords,
             artifact_store_prefix=self._artifact_store_prefix() if self._upload_artifacts else None,
             paths=paths,
+            providers=providers,
         )
         print(f"promote: {item.id}")
         return item.id
@@ -558,15 +607,14 @@ class FairClient:
         self,
         model_id: str,
         *,
-        image_uri: str,
+        imagery: dict[str, str],
         bbox: list[float],
         zoom: int,
         predict_base_url: str | None = None,
         collection: str = LOCAL_MODELS_COLLECTION,
         timeout: float = 120.0,
     ) -> dict[str, Any]:
-        import httpx
-
+        """`imagery` maps each of the model's input names to a TMS template."""
         cat = self._get_backend()
         try:
             model_item = cat.get_item(collection, model_id)
@@ -579,9 +627,13 @@ class FairClient:
 
         url = self._resolve_predict_url(model_item, collection, predict_base_url)
 
+        try:
+            require_imagery_for_inputs(model_item, imagery)
+        except ValueError as exc:
+            raise FairClientError(str(exc)) from exc
         payload = {
             "model_uri": model_asset.href,
-            "image_uri": image_uri,
+            "imagery": imagery,
             "bbox": bbox,
             "zoom": zoom,
             "params": inference_params(model_item.properties.get("mlm:hyperparameters", {})),
@@ -664,7 +716,8 @@ class FairClient:
         self,
         *,
         local_model_id: str,
-        image_path: str,
+        input_images: dict[str, str],
+        params: dict[str, Any] | None = None,
         config_dir: Path | str | None = None,
     ) -> tuple[Any, Path]:
         cat = self._get_backend()
@@ -682,14 +735,19 @@ class FairClient:
             )
 
         pipeline_module = self._pipeline_module_from_item(model_item)
+        require_imagery_for_inputs(model_item, input_images)
+        if params:
+            validate_inference_params(params, model_item)
 
         prefix = self._artifact_store_prefix()
-        if self._upload_artifacts and prefix and "://" not in image_path:
-            remote_path = f"{prefix}/predict/{local_model_id}/input"
-            upload_local_directory(Path(image_path), remote_path)
-            image_path = remote_path
+        if self._upload_artifacts and prefix:
+            local_images = {name: path for name, path in input_images.items() if "://" not in path}
+            uploaded = {name: f"{prefix}/predict/{local_model_id}/input/{name}" for name in local_images}
+            for name, path in local_images.items():
+                upload_local_directory(Path(path), uploaded[name])
+            input_images = {**input_images, **uploaded}
 
-        cfg_data = generate_inference_config(model_item, image_path)
+        cfg_data = generate_inference_config(model_item, input_images, params)
         cfg_dir = Path(config_dir) if config_dir else self._config_dir
         cfg_dir.mkdir(parents=True, exist_ok=True)
         inf_cfg = cfg_dir / f"inference_{local_model_id[:8]}.yaml"
@@ -701,13 +759,15 @@ class FairClient:
         self,
         *,
         local_model_id: str,
-        image_path: str,
+        input_images: dict[str, str],
+        params: dict[str, Any] | None = None,
         config_dir: Path | str | None = None,
     ) -> str:
         """Non-blocking variant of predict. Returns the ZenML pipeline run id immediately."""
         mod, inf_cfg = self._prepare_inference_pipeline(
             local_model_id=local_model_id,
-            image_path=image_path,
+            input_images=input_images,
+            params=params,
             config_dir=config_dir,
         )
         run = mod.inference_pipeline.with_options(
@@ -722,8 +782,13 @@ class FairClient:
             raise RuntimeError("Inference pipeline returned no run reference")
         return str(run.id)
 
-    def predict(self, local_model_id: str, image_path: str) -> dict[str, Any]:
-        mod, inf_cfg = self._prepare_inference_pipeline(local_model_id=local_model_id, image_path=image_path)
+    def predict(
+        self, local_model_id: str, input_images: dict[str, str], params: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
+        """`input_images` maps each of the model's input names to a chips directory."""
+        mod, inf_cfg = self._prepare_inference_pipeline(
+            local_model_id=local_model_id, input_images=input_images, params=params
+        )
         run = mod.inference_pipeline.with_options(
             config_path=str(inf_cfg),
             enable_cache=False,
@@ -776,6 +841,17 @@ class UserScopedFairClient:
     ) -> str:
         return self._client.register_dataset(dataset, user_id=self._user_id, paths=paths)
 
+    def reconcile_knative(
+        self,
+        *,
+        knative_template: str | None = None,
+        knative_namespace: str | None = None,
+        prune: bool = False,
+    ) -> dict[str, list[str]]:
+        return self._client.reconcile_knative(
+            knative_template=knative_template, knative_namespace=knative_namespace, prune=prune
+        )
+
     def submit_finetune(
         self,
         *,
@@ -797,12 +873,14 @@ class UserScopedFairClient:
         self,
         *,
         local_model_id: str,
-        image_path: str,
+        input_images: dict[str, str],
+        params: dict[str, Any] | None = None,
         config_dir: Path | str | None = None,
     ) -> str:
         return self._client.submit_predict(
             local_model_id=local_model_id,
-            image_path=image_path,
+            input_images=input_images,
+            params=params,
             config_dir=config_dir,
         )
 
@@ -817,6 +895,7 @@ class UserScopedFairClient:
         keywords: list[str] | None = None,
         pipeline_run_id: str | None = None,
         paths: type[LocalModelStoragePaths] | None = None,
+        providers: list[dict[str, Any]] | None = None,
     ) -> str:
         return self._client.promote(
             finetuned_model_id,
@@ -828,16 +907,19 @@ class UserScopedFairClient:
             user_id=self._user_id,
             pipeline_run_id=pipeline_run_id,
             paths=paths,
+            providers=providers,
         )
 
-    def predict(self, local_model_id: str, image_path: str) -> dict[str, Any]:
-        return self._client.predict(local_model_id, image_path)
+    def predict(
+        self, local_model_id: str, input_images: dict[str, str], params: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
+        return self._client.predict(local_model_id, input_images, params)
 
     def predict_live(
         self,
         model_id: str,
         *,
-        image_uri: str,
+        imagery: dict[str, str],
         bbox: list[float],
         zoom: int,
         predict_base_url: str | None = None,
@@ -846,7 +928,7 @@ class UserScopedFairClient:
     ) -> dict[str, Any]:
         return self._client.predict_live(
             model_id,
-            image_uri=image_uri,
+            imagery=imagery,
             bbox=bbox,
             zoom=zoom,
             predict_base_url=predict_base_url,

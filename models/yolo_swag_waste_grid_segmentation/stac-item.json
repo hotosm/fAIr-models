@@ -7,6 +7,7 @@
     "https://stac-extensions.github.io/classification/v2.0.0/schema.json",
     "https://stac-extensions.github.io/file/v2.1.0/schema.json",
     "https://stac-extensions.github.io/raster/v1.1.0/schema.json",
+    "https://stac-extensions.github.io/datacube/v2.3.0/schema.json",
     "https://hotosm.github.io/fAIr-models/schemas/v1.0.0/base-model/schema.json"
   ],
   "id": "yolo_swag_waste_grid_segmentation",
@@ -43,15 +44,14 @@
     "fair:max_zoom": 22,
     "fair:pinned": true,
     "fair:preview": {
-      "center": [85.5203, 27.6349],
+      "center": [-13.05, 8.3381],
       "zoom": { "recommended": 18, "min": 14, "max": 22 },
       "imagery": {
-        "url": "https://tiles.openaerialmap.org/62d85d11d8499800053796c1/0/62d85d11d8499800053796c2/{z}/{x}/{y}",
+        "url": "https://api.imagery.hotosm.org/raster/collections/openaerialmap/items/6aae46379ed4c3b5f2d117f9/tiles/WebMercatorQuad/{z}/{x}/{y}?assets=visual",
         "type": "tms",
-        "name": "OpenAerialMap - Banepā",
         "attribution": "OpenAerialMap"
       },
-      "place": { "name": "Banepā", "country": "Nepal", "country_code": "NP" }
+      "place": { "name": "Waterloo", "country": "Sierra Leone", "country_code": "SL" }
     },
     "keywords": ["solid-waste", "semantic-segmentation", "polygon"],
     "license": "MIT",
@@ -67,14 +67,14 @@
     ],
     "fair:metrics_spec": [
       {
-        "key": "fair:accuracy",
+        "key": "accuracy",
         "name": "Accuracy",
         "description": "Fraction of correctly classified grid cells across all classes in the evaluation dataset"
       }
     ],
     "mlm:input": [
       {
-        "name": "RGB chips",
+        "name": "image",
         "bands": [
           {
             "name": "red"
@@ -124,8 +124,58 @@
           "expression": "models.yolo_swag_waste_grid_segmentation.pipeline:postprocess"
         },
         "bands": []
+      },
+      {
+        "name": "waste cells",
+        "description": "Grid cells whose waste probability meets confidence_threshold, one row per feature.",
+        "tasks": ["semantic-segmentation"],
+        "result": { "shape": [-1, 4], "dim_order": ["batch", "variables"], "data_type": "float32" },
+        "variables": ["class", "confidence", "cell_id", "label"],
+        "classification:classes": [
+          { "name": "waste", "value": 1, "description": "Grid cell covered by solid waste" }
+        ],
+        "post_processing_function": {
+          "format": "python",
+          "expression": "models.yolo_swag_waste_grid_segmentation.pipeline:postprocess"
+        }
       }
     ],
+    "cube:dimensions": {
+      "features": {
+        "type": "geometry",
+        "bbox": [-180, -90, 180, 90],
+        "geometry_types": ["Polygon"],
+        "reference_system": 4326
+      }
+    },
+    "cube:variables": {
+      "label": {
+        "dimensions": ["features"],
+        "type": "data",
+        "description": "Class name of the predicted class (waste).",
+        "values": ["waste"]
+      },
+      "class": {
+        "dimensions": ["features"],
+        "type": "data",
+        "description": "Predicted class value (1 = waste).",
+        "values": [1],
+        "data_type": "uint8"
+      },
+      "confidence": {
+        "dimensions": ["features"],
+        "type": "data",
+        "description": "Waste probability of the grid cell.",
+        "extent": [0, 1],
+        "data_type": "float32"
+      },
+      "cell_id": {
+        "dimensions": ["features"],
+        "type": "auxiliary",
+        "description": "Grid cell identifier.",
+        "data_type": "int64"
+      }
+    },
     "mlm:hyperparameters": {
       "training.epochs": 20,
       "training.batch_size": 4,
@@ -140,8 +190,8 @@
       "training.waste_overlap_threshold": 0.8,
       "training.cell_size_m": 5.0,
       "training.sample_fraction": 1.0,
-      "inference.confidence_threshold": 0.5,
-      "inference.cell_size_m": 10.0
+      "inference.confidence_threshold": 0.7,
+      "inference.cell_size_m": 5
     },
     "fair:split_spec": {
       "strategy": "grid_5m_stratified_grouped",
@@ -230,7 +280,7 @@
       {
         "key": "confidence_threshold",
         "type": "float",
-        "default": 0.5,
+        "default": 0.7,
         "min": 0.0,
         "max": 1.0,
         "description": "Minimum softmax probability to retain a predicted class at inference"
@@ -246,7 +296,7 @@
       {
         "key": "cell_size_m",
         "type": "float",
-        "default": 10.0,
+        "default": 5.0,
         "min": 3.0,
         "max": 10.0,
         "description": "Edge length, in meters, for inference grid cells; training uses training.cell_size_m"
@@ -332,7 +382,7 @@
     },
     {
       "rel": "cite-as",
-      "href": "https://doi.org/10.48550/arXiv.2605.02316",
+      "href": "https://doi.org/10.1016/j.compenvurbsys.2026.102517",
       "type": "text/html",
       "title": "Open-access model for detecting openly dumped dispersed municipal solid waste from crowdsourced UAV imagery in Sub-Saharan Africa"
     }

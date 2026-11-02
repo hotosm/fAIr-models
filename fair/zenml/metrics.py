@@ -5,7 +5,6 @@ from typing import Any
 from zenml import get_step_context, log_metadata
 
 _ZENML_PREFIX = "fair/"
-_STAC_PREFIX = "fair:"
 _WALL_TIME_KEY = f"{_ZENML_PREFIX}training_wall_seconds"
 _SPLIT_KEY = f"{_ZENML_PREFIX}split"
 _LOSS_HISTORY_KEY = f"{_ZENML_PREFIX}loss_history"
@@ -21,7 +20,7 @@ def read_fair_metrics(run_metadata: dict[str, Any] | None) -> dict[str, Any] | N
     if not run_metadata:
         return None
     converted = {
-        k.replace(_ZENML_PREFIX, _STAC_PREFIX, 1): v
+        k.removeprefix(_ZENML_PREFIX): v
         for k, v in run_metadata.items()
         if k.startswith(_ZENML_PREFIX) and k not in _NON_METRIC_KEYS
     }

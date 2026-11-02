@@ -25,7 +25,7 @@ def test_split_dataset(toy_chips: Path, toy_labels: Path, base_hyperparameters: 
     from models.dinov3s_buildings.pipeline import split_dataset
 
     info = split_dataset.entrypoint(
-        dataset_chips=str(toy_chips),
+        dataset_chips={"image": str(toy_chips)},
         dataset_labels=str(toy_labels),
         hyperparameters=base_hyperparameters,
     )
@@ -47,13 +47,13 @@ def test_train_model(
     from models.dinov3s_buildings.pipeline import split_dataset, train_model
 
     info = split_dataset.entrypoint(
-        dataset_chips=str(toy_chips),
+        dataset_chips={"image": str(toy_chips)},
         dataset_labels=str(toy_labels),
         hyperparameters=base_hyperparameters,
     )
     hp = {**base_hyperparameters, "epochs": 1}
     model = train_model.entrypoint(
-        dataset_chips=str(toy_chips),
+        dataset_chips={"image": str(toy_chips)},
         dataset_labels=str(toy_labels),
         base_model_weights=pretrained_weights,
         hyperparameters=hp,
@@ -74,13 +74,13 @@ def test_evaluate_model(
     from models.dinov3s_buildings.pipeline import evaluate_model, split_dataset, train_model
 
     info = split_dataset.entrypoint(
-        dataset_chips=str(toy_chips),
+        dataset_chips={"image": str(toy_chips)},
         dataset_labels=str(toy_labels),
         hyperparameters=base_hyperparameters,
     )
     hp = {**base_hyperparameters, "epochs": 1}
     model = train_model.entrypoint(
-        dataset_chips=str(toy_chips),
+        dataset_chips={"image": str(toy_chips)},
         dataset_labels=str(toy_labels),
         base_model_weights=pretrained_weights,
         hyperparameters=hp,
@@ -89,7 +89,7 @@ def test_evaluate_model(
     )
     metrics = evaluate_model.entrypoint(
         trained_model=model,
-        dataset_chips=str(toy_chips),
+        dataset_chips={"image": str(toy_chips)},
         dataset_labels=str(toy_labels),
         hyperparameters=hp,
         split_info=info,
@@ -122,13 +122,13 @@ def test_tune_postprocess_skips_on_small_val(
     )
 
     info = split_dataset.entrypoint(
-        dataset_chips=str(toy_chips),
+        dataset_chips={"image": str(toy_chips)},
         dataset_labels=str(toy_labels),
         hyperparameters=base_hyperparameters,
     )
     recommended = tune_postprocess.entrypoint(
         trained_model=None,
-        dataset_chips=str(toy_chips),
+        dataset_chips={"image": str(toy_chips)},
         dataset_labels=str(toy_labels),
         hyperparameters=base_hyperparameters,
         split_info=info,

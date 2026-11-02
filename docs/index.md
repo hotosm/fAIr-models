@@ -24,12 +24,12 @@ before submitting to the fAIr platform.
 
 ## Key Concepts
 
-| Concept | Description |
-|---|---|
-| **Base model** | A reusable ML blueprint contributed via PR (e.g. UNet, YOLOv8) |
-| **Local model** | A finetuned model produced by a ZenML pipeline on user data |
-| **STAC catalog** | The model/dataset registry using [MLM](https://github.com/stac-extensions/mlm) and [Version](https://github.com/stac-extensions/version) extensions |
-| **ZenML pipeline** | Orchestrated training and inference workflows |
+| Concept            | Description                                                                                                                                         |
+| ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Base model**     | A reusable ML blueprint contributed via PR (e.g. UNet, YOLOv8)                                                                                      |
+| **Local model**    | A finetuned model produced by a ZenML pipeline on user data                                                                                         |
+| **STAC catalog**   | The model/dataset registry using [MLM](https://github.com/stac-extensions/mlm) and [Version](https://github.com/stac-extensions/version) extensions |
+| **ZenML pipeline** | Orchestrated training and inference workflows                                                                                                       |
 
 ## Quick Links
 

@@ -13,7 +13,7 @@ def test_predict_returns_building_polygons(generate_toy_dataset: dict[str, Path]
     onnx_bytes = export_onnx.entrypoint(_train(generate_toy_dataset, _split(generate_toy_dataset)))
     session = InferenceSession(onnx_bytes, providers=["CPUExecutionProvider"])
 
-    result = predict(session, str(generate_toy_dataset["chips"]), {"confidence_threshold": 0.5})
+    result = predict(session, {"image": str(generate_toy_dataset["chips"])}, {"confidence_threshold": 0.5})
 
     assert result["type"] == "FeatureCollection"
     assert result["features"]

@@ -1,0 +1,6 @@
+*
+!models/dinov3_damage/
+!models/conftest.py
+!models/test_integration.py
+models/dinov3_damage/artifacts/
+models/dinov3_damage/__pycache__/

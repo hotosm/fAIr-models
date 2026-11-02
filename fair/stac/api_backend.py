@@ -12,9 +12,28 @@ from fair.stac.collections import (
     create_datasets_collection,
     create_local_models_collection,
 )
-from fair.stac.versioning import ensure_version_links, normalize_version_link_hrefs
+from fair.stac.versioning import normalize_version_link_hrefs, prepare_api_links
 
 log = logging.getLogger(__name__)
+
+
+def search_collection(
+    http: httpx.Client, stac_api_url: str, collection_id: str, *, limit: int | None = None
+) -> list[pystac.Item]:
+    """Items of one collection from STAC API search, following `next` links up to `limit`."""
+    url: str | None = f"{stac_api_url}/search"
+    body: dict[str, object] = {"collections": [collection_id]}
+    if limit is not None:
+        body["limit"] = limit
+    features: list[dict] = []
+    while url and (limit is None or len(features) < limit):
+        response = http.post(url, json=body)
+        response.raise_for_status()
+        page = response.json()
+        features += page["features"]
+        next_link = next((link for link in page.get("links", []) if link["rel"] == "next"), {})
+        url, body = next_link.get("href"), next_link.get("body", body)
+    return [pystac.Item.from_dict(feature) for feature in features[:limit]]
 
 
 class StacApiBackend:
@@ -60,7 +79,7 @@ class StacApiBackend:
     def publish_item(self, collection_id: str, item: pystac.Item) -> pystac.Item:
         item.properties.setdefault("version", "1")
         item.properties["updated"] = datetime.now(UTC).isoformat()
-        ensure_version_links(item, self.item_href(collection_id, item.id))
+        prepare_api_links(item, self._stac_api_url)
         normalize_version_link_hrefs(item, self.item_href, collection_id)
 
         body = item.to_dict(transform_hrefs=False)
@@ -107,14 +126,7 @@ class StacApiBackend:
         return False
 
     def list_items(self, collection_id: str, *, limit: int | None = None) -> list[pystac.Item]:
-        url = f"{self._stac_api_url}/search"
-        payload: dict[str, object] = {"collections": [collection_id]}
-        if limit is not None:
-            payload["limit"] = limit
-        resp = self._http.post(url, json=payload)
-        resp.raise_for_status()
-        features = resp.json().get("features", [])
-        return [pystac.Item.from_dict(f) for f in features]
+        return search_collection(self._http, self._stac_api_url, collection_id, limit=limit)
 
     def deprecate_item(self, collection_id: str, item_id: str) -> pystac.Item:
         item = self.get_item(collection_id, item_id)
@@ -129,4 +141,4 @@ class StacApiBackend:
         resp.raise_for_status()
 
     def item_href(self, collection_id: str, item_id: str) -> str:
-        return f"{self._stac_api_url}/collections/{collection_id}/items/{item_id}"
+        return f"collections/{collection_id}/items/{item_id}"

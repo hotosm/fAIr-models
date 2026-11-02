@@ -32,16 +32,16 @@ def test_log_fair_metrics_respects_infer_model_flag(mock_log):
     )
 
 
-def test_read_fair_metrics_converts_prefix():
+def test_read_fair_metrics_strips_zenml_prefix():
     raw = {"fair/accuracy": 0.95, "fair/mean_iou": 0.80, "other_key": "ignored"}
     result = read_fair_metrics(raw)
-    assert result == {"fair:accuracy": 0.95, "fair:mean_iou": 0.80}
+    assert result == {"accuracy": 0.95, "mean_iou": 0.80}
 
 
 def test_read_fair_metrics_excludes_wall_time():
     raw = {"fair/accuracy": 0.95, "fair/training_wall_seconds": 42.5}
     result = read_fair_metrics(raw)
-    assert result == {"fair:accuracy": 0.95}
+    assert result == {"accuracy": 0.95}
 
 
 def test_read_fair_metrics_returns_none_for_empty():
@@ -106,4 +106,4 @@ def test_read_loss_history_returns_none_for_malformed():
 def test_read_fair_metrics_excludes_loss_history():
     raw = {"fair/accuracy": 0.95, "fair/loss_history": {"train_loss": [0.5], "val_loss": [0.6]}}
     result = read_fair_metrics(raw)
-    assert result == {"fair:accuracy": 0.95}
+    assert result == {"accuracy": 0.95}

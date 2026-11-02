@@ -20,7 +20,7 @@ def test_split_dataset(
     from models.yolo_swag_waste_grid_segmentation.pipeline import CLASS_NAMES, split_dataset
 
     info = split_dataset.entrypoint(
-        dataset_chips=str(toy_chips),
+        dataset_chips={"image": str(toy_chips)},
         dataset_labels=str(toy_labels),
         hyperparameters=base_hyperparameters,
     )
@@ -56,12 +56,12 @@ def test_train_model(
     )
 
     split_info = split_dataset.entrypoint(
-        dataset_chips=str(toy_chips),
+        dataset_chips={"image": str(toy_chips)},
         dataset_labels=str(toy_labels),
         hyperparameters=base_hyperparameters,
     )
     model_bytes = train_model.entrypoint(
-        dataset_chips=str(toy_chips),
+        dataset_chips={"image": str(toy_chips)},
         dataset_labels=str(toy_labels),
         base_model_weights=pretrained_weights,
         hyperparameters=base_hyperparameters,
@@ -85,13 +85,13 @@ def test_evaluate_model(
     from models.yolo_swag_waste_grid_segmentation.pipeline import evaluate_model, split_dataset
 
     split_info = split_dataset.entrypoint(
-        dataset_chips=str(toy_chips),
+        dataset_chips={"image": str(toy_chips)},
         dataset_labels=str(toy_labels),
         hyperparameters=base_hyperparameters,
     )
     metrics = evaluate_model.entrypoint(
         trained_model=Path(pretrained_weights).read_bytes(),
-        dataset_chips=str(toy_chips),
+        dataset_chips={"image": str(toy_chips)},
         dataset_labels=str(toy_labels),
         hyperparameters=base_hyperparameters,
         split_info=split_info,

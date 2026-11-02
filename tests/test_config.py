@@ -4,6 +4,7 @@ import json
 from typing import Any
 
 import pystac
+import pytest
 
 from fair.stac.builders import build_base_model_item, build_dataset_item
 from fair.zenml.config import (
@@ -27,7 +28,7 @@ def _base_model(**overrides: Any):
         "mlm_framework_version": "2.1.0",
         "mlm_input": [
             {
-                "name": "RGB",
+                "name": "image",
                 "bands": [{"name": "red"}, {"name": "green"}, {"name": "blue"}],
                 "input": {
                     "shape": [-1, 3, 512, 512],
@@ -69,7 +70,7 @@ def _base_model(**overrides: Any):
         "inference_runtime_href": "ghcr.io/hotosm/fair-unet:v1",
         "title": "UNet test model",
         "description": "Config test base model.",
-        "fair_metrics_spec": [{"name": "accuracy", "description": "Pixel accuracy", "higher_is_better": True}],
+        "fair_metrics_spec": [{"key": "accuracy", "name": "Pixel accuracy", "higher_is_better": True}],
         "providers": [{"name": "HOTOSM", "roles": ["producer"]}],
     }
     defaults.update(overrides)
@@ -84,7 +85,7 @@ def _base_model(**overrides: Any):
     return item
 
 
-def _dataset(tmp_path):
+def _dataset(tmp_path, **kw: Any):
     geojson = {
         "type": "FeatureCollection",
         "features": [
@@ -100,19 +101,26 @@ def _dataset(tmp_path):
     }
     path = tmp_path / "labels.geojson"
     path.write_text(json.dumps(geojson))
+    kw.setdefault("chips_hrefs", {"image": "data/oam/"})
     return build_dataset_item(
         item_id="ds",
         label_type="vector",
         label_tasks=["segmentation"],
         label_classes=[{"name": "building", "classes": ["building"]}],
         keywords=["building"],
-        chips_href="data/oam/",
         labels_href=str(path),
         title="Test Dataset",
         description="Config test dataset.",
         user_id="osm-test",
         providers=[{"name": "osm-test", "roles": ["producer"]}],
+        **kw,
     )
+
+
+def _with_inputs(item: pystac.Item, *names: str) -> pystac.Item:
+    first = item.properties["mlm:input"][0]
+    item.properties["mlm:input"] = [{**first, "name": name} for name in names]
+    return item
 
 
 def _local_model(**kw: Any):
@@ -150,13 +158,32 @@ def test_training_config(tmp_path):
     assert cfg["model"]["name"] == "finetuned"
     assert hp["epochs"] == 15 and hp["batch_size"] == 4
     assert "inference.min_class_value" not in hp
-    assert p["dataset_chips"] == "data/oam/"
+    assert p["dataset_chips"] == {"image": "data/oam/"}
     assert p["num_classes"] == 2
     assert p["base_model_weights"] == "https://example.com/weights.pt"
     assert cfg["settings"]["docker"]["parent_image"] == "ghcr.io/hotosm/fair-unet:v1"
     assert cfg["steps"]["train_model"]["parameters"]["model_name"] == "finetuned"
     assert cfg["steps"]["train_model"]["parameters"]["base_model_id"] == "unet"
     assert cfg["steps"]["evaluate_model"]["parameters"]["class_names"] == ["bg", "building"]
+
+
+def test_training_config_passes_the_chips_of_each_model_input_by_name(tmp_path):
+    dataset = _dataset(tmp_path, chips_hrefs={"post": "data/post/", "pre": "data/pre/"})
+    cfg = generate_training_config(_with_inputs(_base_model(), "post", "pre"), dataset, model_name="damage")
+    assert cfg["parameters"]["dataset_chips"] == {"post": "data/post/", "pre": "data/pre/"}
+
+
+def test_training_config_reads_a_legacy_chips_asset_for_a_single_input_model(tmp_path):
+    dataset = _dataset(tmp_path)
+    dataset.add_asset("chips", dataset.assets.pop("chips-image"))
+    cfg = generate_training_config(_base_model(), dataset, model_name="buildings")
+    assert cfg["parameters"]["dataset_chips"] == {"image": "data/oam/"}
+
+
+def test_training_config_raises_when_the_dataset_lacks_chips_for_a_model_input(tmp_path):
+    dataset = _dataset(tmp_path, chips_hrefs={"post": "data/post/"})
+    with pytest.raises(KeyError, match="pre"):
+        generate_training_config(_with_inputs(_base_model(), "post", "pre"), dataset, model_name="damage")
 
 
 def test_training_overrides(tmp_path):
@@ -172,12 +199,71 @@ def test_training_overrides(tmp_path):
 
 
 def test_inference_config():
-    cfg = generate_inference_config(_local_model(), "/data/input/")
+    cfg = generate_inference_config(_local_model(), {"image": "/data/input/"})
     p = cfg["parameters"]
     assert p["model_uri"] == "s3://store/model/abc.onnx"
-    assert p["input_images"] == "/data/input/"
+    assert p["input_images"] == {"image": "/data/input/"}
     assert p["inference_params"] == {"confidence_threshold": 0.5, "min_class_value": 1}
     assert cfg["settings"]["docker"]["parent_image"] == "ghcr.io/hotosm/fair-unet:v1"
+
+
+def test_inference_config_runs_a_prediction_only_model_in_its_batch_inference_image():
+    model = _base_model()
+    training = model.assets.pop("mlm:training")
+    model.add_asset(
+        "batch-inference",
+        pystac.Asset(
+            href="ghcr.io/hotosm/fair-unet:v1-batch", media_type=training.media_type, roles=["mlm:inference-runtime"]
+        ),
+    )
+
+    cfg = generate_inference_config(model, {"image": "/data/input/"})
+
+    assert cfg["settings"]["docker"]["parent_image"] == "ghcr.io/hotosm/fair-unet:v1-batch"
+
+
+def test_inference_config_needs_a_full_toolchain_image():
+    model = _base_model()
+    del model.assets["mlm:training"]
+
+    with pytest.raises(KeyError, match="batch-inference"):
+        generate_inference_config(model, {"image": "/data/input/"})
+
+
+def test_inference_config_keys_each_input_chips_by_name():
+    model = _with_inputs(_local_model(), "post", "pre")
+    cfg = generate_inference_config(model, {"pre": "s3://chips/pre", "post": "s3://chips/post"})
+    assert cfg["parameters"]["input_images"] == {"post": "s3://chips/post", "pre": "s3://chips/pre"}
+
+
+def test_inference_config_rejects_imagery_that_misses_a_model_input():
+    model = _with_inputs(_local_model(), "post", "pre")
+    with pytest.raises(ValueError, match=r"\['post', 'pre'\], got \['post'\]"):
+        generate_inference_config(model, {"post": "s3://chips/post"})
+
+
+def test_inference_config_applies_declared_overrides():
+    cfg = generate_inference_config(_local_model(), {"image": "/data/input/"}, {"confidence_threshold": 0.8})
+    assert cfg["parameters"]["inference_params"] == {"confidence_threshold": 0.8, "min_class_value": 1}
+
+
+def test_inference_config_rejects_undeclared_overrides():
+    with pytest.raises(ValueError, match="Unknown inference parameter"):
+        generate_inference_config(_local_model(), {"image": "/data/input/"}, {"epochs": 3})
+
+
+def test_inference_config_rejects_overrides_without_a_spec_entry():
+    model = _local_model()
+    model.properties["fair:hyperparameters_spec"] = [
+        entry for entry in model.properties["fair:hyperparameters_spec"] if entry["key"] != "min_class_value"
+    ]
+    with pytest.raises(ValueError, match="min_class_value"):
+        generate_inference_config(model, {"image": "/data/input/"}, {"min_class_value": 2})
+
+
+def test_inference_config_rejects_overrides_of_the_wrong_type():
+    with pytest.raises(ValueError, match="expected type 'float'"):
+        generate_inference_config(_local_model(), {"image": "/data/input/"}, {"confidence_threshold": "high"})
 
 
 # --- scheduling settings tests ---
@@ -288,6 +374,21 @@ def test_training_config_includes_k8s_settings(tmp_path):
 def test_inference_config_includes_k8s_settings():
     local = _local_model()
     local.properties["mlm:accelerator"] = "cuda"
-    cfg = generate_inference_config(local, "/images/")
+    cfg = generate_inference_config(local, {"image": "/images/"})
     assert "orchestrator.kubernetes" in cfg["steps"]["run_inference"]["settings"]
     assert "orchestrator.kubernetes" not in cfg.get("settings", {})
+
+
+def test_a_lone_chips_asset_feeds_only_an_image_input(tmp_path):
+    dataset = _dataset(tmp_path)
+    dataset.assets["chips"] = dataset.assets.pop("chips-image")
+    assert generate_training_config(_base_model(), dataset, model_name="m")["parameters"]["dataset_chips"] == {
+        "image": "data/oam/"
+    }
+    with pytest.raises(KeyError, match="rgb"):
+        generate_training_config(_with_inputs(_base_model(), "rgb"), dataset, model_name="m")
+
+
+def test_inference_config_rejects_a_model_whose_input_names_are_not_slugs():
+    with pytest.raises(ValueError, match="not slugs"):
+        generate_inference_config(_with_inputs(_local_model(), "RGB chips"), {"RGB chips": "s3://chips"})

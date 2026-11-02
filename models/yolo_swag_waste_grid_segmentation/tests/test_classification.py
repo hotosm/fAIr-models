@@ -4,7 +4,11 @@ import geopandas as gpd
 import pytest
 from shapely.geometry import box
 
-from models.yolo_swag_waste_grid_segmentation.pipeline import classify_cells
+from models.yolo_swag_waste_grid_segmentation.pipeline import (
+    align_bounds_to_labels,
+    build_grid_gdf,
+    classify_cells,
+)
 
 
 def _grid(cell_count: int) -> gpd.GeoDataFrame:
@@ -52,3 +56,17 @@ def test_grid_without_background_cells_fails_clearly() -> None:
 
     with pytest.raises(ValueError, match="No background cells available"):
         classify_cells(grid, box(0, 0, 2, 1), threshold=1.0)
+
+
+def test_cell_sized_labels_off_the_imagery_grid_still_fill_whole_cells() -> None:
+    label_square = box(3.57, 4.85, 8.57, 9.85)
+    imagery_bounds = (0.0, 0.0, 20.0, 20.0)
+
+    grid_bounds = align_bounds_to_labels(imagery_bounds, label_square.bounds, cell_size=5.0)
+    grid = build_grid_gdf(grid_bounds, 5.0, "EPSG:32630")
+    cells = classify_cells(grid, label_square, threshold=0.8)
+
+    waste_cells = cells[cells.label == 1]
+    assert len(waste_cells) == 1
+    assert waste_cells.geometry.iloc[0].equals_exact(label_square, tolerance=1e-9)
+    assert grid_bounds[0] <= imagery_bounds[0] and grid_bounds[1] <= imagery_bounds[1]

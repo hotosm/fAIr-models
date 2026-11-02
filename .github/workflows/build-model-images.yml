@@ -71,8 +71,7 @@ jobs:
       - uses: docker/metadata-action@v5
         id: meta
         with:
-          images:
-            ${{ env.REGISTRY }}/${{ github.repository_owner }}/fair-models/${{
+          images: ${{ env.REGISTRY }}/${{ github.repository_owner }}/fair-models/${{
             matrix.name }}
           tags: |
             type=raw,value=dev,enable=${{ github.event_name == 'pull_request' }}
@@ -99,6 +98,7 @@ jobs:
             python -m pytest -o addopts='' models/${{ matrix.name }}/tests/ -v --tb=short --model-dir=models/${{ matrix.name }}
 
       - name: Run integration test
+        if: matrix.trainable
         run: |
           mkdir -p "$PWD/ci-artifacts"
           docker run --rm --entrypoint "" \
@@ -133,8 +133,7 @@ jobs:
       - uses: docker/metadata-action@v5
         id: inference-meta
         with:
-          images:
-            ${{ env.REGISTRY }}/${{ github.repository_owner }}/fair-models/${{
+          images: ${{ env.REGISTRY }}/${{ github.repository_owner }}/fair-models/${{
             matrix.name }}
           tags: |
             type=raw,value=dev-inference,enable=${{ github.event_name == 'pull_request' }}
@@ -161,6 +160,7 @@ jobs:
             --image "${{ matrix.name }}:inference" \
             --model-module "models.${{ matrix.name }}.pipeline" \
             --model-uri "$BASELINE_URI" \
+            --stac-item "${{ matrix.path }}/stac-item.json" \
             --predict-timeout 18000 \
             --image-uri "https://tiles.openaerialmap.org/62d85d11d8499800053796c1/0/62d85d11d8499800053796c2/{z}/{x}/{y}" \
             --bbox "85.5162048339844,27.6312238466813,85.5244445800781,27.6385236142719" \
@@ -169,11 +169,13 @@ jobs:
             --output "$PWD/ci-artifacts/${{ matrix.name }}-predictions-base.geojson"
 
       - name: Smoke test inference image (finetuned ONNX)
+        if: matrix.trainable
         run: |
           python3 scripts/smoke_test_inference_image.py \
             --image "${{ matrix.name }}:inference" \
             --model-module "models.${{ matrix.name }}.pipeline" \
             --model-uri "/workspace/ci-artifacts/${{ matrix.name }}.onnx" \
+            --stac-item "${{ matrix.path }}/stac-item.json" \
             --image-uri "https://tiles.openaerialmap.org/62d85d11d8499800053796c1/0/62d85d11d8499800053796c2/{z}/{x}/{y}" \
             --bbox "85.5162048339844,27.6312238466813,85.5244445800781,27.6385236142719" \
             --zoom 18 \

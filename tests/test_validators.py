@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 import json
+from pathlib import Path
 from typing import ClassVar
 from unittest.mock import patch
 
@@ -9,7 +10,10 @@ import pystac
 import pytest
 
 from fair.stac.builders import build_base_model_item, build_dataset_item
+from fair.stac.constants import FAIR_LOCAL_MODEL_SCHEMA
 from fair.stac.validators import (
+    batch_runtime,
+    required_model_asset_keys,
     validate_compatibility,
     validate_hyperparameters,
     validate_item,
@@ -19,9 +23,11 @@ from fair.stac.validators import (
     validate_predictions_geojson,
 )
 
+_DINOV3_STAC_ITEM = Path(__file__).parents[1] / "models" / "dinov3s_buildings" / "stac-item.json"
+
 _MLM_INPUT = [
     {
-        "name": "RGB chips",
+        "name": "image",
         "bands": [{"name": "red"}, {"name": "green"}, {"name": "blue"}],
         "input": {
             "shape": [-1, 3, 256, 256],
@@ -73,7 +79,7 @@ def _model(keywords=None, tasks=None):
         inference_runtime_href="local",
         title="Validator test model",
         description="Model used in validator tests.",
-        fair_metrics_spec=[{"name": "accuracy", "description": "Pixel accuracy", "higher_is_better": True}],
+        fair_metrics_spec=[{"key": "accuracy", "name": "Pixel accuracy", "higher_is_better": True}],
         providers=[{"name": "HOTOSM", "roles": ["producer"]}],
     )
 
@@ -97,7 +103,7 @@ def _dataset(tmp_path, keywords=None, label_tasks=None):
         label_tasks=label_tasks or ["segmentation"],
         label_classes=[{"name": "building", "classes": ["building"]}],
         keywords=keywords or ["building", "semantic-segmentation"],
-        chips_href="chips/",
+        chips_hrefs={"image": "chips/"},
         labels_href=str(path),
         title="Validator test dataset",
         description="Dataset used in validator tests.",
@@ -121,6 +127,72 @@ _RESTRICTED_VOCABULARY = _schema_with_allowed_keywords(["building", "road", "tre
 
 def test_compatible_pair(tmp_path):
     assert validate_compatibility(_model(), _dataset(tmp_path)) == []
+
+
+@pytest.mark.parametrize("name", ["RGB chips", "pre/event", "Pre"])
+def test_input_names_must_be_slugs(name):
+    model = _model()
+    model.properties["mlm:input"] = [{"name": "post"}, {"name": name}]
+    assert any(f"input name {name!r}" in error for error in validate_item(model))
+
+
+def test_a_slug_input_name_is_accepted():
+    model = _model()
+    model.properties["mlm:input"] = [{"name": "post"}, {"name": "pre-event_1"}]
+    assert not any("input name" in error for error in validate_item(model))
+
+
+def test_a_local_model_keeps_a_free_text_input_name():
+    model = _model()
+    model.properties["mlm:input"] = [{"name": "RGB chips"}]
+    model.stac_extensions = [*model.stac_extensions, FAIR_LOCAL_MODEL_SCHEMA]
+    assert not any("input name" in error for error in validate_item(model))
+
+
+def test_input_names_must_be_unique():
+    model = _model()
+    model.properties["mlm:input"] = [{"name": "post"}, {"name": "post"}]
+    assert any("repeated: post" in error for error in validate_item(model))
+
+
+def test_a_dataset_needs_a_chips_asset(tmp_path):
+    dataset = _dataset(tmp_path)
+    del dataset.assets["chips-image"]
+    assert any("dataset/schema.json" in error for error in validate_item(dataset))
+
+
+def test_a_dataset_with_one_chips_asset_is_valid(tmp_path):
+    dataset = _dataset(tmp_path)
+    dataset.assets["chips"] = dataset.assets.pop("chips-image")
+    assert validate_item(dataset) == []
+
+
+def test_a_dataset_chips_asset_must_carry_a_slug_input_name(tmp_path):
+    dataset = _dataset(tmp_path)
+    dataset.add_asset("chips-../pre", pystac.Asset(href=str(tmp_path), roles=["data"]))
+    assert any("input name '../pre'" in error for error in validate_item(dataset))
+
+
+def test_model_input_needs_a_dataset_with_its_chips(tmp_path):
+    model = _model()
+    model.properties["mlm:input"] = [{"name": "post"}, {"name": "pre"}]
+    errors = validate_compatibility(model, _dataset(tmp_path))
+    assert any("chips-pre" in e for e in errors)
+
+
+def test_model_inputs_accept_a_dataset_with_chips_for_each(tmp_path):
+    model = _model()
+    model.properties["mlm:input"] = [{"name": "post"}, {"name": "pre"}]
+    dataset = _dataset(tmp_path)
+    dataset.add_asset("chips-post", pystac.Asset(href="post/"))
+    dataset.add_asset("chips-pre", pystac.Asset(href="pre/"))
+    assert validate_compatibility(model, dataset) == []
+
+
+def test_a_single_input_model_accepts_a_legacy_chips_asset(tmp_path):
+    dataset = _dataset(tmp_path)
+    dataset.add_asset("chips", dataset.assets.pop("chips-image"))
+    assert validate_compatibility(_model(), dataset) == []
 
 
 def test_disjoint_keywords_and_tasks(tmp_path):
@@ -205,7 +277,7 @@ def _valid_base_model():
         inference_runtime_href="ghcr.io/hotosm/test:v1",
         title="Valid test model",
         description="A valid base model for validator tests.",
-        fair_metrics_spec=[{"name": "accuracy", "description": "Pixel accuracy", "higher_is_better": True}],
+        fair_metrics_spec=[{"key": "accuracy", "name": "Pixel accuracy", "higher_is_better": True}],
         providers=[{"name": "HOTOSM", "roles": ["producer"], "url": "https://www.hotosm.org"}],
         readme_href="https://example.com/README.md",
     )
@@ -314,6 +386,14 @@ class TestValidateBaseModelItem:
         del item.properties["license"]
         errors = validate_item(item)
         assert any("license" in e for e in errors)
+
+    @pytest.mark.parametrize(
+        "license_id", ["CC-BY-4.0", "CC-BY-SA-4.0", "CC-BY-NC-4.0", "CC-BY-NC-SA-4.0", "CC0-1.0", "ODbL-1.0"]
+    )
+    def test_accepts_open_content_licenses(self, license_id):
+        item = _valid_base_model()
+        item.properties["license"] = license_id
+        assert validate_item(item) == []
 
     def test_invalid_license(self):
         item = _valid_base_model()
@@ -487,6 +567,59 @@ class TestValidatePredictionsGeojson:
         assert any("geometry" in e for e in errors)
 
 
+def _model_with_prediction_variables() -> pystac.Item:
+    return pystac.Item.from_file(str(_DINOV3_STAC_ITEM))
+
+
+def _polygon_predictions(*properties: dict) -> dict:
+    square = {"type": "Polygon", "coordinates": [[[0, 0], [1, 0], [1, 1], [0, 0]]]}
+    return {
+        "type": "FeatureCollection",
+        "features": [{"type": "Feature", "geometry": square, "properties": props} for props in properties],
+    }
+
+
+class TestPredictionVariables:
+    def test_item_with_declared_variables_is_valid(self):
+        assert validate_item(_model_with_prediction_variables()) == []
+
+    def test_item_rejects_output_variable_missing_from_cube_variables(self):
+        model = _model_with_prediction_variables()
+        del model.properties["cube:variables"]["score"]
+
+        assert "mlm:output 'buildings' variable 'score' has no entry in cube:variables" in validate_item(model)
+
+    def test_predictions_carrying_every_declared_variable_pass(self):
+        model = _model_with_prediction_variables()
+        model.properties["cube:variables"]["class"]["nodata"] = -1
+        predictions = _polygon_predictions({"class": 1, "score": 0.9}, {"class": -1, "score": 0.1})
+
+        assert validate_predictions_geojson(predictions, model) == []
+
+    def test_predictions_missing_a_declared_variable_fail(self):
+        predictions = _polygon_predictions({"class": 1})
+
+        assert validate_predictions_geojson(predictions, _model_with_prediction_variables()) == [
+            "features[0].properties missing declared variable 'score'"
+        ]
+
+    def test_predictions_with_null_properties_fail(self):
+        predictions = _polygon_predictions({"class": 1, "score": 0.5})
+        predictions["features"][0]["properties"] = None
+
+        assert validate_predictions_geojson(predictions, _model_with_prediction_variables()) == [
+            "features[0].properties missing declared variable 'class'",
+            "features[0].properties missing declared variable 'score'",
+        ]
+
+    def test_predictions_with_undeclared_class_value_fail(self):
+        predictions = _polygon_predictions({"class": 7, "score": 0.5})
+
+        assert validate_predictions_geojson(predictions, _model_with_prediction_variables()) == [
+            "features[0].properties.class=7 not in declared values [1]"
+        ]
+
+
 class TestValidateMetricsAgainstSpec:
     def test_all_metrics_present(self):
         model = _model()
@@ -496,7 +629,7 @@ class TestValidateMetricsAgainstSpec:
     def test_missing_declared_metric(self):
         model = _model()
         errors = validate_metrics_against_spec({}, model)
-        assert any("accuracy" in e for e in errors)
+        assert errors == ["Missing declared metric: accuracy"]
 
     def test_no_spec_allows_any_metrics(self):
         model = _model()
@@ -625,6 +758,16 @@ class TestValidateHyperparameters:
         m = self._model_with_spec()
         errors = validate_hyperparameters({"freeze_backbone": 1}, m)
         assert any("expected type 'bool'" in e for e in errors)
+
+    def test_bool_is_not_accepted_as_a_number(self):
+        m = self._model_with_spec()
+        errors = validate_hyperparameters({"epochs": True, "learning_rate": False}, m)
+        assert sum("expected type" in e for e in errors) == 2
+
+    def test_non_finite_number_is_rejected(self):
+        m = self._model_with_spec()
+        errors = validate_hyperparameters({"learning_rate": float("nan")}, m)
+        assert any("not a finite number" in e for e in errors)
 
     def test_invalid_enum_value(self):
         m = self._model_with_spec()
@@ -766,3 +909,55 @@ def test_wildcard_vocabulary_still_requires_a_shared_keyword(tmp_path):
         )
     assert any("No keywords in common" in e for e in errors)
     assert not any("Unknown" in e for e in errors)
+
+
+def _prediction_only_base_model():
+    item = _valid_base_model()
+    batch_runtime = item.assets.pop("mlm:training")
+    batch_runtime.roles = ["mlm:inference-runtime"]
+    item.add_asset("batch-inference", batch_runtime)
+    del item.assets["checkpoint"]
+    del item.properties["fair:metrics_spec"]
+    del item.properties["fair:split_spec"]
+    return item
+
+
+class TestPredictionOnlyBaseModel:
+    def test_a_model_without_training_runtime_or_checkpoint_is_valid(self):
+        assert validate_item(_prediction_only_base_model()) == []
+
+    def test_a_prediction_only_model_still_needs_its_onnx(self):
+        item = _prediction_only_base_model()
+        item.add_asset("onnx", item.assets.pop("model"))
+
+        assert any("'model' is a required property" in error for error in validate_item(item))
+
+    def test_a_trainable_model_still_needs_its_checkpoint(self):
+        item = _valid_base_model()
+        del item.assets["checkpoint"]
+
+        assert any("'checkpoint' is a required property" in error for error in validate_item(item))
+
+    @pytest.mark.parametrize("training_spec", ["fair:metrics_spec", "fair:split_spec"])
+    def test_a_trainable_model_still_needs_its_training_specs(self, training_spec):
+        item = _valid_base_model()
+        del item.properties[training_spec]
+
+        assert any(f"'{training_spec}' is a required property" in error for error in validate_item(item))
+
+    @pytest.mark.parametrize(
+        ("asset_keys", "expected"),
+        [
+            (("mlm:training", "batch-inference"), "mlm:training"),
+            (("batch-inference", "mlm:inference"), "batch-inference"),
+            (("mlm:inference",), None),
+        ],
+    )
+    def test_batch_runtime_prefers_the_training_image_and_never_the_serving_image(self, asset_keys, expected):
+        assets = {key: key for key in asset_keys}
+
+        assert batch_runtime(assets) == expected
+
+    def test_only_the_onnx_url_is_required_without_a_training_runtime(self):
+        assert required_model_asset_keys(_prediction_only_base_model()) == ("model",)
+        assert required_model_asset_keys(_valid_base_model()) == ("checkpoint", "model")

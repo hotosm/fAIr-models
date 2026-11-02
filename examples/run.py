@@ -54,7 +54,7 @@ def run(model: str, overrides: dict[str, object]) -> None:
         finetuned_model_id,
         description=f"{base_id} finetuned on buildings-banepa-{task}",
     )
-    client.predict(local_model_id, image_path="data/sample/test/oam")
+    client.predict(local_model_id, {"image": "data/sample/test/oam"})
 
 
 def main() -> int:

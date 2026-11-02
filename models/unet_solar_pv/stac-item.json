@@ -1,0 +1,191 @@
+{
+  "type": "Feature",
+  "stac_version": "1.1.0",
+  "stac_extensions": [
+    "https://stac-extensions.github.io/mlm/v1.5.1/schema.json",
+    "https://stac-extensions.github.io/version/v1.2.0/schema.json",
+    "https://stac-extensions.github.io/classification/v2.0.0/schema.json",
+    "https://stac-extensions.github.io/file/v2.1.0/schema.json",
+    "https://stac-extensions.github.io/raster/v1.1.0/schema.json",
+    "https://stac-extensions.github.io/datacube/v2.3.0/schema.json",
+    "https://hotosm.github.io/fAIr-models/schemas/v1.0.0/base-model/schema.json"
+  ],
+  "id": "unet-solar-pv",
+  "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+      [
+        [-180, -90],
+        [180, -90],
+        [180, 90],
+        [-180, 90],
+        [-180, -90]
+      ]
+    ]
+  },
+  "bbox": [-180, -90, 180, 90],
+  "properties": {
+    "datetime": "2026-10-30T00:00:00Z",
+    "created": "2026-10-30T00:00:00Z",
+    "updated": "2026-11-02T00:00:00Z",
+    "title": "Solar PV Panels",
+    "description": "A U-Net with a ResNet-34 encoder that segments solar photovoltaic panels in RGB aerial imagery and returns them as polygons. Trained on the Jiang et al. (2021) PV dataset from Jiangsu, China. It is a prediction-only model: it serves live and batch predictions and cannot be finetuned.",
+    "mlm:name": "unet-solar-pv",
+    "mlm:architecture": "U-Net",
+    "mlm:tasks": ["semantic-segmentation"],
+    "mlm:framework": "PyTorch",
+    "mlm:framework_version": "2.11.0",
+    "mlm:pretrained": true,
+    "mlm:pretrained_source": "ImageNet",
+    "mlm:accelerator": "amd64",
+    "fair:recommended_zoom": 20,
+    "fair:preview": {
+      "center": [7.43293, 10.47003],
+      "zoom": { "recommended": 20, "min": 19, "max": 20 },
+      "imagery": {
+        "url": "https://tiles.openaerialmap.org/6a063f1eaadd51d1db86b61f/0/6a063f1eaadd51d1db86b620/{z}/{x}/{y}",
+        "type": "tms",
+        "name": "OpenAerialMap - Kaduna",
+        "attribution": "OpenAerialMap"
+      },
+      "place": { "name": "Kaduna", "country": "Nigeria", "country_code": "NG" }
+    },
+    "keywords": ["solar", "solar-panel", "photovoltaic", "energy", "semantic-segmentation", "polygon"],
+    "license": "Apache-2.0",
+    "version": "1",
+    "deprecated": false,
+    "providers": [
+      {
+        "name": "Oluwasola Oyinloye",
+        "roles": ["producer", "licensor"],
+        "url": "https://github.com/Dexsholex",
+        "description": "Trained the U-Net on the Jiang et al. (2021) PV dataset and exported it to ONNX."
+      },
+      {
+        "name": "HOTOSM",
+        "roles": ["host"],
+        "url": "https://www.hotosm.org",
+        "description": "Humanitarian OpenStreetMap Team"
+      }
+    ],
+    "fair:hyperparameters_spec": [
+      {
+        "key": "confidence_threshold",
+        "name": "Confidence threshold",
+        "description": "Minimum solar panel probability for a pixel to be kept.",
+        "type": "float",
+        "default": 0.5,
+        "min": 0.0,
+        "max": 1.0
+      }
+    ],
+    "mlm:input": [
+      {
+        "name": "image",
+        "bands": [{ "name": "red" }, { "name": "green" }, { "name": "blue" }],
+        "input": {
+          "shape": [-1, 3, 256, 256],
+          "dim_order": ["batch", "bands", "height", "width"],
+          "data_type": "float32"
+        },
+        "value_scaling": [
+          { "type": "min-max", "minimum": 0, "maximum": 255 },
+          { "type": "min-max", "minimum": 0, "maximum": 255 },
+          { "type": "min-max", "minimum": 0, "maximum": 255 }
+        ],
+        "pre_processing_function": {
+          "format": "python",
+          "expression": "models.unet_solar_pv.pipeline:preprocess"
+        }
+      }
+    ],
+    "mlm:output": [
+      {
+        "name": "panel logits",
+        "description": "One solar panel logit for every pixel; its sigmoid is the panel probability.",
+        "tasks": ["semantic-segmentation"],
+        "result": {
+          "shape": [-1, 1, 256, 256],
+          "dim_order": ["batch", "class", "height", "width"],
+          "data_type": "float32"
+        },
+        "classification:classes": [
+          { "name": "background", "value": 0, "description": "Pixels that are not solar panels" },
+          { "name": "solar_panel", "value": 1, "description": "Solar PV panel pixels" }
+        ],
+        "post_processing_function": {
+          "format": "python",
+          "expression": "models.unet_solar_pv.pipeline:postprocess"
+        }
+      },
+      {
+        "name": "solar panels",
+        "description": "Solar panel polygons traced from the thresholded pixel mask, one row per feature.",
+        "tasks": ["semantic-segmentation"],
+        "result": { "shape": [-1, 2], "dim_order": ["batch", "variables"], "data_type": "float32" },
+        "variables": ["class", "label"],
+        "classification:classes": [{ "name": "solar_panel", "value": 1, "description": "Solar PV panel pixels" }],
+        "post_processing_function": {
+          "format": "python",
+          "expression": "models.unet_solar_pv.pipeline:postprocess"
+        }
+      }
+    ],
+    "cube:dimensions": {
+      "features": {
+        "type": "geometry",
+        "bbox": [-180, -90, 180, 90],
+        "geometry_types": ["Polygon"],
+        "reference_system": 4326
+      }
+    },
+    "cube:variables": {
+      "label": {
+        "dimensions": ["features"],
+        "type": "data",
+        "description": "Class name of the predicted class (solar_panel).",
+        "values": ["solar_panel"]
+      },
+      "class": {
+        "dimensions": ["features"],
+        "type": "data",
+        "description": "Predicted class value (1 = solar_panel).",
+        "values": [1],
+        "data_type": "uint8"
+      }
+    },
+    "mlm:hyperparameters": {
+      "inference.confidence_threshold": 0.5
+    }
+  },
+  "assets": {
+    "model": {
+      "href": "https://huggingface.co/dexsholex/unet-solar-pv/resolve/main/solar_pv_unet.onnx",
+      "type": "application/octet-stream; framework=onnx",
+      "roles": ["mlm:model", "mlm:compiled"],
+      "mlm:artifact_type": "onnx",
+      "raster:bands": [{ "name": "red" }, { "name": "green" }, { "name": "blue" }]
+    },
+    "source-code": {
+      "href": "https://github.com/hotosm/fAIr-models/tree/develop/models/unet_solar_pv",
+      "type": "text/html",
+      "roles": ["code"],
+      "mlm:entrypoint": "models.unet_solar_pv.pipeline:predict"
+    },
+    "mlm:inference": {
+      "href": "ghcr.io/hotosm/fair-models/unet_solar_pv:latest-inference",
+      "type": "application/vnd.oci.image.index.v1+json",
+      "roles": ["mlm:inference-runtime"]
+    },
+    "batch-inference": {
+      "href": "ghcr.io/hotosm/fair-models/unet_solar_pv:latest",
+      "type": "application/vnd.oci.image.index.v1+json",
+      "roles": ["mlm:inference-runtime"]
+    },
+    "readme": {
+      "href": "https://raw.githubusercontent.com/hotosm/fAIr-models/refs/heads/develop/models/unet_solar_pv/README.md",
+      "type": "text/markdown",
+      "roles": ["metadata"]
+    }
+  }
+}

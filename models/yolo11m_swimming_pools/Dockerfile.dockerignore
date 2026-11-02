@@ -2,3 +2,5 @@
 !models/yolo11m_swimming_pools/
 !models/conftest.py
 !models/test_integration.py
+models/yolo11m_swimming_pools/artifacts/
+models/yolo11m_swimming_pools/__pycache__/

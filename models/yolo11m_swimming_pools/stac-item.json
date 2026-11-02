@@ -7,6 +7,7 @@
     "https://stac-extensions.github.io/classification/v2.0.0/schema.json",
     "https://stac-extensions.github.io/file/v2.1.0/schema.json",
     "https://stac-extensions.github.io/raster/v1.1.0/schema.json",
+    "https://stac-extensions.github.io/datacube/v2.3.0/schema.json",
     "https://hotosm.github.io/fAIr-models/schemas/v1.0.0/base-model/schema.json"
   ],
   "id": "yolo11m-swimming-pools",
@@ -14,69 +15,166 @@
     "type": "Polygon",
     "coordinates": [
       [
-        [-180, -90],
-        [180, -90],
-        [180, 90],
-        [-180, 90],
-        [-180, -90]
+        [
+          -180,
+          -90
+        ],
+        [
+          180,
+          -90
+        ],
+        [
+          180,
+          90
+        ],
+        [
+          -180,
+          90
+        ],
+        [
+          -180,
+          -90
+        ]
       ]
     ]
   },
-  "bbox": [-180, -90, 180, 90],
+  "bbox": [
+    -180,
+    -90,
+    180,
+    90
+  ],
   "properties": {
-    "datetime": "2024-01-01T00:00:00Z",
-    "created": "2024-01-01T00:00:00Z",
-    "updated": "2024-01-01T00:00:00Z",
-    "title": "YOLO11m Swimming Pool Detection",
-    "description": "YOLO11 medium object detection model for swimming pool extraction from VHR RGB imagery. Uses spd-hot for preprocess/decode/georef and direct GeoJSON->YOLO training labels.",
+    "datetime": "2026-11-01T00:00:00Z",
+    "created": "2026-11-01T00:00:00Z",
+    "updated": "2026-11-01T00:00:00Z",
+    "title": "Detect swimming pools",
+    "description": "YOLO11 medium object detector for outdoor swimming pools in very-high-resolution RGB imagery. The weights are those of mozilla-ai/swimming-pool-detector (trained on 512 px Mapbox zoom-18 tiles with OSM leisure=swimming_pool labels), exported unchanged to ONNX at 512 x 512. Each chip is resized once to 512 x 512 and divided by 255 (the graph has no normalisation), then one ONNX pass runs; the confidence filter, non-maximum suppression, mapping back to chip pixels and georeferencing run in the pinned spd-hot library. The resize does not read the chip zoom, so the scale matches the training data only at zoom 18, where a 256 px chip resized to 512 has the ground resolution the model was trained at.",
     "mlm:name": "yolo11m-swimming-pools",
-    "mlm:architecture": "YOLO11",
-    "mlm:tasks": ["object-detection"],
+    "mlm:architecture": "YOLO11m",
+    "mlm:tasks": [
+      "object-detection"
+    ],
     "mlm:framework": "PyTorch",
-    "mlm:framework_version": "2.10.0",
+    "mlm:framework_version": "2.14.1",
     "mlm:pretrained": true,
     "mlm:pretrained_source": "https://huggingface.co/mozilla-ai/swimming-pool-detector",
     "mlm:accelerator": "cuda",
     "mlm:accelerator_count": 1,
-    "fair:pinned": true,
     "fair:recommended_zoom": 18,
+    "fair:pinned": true,
     "fair:source_imagery": "https://tiles.openaerialmap.org/690585b76415e43597ffd7ea/0/690585b76415e43597ffd7eb/{z}/{x}/{y}",
     "fair:preview": {
-      "center": [-13.23723, 8.47532],
-      "zoom": { "recommended": 18, "min": 14, "max": 22 },
-      "imagery": {
-        "url": "https://tiles.openaerialmap.org/690585b76415e43597ffd7ea/0/690585b76415e43597ffd7eb/{z}/{x}/{y}",
-        "type": "tms",
-        "name": "OpenAerialMap - Freetown",
-        "attribution": "OpenAerialMap"
+      "center": [
+        -0.7203,
+        44.8237
+      ],
+      "zoom": {
+        "recommended": 18,
+        "min": 18,
+        "max": 18
       },
-      "place": { "name": "Freetown", "country": "Sierra Leone", "country_code": "SL" }
+      "imagery": {
+        "url": "https://api.imagery.hotosm.org/raster/collections/openaerialmap/items/6a72cde19514f4b6077f4452/tiles/WebMercatorQuad/{z}/{x}/{y}?assets=visual",
+        "type": "tms",
+        "name": "Vantor LG06 Image B1600011019EED10",
+        "attribution": "OpenAerialMap / Vantor"
+      },
+      "place": {
+        "country": "France",
+        "country_code": "FR"
+      }
     },
-    "keywords": ["swimming_pool", "object-detection", "polygon"],
+    "keywords": [
+      "swimming_pool",
+      "object-detection",
+      "polygon"
+    ],
     "license": "AGPL-3.0-only",
     "version": "1",
     "deprecated": false,
     "providers": [
       {
         "name": "Mozilla AI",
-        "roles": ["producer"],
+        "roles": [
+          "producer",
+          "licensor"
+        ],
         "url": "https://huggingface.co/mozilla-ai/swimming-pool-detector",
-        "description": "Upstream pretrained swimming pool detector weights"
+        "description": "Authors of the swimming-pool detector weights and of the osm-swimming-pools training data (AGPL-3.0)."
+      },
+      {
+        "name": "Abdelrahman Katkat",
+        "roles": [
+          "processor"
+        ],
+        "url": "https://github.com/AbdelrahmanKatkat/spd-hot",
+        "description": "Author of spd-hot (preprocessing, decoding, georeferencing, training, scoring) and of the ONNX export."
+      },
+      {
+        "name": "HOTOSM",
+        "roles": [
+          "host",
+          "processor"
+        ],
+        "url": "https://www.hotosm.org",
+        "description": "Humanitarian OpenStreetMap Team"
       }
     ],
     "fair:metrics_spec": [
-      { "key": "fair:accuracy", "name": "mAP50", "description": "Mean Average Precision at IoU 0.50" },
-      { "key": "fair:mean_iou", "name": "mAP50-95", "description": "Mean Average Precision at IoU 0.50:0.95" },
-      { "key": "fair:precision", "name": "Precision", "description": "Detection precision across all classes" },
-      { "key": "fair:recall", "name": "Recall", "description": "Detection recall across all classes" }
+      {
+        "key": "fair:precision",
+        "name": "Precision @ IoU 0.50",
+        "description": "Share of predicted pools that match a labelled pool at IoU >= 0.50, summed over the val split at the inference confidence threshold. Matching is by confidence, one label per detection."
+      },
+      {
+        "key": "fair:recall",
+        "name": "Recall @ IoU 0.50",
+        "description": "Share of labelled pools matched by a prediction at IoU >= 0.50, summed over the val split at the inference confidence threshold."
+      },
+      {
+        "key": "fair:f1",
+        "name": "F1 @ IoU 0.50",
+        "description": "Harmonic mean of precision and recall at IoU 0.50 over the val split."
+      },
+      {
+        "key": "fair:map50",
+        "name": "mAP50",
+        "description": "Average precision at IoU 0.50 over the val split (101-point interpolation), from all detections down to confidence 0.001 with NMS IoU 0.7, as Ultralytics validates."
+      },
+      {
+        "key": "fair:map50_95",
+        "name": "mAP50-95",
+        "description": "Mean of the average precision at IoU 0.50, 0.55, ..., 0.95 over the val split, computed as mAP50."
+      }
     ],
     "mlm:input": [
       {
-        "name": "RGB chips",
-        "bands": [{ "name": "red" }, { "name": "green" }, { "name": "blue" }],
+        "name": "image",
+        "bands": [
+          {
+            "name": "red"
+          },
+          {
+            "name": "green"
+          },
+          {
+            "name": "blue"
+          }
+        ],
         "input": {
-          "shape": [-1, 3, 640, 640],
-          "dim_order": ["batch", "bands", "height", "width"],
+          "shape": [
+            1,
+            3,
+            512,
+            512
+          ],
+          "dim_order": [
+            "batch",
+            "bands",
+            "height",
+            "width"
+          ],
           "data_type": "float32"
         },
         "pre_processing_function": {
@@ -87,18 +185,29 @@
     ],
     "mlm:output": [
       {
-        "name": "detections",
-        "tasks": ["object-detection"],
+        "name": "raw detections",
+        "description": "ONNX output `output0`: for each of 5376 anchors `cx, cy, w, h` in model-input pixels, then the pool score, before the confidence filter and NMS.",
+        "tasks": [
+          "object-detection"
+        ],
         "result": {
-          "shape": [-1, -1, 6],
-          "dim_order": ["batch", "detections", "values"],
+          "shape": [
+            1,
+            5,
+            5376
+          ],
+          "dim_order": [
+            "batch",
+            "values",
+            "anchors"
+          ],
           "data_type": "float32"
         },
         "classification:classes": [
           {
             "name": "swimming_pool",
             "value": 0,
-            "description": "Swimming pool bounding box"
+            "description": "Swimming pool"
           }
         ],
         "post_processing_function": {
@@ -106,76 +215,309 @@
           "expression": "models.yolo11m_swimming_pools.pipeline:postprocess"
         },
         "bands": []
+      },
+      {
+        "name": "swimming pools",
+        "description": "Detected pools after the confidence filter and NMS, one box polygon per feature in EPSG:4326.",
+        "tasks": [
+          "object-detection"
+        ],
+        "result": {
+          "shape": [
+            -1,
+            4
+          ],
+          "dim_order": [
+            "batch",
+            "variables"
+          ],
+          "data_type": "float32"
+        },
+        "variables": [
+          "class",
+          "label",
+          "confidence",
+          "source"
+        ],
+        "classification:classes": [
+          {
+            "name": "swimming_pool",
+            "value": 0,
+            "description": "Swimming pool"
+          }
+        ],
+        "post_processing_function": {
+          "format": "python",
+          "expression": "models.yolo11m_swimming_pools.pipeline:predict"
+        }
       }
     ],
+    "cube:dimensions": {
+      "features": {
+        "type": "geometry",
+        "bbox": [
+          -180,
+          -90,
+          180,
+          90
+        ],
+        "geometry_types": [
+          "Polygon"
+        ],
+        "reference_system": 4326
+      }
+    },
+    "cube:variables": {
+      "class": {
+        "dimensions": [
+          "features"
+        ],
+        "type": "data",
+        "description": "Predicted class value (0 = swimming pool).",
+        "values": [
+          0
+        ],
+        "data_type": "uint8"
+      },
+      "label": {
+        "dimensions": [
+          "features"
+        ],
+        "type": "data",
+        "description": "Class name of the predicted class (swimming_pool).",
+        "values": [
+          "swimming_pool"
+        ]
+      },
+      "confidence": {
+        "dimensions": [
+          "features"
+        ],
+        "type": "data",
+        "description": "Pool score of the detection.",
+        "extent": [
+          0,
+          1
+        ],
+        "data_type": "float32"
+      },
+      "source": {
+        "dimensions": [
+          "features"
+        ],
+        "type": "auxiliary",
+        "description": "File name of the chip the box was detected in."
+      }
+    },
     "mlm:hyperparameters": {
       "training.epochs": 10,
-      "training.batch_size": 8,
+      "training.batch_size": 16,
       "training.learning_rate": 0.01,
+      "training.patience": 3,
+      "training.cos_lr": true,
+      "training.flipud": 0.5,
+      "training.scale": 0.0,
+      "training.translate": 0.0,
       "training.val_ratio": 0.2,
       "training.split_seed": 42,
+      "training.block_size": 4,
       "training.freeze_encoder": true,
       "inference.confidence_threshold": 0.4,
-      "inference.iou_threshold": 0.45
+      "inference.nms_threshold": 0.45
     },
     "fair:split_spec": {
       "strategy": "spatial",
       "default_ratio": 0.2,
       "seed": 42,
-      "description": "Spatial split by OAM tile blocks when names match OAM-x-y-z; fallback shuffle for unmatched names."
+      "block_size": 4,
+      "description": "Spatial block split on OAM-x-y-z tile coords: chips grouped into (x // block_size, y // block_size) blocks, whole blocks assigned to train or val, because neighbouring chips share pools and surroundings. Chips must be named OAM-x-y-z.tif; any other name is rejected. Chips without a label are kept as background examples."
     },
     "fair:hyperparameters_spec": [
-      { "key": "epochs", "type": "int", "default": 10, "min": 1, "max": 500, "description": "Number of training epochs" },
-      { "key": "batch_size", "type": "int", "default": 8, "min": 1, "max": 128, "description": "Samples per training batch" },
-      { "key": "learning_rate", "type": "float", "default": 0.01, "min": 1e-07, "max": 1.0, "description": "Optimizer learning rate" },
-      { "key": "val_ratio", "type": "float", "default": 0.2, "min": 0.05, "max": 0.5, "description": "Fraction of data held out for validation" },
-      { "key": "split_seed", "type": "int", "default": 42, "min": 0, "max": 2147483647, "description": "Random seed for reproducible train/val split" },
-      { "key": "freeze_encoder", "type": "bool", "default": true, "description": "Freeze pretrained backbone layers during finetuning" },
-      { "key": "confidence_threshold", "type": "float", "default": 0.4, "min": 0.0, "max": 1.0, "description": "Minimum detection confidence score to retain a predicted bounding box at inference" },
-      { "key": "iou_threshold", "type": "float", "default": 0.45, "min": 0.0, "max": 1.0, "description": "IoU threshold for non-maximum suppression during inference" },
-      { "key": "chip_size", "type": "int", "default": 640, "min": 64, "max": 1280, "description": "Image chip size for training and inference" },
-      { "key": "sample_fraction", "type": "float", "default": 1.0, "min": 0.001, "max": 1.0, "description": "Fraction of chip files used during training (stride-sampled; <1.0 enables fast smoke / CI runs)" }
+      {
+        "key": "epochs",
+        "type": "int",
+        "default": 10,
+        "min": 1,
+        "max": 50,
+        "description": "Number of training epochs. Mozilla trained the base model for 10; fine-tuning on a local dataset rarely needs more than a few dozen."
+      },
+      {
+        "key": "batch_size",
+        "type": "int",
+        "default": 8,
+        "min": 1,
+        "max": 16,
+        "description": "Chips per training batch, at 512 x 512 px on the one GPU of the training pod. 16 is Mozilla's value; lower it if the GPU runs out of memory."
+      },
+      {
+        "key": "learning_rate",
+        "type": "float",
+        "default": 0.01,
+        "min": 1e-05,
+        "max": 0.05,
+        "description": "Initial learning rate of the AdamW optimizer (Ultralytics lr0). Mozilla trained the base model at 0.01; a smaller value changes the weights less."
+      },
+      {
+        "key": "patience",
+        "type": "int",
+        "default": 3,
+        "min": 0,
+        "max": 10,
+        "description": "Epochs without a better validation result before training stops early; 0 never stops early."
+      },
+      {
+        "key": "cos_lr",
+        "type": "bool",
+        "default": true,
+        "description": "Decay the learning rate along a cosine curve over the run instead of linearly."
+      },
+      {
+        "key": "flipud",
+        "type": "float",
+        "default": 0.5,
+        "min": 0.0,
+        "max": 1.0,
+        "description": "Probability of a vertical flip of a training image. Pools seen from above have no up; 0 turns it off."
+      },
+      {
+        "key": "scale",
+        "type": "float",
+        "default": 0.0,
+        "min": 0.0,
+        "max": 0.5,
+        "description": "Random scale augmentation gain (0.2 is up to 20 % larger or smaller). Off by default, as in the base model's training; the model is trained at one ground resolution, so keep it small."
+      },
+      {
+        "key": "translate",
+        "type": "float",
+        "default": 0.0,
+        "min": 0.0,
+        "max": 0.3,
+        "description": "Random shift of a training image, as a fraction of its size. Off by default, as in the base model's training."
+      },
+      {
+        "key": "val_ratio",
+        "type": "float",
+        "default": 0.2,
+        "min": 0.1,
+        "max": 0.4,
+        "description": "Share of the chips held out as spatial validation: enough to score on, and enough left to train on."
+      },
+      {
+        "key": "split_seed",
+        "type": "int",
+        "default": 42,
+        "min": 0,
+        "max": 2147483647,
+        "description": "Seed for the block order of the spatial split."
+      },
+      {
+        "key": "block_size",
+        "type": "int",
+        "default": 4,
+        "min": 1,
+        "max": 16,
+        "description": "Side of a spatial block, in tile units. At zoom 18 a tile is about 150 m, so 4 keeps neighbouring chips together within about 600 m."
+      },
+      {
+        "key": "freeze_encoder",
+        "type": "bool",
+        "default": true,
+        "description": "Freeze the first 10 layers (the YOLO11 backbone) and train the neck and head only, so the backbone keeps what it learned. Mozilla trained all layers; this default is the one difference."
+      },
+      {
+        "key": "confidence_threshold",
+        "type": "float",
+        "default": 0.4,
+        "min": 0.05,
+        "max": 0.95,
+        "description": "Minimum pool score to keep a predicted box at inference. Lower finds more pools and more false ones."
+      },
+      {
+        "key": "nms_threshold",
+        "type": "float",
+        "default": 0.45,
+        "min": 0.1,
+        "max": 0.9,
+        "description": "IoU above which a lower-scoring overlapping box is suppressed at inference."
+      }
     ]
   },
   "assets": {
     "checkpoint": {
-      "href": "https://huggingface.co/mozilla-ai/swimming-pool-detector/resolve/main/model.pt",
-      "title": "Pretrained weights",
+      "href": "https://huggingface.co/mozilla-ai/swimming-pool-detector/resolve/2e02a9fe2c3a71fab1641fcfca816e9d466f42cc/model.pt",
+      "title": "Mozilla AI swimming-pool detector: YOLO11m fine-tuned at 512 px on 512 px Mapbox zoom-18 tiles with OSM pool labels",
       "type": "application/octet-stream; framework=pytorch",
-      "roles": ["mlm:model", "mlm:weights"],
+      "roles": [
+        "mlm:model",
+        "mlm:weights"
+      ],
       "mlm:artifact_type": "torch.save",
-      "raster:bands": [{ "name": "red" }, { "name": "green" }, { "name": "blue" }]
+      "file:checksum": "1220706f6a69c1ec73e87a979452f43d5113e5290a11595cf2de5f95ac33c083ad12",
+      "raster:bands": [
+        {
+          "name": "red"
+        },
+        {
+          "name": "green"
+        },
+        {
+          "name": "blue"
+        }
+      ]
     },
     "model": {
-      "href": "https://huggingface.co/kshitijrajsharma/yolo11m-swimming-pools/resolve/45a050b173c8e3d2e6de489d46db6ef27e4c3101/yolo11m_swimming_pools.onnx",
-      "title": "Portable ONNX inference model",
+      "href": "https://huggingface.co/AbdelrahmanU3/swimming-pool-detector-OAM/resolve/098215f87e61d573094889d015f931127144de7d/swimming_pool_yolo11m_512.onnx",
+      "title": "Portable ONNX inference model: the checkpoint above exported unchanged at 512 x 512 (input in [0, 1], no normalisation inside)",
       "type": "application/octet-stream; framework=onnx",
-      "roles": ["mlm:model", "mlm:compiled"],
+      "roles": [
+        "mlm:model",
+        "mlm:compiled"
+      ],
       "mlm:artifact_type": "onnx",
-      "raster:bands": [{ "name": "red" }, { "name": "green" }, { "name": "blue" }]
+      "file:checksum": "1220ec20f36a4acc9c49ae50bbf3efb96ea7b146325a7c1826e38732d8073604d5db",
+      "raster:bands": [
+        {
+          "name": "red"
+        },
+        {
+          "name": "green"
+        },
+        {
+          "name": "blue"
+        }
+      ]
     },
     "source-code": {
-      "href": "https://github.com/hotosm/fAIr-models/tree/main/models/yolo11m_swimming_pools",
+      "href": "https://github.com/hotosm/fAIr-models/tree/develop/models/yolo11m_swimming_pools",
       "type": "text/html",
-      "roles": ["code"],
+      "roles": [
+        "code"
+      ],
       "mlm:entrypoint": "models.yolo11m_swimming_pools.pipeline:predict"
     },
     "mlm:training": {
-      "href": "ghcr.io/hotosm/fair-models/yolo11m_swimming_pools:dev",
+      "href": "ghcr.io/hotosm/fair-models/yolo11m_swimming_pools:latest",
       "type": "application/vnd.oci.image.index.v1+json",
       "title": "Training Docker Image",
-      "roles": ["mlm:training-runtime"]
+      "roles": [
+        "mlm:training-runtime"
+      ]
     },
     "mlm:inference": {
-      "href": "ghcr.io/hotosm/fair-models/yolo11m_swimming_pools:dev-inference",
+      "href": "ghcr.io/hotosm/fair-models/yolo11m_swimming_pools:latest-inference",
       "type": "application/vnd.oci.image.index.v1+json",
       "title": "Inference Docker Image",
-      "roles": ["mlm:inference-runtime"]
+      "roles": [
+        "mlm:inference-runtime"
+      ]
     },
     "readme": {
-      "href": "https://raw.githubusercontent.com/hotosm/fAIr-models/refs/heads/main/models/yolo11m_swimming_pools/README.md",
+      "href": "https://raw.githubusercontent.com/hotosm/fAIr-models/refs/heads/develop/models/yolo11m_swimming_pools/README.md",
       "type": "text/markdown",
-      "roles": ["metadata"],
+      "roles": [
+        "metadata"
+      ],
       "title": "Model README"
     }
   },
@@ -194,4 +536,3 @@
     }
   ]
 }
-

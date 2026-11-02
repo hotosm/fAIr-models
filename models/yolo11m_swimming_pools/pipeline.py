@@ -1,9 +1,5 @@
-"""ZenML pipeline for YOLO11m swimming pool detection.
-
-Thin fAIr adapter over `spd-hot`:
-- fAIr contract + ZenML orchestration live here
-- model logic lives in `spd_hot.*`
-"""
+"""yolo11m-swimming-pools: YOLO11m swimming-pool detector on OAM chips, with the model logic in the pinned `spd-hot`
+library; heavy imports stay inside functions so the onnxruntime-only inference image can import `predict`."""
 
 import tempfile
 from pathlib import Path
@@ -11,227 +7,234 @@ from typing import Annotated, Any
 
 from zenml import log_metadata, pipeline, step
 
-from fair.utils.data import resolve_directory
+from fair.stac.inputs import IMAGE_INPUT
+from fair.utils.data import resolve_directory, resolve_path
 from fair.zenml.instrumentation import log_evaluation_results, mlflow_training_context
 from fair.zenml.materializers import CheckpointBytesMaterializer, ONNXMaterializer
+from fair.zenml.metrics import log_loss_history
+
+CLASS_VALUE = 0
+CLASS_LABEL = "swimming_pool"
 
 
-def _get_device() -> str:
-    """Use CUDA when the training image can see a GPU; otherwise CPU."""
-    import torch
+def predict(session: Any, input_images: dict[str, str], params: dict[str, Any]) -> dict[str, Any]:
+    """Module-level predict for `fair.serve.base`: `spd_hot.predict_session`, features renamed to the fAIr schema."""
+    from spd_hot import predict_session
 
-    if torch.cuda.is_available():
-        return "0"
-    return "cpu"
-
-
-def _download_checkpoint(url: str) -> Path:
-    from upath import UPath
-
-    local_path = Path(tempfile.mkdtemp()) / UPath(url).name
-    local_path.write_bytes(UPath(url).read_bytes())
-    return local_path
-
-
-def _restore_checkpoint(trained_model: Any):
-    from ultralytics import YOLO
-
-    if isinstance(trained_model, YOLO):
-        return trained_model
-    if isinstance(trained_model, bytes):
-        checkpoint = Path(tempfile.mkdtemp()) / "best.pt"
-        checkpoint.write_bytes(trained_model)
-        return YOLO(str(checkpoint))
-    return YOLO(trained_model)
+    collection = predict_session(session, resolve_directory(input_images[IMAGE_INPUT]), params)
+    for feature in collection["features"]:
+        props = feature["properties"]
+        feature["properties"] = {
+            "class": CLASS_VALUE,
+            "label": CLASS_LABEL,
+            "confidence": props["confidence"],
+            "source": props["source"],
+        }
+    return collection
 
 
-def _ensure_yolo_dataset(
-    dataset_chips: str,
-    dataset_labels: str,
-    split_cfg,
-    *,
-    out_dir: str | Path | None,
-) -> tuple[Path, dict[str, Any]]:
-    from spd_hot.dataset import prepare_yolo_detection_dataset_from_geojson
+def preprocess(image_path: Any, params: dict[str, Any] | None = None) -> Any:
+    """Chip -> `(float32 tensor (3, S, S), PreprocessMeta)`: RGB, one resize to the model input, divided by 255."""
+    from spd_hot import parse_preprocess_params, preprocess_chip
 
-    chips_dir = resolve_directory(dataset_chips, "*.tif*")
-    labels_dir = resolve_directory(dataset_labels, "*.geojson")
-    return prepare_yolo_detection_dataset_from_geojson(
-        chips_dir,
-        labels_dir,
-        class_name="swimming_pool",
-        val_ratio=split_cfg.val_ratio,
-        seed=split_cfg.split_seed,
-        block_size=split_cfg.block_size,
-        out_dir=out_dir,
-    )
-
-
-def preprocess(image_path: Any) -> Any:
-    """Contract hook for STAC `pre_processing_function`."""
-    from spd_hot.preprocess import preprocess_chip_for_onnx
-
-    batch, _meta = preprocess_chip_for_onnx(image_path)
-    return batch
+    return preprocess_chip(image_path, parse_preprocess_params(params))
 
 
 def postprocess(raw_output: Any, params: dict[str, Any] | None = None) -> Any:
-    """Decode ONNX output to detections (confidence filter + NMS)."""
-    from spd_hot.postprocess import postprocess_onnx_output
+    """The ONNX output of one chip -> detections in model-input pixels (confidence filter, NMS, cap 300).
 
-    return postprocess_onnx_output(raw_output, params)
+    No CRS is involved here: `spd_hot.predict_session` maps the boxes to chip pixels and georeferences them.
+    """
+    from spd_hot import decode_detections, parse_postprocess_params
+
+    return decode_detections(raw_output, parse_postprocess_params(params))
 
 
-def predict(session: Any, input_images: str, params: dict[str, Any]) -> dict[str, Any]:
-    """Module-level serving entrypoint used by `fair.serve.base`."""
-    from spd_hot.params import parse_postprocess_params, parse_preprocess_params
-    from spd_hot.postprocess import detections_to_feature_collection
-    from spd_hot.preprocess import preprocess_chip_for_onnx
-    from spd_hot.serve import iter_image_paths
+def _chip_boxes(chips_dir: Path, labels_href: str) -> dict[str, list[dict[str, Any]]]:
+    """The pixel boxes of every chip (`spd_hot.dataset.build_chip_labels`); a chip with no pool is a background example.
 
-    chips_dir = resolve_directory(input_images)
-    preprocess_cfg = parse_preprocess_params(params)
-    post_cfg = parse_postprocess_params(params)
-    input_name = session.get_inputs()[0].name
+    Rebuilt from the dataset by every step, so no temporary file is shared between isolated steps.
+    """
+    from spd_hot.dataset import build_chip_labels
 
-    all_features: list[dict[str, Any]] = []
-    for img_path in iter_image_paths(chips_dir):
-        batch, meta = preprocess_chip_for_onnx(img_path, preprocess_cfg)
-        output = session.run(None, {input_name: batch})[0]
-        detections = postprocess(output, params)
-        fc = detections_to_feature_collection(
-            detections,
-            meta,
-            post_cfg,
-            source_name=img_path.name,
-            class_name="swimming_pool",
-        )
-        all_features.extend(fc["features"])
+    if labels_href.endswith((".geojson", ".json")):
+        labels = resolve_path(labels_href)
+    else:
+        labels = resolve_directory(labels_href, "*.geojson")
+    return build_chip_labels(chips_dir, labels)
 
-    return {"type": "FeatureCollection", "features": all_features}
+
+def _onnx_from_checkpoint(checkpoint: bytes) -> bytes:
+    from spd_hot.export import export_onnx_bytes
+    from ultralytics import YOLO
+
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "best.pt"
+        path.write_bytes(checkpoint)
+        return export_onnx_bytes(YOLO(str(path)))
 
 
 @step
 def split_dataset(
-    dataset_chips: str,
+    dataset_chips: dict[str, str],
     dataset_labels: str,
     hyperparameters: dict[str, Any],
-) -> Annotated[dict[str, Any], "split_info_artifact"]:
-    from spd_hot.params import parse_split_params
+) -> Annotated[dict[str, Any], "split_info"]:
+    """Spatial block split of the chips on OAM tile coordinates (neighbouring chips share pools and surroundings)."""
+    from spd_hot import parse_split_params, spatial_split
+    from spd_hot.dataset import list_chip_paths
 
-    split_cfg = parse_split_params(hyperparameters)
-    yolo_dir, split_info = _ensure_yolo_dataset(dataset_chips, dataset_labels, split_cfg, out_dir=None)
-    split_info["description"] = "Spatial split by OAM tile blocks (fallback shuffle for non-OAM names)."
-    split_info["_yolo_dir"] = str(yolo_dir)
-    log_metadata(metadata={"fair/split": {k: v for k, v in split_info.items() if not k.startswith("_")}})
-    return split_info
+    cfg = parse_split_params(hyperparameters)
+    chip_names = [path.name for path in list_chip_paths(resolve_directory(dataset_chips[IMAGE_INPUT], "*.tif*"))]
+    if not chip_names:
+        raise FileNotFoundError(f"no .tif chips found at {dataset_chips[IMAGE_INPUT]}")
+    train_names, val_names = spatial_split(chip_names, cfg.val_ratio, cfg.split_seed, block_size=cfg.block_size)
+
+    info = {
+        "strategy": "spatial",
+        "val_ratio": cfg.val_ratio,
+        "seed": cfg.split_seed,
+        "block_size": cfg.block_size,
+        "train_count": len(train_names),
+        "val_count": len(val_names),
+        "description": (
+            f"Spatial block split on OAM-x-y-z tile coordinates ({cfg.block_size}x{cfg.block_size} tile blocks): "
+            "whole blocks are assigned to train or validation. Chips must be named OAM-<x>-<y>-<z>.tif; "
+            "any other name is rejected."
+        ),
+        "train_chip_names": train_names,
+        "val_chip_names": val_names,
+    }
+    log_metadata(
+        metadata={"fair/split": {k: v for k, v in info.items() if k not in ("train_chip_names", "val_chip_names")}}
+    )
+    return info
 
 
 @step(output_materializers={"trained_model_artifact": CheckpointBytesMaterializer})
 def train_model(
-    dataset_chips: str,
+    dataset_chips: dict[str, str],
     dataset_labels: str,
     base_model_weights: str,
     hyperparameters: dict[str, Any],
     split_info: dict[str, Any],
-    num_classes: int = 1,
+    num_classes: int,
     model_name: str | None = None,
     base_model_id: str | None = None,
     dataset_id: str | None = None,
-) -> Annotated[Any, "trained_model_artifact"]:
-    from spd_hot.params import parse_split_params, parse_train_params
-    from spd_hot.train import train_yolo
+) -> Annotated[bytes, "trained_model_artifact"]:
+    """Finetune YOLO11m on the train split with `spd_hot.train`; returns the best epoch as `best.pt` bytes.
 
-    del num_classes
-    train_hp = {**hyperparameters, "device": _get_device()}
-    split_cfg = parse_split_params(train_hp)
-    train_cfg = parse_train_params(train_hp)
+    The dataset folder (links to the chips and the label files), the base weights and the runs are made in a temporary
+    folder of this step, which is the pod that trains on them, and removed when the step ends.
+    """
+    import mlflow
+    from spd_hot import parse_preprocess_params
+    from spd_hot.params import parse_train_params
+    from spd_hot.train import train
+    from spd_hot.yolo_dataset import write_yolo_dataset
+    from upath import UPath
 
-    yolo_dir = Path(split_info["_yolo_dir"])
-    data_yaml = yolo_dir / "data.yaml"
-    if not data_yaml.exists():
-        yolo_dir, _ = _ensure_yolo_dataset(dataset_chips, dataset_labels, split_cfg, out_dir=yolo_dir)
-        data_yaml = yolo_dir / "data.yaml"
+    if num_classes != 1:
+        raise ValueError(f"yolo11m-swimming-pools is a single-class detector, got num_classes={num_classes}")
 
-    local_weights = _download_checkpoint(base_model_weights)
-    project_dir = Path(tempfile.mkdtemp()) / "train_runs"
-    project_dir.mkdir(parents=True, exist_ok=True)
+    chips_dir = resolve_directory(dataset_chips[IMAGE_INPUT], "*.tif*")
+    boxes = _chip_boxes(chips_dir, dataset_labels)
+    train_names = list(split_info["train_chip_names"])
+    val_names = list(split_info["val_chip_names"])
+    log_metadata(
+        metadata={
+            "fair/train_data": {
+                "train_chips": len(train_names),
+                "labelled_train_chips": sum(1 for name in train_names if boxes.get(name)),
+                "train_boxes": int(sum(len(boxes.get(name, [])) for name in train_names)),
+                "val_chips": len(val_names),
+                "labelled_val_chips": sum(1 for name in val_names if boxes.get(name)),
+            }
+        }
+    )
 
-    with mlflow_training_context(hyperparameters, model_name, base_model_id, dataset_id):
-        model = train_yolo(
-            weights_path=str(local_weights),
-            data_yaml_path=data_yaml,
-            cfg=train_cfg,
-            project_dir=project_dir,
-            run_name="yolo11m_swimming_pools",
+    history: dict[str, list[float]] = {"train_loss": [], "val_loss": []}
+
+    def log_epoch(epoch: int, train_loss: float, val_loss: float | None) -> None:
+        mlflow.log_metric("train_loss", train_loss, step=epoch - 1)  # ty: ignore[possibly-missing-attribute]
+        history["train_loss"].append(train_loss)
+        if val_loss is not None:
+            mlflow.log_metric("val_loss", val_loss, step=epoch - 1)  # ty: ignore[possibly-missing-attribute]
+            history["val_loss"].append(val_loss)
+
+    with tempfile.TemporaryDirectory() as work:
+        work_dir = Path(work)
+        weights = work_dir / "base.pt"
+        weights.write_bytes(UPath(base_model_weights).read_bytes())
+        yolo_dir = write_yolo_dataset(
+            chips_dir, boxes, train_names=train_names, val_names=val_names, out_dir=work_dir / "yolo"
         )
-
-    best_path = getattr(getattr(model, "trainer", None), "best", None)
-    if best_path and Path(best_path).exists():
-        return Path(best_path).read_bytes()
-
-    saved_path = Path(tempfile.mkdtemp()) / "best.pt"
-    model.save(str(saved_path))
-    return saved_path.read_bytes()
+        with mlflow_training_context(hyperparameters, model_name, base_model_id, dataset_id):
+            model = train(
+                weights=weights,
+                dataset_yaml=yolo_dir / "data.yaml",
+                cfg=parse_train_params(hyperparameters),
+                pre=parse_preprocess_params(hyperparameters),
+                project_dir=work_dir / "runs",
+                on_epoch_end=log_epoch,
+            )
+        if history["val_loss"]:
+            log_loss_history(history["train_loss"], history["val_loss"])
+        return Path(model.trainer.best).read_bytes()  # the best epoch, which Ultralytics keeps as best.pt
 
 
 @step
 def evaluate_model(
     trained_model: Any,
-    dataset_chips: str,
+    dataset_chips: dict[str, str],
     dataset_labels: str,
     hyperparameters: dict[str, Any],
     split_info: dict[str, Any],
     class_names: list[str] | None = None,
 ) -> Annotated[dict[str, Any], "metrics"]:
-    from spd_hot.evaluate import evaluate_yolo
-    from spd_hot.params import parse_split_params, parse_train_params
+    """Box precision/recall/F1 at IoU 0.5 and mAP on the val split, scored through the exported ONNX."""
+    import onnxruntime as ort
+    from spd_hot.evaluate import score_map, score_session
 
-    del class_names
-    train_hp = {**hyperparameters, "device": _get_device()}
-    split_cfg = parse_split_params(train_hp)
-    train_cfg = parse_train_params(train_hp)
+    chips_dir = resolve_directory(dataset_chips[IMAGE_INPUT], "*.tif*")
+    boxes = _chip_boxes(chips_dir, dataset_labels)
+    names = split_info["val_chip_names"]
+    session = ort.InferenceSession(_onnx_from_checkpoint(trained_model), providers=["CPUExecutionProvider"])
+    scores = {
+        **score_session(session, images_dir=chips_dir, labels=boxes, names=names, params=hyperparameters)[0.5],
+        **score_map(session, images_dir=chips_dir, labels=boxes, names=names, params=hyperparameters),
+    }
 
-    yolo_dir = Path(split_info["_yolo_dir"])
-    data_yaml = yolo_dir / "data.yaml"
-    if not data_yaml.exists():
-        yolo_dir, _ = _ensure_yolo_dataset(dataset_chips, dataset_labels, split_cfg, out_dir=yolo_dir)
-        data_yaml = yolo_dir / "data.yaml"
-
-    model = _restore_checkpoint(trained_model)
-    metrics = evaluate_yolo(model, str(data_yaml), imgsz=train_cfg.imgsz, device=train_cfg.device)
+    metrics = {key: round(scores[key], 4) for key in ("precision", "recall", "f1", "map50", "map50_95")}
     log_evaluation_results(metrics)
     return metrics
 
 
 @step(output_materializers={"onnx_model": ONNXMaterializer})
-def export_onnx(trained_model: Any) -> Annotated[bytes, "onnx_model"]:
-    from spd_hot.export import export_onnx_bytes
-
-    model = _restore_checkpoint(trained_model)
-    return export_onnx_bytes(model)
+def export_onnx(
+    trained_model: Any,
+    hyperparameters: dict[str, Any],
+) -> Annotated[bytes, "onnx_model"]:
+    """ONNX with the spd-hot contract: `images (1, 3, 512, 512)` float32 in [0, 1], output `(1, 5, 5376)`."""
+    return _onnx_from_checkpoint(trained_model)
 
 
 @step
 def run_inference(
     model_uri: str,
-    input_images: str,
-    inference_params: dict[str, Any] | None = None,
+    input_images: dict[str, str],
+    inference_params: dict[str, Any],
 ) -> Annotated[dict[str, Any], "predictions"]:
-    from spd_hot.params import parse_inference_params
-
     from fair.serve.base import load_session
 
-    session = load_session(model_uri)
-    params = inference_params or {}
-    parse_inference_params(params)  # validate user-facing params early
-    return predict(session, input_images, params)
+    return predict(load_session(model_uri), input_images, inference_params)
 
 
 @pipeline
 def training_pipeline(
     base_model_weights: str,
-    dataset_chips: str,
+    dataset_chips: dict[str, str],
     dataset_labels: str,
     num_classes: int,
     hyperparameters: dict[str, Any],
@@ -256,17 +259,17 @@ def training_pipeline(
         hyperparameters=hyperparameters,
         split_info=split_info,
     )
-    export_onnx(trained_model=trained_model)
+    export_onnx(trained_model=trained_model, hyperparameters=hyperparameters)
 
 
 @pipeline
 def inference_pipeline(
     model_uri: str,
-    input_images: str,
-    inference_params: dict[str, Any] | None = None,
+    input_images: dict[str, str],
+    inference_params: dict[str, Any],
 ) -> None:
     run_inference(
         model_uri=model_uri,
         input_images=input_images,
-        inference_params=inference_params or {},
+        inference_params=inference_params,
     )

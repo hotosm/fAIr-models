@@ -68,7 +68,7 @@ def _pool_polygon(x: int, y: int) -> dict[str, Any]:
 def create_toy_data(root: Path) -> dict[str, Any]:
     """Four chips in four different spatial blocks, a pool in three of them; the fourth is a background example.
 
-    Returns the chips folder, the labels folder and a dataset STAC item.
+    Returns the chips folder, the labels folder and the path of a dataset STAC item that points at them.
     """
     chips = root / "chips"
     labels = root / "labels"
@@ -85,8 +85,46 @@ def create_toy_data(root: Path) -> dict[str, Any]:
     ]
     collection = {"type": "FeatureCollection", "features": features}
     (labels / "labels.geojson").write_text(json.dumps(collection), encoding="utf-8")
-    dataset_item = {"type": "Feature", "id": "toy-pools", "properties": {"title": "toy OAM chips with pool labels"}}
-    return {"chips": chips, "labels": labels, "dataset_stac_item": dataset_item}
+    stac_path = root / "dataset-stac-item.json"
+    stac_path.write_text(json.dumps(_build_dataset_stac_item(chips, labels, tiles), indent=2), encoding="utf-8")
+    return {"chips": chips, "labels": labels, "dataset_stac_item": stac_path}
+
+
+def _build_dataset_stac_item(chips_dir: Path, labels_dir: Path, tiles: list[tuple[int, int]]) -> dict[str, Any]:
+    to_lonlat = Transformer.from_crs("EPSG:3857", "EPSG:4326", always_xy=True)
+    bounds = [tile_bounds_3857(x, y, ZOOM) for x, y in tiles]
+    west, south = to_lonlat.transform(min(b[0] for b in bounds), min(b[1] for b in bounds))
+    east, north = to_lonlat.transform(max(b[2] for b in bounds), max(b[3] for b in bounds))
+    return {
+        "type": "Feature",
+        "stac_version": "1.1.0",
+        "stac_extensions": ["https://stac-extensions.github.io/label/v1.0.1/schema.json"],
+        "id": "toy-swimming-pools",
+        "geometry": {
+            "type": "Polygon",
+            "coordinates": [[[west, south], [east, south], [east, north], [west, north], [west, south]]],
+        },
+        "bbox": [west, south, east, north],
+        "properties": {
+            "datetime": "2026-10-01T00:00:00Z",
+            "description": "Toy swimming-pool detection dataset",
+            "label:type": "vector",
+            "label:tasks": ["object-detection"],
+            "label:classes": [{"name": "swimming_pool", "classes": ["yes"]}],
+            "label:description": "Swimming pool polygons",
+            "keywords": ["swimming-pool", "object-detection", "polygon"],
+            "fair:user_id": "test",
+            "version": "1",
+            "deprecated": False,
+            "license": "CC-BY-4.0",
+            "providers": [{"name": "HOTOSM", "roles": ["producer"], "url": "https://www.hotosm.org"}],
+        },
+        "assets": {
+            "chips-image": {"href": str(chips_dir), "type": "image/tiff", "roles": ["data"]},
+            "labels": {"href": str(labels_dir), "type": "application/geo+json", "roles": ["labels"]},
+        },
+        "links": [],
+    }
 
 
 @pytest.fixture(scope="session")

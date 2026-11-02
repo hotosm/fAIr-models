@@ -445,8 +445,8 @@
   },
   "assets": {
     "checkpoint": {
-      "href": "https://huggingface.co/mozilla-ai/swimming-pool-detector/resolve/2e02a9fe2c3a71fab1641fcfca816e9d466f42cc/model.pt",
-      "title": "Mozilla AI swimming-pool detector: YOLO11m fine-tuned at 512 px on 512 px Mapbox zoom-18 tiles with OSM pool labels",
+      "href": "https://huggingface.co/AbdelrahmanU3/swimming-pool-detector-OAM/resolve/52d0eb22064f45639c0a74b24c2cf7435b8b613c/swimming_pool_yolo11m_512.pt",
+      "title": "YOLO11m swimming-pool detector (Mozilla AI weights, unchanged), trained at 512 px on 512 px Mapbox zoom-18 tiles with OSM pool labels",
       "type": "application/octet-stream; framework=pytorch",
       "roles": [
         "mlm:model",

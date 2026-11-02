@@ -44,13 +44,13 @@ never changed): each polygon becomes its bounding box, reprojected from the labe
 
 ## Pretrained source
 
-The base checkpoint is `model.pt` of [`mozilla-ai/swimming-pool-detector`](https://huggingface.co/mozilla-ai/swimming-pool-detector), and
-the STAC item pins its commit. Mozilla AI fine-tuned `yolo11m.pt` on
+The base weights are `model.pt` of [`mozilla-ai/swimming-pool-detector`](https://huggingface.co/mozilla-ai/swimming-pool-detector),
+unchanged. Mozilla AI fine-tuned `yolo11m.pt` on
 [`mozilla-ai/osm-swimming-pools`](https://huggingface.co/datasets/mozilla-ai/osm-swimming-pools) (512 x 512 Mapbox tiles at zoom 18, labels
-from OpenStreetMap `leisure=swimming_pool`, north-west Iberia) for 10 epochs at `imgsz=512`. The ONNX file is that checkpoint exported
-unchanged at 512 and is published at
-[`AbdelrahmanU3/swimming-pool-detector-OAM`](https://huggingface.co/AbdelrahmanU3/swimming-pool-detector-OAM). The weights are AGPL-3.0
-licensed, and this model is AGPL-3.0-only to match; the labels are OpenStreetMap data (ODbL).
+from OpenStreetMap `leisure=swimming_pool`, north-west Iberia) for 10 epochs at `imgsz=512`. The checkpoint and the ONNX file exported
+from it at 512 are both published at
+[`AbdelrahmanU3/swimming-pool-detector-OAM`](https://huggingface.co/AbdelrahmanU3/swimming-pool-detector-OAM), and the STAC item pins
+their commit. The weights are AGPL-3.0 licensed, and this model is AGPL-3.0-only to match; the labels are OpenStreetMap data (ODbL).
 
 ## Training
 

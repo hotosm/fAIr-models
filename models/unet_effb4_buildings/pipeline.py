@@ -36,6 +36,7 @@ IMAGENET_MEAN = (0.485, 0.456, 0.406)
 IMAGENET_STD = (0.229, 0.224, 0.225)
 
 HF_REPO = "nilsho01/unet-buildings-autorun-v2"
+HF_REVISION = "ec78f888714a093c177e09c23476e083acd1d035"
 NUM_OUTPUT_CHANNELS = 4
 MASK_CHANNEL, CENTRENESS_CHANNEL = 0, 3
 
@@ -92,8 +93,8 @@ def _load_hf_weights(device: str) -> tuple[Any, float]:
 
     from huggingface_hub import hf_hub_download
 
-    ckpt_path = hf_hub_download(repo_id=HF_REPO, filename="best.pth")
-    thresh_path = hf_hub_download(repo_id=HF_REPO, filename="best_threshold.json")
+    ckpt_path = hf_hub_download(repo_id=HF_REPO, filename="best.pth", revision=HF_REVISION)
+    thresh_path = hf_hub_download(repo_id=HF_REPO, filename="best_threshold.json", revision=HF_REVISION)
 
     import torch
 

@@ -363,7 +363,7 @@
   },
   "assets": {
     "checkpoint": {
-      "href": "https://huggingface.co/nilsho01/unet-buildings-autorun-v2/resolve/main/best.pth",
+      "href": "https://huggingface.co/nilsho01/unet-buildings-autorun-v2/resolve/ec78f888714a093c177e09c23476e083acd1d035/best.pth",
       "title": "Pretrained weights (UNet EfficientNet-B4, dist4 head)",
       "type": "application/octet-stream; framework=pytorch",
       "roles": [
@@ -378,7 +378,7 @@
       ]
     },
     "model": {
-      "href": "https://huggingface.co/nilsho01/unet-buildings-autorun-v2/resolve/main/model.onnx",
+      "href": "https://huggingface.co/nilsho01/unet-buildings-autorun-v2/resolve/ec78f888714a093c177e09c23476e083acd1d035/model.onnx",
       "title": "Portable ONNX inference model",
       "type": "application/octet-stream; framework=onnx",
       "roles": [
@@ -393,7 +393,7 @@
       ]
     },
     "source-code": {
-      "href": "https://github.com/hotosm/fAIr-models/tree/main/models/unet_effb4_buildings",
+      "href": "https://github.com/hotosm/fAIr-models/tree/develop/models/unet_effb4_buildings",
       "type": "text/html",
       "roles": [
         "code"
@@ -417,7 +417,7 @@
       ]
     },
     "readme": {
-      "href": "https://raw.githubusercontent.com/hotosm/fAIr-models/refs/heads/main/models/unet_effb4_buildings/README.md",
+      "href": "https://raw.githubusercontent.com/hotosm/fAIr-models/refs/heads/develop/models/unet_effb4_buildings/README.md",
       "type": "text/markdown",
       "roles": [
         "metadata"

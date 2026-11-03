@@ -75,6 +75,14 @@ seen no African imagery yet. At zoom 19 the false alarms are grey-blue painted
 metal roofs. Lowering `confidence_threshold` to 0.3 finds 12 of 18 arrays at zoom
 20, with one false alarm.
 
+![Image, label and prediction for two held-out chips from Jiangsu and two Kaduna roofs at zoom 20](https://huggingface.co/dexsholex/unet-solar-pv/resolve/main/unet_solar_pv_examples.png)
+
+Top two rows: held-out validation chips from Jiangsu. Bottom two rows: Kaduna at
+zoom 20. On the first roof the model outlines most of the array; on the second it
+misses the top array and only partly outlines the bottom one. Label yellow,
+prediction blue, threshold 0.5. Imagery: Jiang et al. (2021), CC-BY-4.0, and
+OpenAerialMap (shamaki, 2025-05-29), CC-BY 4.0.
+
 ## Imagery
 
 RGB aerial or drone imagery at zoom 19 or 20 (about 0.15 to 0.3 m per pixel). The

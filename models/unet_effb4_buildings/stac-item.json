@@ -186,7 +186,7 @@
     },
     "fair:preview": {
       "center": [85.5203, 27.6349],
-      "zoom": {"recommended": 19, "min": 17, "max": 21},
+      "zoom": {"recommended": 19, "min": 19, "max": 21},
       "imagery": {
         "url": "https://tiles.openaerialmap.org/62d85d11d8499800053796c1/0/62d85d11d8499800053796c2/{z}/{x}/{y}",
         "type": "tms",

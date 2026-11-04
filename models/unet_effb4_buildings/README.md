@@ -128,8 +128,11 @@ OpenStreetMap labels).
 - **Geographic bias**: the training pool is dominated by Myanmar and Africa.
   On the benchmark, chips from other regions score 43.3 PQ against 51–52 for
   those two, so new regions should be fine-tuned before use.
-- **Resolution**: trained at about 30 cm per pixel. Coarser imagery, such as
-  most satellite basemaps, is outside the training distribution.
+- **Resolution**: trained at about 30 cm per pixel (zoom 19). On the Banepa
+  test tiles in this repository, which are zoom 18 (about 60 cm), object F1 is
+  0.41; enlarging the same tiles to zoom-19 scale raises it to 0.49. Use
+  zoom-19 imagery; coarser imagery, such as most satellite basemaps, is outside
+  the training distribution.
 - **Merges versus splits**: centreness seeds split fewer large buildings than
   distance-transform seeds but merge more touching ones. This was measured on
   the predecessor of this model, which uses the same recipe.

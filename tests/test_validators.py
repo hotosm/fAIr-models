@@ -79,7 +79,7 @@ def _model(keywords=None, tasks=None):
         inference_runtime_href="local",
         title="Validator test model",
         description="Model used in validator tests.",
-        fair_metrics_spec=[{"name": "accuracy", "description": "Pixel accuracy", "higher_is_better": True}],
+        fair_metrics_spec=[{"key": "accuracy", "name": "Pixel accuracy", "higher_is_better": True}],
         providers=[{"name": "HOTOSM", "roles": ["producer"]}],
     )
 
@@ -277,7 +277,7 @@ def _valid_base_model():
         inference_runtime_href="ghcr.io/hotosm/test:v1",
         title="Valid test model",
         description="A valid base model for validator tests.",
-        fair_metrics_spec=[{"name": "accuracy", "description": "Pixel accuracy", "higher_is_better": True}],
+        fair_metrics_spec=[{"key": "accuracy", "name": "Pixel accuracy", "higher_is_better": True}],
         providers=[{"name": "HOTOSM", "roles": ["producer"], "url": "https://www.hotosm.org"}],
         readme_href="https://example.com/README.md",
     )
@@ -629,7 +629,7 @@ class TestValidateMetricsAgainstSpec:
     def test_missing_declared_metric(self):
         model = _model()
         errors = validate_metrics_against_spec({}, model)
-        assert any("accuracy" in e for e in errors)
+        assert errors == ["Missing declared metric: accuracy"]
 
     def test_no_spec_allows_any_metrics(self):
         model = _model()

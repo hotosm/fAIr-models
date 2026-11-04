@@ -850,11 +850,13 @@ def test_register_base_model_skips_the_probe_without_a_domain(monkeypatch: pytes
 
 
 class _ReadyApi:
-    def __init__(self, conditions: list[dict[str, str]]) -> None:
+    def __init__(self, conditions: list[dict[str, str]], observed_generation: int = 1) -> None:
         self._conditions = conditions
+        self._observed_generation = observed_generation
 
     def get_namespaced_custom_object(self, **_: Any) -> dict[str, Any]:
-        return {"status": {"conditions": self._conditions}}
+        status = {"observedGeneration": self._observed_generation, "conditions": self._conditions}
+        return {"metadata": {"generation": 1}, "status": status}
 
     def list_namespaced_custom_object(self, **_: Any) -> dict[str, Any]:
         return {"items": []}
@@ -868,6 +870,8 @@ def test_wait_until_ready_states() -> None:
         )
     with pytest.raises(knative_module.KnativeServiceUnavailableError):
         knative_module._wait_until_ready(_ReadyApi([]), "svc", "predict", 0)
+    with pytest.raises(knative_module.KnativeServiceUnavailableError, match="not ready within"):
+        knative_module._wait_until_ready(_ReadyApi([{"type": "Ready", "status": "True"}], 0), "svc", "predict", 0)
 
 
 def test_node_pool_selector_key(monkeypatch: pytest.MonkeyPatch) -> None:

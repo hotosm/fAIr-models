@@ -14,7 +14,7 @@ from fair.stac.collections import (
     create_datasets_collection,
     create_local_models_collection,
 )
-from fair.stac.versioning import ensure_version_links, normalize_version_link_hrefs
+from fair.stac.versioning import normalize_version_link_hrefs, prepare_api_links
 
 log = logging.getLogger(__name__)
 
@@ -54,7 +54,7 @@ class PgStacBackend:
     def publish_item(self, collection_id: str, item: pystac.Item) -> pystac.Item:
         item.properties.setdefault("version", "1")
         item.properties["updated"] = datetime.now(UTC).isoformat()
-        ensure_version_links(item, self.item_href(collection_id, item.id))
+        prepare_api_links(item, self._stac_api_url)
         normalize_version_link_hrefs(item, self.item_href, collection_id)
         item_dict = item.to_dict(transform_hrefs=False)
         item_dict["collection"] = collection_id
@@ -103,4 +103,4 @@ class PgStacBackend:
         log.info("Deleted %s/%s", collection_id, item_id)
 
     def item_href(self, collection_id: str, item_id: str) -> str:
-        return f"{self._stac_api_url}/collections/{collection_id}/items/{item_id}"
+        return f"collections/{collection_id}/items/{item_id}"

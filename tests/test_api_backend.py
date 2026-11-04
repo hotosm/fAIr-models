@@ -56,6 +56,24 @@ def test_publish_item_posts_when_missing() -> None:
     assert b'"collection":"datasets"' in seen["body"]
 
 
+def test_publish_item_stores_catalog_links_relative_and_no_self() -> None:
+    seen: dict[str, Any] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "GET":
+            return httpx.Response(404)
+        seen["body"] = json.loads(request.content)
+        return httpx.Response(201, json={})
+
+    item = _build_dummy_item()
+    item.add_link(pystac.Link(rel="derived_from", target="https://stac.example/api/collections/base-models/items/bm"))
+    _make_backend(handler).publish_item("datasets", item)
+
+    assert {link["rel"]: link["href"] for link in seen["body"]["links"]} == {
+        "derived_from": "collections/base-models/items/bm"
+    }
+
+
 def test_publish_item_puts_when_present() -> None:
     method_seen: list[str] = []
 
@@ -162,7 +180,7 @@ def test_delete_item_tolerates_404() -> None:
 def test_item_href_format() -> None:
     backend = _make_backend(lambda _: httpx.Response(200, json={}))
     href = backend.item_href("datasets", "ds-1")
-    assert href == "https://stac.example/api/collections/datasets/items/ds-1"
+    assert href == "collections/datasets/items/ds-1"
 
 
 def test_init_bootstraps_collections_via_post_and_put() -> None:

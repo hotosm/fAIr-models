@@ -13,6 +13,8 @@ from fair.stac.versioning import (
     deprecate_and_link_successor,
     find_previous_active_item,
     normalize_version_link_hrefs,
+    prepare_api_links,
+    relativize_catalog_links,
 )
 
 _GEOM = {
@@ -78,13 +80,13 @@ class TestAddVersionLinks:
 
         return pystac.Item(item_id, _GEOM, _BBOX, datetime(2024, 1, 1, tzinfo=UTC), {})
 
-    def test_adds_self_and_latest(self) -> None:
+    def test_adds_self_but_no_latest_link_to_itself(self) -> None:
         item = self._bare_item("ds-1")
         add_version_links(item, "https://api/collections/datasets/items/ds-1", None)
         self_links = [lnk for lnk in item.links if lnk.rel == "self"]
         latest = [lnk for lnk in item.links if lnk.rel == "latest-version"]
         assert len(self_links) == 1
-        assert len(latest) == 1
+        assert latest == []
 
     def test_adds_predecessor(self) -> None:
         item = self._bare_item("ds-2")
@@ -191,3 +193,38 @@ class TestDeprecateAndLinkSuccessor:
         assert len(successor) == 1
         assert len(latest) == 0
         assert successor[0].get_href() == "https://api/ds-2"
+
+
+class TestItemReadBackFromTheApi:
+    """An item fetched from the STAC API carries absolute links on the API's own host."""
+
+    def _read_back(self) -> pystac.Item:
+        from datetime import UTC, datetime
+
+        item = pystac.Item("ds-1", _GEOM, _BBOX, datetime(2024, 1, 1, tzinfo=UTC), {})
+        item.add_link(pystac.Link(rel="latest-version", target="http://stac:8080/collections/datasets/items/ds-1"))
+        item.add_link(pystac.Link(rel="derived_from", target="http://stac:8080/collections/base-models/items/bm"))
+        item.add_link(pystac.Link(rel="license", target="https://www.apache.org/licenses/LICENSE-2.0"))
+        item.add_link(pystac.Link(rel="root", target="http://stac:8080/"))
+        return item
+
+    @pytest.mark.parametrize("catalog_url", ["http://stac:8080", "http://stac:8080/"])
+    def test_catalog_links_become_relative_and_external_links_stay(self, catalog_url: str) -> None:
+        item = self._read_back()
+
+        relativize_catalog_links(item, catalog_url)
+
+        assert {lnk.rel: lnk.target for lnk in item.links} == {
+            "latest-version": "collections/datasets/items/ds-1",
+            "derived_from": "collections/base-models/items/bm",
+            "license": "https://www.apache.org/licenses/LICENSE-2.0",
+            "root": "http://stac:8080/",
+        }
+
+    def test_republishing_drops_self_and_the_latest_link_of_a_current_item(self) -> None:
+        item = self._read_back()
+        item.add_link(pystac.Link(rel="self", target="http://stac:8080/collections/datasets/items/ds-1"))
+
+        prepare_api_links(item, "http://stac:8080")
+
+        assert [lnk.rel for lnk in item.links] == ["derived_from", "license", "root"]

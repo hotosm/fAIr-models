@@ -159,8 +159,12 @@
           "minItems": 1,
           "items": {
             "type": "object",
-            "required": ["name"],
+            "required": ["key", "name"],
             "properties": {
+              "key": {
+                "type": "string",
+                "minLength": 1
+              },
               "name": {
                 "type": "string",
                 "minLength": 1

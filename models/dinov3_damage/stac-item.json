@@ -94,22 +94,22 @@
     ],
     "fair:metrics_spec": [
       {
-        "key": "fair:dmg_macro_f1",
+        "key": "dmg_macro_f1",
         "name": "Damage macro F1",
         "description": "Mean of the per-class damage F1 scores over building pixels of the val windows, for the classes the labels contain."
       },
       {
-        "key": "fair:dmg_f1",
+        "key": "dmg_f1",
         "name": "Damage F1 (harmonic)",
         "description": "Harmonic mean of the per-class damage F1 scores for the classes the labels contain, the xBD damage score."
       },
       {
-        "key": "fair:destroyed_f1",
+        "key": "destroyed_f1",
         "name": "Destroyed F1",
         "description": "F1 of the destroyed class against all other classes over building pixels of the val windows."
       },
       {
-        "key": "fair:loc_iou",
+        "key": "loc_iou",
         "name": "Localization IoU",
         "description": "Building versus background pixel IoU of the localization head."
       }

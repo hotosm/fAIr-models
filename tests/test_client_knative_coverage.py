@@ -856,6 +856,25 @@ def _revision(name: str, digest: str, ready: str, message: str = "") -> dict[str
     }
 
 
+def test_register_base_model_with_local_images(monkeypatch: pytest.MonkeyPatch) -> None:
+    item = _build_base_model_item()
+    client, backend = _gated_client(monkeypatch, item)
+    monkeypatch.setattr(client, "_stac_api_url", "https://stac.example.com")
+    monkeypatch.setenv("FAIR_PREDICT_DOMAIN", "fair.example.com")
+    training_href = item.assets["mlm:training"].href
+
+    def fail(*_: Any, **__: Any) -> None:
+        raise AssertionError("Local examples do not use a remote registry or serving endpoint")
+
+    monkeypatch.setattr(client_module.registry, "pin_image_digests", fail)
+    monkeypatch.setattr(knative_module, "_knative_serving_installed", fail)
+    monkeypatch.setattr(knative_module, "probe_service_health", fail)
+
+    assert client.register_base_model("base.json", local_images=True) == item.id
+    assert item.assets["mlm:training"].href == training_href
+    assert backend.published == [(BASE_MODELS_COLLECTION, item)]
+
+
 class _ReadyApi:
     def __init__(self, revisions: list[dict[str, Any]], service_ready: str = "True") -> None:
         self._revisions = revisions

@@ -1,8 +1,10 @@
 # Examples
 
 End-to-end pipelines that register a base model, finetune on the sample
-Banepa OAM+OSM dataset, promote, and run inference. One runner for all
-models.
+dataset, promote, and run inference. Most models use Banepa OAM+OSM labels.
+ChesapeakeRSC v2 generates a small road dataset with two spatial blocks.
+Install the serving extra with `uv sync --extra k8s --extra serve` before
+running that example locally.
 
 ## Quick Start
 
@@ -38,10 +40,11 @@ uv run python examples/run.py dinov3s_buildings --epochs 1 --samples-per-epoch 6
 
 1. Reads `models/<name>/stac-item.json`; derives the task type from
    `mlm:tasks[0]` and the model id from `id`.
-2. Picks the matching dataset at `data/sample/buildings-banepa-<task>/stac-item.json`.
+2. Picks the matching dataset at `data/sample/buildings-banepa-<task>/stac-item.json`
+   or generates the ChesapeakeRSC road fixture.
 3. Calls `FairClient.setup → register_base_model → register_dataset →
 finetune → promote → predict`.
-4. Predicts on `data/sample/test/oam/`.
+4. Predicts on the example imagery.
 
 Each step runs inside the model's docker image (via ZenML's docker
 orchestrator). KNative serves that same image on a deployed cluster, see
@@ -75,3 +78,6 @@ just build <your_model>
 just example <your_model>
 just test-serve <your_model>
 ```
+
+`just example` registers locally built model images by tag, so it can run before
+the images are published. The serving test builds and starts its own container.

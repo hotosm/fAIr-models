@@ -29,16 +29,7 @@ def run(model: str, overrides: dict[str, object]) -> None:
     stac = json.loads(stac_path.read_text())
     base_id = stac["id"]
     task = stac["properties"]["mlm:tasks"][0]
-    dataset_name = f"buildings-banepa-{task}"
-    dataset_path = f"data/sample/{dataset_name}/stac-item.json"
-    predict_chips = "data/sample/test/oam"
-    if model == "chesapeake_rsc_v2":
-        from models.chesapeake_rsc_v2.example_data import create_toy_data
-
-        fixture = create_toy_data(Path(f"examples/{model}/config/sample-roads"))
-        dataset_name = "toy-chesapeake-rsc-v2"
-        dataset_path = str(fixture["dataset_stac_item"])
-        predict_chips = str(fixture["chips"])
+    dataset_path = f"data/sample/buildings-banepa-{task}/stac-item.json"
 
     client = FairClient(
         zenml_store_url=os.environ.get("FAIR_ZENML_STORE_URL"),
@@ -51,9 +42,7 @@ def run(model: str, overrides: dict[str, object]) -> None:
     install_s3_cleanup_handler()
     client.setup()
 
-    base_model_id = client.register_base_model(
-        str(stac_path), local_images=os.environ.get("FAIR_EXAMPLE_LOCAL_IMAGES") == "1"
-    )
+    base_model_id = client.register_base_model(str(stac_path))
     dataset_id = client.register_dataset(dataset_path)
     finetuned_model_id = client.finetune(
         base_model_id=base_model_id,
@@ -63,9 +52,9 @@ def run(model: str, overrides: dict[str, object]) -> None:
     )
     local_model_id = client.promote(
         finetuned_model_id,
-        description=f"{base_id} finetuned on {dataset_name}",
+        description=f"{base_id} finetuned on buildings-banepa-{task}",
     )
-    client.predict(local_model_id, {"image": predict_chips})
+    client.predict(local_model_id, {"image": "data/sample/test/oam"})
 
 
 def main() -> int:

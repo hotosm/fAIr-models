@@ -14,7 +14,7 @@ Send north-up chips with a shared CRS in one request to connect roads across til
 
 Fine-tuning starts from the RGB checkpoint and accepts same-zoom OAM-named chips with WGS84 road labels. Polygons rasterize directly. Centerlines use a configurable road width of 4 m by default. Labels should cover all roads in each chip because unlabeled pixels count as background.
 
-Training and validation hold out whole spatial blocks and require at least two blocks. Validation reports road pixel F1 and IoU. The pipeline exports the fine-tuned model to ONNX. The supplied image uses CPU PyTorch.
+Training and validation hold out whole spatial blocks and require at least two blocks. Validation reports road pixel F1 and IoU. The pipeline exports the fine-tuned model to ONNX. The supplied image uses CPU PyTorch. The shared model integration test uses synthetic road labels included with this model.
 
 Follow the [fAIr contribution guide](https://hotosm.github.io/fAIr-models/contributing/model/) for installation, training, and serving commands.
 

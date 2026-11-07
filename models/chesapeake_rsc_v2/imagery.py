@@ -53,8 +53,10 @@ def read_chip(src: rasterio.DatasetReader) -> tuple[np.ndarray, np.ndarray, Affi
         raise ValueError(f"Chip exceeds 2048 pixels at {GSD} m GSD. Request smaller tiles or a higher zoom.")
     transform = src.transform * Affine.scale(src.width / width, src.height / height)
     rgb = src.read([1, 2, 3], out_shape=(3, height, width), resampling=Resampling.bilinear)
-    valid = (src.read_masks([1, 2, 3], out_shape=(3, height, width)) != 0).all(axis=0)
-    return rgb.astype(np.float32) / 255.0, valid, transform
+    valid = src.read_masks([1, 2, 3], out_shape=(3, height, width)).all(axis=0)
+    rgb = rgb.astype(np.float32)
+    rgb /= 255.0
+    return rgb, valid, transform
 
 
 def padded_size(length: int) -> int:

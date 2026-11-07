@@ -79,7 +79,7 @@ def _mosaic(paths: list[Path]) -> tuple[np.ndarray, np.ndarray, Affine, CRS]:
             continue
         with rasterio.open(path) as src:
             image = src.read([1, 2, 3], out_shape=(3, h, w), resampling=Resampling.bilinear)
-            mask = (src.read_masks([1, 2, 3], out_shape=(3, h, w)) != 0).all(axis=0)
+            mask = src.read_masks([1, 2, 3], out_shape=(3, h, w)).all(axis=0)
         np.copyto(rgb[:, top:bottom, left:right], image, where=mask[None])
         valid[top:bottom, left:right] |= mask
     return rgb, valid, grid, crs
@@ -100,8 +100,9 @@ def _blend_probabilities(session: Any, rgb: np.ndarray, valid: np.ndarray) -> np
     batch = np.empty((1, 3, padded_size(h), padded_size(w)), dtype=np.float32)
     window_weights = np.empty_like(weights)
     input_name = session.get_inputs()[0].name
+    column_starts = _patch_starts(width)
     for y in _patch_starts(height):
-        for x in _patch_starts(width):
+        for x in column_starts:
             window = np.s_[y : y + h, x : x + w]
             mask = valid[window]
             if not mask.any():
@@ -115,7 +116,8 @@ def _blend_probabilities(session: Any, rgb: np.ndarray, valid: np.ndarray) -> np
             probability *= window_weights
             score[window] += probability
             weight_sum[window] += window_weights
-    np.divide(score, weight_sum, out=score, where=weight_sum > 0)
+    np.maximum(weight_sum, 1e-3, out=weight_sum)
+    score /= weight_sum
     return score
 
 

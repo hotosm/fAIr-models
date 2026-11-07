@@ -21,6 +21,8 @@ def probability_ridges(probability: np.ndarray, valid: np.ndarray, minimum: floa
     radius = 6
     # Gaussian support, one interpolation pixel, and two pixels for closing.
     halo = radius + 3
+    cols = np.arange(width, dtype=np.float32)[None, :]
+    structure = np.ones((3, 3), dtype=bool)
     for start in range(0, height, 256):
         stop = min(start + 256, height)
         first, last = max(0, start - halo), min(height, stop + halo)
@@ -35,7 +37,6 @@ def probability_ridges(probability: np.ndarray, valid: np.ndarray, minimum: floa
         normal_angle *= 0.5
 
         rows = np.arange(last - first, dtype=np.float32)[:, None]
-        cols = np.arange(width, dtype=np.float32)[None, :]
         coordinates = np.empty((2, *patch.shape), dtype=np.float32)
         np.sin(normal_angle, out=coordinates[0])
         np.negative(coordinates[0], out=coordinates[0])
@@ -50,7 +51,7 @@ def probability_ridges(probability: np.ndarray, valid: np.ndarray, minimum: floa
         peaks &= smoothed >= scratch
         peaks &= smoothed >= minimum
         peaks &= valid[first:last]
-        closed = ndi.binary_closing(peaks, structure=np.ones((3, 3), dtype=bool))
+        closed = ndi.binary_closing(peaks, structure=structure)
         np.logical_and(closed[start - first : stop - first], valid[start:stop], out=ridges[start:stop])
     return ridges
 

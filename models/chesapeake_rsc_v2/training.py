@@ -12,16 +12,15 @@ import numpy as np
 import rasterio
 import segmentation_models_pytorch as smp
 import torch
-from pyproj import Transformer
 from rasterio.features import rasterize
+from rasterio.warp import transform_geom
 from shapely.geometry import shape
-from shapely.ops import transform as transform_geometry
 from torch.nn.functional import pad
 from torch.utils.data import Dataset
 
 from fair.utils.data import resolve_directory, resolve_path
 
-from .imagery import chip_paths, padded_size, read_chip
+from .imagery import chip_paths, local_metric_crs, padded_size, read_chip
 
 IGNORE = 255
 TILE = re.compile(r"OAM-(\d+)-(\d+)-(\d+)\.(?:tif|tiff)", re.IGNORECASE)
@@ -87,20 +86,15 @@ class RoadChips(Dataset):
     def __getitem__(self, index: int) -> tuple[torch.Tensor, torch.Tensor]:
         with rasterio.open(self.paths[index]) as src:
             rgb, valid, transform = read_chip(src)
-            to_lonlat = Transformer.from_crs(src.crs, 4326, always_xy=True)
-            lon, lat = to_lonlat.transform(*(src.transform * (src.width / 2, src.height / 2)))
-            # Buffer centerline labels by a physical road width on a local metric grid.
-            utm = (32600 if lat >= 0 else 32700) + min(60, max(1, int((lon + 180) // 6) + 1))
-            to_utm = Transformer.from_crs(4326, utm, always_xy=True)
-            from_utm = Transformer.from_crs(utm, src.crs, always_xy=True)
-            from_lonlat = Transformer.from_crs(4326, src.crs, always_xy=True)
+            metric_crs = local_metric_crs(src.bounds, src.crs)
             geoms = []
             for geom in self.geometries:
                 if "LineString" in geom.geom_type:
-                    buffered = transform_geometry(to_utm.transform, geom).buffer(self.road_width_m / 2)
-                    geoms.append(transform_geometry(from_utm.transform, buffered))
+                    metric = shape(transform_geom("EPSG:4326", metric_crs, geom))
+                    geom = metric.buffer(self.road_width_m / 2)
+                    geoms.append(transform_geom(metric_crs, src.crs, geom))
                 else:
-                    geoms.append(transform_geometry(from_lonlat.transform, geom))
+                    geoms.append(transform_geom("EPSG:4326", src.crs, geom))
             target = (
                 rasterize(geoms, out_shape=valid.shape, transform=transform, dtype="uint8")
                 if geoms

@@ -4,8 +4,9 @@ from collections import Counter
 from collections.abc import Iterator
 
 import numpy as np
-from affine import Affine
-from pyproj import Transformer
+from rasterio.crs import CRS
+from rasterio.transform import Affine
+from rasterio.warp import transform_geom
 from scipy import ndimage as ndi
 from shapely import LineString, MultiLineString, line_merge
 from skimage.morphology import skeletonize
@@ -68,7 +69,7 @@ def _edges(skeleton: np.ndarray) -> Iterator[tuple[Pixel, Pixel]]:
             yield (col, row), (c, r)
 
 
-def trace(mask: np.ndarray, grid: Affine, to_lonlat: Transformer) -> list[dict]:
+def trace(mask: np.ndarray, grid: Affine, crs: CRS) -> list[dict]:
     """Return WGS84 road features, pruning short terminal spurs at junctions."""
     edges = list(_edges(skeletonize(mask)))
     if not edges:
@@ -82,11 +83,11 @@ def trace(mask: np.ndarray, grid: Affine, to_lonlat: Transformer) -> list[dict]:
         degrees = sorted((degree[start], degree[end]))
         if line.length < 4 and degrees[0] == 1 and degrees[1] >= 3:
             continue
-        coords = [to_lonlat.transform(*(grid * (x + 0.5, y + 0.5))) for x, y in line.simplify(0.5).coords]
+        coords = [grid * (x + 0.5, y + 0.5) for x, y in line.simplify(0.5).coords]
         features.append(
             {
                 "type": "Feature",
-                "geometry": {"type": "LineString", "coordinates": coords},
+                "geometry": transform_geom(crs, "EPSG:4326", {"type": "LineString", "coordinates": coords}),
                 "properties": {"class": 1, "label": "road"},
             }
         )

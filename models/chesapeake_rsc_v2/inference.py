@@ -37,18 +37,15 @@ def preprocess(image_path: Any) -> np.ndarray:
     return batch
 
 
-def _road_probability(logits: np.ndarray) -> np.ndarray:
+def postprocess(logits: Any) -> np.ndarray:
+    """Convert two-class logits to road probabilities."""
+    logits = np.asarray(logits)
     probability = logits[:, 0] - logits[:, 1]
     np.clip(probability, -80, 80, out=probability)
     np.exp(probability, out=probability)
     probability += 1
     np.reciprocal(probability, out=probability)
     return probability
-
-
-def postprocess(logits: Any, confidence_threshold: float = 0.25) -> np.ndarray:
-    """Threshold a single window's two-class logits."""
-    return _road_probability(np.asarray(logits)) >= confidence_threshold
 
 
 def _mosaic(paths: list[Path]) -> tuple[np.ndarray, np.ndarray, Affine, CRS]:
@@ -96,7 +93,7 @@ def _patch_starts(extent: int) -> list[int]:
 
 
 def _blend_probabilities(session: Any, rgb: np.ndarray, valid: np.ndarray) -> np.ndarray:
-    """Accumulate probabilities with the FTW pipeline's positive Hann weights."""
+    """Blend overlapping road probabilities with positive Hann weights."""
     height, width = valid.shape
     h, w = min(height, PATCH_SIZE), min(width, PATCH_SIZE)
     weights = np.maximum(np.outer(np.hanning(h), np.hanning(w)), 1e-3).astype(np.float32)
@@ -116,7 +113,7 @@ def _blend_probabilities(session: Any, rgb: np.ndarray, valid: np.ndarray) -> np
             if not np.isfinite(logits).all():
                 raise ValueError("Model produced non-finite road logits")
             np.multiply(weights, mask, out=window_weights)
-            probability = _road_probability(logits)[0]
+            probability = postprocess(logits)[0]
             probability *= window_weights
             score[window] += probability
             weight_sum[window] += window_weights
@@ -125,24 +122,16 @@ def _blend_probabilities(session: Any, rgb: np.ndarray, valid: np.ndarray) -> np
 
 
 def predict(session: Any, input_images: dict[str, str], params: dict[str, Any]) -> dict[str, Any]:
-    """Mosaic chips, blend probabilities, and trace the combined road mask."""
+    """Mosaic chips, blend road probabilities, and trace centerlines."""
     from .centerlines import probability_ridges, trace
 
-    method = params.get("trace_method", "ridge")
-    if method not in ("ridge", "mask"):
-        raise ValueError("trace_method must be ridge or mask")
-    key, default = ("ridge_min_probability", 0.08) if method == "ridge" else ("confidence_threshold", 0.25)
-    threshold = float(params.get(key, default))
+    threshold = float(params.get("confidence_threshold", 0.08))
     if not 0 <= threshold <= 1:
-        raise ValueError(f"{key} must be between zero and one")
+        raise ValueError("confidence_threshold must be between zero and one")
     rgb, valid, grid, crs = _mosaic(chip_paths(input_images["image"]))
     probability = _blend_probabilities(session, rgb, valid)
     del rgb
-    if method == "ridge":
-        road = probability_ridges(probability, valid, threshold)
-    else:
-        road = probability >= threshold
-        road &= valid
+    road = probability_ridges(probability, valid, threshold)
     del probability
     return {
         "type": "FeatureCollection",

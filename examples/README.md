@@ -2,15 +2,14 @@
 
 End-to-end pipelines that register a base model, finetune on the sample
 dataset, promote, and run inference. Most models use Banepa OAM+OSM labels.
-ChesapeakeRSC v2 generates a small road dataset with two spatial blocks.
-Install the serving extra with `uv sync --extra k8s --extra serve` before
-running that example locally.
+The ChesapeakeRSC v2 example uses synthetic road labels and requires the
+serving extra (`uv sync --extra k8s --extra serve`).
 
 ## Quick Start
 
 ```bash
 just setup                          # bring up the stack
-just build                          # build all model images
+just build                          # build local model images
 just example                        # run all examples end-to-end
 ```
 
@@ -78,6 +77,3 @@ just build <your_model>
 just example <your_model>
 just test-serve <your_model>
 ```
-
-`just example` registers locally built model images by tag, so it can run before
-the images are published. The serving test builds and starts its own container.

@@ -102,28 +102,11 @@
     ],
     "fair:hyperparameters_spec": [
       {
-        "key": "trace_method",
-        "name": "Centerline method",
-        "description": "Trace ridges in the float road probabilities or skeletonize a thresholded mask.",
-        "type": "str",
-        "default": "ridge",
-        "values": ["ridge", "mask"]
-      },
-      {
-        "key": "ridge_min_probability",
-        "name": "Ridge probability floor",
-        "description": "Minimum smoothed road probability for a ridge candidate.",
-        "type": "float",
-        "default": 0.08,
-        "min": 0.0,
-        "max": 1.0
-      },
-      {
         "key": "confidence_threshold",
         "name": "Confidence threshold",
-        "description": "Minimum road pixel probability in mask mode.",
+        "description": "Minimum smoothed road probability for a centerline ridge.",
         "type": "float",
-        "default": 0.25,
+        "default": 0.08,
         "min": 0.0,
         "max": 1.0
       },
@@ -348,9 +331,7 @@
       }
     },
     "mlm:hyperparameters": {
-      "inference.trace_method": "ridge",
-      "inference.ridge_min_probability": 0.08,
-      "inference.confidence_threshold": 0.25,
+      "inference.confidence_threshold": 0.08,
       "training.epochs": 5,
       "training.batch_size": 2,
       "training.learning_rate": 0.0001,

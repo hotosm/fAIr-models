@@ -1,0 +1,8 @@
+onnxruntime==1.28.0
+rasterio==1.5.1
+pyproj==3.7.2
+shapely==2.1.2
+numpy==2.4.2
+scikit-image==0.26.0
+scipy==1.17.1
+affine==2.4.0

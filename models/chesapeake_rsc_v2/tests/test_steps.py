@@ -79,8 +79,7 @@ def test_export_onnx(trained):
         assert np.isfinite(logits).all()
 
 
-@pytest.mark.parametrize("method", ["ridge", "mask"])
-def test_run_inference(toy_chips, tmp_path, method):
+def test_run_inference(toy_chips, tmp_path):
     for chip in sorted(toy_chips.glob("*.tif"))[:2]:
         (tmp_path / chip.name).symlink_to(chip)
 
@@ -92,7 +91,7 @@ def test_run_inference(toy_chips, tmp_path, method):
             road = 10 * (inputs["image"][:, 0] - 0.5)
             return [np.stack((-road, road), axis=1)]
 
-    result = pipeline.predict(Session(), {"image": str(tmp_path)}, {"trace_method": method})
+    result = pipeline.predict(Session(), {"image": str(tmp_path)}, {})
     assert len(result["features"]) == 1
     feature = result["features"][0]
     assert feature["properties"] == {"class": 1, "label": "road"}
@@ -101,7 +100,7 @@ def test_run_inference(toy_chips, tmp_path, method):
         seam = src.bounds.right
     x = [lon for lon, _ in feature["geometry"]["coordinates"]]
     assert min(x) < seam < max(x)
-    params = {"trace_method": method, "confidence_threshold": 1, "ridge_min_probability": 1}
+    params = {"confidence_threshold": 1}
     assert pipeline.predict(Session(), {"image": str(tmp_path)}, params)["features"] == []
 
 

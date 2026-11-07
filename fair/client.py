@@ -250,11 +250,12 @@ class FairClient:
             item.properties.setdefault("version", "1")
 
         # Deploy and verify before uploads or publication to avoid partial state.
-        if not local_images:
-            if self._stac_api_url and knative._knative_serving_installed():
-                knative.ensure_knative_service(item, namespace=knative_namespace, template_path=knative_template)
-            if endpoint_href := self._ensure_inference_endpoint(item):
-                self._verify_predict_service(endpoint_href)
+        if self._stac_api_url and knative._knative_serving_installed():
+            knative.ensure_knative_service(item, namespace=knative_namespace, template_path=knative_template)
+
+        endpoint_href = self._ensure_inference_endpoint(item)
+        if endpoint_href:
+            self._verify_predict_service(endpoint_href)
 
         if self._upload_artifacts:
             self._mirror_asset_to_artifact_store(item, "checkpoint", BASE_MODELS_COLLECTION)

@@ -11,7 +11,7 @@ import pytest
 import rasterio
 import segmentation_models_pytorch as smp
 import torch
-from pyproj import Transformer
+from rasterio.crs import CRS
 from rasterio.transform import from_origin
 
 from models.chesapeake_rsc_v2 import inference, pipeline
@@ -109,7 +109,7 @@ def test_centerline_junction():
     mask[16, 2:30] = True
     mask[4:17, 16] = True
     mask[17:19, 16] = True
-    features = trace(mask, from_origin(85, 27, 0.00001, 0.00001), Transformer.from_crs(4326, 4326, always_xy=True))
+    features = trace(mask, from_origin(85, 27, 0.00001, 0.00001), CRS.from_epsg(4326))
     assert len(features) == 3
     ends = [
         tuple(point) for f in features for point in (f["geometry"]["coordinates"][0], f["geometry"]["coordinates"][-1])
@@ -170,3 +170,12 @@ def test_ridge_spans_processing_stripes():
     assert not (probability >= 0.25).any()
     assert ridges[1:-1, 16].all()
     assert ridges.sum() == 538
+
+
+def test_centerlines_reproject_to_wgs84():
+    mask = np.zeros((8, 8), dtype=bool)
+    mask[4, 1:7] = True
+    grid = from_origin(111319.49079327357, 111325.1428663851, 1, 1)
+    features = trace(mask, grid, CRS.from_epsg(3857))
+    coords = features[0]["geometry"]["coordinates"]
+    assert all(1 < lon < 1.001 and 0.999 < lat < 1 for lon, lat in coords)

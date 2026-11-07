@@ -215,7 +215,6 @@ class FairClient:
         *,
         knative_template: str | None = None,
         knative_namespace: str | None = None,
-        local_images: bool = False,
     ) -> str:
         cat = self._get_backend()
         if isinstance(stac_item, str):
@@ -229,7 +228,7 @@ class FairClient:
             raise FairClientError(f"Schema validation failed: {errs}")
         if errs := validate_model_asset_urls(item):
             raise FairClientError(f"Asset URL validation failed: {errs}")
-        if self._stac_api_url and not local_images:
+        if self._stac_api_url:
             try:
                 registry.pin_image_digests(item)
             except registry.RegistryError as exc:
@@ -243,11 +242,12 @@ class FairClient:
             item.properties.setdefault("version", "1")
 
         # Deploy and verify before uploads or publication to avoid partial state.
-        if not local_images:
-            if self._stac_api_url and knative._knative_serving_installed():
-                knative.ensure_knative_service(item, namespace=knative_namespace, template_path=knative_template)
-            if endpoint_href := self._ensure_inference_endpoint(item):
-                self._verify_predict_service(endpoint_href)
+        if self._stac_api_url and knative._knative_serving_installed():
+            knative.ensure_knative_service(item, namespace=knative_namespace, template_path=knative_template)
+
+        endpoint_href = self._ensure_inference_endpoint(item)
+        if endpoint_href:
+            self._verify_predict_service(endpoint_href)
 
         if self._upload_artifacts:
             self._mirror_asset_to_artifact_store(item, "checkpoint", BASE_MODELS_COLLECTION)

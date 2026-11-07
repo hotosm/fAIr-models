@@ -35,7 +35,6 @@ example model="":
     export FAIR_STAC_API_URL=http://localhost:8082
     export FAIR_DSN=postgresql://postgres:postgres@localhost:5432/fair_models
     export FAIR_UPLOAD_ARTIFACTS=true
-    export FAIR_EXAMPLE_LOCAL_IMAGES=1
     uv run python examples/run.py {{ model }}
 
 [doc('Serve a model inference container on http://localhost:8090 (Ctrl-C to stop)')]

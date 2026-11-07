@@ -5,12 +5,10 @@ from typing import Any
 
 import numpy as np
 import rasterio
-from affine import Affine
-from pyproj import Transformer
 from rasterio.coords import BoundingBox
 from rasterio.crs import CRS
 from rasterio.enums import Resampling
-from rasterio.transform import from_bounds
+from rasterio.transform import Affine, from_bounds
 
 from .imagery import chip_paths, padded_size, read_chip, target_shape, validate_rgb
 
@@ -135,5 +133,5 @@ def predict(session: Any, input_images: dict[str, str], params: dict[str, Any]) 
     del probability
     return {
         "type": "FeatureCollection",
-        "features": trace(road, grid, Transformer.from_crs(crs, 4326, always_xy=True)),
+        "features": trace(road, grid, crs),
     }

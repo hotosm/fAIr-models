@@ -26,7 +26,7 @@ Validate predictions for new regions and imagery sources. Canopy and junctions c
 
 Weights and model code use MIT. The dataset is CC0-1.0. The fAIr runtime uses AGPL-3.0-only.
 
-Inference dependencies are pinned in requirements-inference.txt. ONNX Runtime, pyproj, and geomltoolkits use MIT. NumPy, SciPy, scikit-image, Rasterio, Affine, and Shapely use BSD-3-Clause. Training adds PyTorch and torchvision (BSD-3-Clause), segmentation-models-pytorch (MIT), and ONNX (Apache-2.0). fAIr also uses ZenML and MLflow (Apache-2.0).
+Inference dependencies are pinned in requirements-inference.txt. ONNX Runtime and geomltoolkits use MIT. NumPy, SciPy, scikit-image, Rasterio, and Shapely use BSD-3-Clause. Training adds PyTorch and torchvision (BSD-3-Clause), segmentation-models-pytorch (MIT), and ONNX (Apache-2.0). fAIr also uses ZenML and MLflow (Apache-2.0).
 
 ## Citation
 

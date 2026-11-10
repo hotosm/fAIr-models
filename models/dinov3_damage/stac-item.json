@@ -37,7 +37,7 @@
     "mlm:framework_version": "2.7.1",
     "mlm:pretrained": true,
     "mlm:pretrained_source": "https://arxiv.org/abs/1911.09296",
-    "mlm:accelerator": "cuda",
+    "mlm:accelerator": "amd64",
     "mlm:accelerator_count": 1,
     "fair:pinned": false,
     "fair:min_scale": 0,
@@ -468,13 +468,16 @@
       "href": "ghcr.io/hotosm/fair-models/dinov3_damage:latest",
       "type": "application/vnd.oci.image.index.v1+json",
       "title": "Training Docker Image",
-      "roles": ["mlm:training-runtime"]
+      "roles": ["mlm:training-runtime"],
+      "mlm:accelerator": "cuda",
+      "mlm:accelerator_count": 1
     },
     "mlm:inference": {
       "href": "ghcr.io/hotosm/fair-models/dinov3_damage:latest-inference",
       "type": "application/vnd.oci.image.index.v1+json",
       "title": "Inference Docker Image",
-      "roles": ["mlm:inference-runtime"]
+      "roles": ["mlm:inference-runtime"],
+      "mlm:accelerator": "amd64"
     },
     "readme": {
       "href": "https://raw.githubusercontent.com/hotosm/fAIr-models/refs/heads/develop/models/dinov3_damage/README.md",

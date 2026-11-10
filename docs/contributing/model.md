@@ -790,11 +790,11 @@ what `"accuracy"` means (pixel accuracy? per-class? mean IoU?).
 
 Each entry must declare:
 
-| Field         | Type   | Description                                                                                 |
-| ------------- | ------ | ------------------------------------------------------------------------------------------- |
-| `key`         | string | Key in the local model's `fair:metrics`, as `evaluate_model` returns it (e.g. `accuracy`)   |
-| `name`        | string | Human-readable metric name                                                                  |
-| `description` | string | Precise definition including averaging strategy                                             |
+| Field         | Type   | Description                                                                               |
+| ------------- | ------ | ----------------------------------------------------------------------------------------- |
+| `key`         | string | Key in the local model's `fair:metrics`, as `evaluate_model` returns it (e.g. `accuracy`) |
+| `name`        | string | Human-readable metric name                                                                |
+| `description` | string | Precise definition including averaging strategy                                           |
 
 === "Building segmentation"
 
@@ -1139,13 +1139,16 @@ data_type), `classification:classes` (one entry per output class with
             "href": "ghcr.io/hotosm/fair-models/dinov3s_buildings:dev",
             "type": "application/vnd.oci.image.index.v1+json",
             "title": "Training runtime image",
-            "roles": ["mlm:training-runtime"]
+            "roles": ["mlm:training-runtime"],
+            "mlm:accelerator": "cuda",
+            "mlm:accelerator_count": 1
         },
         "mlm:inference": {
             "href": "ghcr.io/hotosm/fair-models/dinov3s_buildings:dev-inference",
             "type": "application/vnd.oci.image.index.v1+json",
             "title": "Inference runtime image",
-            "roles": ["mlm:inference-runtime"]
+            "roles": ["mlm:inference-runtime"],
+            "mlm:accelerator": "amd64"
         },
         "readme": {
             "href": "https://raw.githubusercontent.com/hotosm/fAIr-models/refs/heads/develop/models/dinov3s_buildings/README.md",
@@ -1155,6 +1158,12 @@ data_type), `classification:classes` (one entry per output class with
         }
     }
     ```
+
+Each runtime asset declares its hardware with `mlm:accelerator` and `mlm:accelerator_count`
+([MLM nests accelerators under their asset](https://github.com/stac-extensions/mlm#item-properties-and-collection-fields)).
+Training reads the `mlm:training` asset and offline prediction the `mlm:inference` asset;
+each falls back to the item-level fields. Setting the `mlm:inference` accelerator to `cuda`
+moves offline prediction to a GPU.
 
 The `checkpoint` asset `href` **must** be a direct HTTPS URL pointing to
 the pretrained weights file (e.g. a HuggingFace commit-pinned URL, a GitHub

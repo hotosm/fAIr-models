@@ -314,6 +314,50 @@ def test_k8s_settings_default_count():
     assert settings["orchestrator.kubernetes"]["pod_settings"]["resources"]["limits"]["nvidia.com/gpu"] == "1"
 
 
+def _with_runtime_accelerator(item: pystac.Item, asset: str, accelerator: str, count: int = 1) -> pystac.Item:
+    item.add_asset(
+        asset,
+        pystac.Asset(
+            href="ghcr.io/hotosm/model:latest",
+            extra_fields={"mlm:accelerator": accelerator, "mlm:accelerator_count": count},
+        ),
+    )
+    return item
+
+
+def _gpu_request(settings: dict) -> str | None:
+    return settings["orchestrator.kubernetes"]["pod_settings"]["resources"].get("requests", {}).get("nvidia.com/gpu")
+
+
+def test_training_and_inference_read_their_own_runtime_asset():
+    item = _with_runtime_accelerator(_item_with_accelerator("amd64"), "mlm:training", "cuda")
+
+    assert (
+        _gpu_request(_scheduling_settings(item, "training")),
+        _gpu_request(_scheduling_settings(item, "inference")),
+    ) == ("1", None)
+
+
+def test_inference_asset_keeps_a_cuda_trained_model_on_cpu():
+    item = _with_runtime_accelerator(_item_with_accelerator("cuda"), "mlm:inference", "amd64")
+
+    assert _gpu_request(_scheduling_settings(item, "inference")) is None
+
+
+def test_inference_asset_switches_offline_prediction_to_gpu():
+    item = _with_runtime_accelerator(_item_with_accelerator("amd64"), "mlm:inference", "cuda", count=2)
+
+    assert _gpu_request(_scheduling_settings(item, "inference")) == "2"
+
+
+def test_published_local_model_keeps_the_base_inference_accelerator():
+    base = _with_runtime_accelerator(_item_with_accelerator("cuda"), "mlm:inference", "amd64")
+
+    local = _local_model(base_model_item=base)
+
+    assert _gpu_request(_scheduling_settings(local, "inference")) is None
+
+
 def test_k8s_resources_global_env_override(monkeypatch):
     monkeypatch.setenv("FAIR_K8S_MEMORY_REQUEST", "8Gi")
     monkeypatch.setenv("FAIR_K8S_MEMORY_LIMIT", "12Gi")

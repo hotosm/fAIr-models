@@ -37,7 +37,7 @@
     "mlm:framework_version": "2.10.0",
     "mlm:pretrained": true,
     "mlm:pretrained_source": "https://raw.githubusercontent.com/GIScience/solid-waste-detection-for-fAIr/9f62fd1e4de6905a38620c195a6e62bcef280956/data/checkpoint/checkpoint_v1_extra_large.pt",
-    "mlm:accelerator": "cuda",
+    "mlm:accelerator": "amd64",
     "mlm:accelerator_count": 1,
     "fair:recommended_zoom": 22,
     "fair:min_zoom": 20,
@@ -358,13 +358,16 @@
       "href": "ghcr.io/hotosm/fair-models/yolo_swag_waste_grid_segmentation:latest",
       "type": "application/vnd.oci.image.index.v1+json",
       "title": "Training Docker Image",
-      "roles": ["mlm:training-runtime"]
+      "roles": ["mlm:training-runtime"],
+      "mlm:accelerator": "cuda",
+      "mlm:accelerator_count": 1
     },
     "mlm:inference": {
       "href": "ghcr.io/hotosm/fair-models/yolo_swag_waste_grid_segmentation:latest-inference",
       "type": "application/vnd.oci.image.index.v1+json",
       "title": "Inference Docker Image",
-      "roles": ["mlm:inference-runtime"]
+      "roles": ["mlm:inference-runtime"],
+      "mlm:accelerator": "amd64"
     },
     "readme": {
       "href": "https://raw.githubusercontent.com/GIScience/fAIr-models/refs/heads/master/models/yolo_swag_waste_grid_segmentation/README.md",

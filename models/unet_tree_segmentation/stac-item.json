@@ -123,7 +123,9 @@
         "tasks": ["semantic-segmentation"],
         "result": { "shape": [-1, 2], "dim_order": ["batch", "variables"], "data_type": "float32" },
         "variables": ["class", "label"],
-        "classification:classes": [{ "name": "tree", "value": 1, "description": "Tree crown pixels" }],
+        "classification:classes": [
+          { "name": "tree", "value": 1, "description": "Tree crown pixels" }
+        ],
         "post_processing_function": {
           "format": "python",
           "expression": "models.unet_tree_segmentation.pipeline:postprocess"
@@ -174,7 +176,8 @@
     "mlm:inference": {
       "href": "ghcr.io/hotosm/fair-models/unet_tree_segmentation:latest-inference",
       "type": "application/vnd.oci.image.index.v1+json",
-      "roles": ["mlm:inference-runtime"]
+      "roles": ["mlm:inference-runtime"],
+      "mlm:accelerator": "amd64"
     },
     "batch-inference": {
       "href": "ghcr.io/hotosm/fair-models/unet_tree_segmentation:latest",

@@ -37,5 +37,6 @@ DATASETS_COLLECTION = "datasets"
 CONTAINER_REGISTRIES = ("ghcr.io", "docker.io", "quay.io")
 
 TRAINING_ASSET = "mlm:training"
+INFERENCE_ASSET = "mlm:inference"
 # Full toolchain image for batch predictions of a model that has no training runtime.
 BATCH_INFERENCE_ASSET = "batch-inference"

@@ -8,7 +8,13 @@ from typing import Any
 import pystac
 
 from fair.params import inference_params, training_params
-from fair.stac.constants import BATCH_INFERENCE_ASSET, CONTAINER_REGISTRIES, OCI_IMAGE_INDEX_TYPE, TRAINING_ASSET
+from fair.stac.constants import (
+    BATCH_INFERENCE_ASSET,
+    CONTAINER_REGISTRIES,
+    INFERENCE_ASSET,
+    OCI_IMAGE_INDEX_TYPE,
+    TRAINING_ASSET,
+)
 from fair.stac.inputs import dataset_chips_assets, input_names, require_imagery_for_inputs
 from fair.stac.validators import batch_runtime, validate_inference_params
 from fair.utils.data import http_url_to_s3_uri
@@ -85,6 +91,18 @@ def _cpu_resources(workload: str) -> dict[str, dict[str, str]]:
     return resources
 
 
+_WORKLOAD_ASSETS = {"training": TRAINING_ASSET, "inference": INFERENCE_ASSET}
+
+
+def _accelerator(item: pystac.Item, workload: str) -> tuple[str | None, str]:
+    """Accelerator fields of the workload's runtime asset, else the item's; MLM allows both levels."""
+    asset = item.assets.get(_WORKLOAD_ASSETS[workload])
+    fields = asset.extra_fields if asset is not None else {}
+    accelerator = fields.get("mlm:accelerator", item.properties.get("mlm:accelerator"))
+    count = fields.get("mlm:accelerator_count", item.properties.get("mlm:accelerator_count", 1))
+    return accelerator, str(count)
+
+
 def _scheduling_settings(item: pystac.Item, workload: str) -> dict[str, Any]:
     cpu_resources = _cpu_resources(workload)
 
@@ -99,7 +117,7 @@ def _scheduling_settings(item: pystac.Item, workload: str) -> dict[str, Any]:
             }
         }
 
-    accelerator = item.properties.get("mlm:accelerator")
+    accelerator, count = _accelerator(item, workload)
     if not accelerator or accelerator in ("amd64", "cpu"):
         return {
             "orchestrator.kubernetes": {
@@ -110,7 +128,6 @@ def _scheduling_settings(item: pystac.Item, workload: str) -> dict[str, Any]:
                 }
             }
         }
-    count = str(item.properties.get("mlm:accelerator_count", 1))
     return {
         "orchestrator.kubernetes": {
             "pod_settings": {

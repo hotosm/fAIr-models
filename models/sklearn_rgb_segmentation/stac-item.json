@@ -214,12 +214,14 @@
     "mlm:training": {
       "href": "ghcr.io/hotosm/fair-models/sklearn_rgb_segmentation:latest",
       "type": "application/vnd.oci.image.index.v1+json",
-      "roles": ["mlm:training-runtime"]
+      "roles": ["mlm:training-runtime"],
+      "mlm:accelerator": "amd64"
     },
     "mlm:inference": {
       "href": "ghcr.io/hotosm/fair-models/sklearn_rgb_segmentation:latest-inference",
       "type": "application/vnd.oci.image.index.v1+json",
-      "roles": ["mlm:inference-runtime"]
+      "roles": ["mlm:inference-runtime"],
+      "mlm:accelerator": "amd64"
     },
     "readme": {
       "href": "https://raw.githubusercontent.com/hotosm/fAIr-models/refs/heads/develop/models/sklearn_rgb_segmentation/README.md",

@@ -95,6 +95,14 @@ jobs:
           uv run zenml init
           infra/scripts/register-k8s-stack.sh
 
+      - name: Dump ZenML install diagnostics
+        if: failure()
+        run: |
+          kubectl get jobs,pods -n fair -o wide || true
+          kubectl describe job -n fair zenml-db-migration || true
+          kubectl logs -n fair job/zenml-db-migration --all-containers || true
+          kubectl get events -n fair --sort-by=.lastTimestamp | tail -n 80 || true
+
       - name: Install stern
         run: |
           curl -fsSL https://github.com/stern/stern/releases/download/v1.32.0/stern_1.32.0_linux_amd64.tar.gz \

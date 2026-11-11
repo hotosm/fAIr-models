@@ -253,10 +253,5 @@ docs/schemas/
 runs
 .vscode/*
 .claude/
-
-
-data/benchmark
-data/sample/train/freetown
-data/free_town
-ci-artifacts
-data/sample/buildings-freetown-instance-segmentation/stac-item.json
+AGENTS.md
+CLAUDE.md

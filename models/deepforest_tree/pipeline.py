@@ -2,11 +2,6 @@
 `td-hot` library; heavy imports stay inside functions so the onnxruntime-only inference image can import `predict`."""
 
 import io
-import json
-import math
-import os
-import shutil
-import tempfile
 from pathlib import Path
 from typing import Annotated, Any
 
@@ -22,9 +17,6 @@ CLASS_VALUE = 1
 CLASS_LABEL = "tree"
 IOU_MATCH = 0.5  # box IoU at which a prediction counts as a true positive
 MIN_BOX_PX = 2.0  # clipped label boxes thinner than this are degenerate for the box loss
-CHIP_SUFFIXES = {".tif", ".tiff"}
-DEFAULT_CROWN_M = 5.0  # crown side of a tree point without a numeric `diameter_crown`
-METRES_PER_DEGREE = 111_320  # spherical approximation, within 1% of WGS84 latitude degrees
 
 
 def predict(session: Any, input_images: dict[str, str], params: dict[str, Any]) -> dict[str, Any]:
@@ -61,103 +53,25 @@ def postprocess(raw_output: Any, params: dict[str, Any] | None = None) -> Any:
     return decode_detections(boxes, scores, labels, parse_postprocess_params(params))
 
 
-def _device() -> str:
-    if os.environ.get("FAIR_FORCE_CPU", "").lower() in {"1", "true", "yes", "on"}:
-        return "cpu"
-    import torch
-
-    return "cuda" if torch.cuda.is_available() else "cpu"
-
-
-def _local_weights(href: str) -> Path:
-    if "://" not in href:
-        return Path(href)
-    from upath import UPath
-
-    source = UPath(href)
-    local = Path(tempfile.mkdtemp()) / (source.name or "weights.pt")
-    local.write_bytes(source.read_bytes())
-    return local
-
-
-def _resolve_labels_geojson(labels_href: str) -> Path:
-    if labels_href.endswith((".geojson", ".json")):
-        path = resolve_path(labels_href)
-    else:
-        root = resolve_directory(labels_href, "*.geojson")
-        files = sorted(root.rglob("*.geojson")) or sorted(root.rglob("*.json"))
-        if len(files) != 1:
-            raise ValueError(f"expected exactly one labels GeoJSON under {labels_href}, found {len(files)}")
-        path = files[0]
-    if path.suffix.lower() != ".geojson":  # td-hot reads a `.geojson` file
-        path = Path(shutil.copy(path, Path(tempfile.mkdtemp()) / "labels.geojson"))
-    return path
-
-
-def _with_point_crowns(labels: Path) -> Path:
-    """The labels with each tree point as a square crown of its `diameter_crown` metres, as OSM maps trees as points."""
-    collection = json.loads(labels.read_text())
-    if not any((feature.get("geometry") or {}).get("type") == "Point" for feature in collection["features"]):
-        return labels
-    collection["features"] = [_point_crown(feature) for feature in collection["features"]]
-    crowns = Path(tempfile.mkdtemp()) / "labels.geojson"
-    crowns.write_text(json.dumps(collection))
-    return crowns
-
-
-def _point_crown(feature: dict[str, Any]) -> dict[str, Any]:
-    if (feature.get("geometry") or {}).get("type") != "Point":
-        return feature
-    lon, lat = feature["geometry"]["coordinates"][:2]
-    properties = feature.get("properties") or {}
-    tags = properties.get("tags") or properties
-    try:
-        side_m = float(tags.get("diameter_crown") or DEFAULT_CROWN_M)
-    except ValueError:  # a free-text diameter such as "3 m" takes the default side
-        side_m = DEFAULT_CROWN_M
-    if not (math.isfinite(side_m) and side_m > 0):
-        side_m = DEFAULT_CROWN_M
-    half_lat = side_m / 2 / METRES_PER_DEGREE
-    half_lon = half_lat / math.cos(math.radians(lat))
-    ring = [
-        [lon - half_lon, lat - half_lat],
-        [lon + half_lon, lat - half_lat],
-        [lon + half_lon, lat + half_lat],
-        [lon - half_lon, lat + half_lat],
-        [lon - half_lon, lat - half_lat],
-    ]
-    return {**feature, "geometry": {"type": "Polygon", "coordinates": [ring]}}
-
-
-def _chip_names(chips_dir: Path) -> list[str]:
-    return sorted(p.name for p in chips_dir.iterdir() if p.suffix.lower() in CHIP_SUFFIXES)
-
-
-def _labeled_boxes(chips_dir: Path, labels_href: str) -> dict[str, list[dict[str, Any]]]:
-    """Per chip, the pixel boxes of the label polygons (`td_hot.dataset.labels_for_chips`), degenerate ones dropped.
+def _chip_boxes(chips_dir: Path, labels_href: str) -> dict[str, list[dict[str, Any]]]:
+    """The pixel boxes of every chip that has at least one label (`td_hot.dataset.build_chip_labels`).
 
     Rebuilt from the dataset by every step, so no temporary file is shared between isolated steps.
     """
-    from td_hot.dataset import labels_for_chips
+    from td_hot.dataset import build_chip_labels
 
-    boxes = labels_for_chips(chips_dir, _with_point_crowns(_resolve_labels_geojson(labels_href)))
-    return {
-        name: [b for b in rows if b["x2"] - b["x1"] >= MIN_BOX_PX and b["y2"] - b["y1"] >= MIN_BOX_PX]
-        for name, rows in boxes.items()
-    }
-
-
-def _labelled(names: list[str], boxes: dict[str, list[dict[str, Any]]]) -> list[str]:
-    return sorted(name for name in names if boxes.get(name))
+    if labels_href.endswith((".geojson", ".json")):
+        labels = resolve_path(labels_href)
+    else:
+        labels = resolve_directory(labels_href, "*.geojson")
+    boxes = build_chip_labels(chips_dir, labels, min_box_px=MIN_BOX_PX)
+    return {name: rows for name, rows in boxes.items() if rows}
 
 
-def _restore_model(checkpoint: bytes) -> Any:
-    import torch
-    from td_hot.export import build_retinanet
+def _onnx_from_checkpoint(checkpoint: bytes) -> bytes:
+    from td_hot.export import build_retinanet, export_onnx_bytes
 
-    model = build_retinanet()
-    model.load_state_dict(torch.load(io.BytesIO(checkpoint), map_location="cpu", weights_only=True), strict=True)
-    return model.eval()
+    return export_onnx_bytes(build_retinanet(io.BytesIO(checkpoint)))
 
 
 @step
@@ -168,9 +82,10 @@ def split_dataset(
 ) -> Annotated[dict[str, Any], "split_info"]:
     """Spatial block split of the chips on OAM tile coordinates (neighbouring chips share trees)."""
     from td_hot import parse_split_params, spatial_split
+    from td_hot.dataset import list_chip_paths
 
     cfg = parse_split_params(hyperparameters)
-    chip_names = _chip_names(resolve_directory(dataset_chips[IMAGE_INPUT], "*.tif*"))
+    chip_names = [path.name for path in list_chip_paths(resolve_directory(dataset_chips[IMAGE_INPUT], "*.tif*"))]
     if not chip_names:
         raise FileNotFoundError(f"no .tif chips found at {dataset_chips[IMAGE_INPUT]}")
     train_names, val_names = spatial_split(chip_names, cfg.val_ratio, cfg.split_seed, block_size=cfg.block_size)
@@ -213,17 +128,18 @@ def train_model(
     import torch
     from td_hot import parse_preprocess_params
     from td_hot.params import parse_train_params
-    from td_hot.train import train_retinanet
+    from td_hot.train import train
+    from upath import UPath
 
     if num_classes != 1:
         raise ValueError(f"deepforest-tree is a single-class detector, got num_classes={num_classes}")
 
     chips_dir = resolve_directory(dataset_chips[IMAGE_INPUT], "*.tif*")
-    boxes = _labeled_boxes(chips_dir, dataset_labels)
-    train_names = _labelled(split_info["train_chip_names"], boxes)
+    boxes = _chip_boxes(chips_dir, dataset_labels)
+    train_names = sorted(boxes.keys() & set(split_info["train_chip_names"]))
     if not train_names:
         raise ValueError("no labelled chips in the train split: check that the labels overlap the chips")
-    val_names = _labelled(split_info["val_chip_names"], boxes)
+    val_names = sorted(boxes.keys() & set(split_info["val_chip_names"]))
     log_metadata(
         metadata={
             "fair/train_data": {
@@ -240,16 +156,16 @@ def train_model(
             mlflow.log_metric("val_loss", val_loss, step=epoch - 1)  # ty: ignore[possibly-missing-attribute]
 
     with mlflow_training_context(hyperparameters, model_name, base_model_id, dataset_id):
-        result = train_retinanet(
+        result = train(
             train_images_dir=chips_dir,
             train_labels=boxes,
             train_names=train_names,
             val_images_dir=chips_dir if val_names else None,
             val_labels=boxes if val_names else None,
             val_names=val_names or None,
-            cfg=parse_train_params({**hyperparameters, "seed": split_info["seed"], "device": _device()}),
+            cfg=parse_train_params({**hyperparameters, "seed": split_info["seed"]}),
             pre=parse_preprocess_params(hyperparameters),
-            checkpoint_path=_local_weights(base_model_weights),
+            checkpoint=io.BytesIO(UPath(base_model_weights).read_bytes()),
             on_epoch_end=log_epoch,
         )
     if result.history["val_loss"]:
@@ -272,16 +188,15 @@ def evaluate_model(
     """Box precision/recall/F1 at IoU 0.5 on the val split, scored through the exported ONNX (`score_session`)."""
     import onnxruntime as ort
     from td_hot.evaluate import score_session
-    from td_hot.export import export_onnx_bytes
 
     chips_dir = resolve_directory(dataset_chips[IMAGE_INPUT], "*.tif*")
-    boxes = _labeled_boxes(chips_dir, dataset_labels)
-    session = ort.InferenceSession(export_onnx_bytes(_restore_model(trained_model)), providers=["CPUExecutionProvider"])
+    boxes = _chip_boxes(chips_dir, dataset_labels)
+    session = ort.InferenceSession(_onnx_from_checkpoint(trained_model), providers=["CPUExecutionProvider"])
     scores = score_session(
         session,
         images_dir=chips_dir,
         labels=boxes,
-        names=_labelled(split_info["val_chip_names"], boxes),
+        names=sorted(boxes.keys() & set(split_info["val_chip_names"])),
         params=hyperparameters,
         iou_thresholds=(IOU_MATCH,),
     )[IOU_MATCH]
@@ -297,9 +212,7 @@ def export_onnx(
     hyperparameters: dict[str, Any],
 ) -> Annotated[bytes, "onnx_model"]:
     """ONNX with the td-hot contract: `image (3,H,W)` float32 in [0,1], outputs `boxes`, `scores`, `labels`."""
-    from td_hot.export import export_onnx_bytes
-
-    return export_onnx_bytes(_restore_model(trained_model))
+    return _onnx_from_checkpoint(trained_model)
 
 
 @step

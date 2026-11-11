@@ -1160,10 +1160,9 @@ data_type), `classification:classes` (one entry per output class with
     ```
 
 Each runtime asset declares its hardware with `mlm:accelerator` and `mlm:accelerator_count`
-([MLM nests accelerators under their asset](https://github.com/stac-extensions/mlm#item-properties-and-collection-fields)).
-Training reads the `mlm:training` asset and offline prediction the `mlm:inference` asset;
-each falls back to the item-level fields. Setting the `mlm:inference` accelerator to `cuda`
-moves offline prediction to a GPU.
+([MLM allows these on an asset](https://github.com/stac-extensions/mlm#item-properties-and-collection-fields)).
+Training reads `mlm:training`, offline prediction reads `mlm:inference`, each falling back to
+the item-level fields. Try-now serving ignores these fields.
 
 The `checkpoint` asset `href` **must** be a direct HTTPS URL pointing to
 the pretrained weights file (e.g. a HuggingFace commit-pinned URL, a GitHub

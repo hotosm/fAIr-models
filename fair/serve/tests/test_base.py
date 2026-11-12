@@ -43,7 +43,11 @@ def _patch_fetch_chips(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> list[
 
     async def fake_fetch_chips(imagery: dict[str, str], bbox: list[float], zoom: int, out_dir: str) -> dict[str, str]:
         chips_calls.append({"imagery": imagery, "bbox": bbox, "zoom": zoom, "out_dir": out_dir})
-        return {name: str(Path(out_dir) / name) for name in imagery}
+        chips_dirs = {name: Path(out_dir) / name for name in imagery}
+        for chips_dir in chips_dirs.values():
+            chips_dir.mkdir()
+            (chips_dir / "OAM-1-1-18.tif").touch()
+        return {name: str(chips_dir) for name, chips_dir in chips_dirs.items()}
 
     monkeypatch.setattr(serve_base, "_fetch_chips", fake_fetch_chips)
     return chips_calls
@@ -434,6 +438,31 @@ def test_predict_passes_each_input_chips_directory_by_name(monkeypatch: pytest.M
     assert chips_calls[0]["imagery"] == imagery
     out_dir = Path(chips_calls[0]["out_dir"])
     assert pipeline.input_images == {"post": str(out_dir / "post"), "pre": str(out_dir / "pre")}
+
+
+def test_an_input_without_tiles_in_the_area_is_refused_before_predict(monkeypatch: pytest.MonkeyPatch) -> None:
+    from fair.serve import base as serve_base
+
+    async def fetch_without_pre_tiles(
+        imagery: dict[str, str], bbox: list[float], zoom: int, out_dir: str
+    ) -> dict[str, str]:
+        chips_dirs = {name: Path(out_dir) / name for name in imagery}
+        for chips_dir in chips_dirs.values():
+            chips_dir.mkdir()
+        (chips_dirs["post"] / "OAM-1-1-18.tif").touch()
+        return {name: str(chips_dir) for name, chips_dir in chips_dirs.items()}
+
+    monkeypatch.setattr(serve_base, "_fetch_chips", fetch_without_pre_tiles)
+    monkeypatch.setattr(serve_base, "load_session", lambda model_uri: object())
+    pipeline = _RecordingPipeline()
+    imagery = {"post": "https://post.example/{z}/{x}/{y}", "pre": "https://pre.example/{z}/{x}/{y}"}
+    body = {**VALID_REQUEST, "imagery": imagery}
+
+    response = asyncio.run(serve_base._predict(_request(client_disconnects=False, body=body), pipeline, False))
+
+    assert response.status_code == 422
+    assert bytes(response.body) == b'{"error":"The imagery has no tiles in this area for input(s): pre"}'
+    assert pipeline.calls == 0
 
 
 def test_predict_reads_image_uri_as_the_image_input(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

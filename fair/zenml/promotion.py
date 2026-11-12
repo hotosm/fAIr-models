@@ -9,7 +9,12 @@ from zenml.enums import ModelStages
 from fair.stac.backend import StacBackend
 from fair.stac.builders import build_local_model_item
 from fair.stac.constants import BASE_MODELS_COLLECTION, DATASETS_COLLECTION, LOCAL_MODELS_COLLECTION
-from fair.stac.validators import validate_item, validate_metrics_against_spec, validate_model_asset_urls
+from fair.stac.validators import (
+    geometry_keywords,
+    validate_item,
+    validate_metrics_against_spec,
+    validate_model_asset_urls,
+)
 from fair.stac.versioning import deprecate_and_link_successor, find_previous_active_item
 from fair.utils.data import mirror, s3_uri_to_http_url, upload_storage_options
 from fair.utils.storage import LocalModelStoragePaths
@@ -252,10 +257,8 @@ def publish_promoted_model(
     # Keywords are additive
     auto_kw: list[str] = []
     auto_kw.extend(base_model_item.properties.get("keywords") or [])
-    auto_kw.extend(dataset_item.properties.get("keywords") or [])
-    geom_type = dataset_item.properties.get("fair:geometry_type")
-    if geom_type:
-        auto_kw.append(geom_type)
+    # Geometry keywords name the output shape, which the base model sets, not the dataset's labels.
+    auto_kw.extend(k for k in dataset_item.properties.get("keywords") or [] if k not in geometry_keywords())
     auto_kw.extend(keywords or [])
     seen: set[str] = set()
     kw = [k for k in auto_kw if k and not (k in seen or seen.add(k))]

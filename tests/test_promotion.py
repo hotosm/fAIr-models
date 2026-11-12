@@ -277,20 +277,47 @@ def test_publish_does_not_inherit_pin_when_previous_was_unpinned(mock_cls, cm):
 
 @patch("fair.zenml.promotion.Client")
 def test_publish_keywords_are_additively_merged(mock_cls, cm):
-    """Final keywords = dedupe(base.keywords + dataset.keywords + [geometry_type] + extras)."""
     mv, client = _mock_mv({"epochs": 1})
     mock_cls.return_value = client
     client.get_model_version.return_value = mv
 
     item = _publish(cm, version=1, keywords=["building", "high-resolution"])
     kw = item.properties["keywords"]
-    # base contributes "semantic-segmentation", dataset contributes "building",
-    # dataset has geometry_type "polygon", caller adds "high-resolution".
-    # "building" appears exactly once despite being in both base and dataset+caller.
     assert "semantic-segmentation" in kw
-    assert "polygon" in kw
     assert "high-resolution" in kw
     assert kw.count("building") == 1
+
+
+@patch("fair.zenml.promotion.Client")
+def test_publish_takes_the_output_geometry_from_the_base_model_not_the_labels(mock_cls, cm):
+    mv, client = _mock_mv({"epochs": 1})
+    mock_cls.return_value = client
+    client.get_model_version.return_value = mv
+    base = _base_model_item()
+    base.properties["keywords"] = ["tree", "object-detection", "polygon"]
+    cm.publish_item("base-models", base)
+    points = _dataset_item()
+    points.properties["keywords"] = ["tree", "point"]
+    points.properties["fair:geometry_type"] = "point"
+    cm.publish_item("datasets", points)
+
+    item = _publish(cm, version=1, keywords=[])
+
+    assert item.properties["keywords"] == ["tree", "object-detection", "polygon"]
+
+
+@patch("fair.zenml.promotion.Client")
+def test_publish_carries_the_base_model_category(mock_cls, cm):
+    mv, client = _mock_mv({"epochs": 1})
+    mock_cls.return_value = client
+    client.get_model_version.return_value = mv
+    base = _base_model_item()
+    base.properties["fair:category"] = "trees"
+    cm.publish_item("base-models", base)
+
+    item = _publish(cm, version=1)
+
+    assert item.properties["fair:category"] == "trees"
 
 
 @patch("fair.zenml.promotion.Client")

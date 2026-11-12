@@ -598,6 +598,7 @@ def build_local_model_item(
         "mlm:accelerator_count",
         "fair:metrics_spec",
         "fair:hyperparameters_spec",
+        "fair:category",
     ):
         if field in base_props:
             properties[field] = base_props[field]

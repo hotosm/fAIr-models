@@ -178,6 +178,10 @@ def _load_keywords_schema() -> dict:
     return json.loads(ref.read_text(encoding="utf-8"))
 
 
+def geometry_keywords() -> set[str]:
+    return set(_load_keywords_schema()["allowed_geometry_types"])
+
+
 def validate_compatibility(
     base_model_item: pystac.Item,
     dataset_item: pystac.Item,

@@ -190,6 +190,11 @@ async def _predict(request: Request, pipeline: Any, forward_bbox: bool) -> JSONR
             )
             if await request.is_disconnected():
                 raise ClientDisconnectedError
+            if empty := [name for name, chips_dir in chips_dirs.items() if not any(Path(chips_dir).iterdir())]:
+                return JSONResponse(
+                    {"error": f"The imagery has no tiles in this area for input(s): {', '.join(empty)}"},
+                    status_code=422,
+                )
             predict_kwargs = {"bbox": parsed["bbox"]} if forward_bbox else {}
             result = pipeline.predict(session, chips_dirs, parsed["params"], **predict_kwargs)
     except ClientDisconnectedError:

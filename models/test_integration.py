@@ -20,6 +20,11 @@ import pytest
 from fair.stac.inputs import IMAGE_INPUT
 
 
+@pytest.fixture(autouse=True)
+def mock_instrumentation():
+    yield
+
+
 @pytest.fixture(scope="module")
 def work_dir(tmp_path_factory: pytest.TempPathFactory) -> Path:
     return tmp_path_factory.mktemp("integration")

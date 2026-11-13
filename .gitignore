@@ -242,6 +242,7 @@ infra/*.kubeconfig
 soul.md
 .fair-mode
 mlflow.db
+mlruns/
 
 # process
 onboard/

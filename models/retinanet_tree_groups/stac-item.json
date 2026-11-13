@@ -1,0 +1,479 @@
+{
+  "type": "Feature",
+  "stac_version": "1.1.0",
+  "stac_extensions": [
+    "https://stac-extensions.github.io/mlm/v1.5.1/schema.json",
+    "https://stac-extensions.github.io/version/v1.2.0/schema.json",
+    "https://stac-extensions.github.io/classification/v2.0.0/schema.json",
+    "https://stac-extensions.github.io/file/v2.1.0/schema.json",
+    "https://stac-extensions.github.io/raster/v1.1.0/schema.json",
+    "https://stac-extensions.github.io/datacube/v2.3.0/schema.json",
+    "https://hotosm.github.io/fAIr-models/schemas/v1.0.0/base-model/schema.json"
+  ],
+  "id": "retinanet-tree-groups",
+  "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+      [
+        [-180, -90],
+        [180, -90],
+        [180, 90],
+        [-180, 90],
+        [-180, -90]
+      ]
+    ]
+  },
+  "bbox": [-180, -90, 180, 90],
+  "properties": {
+    "datetime": "2026-11-13T00:00:00Z",
+    "created": "2026-11-13T00:00:00Z",
+    "updated": "2026-11-13T00:00:00Z",
+    "title": "Detect trees and tree groups",
+    "description": "RetinaNet (ResNet-50 FPN) that finds single trees and groups of trees in RGB aerial imagery and returns one box polygon per tree (class 1) and per tree group (class 2); each tree also says whether its centre lies inside a detected group. The weights start from DeepForest's NEON tree-crown checkpoint, were trained further on NeonTreeEvaluation and OAM-TCD, and were then fine-tuned with a frozen backbone on HOT's Freetown labels (OpenStreetMap natural=tree points and natural=tree_group polygons; imagery at zoom 19 to 21, about 30 to 7.5 cm per pixel). At the default settings (confidence 0.175, window overlap 0.125, edge band 0.02, group merge \"overlap\") the held-out Freetown test split, scored at zoom 20 with boxes matched at IoU above 0.4, gives tree F1 0.508 and tree-group F1 0.376. Inference slides 60 m windows for trees and 120 m windows for groups over the chip mosaic, resizes each window to 800 px and runs the raw network in ONNX Runtime; anchors, box decoding, NMS, merging across windows and georeferencing run in the MIT-licensed fair_trees library. The weights are CC-BY-NC-4.0 (non-commercial use only) because part of OAM-TCD is.",
+    "mlm:name": "retinanet-tree-groups",
+    "mlm:architecture": "RetinaNet ResNet-50 FPN",
+    "mlm:tasks": ["object-detection"],
+    "mlm:framework": "PyTorch",
+    "mlm:framework_version": "2.11.0",
+    "mlm:pretrained": true,
+    "mlm:pretrained_source": "https://huggingface.co/weecology/deepforest-tree",
+    "mlm:accelerator": "amd64",
+    "mlm:accelerator_count": 1,
+    "fair:recommended_zoom": 20,
+    "fair:preview": {
+      "center": [-13.16986, 8.44792],
+      "zoom": { "recommended": 20, "min": 19, "max": 21 },
+      "imagery": {
+        "url": "https://tiles.openaerialmap.org/690585b76415e43597ffd7ea/0/690585b76415e43597ffd7eb/{z}/{x}/{y}",
+        "type": "tms",
+        "name": "OpenAerialMap - Freetown",
+        "attribution": "OpenAerialMap"
+      },
+      "place": { "name": "Freetown", "country": "Sierra Leone", "country_code": "SL" }
+    },
+    "keywords": ["tree", "object-detection", "polygon"],
+    "license": "CC-BY-NC-4.0",
+    "version": "1",
+    "deprecated": false,
+    "providers": [
+      {
+        "name": "Weecology (DeepForest)",
+        "roles": ["producer"],
+        "url": "https://huggingface.co/weecology/deepforest-tree",
+        "description": "Authors of DeepForest and of its NEON tree-crown checkpoint (MIT), the starting weights."
+      },
+      {
+        "name": "Restor (OAM-TCD)",
+        "roles": ["licensor"],
+        "url": "https://huggingface.co/datasets/restor/tcd",
+        "description": "OAM-TCD tree-cover dataset used in base training: restor/tcd (CC-BY-4.0) and restor/tcd-nc (CC-BY-NC-4.0), whose non-commercial term the weights carry."
+      },
+      {
+        "name": "Omdena (HOTOSM-fAIr-Trees)",
+        "roles": ["producer", "processor"],
+        "url": "https://github.com/OmdenaAI/HOTOSM-fAIr-Trees",
+        "description": "Authors of the fair_trees library (MIT: preprocessing, sliding-window serving, fine-tuning, evaluation and ONNX export) and of the weights, published at huggingface.co/OmarHelmy/retinanet-tree-groups (tag v0.1.0)."
+      },
+      {
+        "name": "HOTOSM",
+        "roles": ["host", "processor"],
+        "url": "https://www.hotosm.org",
+        "description": "Humanitarian OpenStreetMap Team; the Freetown tree and tree_group labels (hotosm/fAIr-guru-td-trees) are (c) OpenStreetMap contributors, ODbL-1.0."
+      }
+    ],
+    "fair:metrics_spec": [
+      {
+        "key": "precision_tree",
+        "name": "Tree precision @ IoU>0.4",
+        "description": "Fraction of predicted tree boxes on the val split that match a labelled tree box. Matching is one-to-one (Hungarian, maximising IoU) and a pair counts when IoU > 0.4; counts are pooled over all val chips (micro-average), at the default confidence threshold (inference.confidence_threshold); boxes in masked label areas are not counted. 0 when the val split has no tree labels (see val_trees)."
+      },
+      {
+        "key": "recall_tree",
+        "name": "Tree recall @ IoU>0.4",
+        "description": "Fraction of labelled tree boxes on the val split matched by a predicted tree box (one-to-one Hungarian matching, IoU > 0.4), pooled over all val chips, at the default confidence threshold. 0 when the val split has no tree labels (see val_trees)."
+      },
+      {
+        "key": "f1_tree",
+        "name": "Tree F1 @ IoU>0.4",
+        "description": "Harmonic mean of tree precision and recall (IoU > 0.4) over the val split. 0 when the val split has no tree labels (see val_trees)."
+      },
+      {
+        "key": "precision_tree_group",
+        "name": "Tree group precision @ IoU>0.4",
+        "description": "Fraction of predicted tree-group boxes on the val split that match a labelled tree-group box. Matching is one-to-one (Hungarian, maximising IoU) and a pair counts when IoU > 0.4; counts are pooled over all val chips (micro-average), at the default confidence threshold and group merge rule. 0 when the val split has no tree_group labels (see val_tree_groups)."
+      },
+      {
+        "key": "recall_tree_group",
+        "name": "Tree group recall @ IoU>0.4",
+        "description": "Fraction of labelled tree-group boxes on the val split matched by a predicted tree-group box (one-to-one Hungarian matching, IoU > 0.4), pooled over all val chips, at the default confidence threshold. 0 when the val split has no tree_group labels (see val_tree_groups)."
+      },
+      {
+        "key": "f1_tree_group",
+        "name": "Tree group F1 @ IoU>0.4",
+        "description": "Harmonic mean of tree-group precision and recall (IoU > 0.4) over the val split. 0 when the val split has no tree_group labels (see val_tree_groups)."
+      },
+      {
+        "key": "val_trees",
+        "name": "Labelled trees in val",
+        "description": "Count of labelled tree boxes in the val split that the tree scores rest on (matched plus missed at IoU > 0.4). 0 means the tree scores were not measured."
+      },
+      {
+        "key": "val_tree_groups",
+        "name": "Labelled tree groups in val",
+        "description": "Count of labelled tree-group boxes in the val split that the tree-group scores rest on (matched plus missed at IoU > 0.4). 0 means the tree-group scores were not measured; most OSM tree data maps single trees only."
+      }
+    ],
+    "mlm:input": [
+      {
+        "name": "image",
+        "description": "One sliding window of the chip mosaic (60 m for trees, 120 m for tree groups by default): uint8 RGB scaled to [0, 1] and normalised with the ImageNet mean and std, resized (bilinear) so its short side is 800 px and its long side at most 1333 px, then zero-padded to a multiple of 32.",
+        "bands": [{ "name": "red" }, { "name": "green" }, { "name": "blue" }],
+        "input": {
+          "shape": [1, 3, -1, -1],
+          "dim_order": ["batch", "bands", "height", "width"],
+          "data_type": "float32"
+        },
+        "pre_processing_function": {
+          "format": "python",
+          "expression": "models.retinanet_tree_groups.pipeline:preprocess"
+        }
+      }
+    ],
+    "mlm:output": [
+      {
+        "name": "cls_logits",
+        "description": "ONNX output: one logit per anchor and class (column 0 tree, column 1 tree_group), before the sigmoid.",
+        "tasks": ["object-detection"],
+        "result": {
+          "shape": [1, -1, 2],
+          "dim_order": ["batch", "anchors", "class"],
+          "data_type": "float32"
+        },
+        "classification:classes": [
+          {
+            "name": "tree",
+            "title": "Tree",
+            "value": 1,
+            "color_hint": "66bb6a",
+            "description": "A single tree: one box around its crown."
+          },
+          {
+            "name": "tree_group",
+            "title": "Tree group",
+            "value": 2,
+            "color_hint": "00695c",
+            "description": "A cluster of trees mapped as one feature (OSM natural=tree_group): one box around the whole cluster."
+          }
+        ],
+        "post_processing_function": {
+          "format": "python",
+          "expression": "models.retinanet_tree_groups.pipeline:postprocess"
+        },
+        "bands": []
+      },
+      {
+        "name": "bbox_regression",
+        "description": "ONNX output: four box-regression deltas per anchor; anchors and box decoding are not in the graph.",
+        "tasks": ["object-detection"],
+        "result": {
+          "shape": [1, -1, 4],
+          "dim_order": ["batch", "anchors", "coordinate"],
+          "data_type": "float32"
+        },
+        "classification:classes": [
+          {
+            "name": "tree",
+            "title": "Tree",
+            "value": 1,
+            "color_hint": "66bb6a",
+            "description": "A single tree: one box around its crown."
+          },
+          {
+            "name": "tree_group",
+            "title": "Tree group",
+            "value": 2,
+            "color_hint": "00695c",
+            "description": "A cluster of trees mapped as one feature (OSM natural=tree_group): one box around the whole cluster."
+          }
+        ],
+        "post_processing_function": {
+          "format": "python",
+          "expression": "models.retinanet_tree_groups.pipeline:postprocess"
+        },
+        "bands": []
+      },
+      {
+        "name": "trees and tree groups",
+        "description": "Tree and tree-group boxes after decoding, confidence filtering, NMS and merging across windows, one polygon per feature.",
+        "tasks": ["object-detection"],
+        "result": { "shape": [-1, 4], "dim_order": ["batch", "variables"], "data_type": "float32" },
+        "variables": ["class", "label", "confidence", "in_group"],
+        "classification:classes": [
+          {
+            "name": "tree",
+            "title": "Tree",
+            "value": 1,
+            "color_hint": "66bb6a",
+            "description": "A single tree: one box around its crown."
+          },
+          {
+            "name": "tree_group",
+            "title": "Tree group",
+            "value": 2,
+            "color_hint": "00695c",
+            "description": "A cluster of trees mapped as one feature (OSM natural=tree_group): one box around the whole cluster."
+          }
+        ],
+        "post_processing_function": {
+          "format": "python",
+          "expression": "models.retinanet_tree_groups.pipeline:postprocess"
+        }
+      }
+    ],
+    "cube:dimensions": {
+      "features": {
+        "type": "geometry",
+        "bbox": [-180, -90, 180, 90],
+        "geometry_types": ["Polygon"],
+        "reference_system": 4326
+      }
+    },
+    "cube:variables": {
+      "class": {
+        "dimensions": ["features"],
+        "type": "data",
+        "description": "Predicted class value (1 = tree, 2 = tree_group).",
+        "values": [1, 2],
+        "data_type": "uint8"
+      },
+      "label": {
+        "dimensions": ["features"],
+        "type": "data",
+        "description": "Class name of the predicted class (tree or tree_group).",
+        "values": ["tree", "tree_group"]
+      },
+      "confidence": {
+        "dimensions": ["features"],
+        "type": "data",
+        "description": "Sigmoid score of the box's class, rounded to 4 decimals; a tree group joined across windows carries the highest score of its parts.",
+        "extent": [0, 1],
+        "data_type": "float32"
+      },
+      "in_group": {
+        "dimensions": ["features"],
+        "type": "data",
+        "description": "Trees: true when the tree's box centre lies inside a tree-group box predicted on the same chips, else false; in a live prediction that group may have its centre outside the requested bbox and so not be returned. Tree groups: null."
+      }
+    },
+    "mlm:hyperparameters": {
+      "training.epochs": 10,
+      "training.batch_size": 4,
+      "training.learning_rate": 0.001,
+      "training.val_ratio": 0.2,
+      "training.split_seed": 42,
+      "training.block_size": 4,
+      "training.samples_per_epoch": 0,
+      "training.sample_fraction": 1.0,
+      "training.trainable_layers": 0,
+      "training.scheduler": "cosine",
+      "training.patience": 3,
+      "inference.confidence_threshold": 0.175,
+      "inference.window_overlap": 0.125,
+      "inference.group_merge": "overlap"
+    },
+    "fair:split_spec": {
+      "strategy": "spatial",
+      "default_ratio": 0.2,
+      "seed": 42,
+      "block_size": 4,
+      "description": "Spatial block split on the OAM-x-y-z chip names: chips are grouped into square blocks of block_size tiles at the lowest zoom present, and whole blocks go to val in a seeded random order until about val_ratio of the chips are in val; at least one block stays in train. Neighbouring chips share canopy and trees cut at chip borders, so they stay on one side. A dataset that fits in one block gets an empty val split and trains without validation. Chips must be named OAM-x-y-z.tif; chips with other names are not read."
+    },
+    "fair:hyperparameters_spec": [
+      {
+        "key": "epochs",
+        "type": "int",
+        "default": 10,
+        "min": 1,
+        "max": 100,
+        "description": "Maximum training epochs; training stops earlier when validation F1 stops improving (see patience)."
+      },
+      {
+        "key": "batch_size",
+        "type": "int",
+        "default": 4,
+        "min": 1,
+        "max": 16,
+        "description": "Training crops per batch. Each crop is resized to 800 px on its short side before the network, so memory per crop is high."
+      },
+      {
+        "key": "learning_rate",
+        "type": "float",
+        "default": 0.001,
+        "min": 1e-6,
+        "max": 0.1,
+        "description": "SGD learning rate (momentum 0.9, weight decay 0.0001), the value the HOT fine-tune used."
+      },
+      {
+        "key": "val_ratio",
+        "type": "float",
+        "default": 0.2,
+        "min": 0.05,
+        "max": 0.5,
+        "description": "Share of the chips held out for validation. Whole spatial blocks go to val until about this share is reached, so the real share can be higher."
+      },
+      {
+        "key": "split_seed",
+        "type": "int",
+        "default": 42,
+        "min": 0,
+        "max": 2147483647,
+        "description": "Seed of the block order in the spatial split."
+      },
+      {
+        "key": "block_size",
+        "type": "int",
+        "default": 4,
+        "min": 1,
+        "max": 32,
+        "description": "Side, in tiles at the lowest zoom present, of the square blocks that the spatial split keeps on one side; larger blocks separate train and val more strongly."
+      },
+      {
+        "key": "samples_per_epoch",
+        "type": "int",
+        "default": 0,
+        "min": 0,
+        "max": 100000,
+        "description": "Random training crops (30 to 80 m wide) drawn per epoch. 0 draws as many crops as there are train chips."
+      },
+      {
+        "key": "sample_fraction",
+        "type": "float",
+        "default": 1.0,
+        "min": 0.01,
+        "max": 1.0,
+        "description": "Share of the validation chips used for validation during training and for the reported metrics, at least one chip; the chips kept are the first in name order, and training chips are not sub-sampled. Below 1 the scores rest on fewer labels; meant for quick test runs."
+      },
+      {
+        "key": "trainable_layers",
+        "type": "int",
+        "default": 0,
+        "min": 0,
+        "max": 5,
+        "description": "Number of ResNet-50 stages that train, counted from the top (layer4, layer3, layer2, layer1, conv1). 0 keeps the backbone frozen and trains only the FPN and the detection heads, as the HOT fine-tune did; more stages need more memory and more data. BatchNorm statistics always stay frozen."
+      },
+      {
+        "key": "scheduler",
+        "type": "str",
+        "default": "cosine",
+        "values": ["cosine", "none"],
+        "description": "Learning-rate schedule: cosine decays the rate to 0 over all batches of the run, none keeps it constant."
+      },
+      {
+        "key": "patience",
+        "type": "int",
+        "default": 3,
+        "min": 1,
+        "max": 100,
+        "description": "Epochs without a validation improvement before training stops; an epoch improves when validation F1 (the mean over the labelled classes, each at its best threshold) rises by more than 0.005, or stays within 0.005 with a higher AP. The best epoch's weights are kept."
+      },
+      {
+        "key": "confidence_threshold",
+        "type": "float",
+        "default": 0.175,
+        "min": 0.0,
+        "max": 1.0,
+        "description": "Boxes scoring above this are kept, for trees and tree groups alike. On the HOT validation split at the default window overlap and group merge, 0.175 gave the best mean F1 of the two classes (trees 0.559, groups 0.455), narrowly ahead of 0.15. Raise it for fewer, surer boxes."
+      },
+      {
+        "key": "window_overlap",
+        "type": "float",
+        "default": 0.125,
+        "min": 0.0,
+        "max": 0.5,
+        "description": "Overlap of neighbouring sliding windows as a share of the window side (windows of 60 m for trees and 120 m for groups unless the model file says otherwise). The default, 0.125, was chosen for serving cost: 0.25 needs about a third more network passes and gave higher tree recall on HOT validation (0.544 against 0.517), and 0.5 needs about 2.7 times the passes. Where a window borders another, an edge band of 2% of the window side drops tree boxes and merges group boxes, so a tree crown wider than about 5 m lying across a window seam can be missed."
+      },
+      {
+        "key": "group_merge",
+        "type": "str",
+        "default": "overlap",
+        "values": ["overlap", "join", "drop_edge"],
+        "description": "How tree-group boxes cut by a window edge are combined: overlap joins a cut box with boxes from other windows that cover more than half of the smaller box, join with any box from another window it overlaps, drop_edge drops cut boxes. At the default window overlap, overlap gave about 0.03 more group F1 than drop_edge on HOT validation."
+      }
+    ]
+  },
+  "assets": {
+    "checkpoint": {
+      "href": "https://huggingface.co/OmarHelmy/retinanet-tree-groups/resolve/efd0badad62846bb063c558003f33e780da602be/best.pt",
+      "title": "retinanet-tree-groups v0.1.0: two-class RetinaNet state dict (torchvision, frozen BatchNorm)",
+      "type": "application/octet-stream; framework=pytorch",
+      "roles": ["mlm:model", "mlm:weights"],
+      "mlm:artifact_type": "torch.save",
+      "file:size": 129188812,
+      "file:checksum": "1220cb4cfad93000acddfe1a8b9701901523ffc099baad19583d2a48288368d25fdf",
+      "raster:bands": [{ "name": "red" }, { "name": "green" }, { "name": "blue" }]
+    },
+    "model": {
+      "href": "https://huggingface.co/OmarHelmy/retinanet-tree-groups/resolve/efd0badad62846bb063c558003f33e780da602be/model.onnx",
+      "title": "retinanet-tree-groups v0.1.0 ONNX (raw network: images -> cls_logits, bbox_regression; window sizes in its metadata)",
+      "type": "application/octet-stream; framework=onnx",
+      "roles": ["mlm:model", "mlm:compiled"],
+      "mlm:artifact_type": "onnx",
+      "file:size": 129012462,
+      "file:checksum": "12204a59f1c2e958d54cf1bbf9b2ae1083a124043d1ac3a741de391509dc4cce6f8e",
+      "raster:bands": [{ "name": "red" }, { "name": "green" }, { "name": "blue" }]
+    },
+    "source-code": {
+      "href": "https://github.com/hotosm/fAIr-models/tree/develop/models/retinanet_tree_groups",
+      "type": "text/html",
+      "roles": ["code"],
+      "mlm:entrypoint": "models.retinanet_tree_groups.pipeline:predict"
+    },
+    "mlm:training": {
+      "href": "ghcr.io/hotosm/fair-models/retinanet_tree_groups:latest",
+      "type": "application/vnd.oci.image.index.v1+json",
+      "title": "Training Docker Image",
+      "roles": ["mlm:training-runtime"],
+      "mlm:accelerator": "cuda",
+      "mlm:accelerator_count": 1
+    },
+    "mlm:inference": {
+      "href": "ghcr.io/hotosm/fair-models/retinanet_tree_groups:latest-inference",
+      "type": "application/vnd.oci.image.index.v1+json",
+      "title": "Inference Docker Image",
+      "roles": ["mlm:inference-runtime"],
+      "mlm:accelerator": "amd64"
+    },
+    "readme": {
+      "href": "https://raw.githubusercontent.com/hotosm/fAIr-models/refs/heads/develop/models/retinanet_tree_groups/README.md",
+      "type": "text/markdown",
+      "roles": ["metadata"],
+      "title": "Model README"
+    }
+  },
+  "links": [
+    {
+      "rel": "license",
+      "href": "https://creativecommons.org/licenses/by-nc/4.0/legalcode",
+      "type": "text/html",
+      "title": "Creative Commons Attribution-NonCommercial 4.0 International"
+    },
+    {
+      "rel": "cite-as",
+      "href": "https://doi.org/10.1111/2041-210X.13472",
+      "type": "text/html",
+      "title": "Weinstein et al. 2020, DeepForest: A Python package for RGB deep learning tree crown delineation"
+    },
+    {
+      "rel": "cite-as",
+      "href": "https://arxiv.org/abs/2407.11743",
+      "type": "text/html",
+      "title": "Veitch-Michaelis et al. 2024, OAM-TCD: A globally diverse dataset of high-resolution tree cover maps"
+    },
+    {
+      "rel": "cite-as",
+      "href": "https://arxiv.org/abs/1708.02002",
+      "type": "text/html",
+      "title": "Lin et al. 2017, Focal Loss for Dense Object Detection (RetinaNet)"
+    }
+  ]
+}

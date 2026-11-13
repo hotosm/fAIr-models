@@ -12,6 +12,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - add ZenML integration for model promotion and STAC catalog synchronization
 - implement STAC catalog management and builders for datasets and models
 
+## v0.3.29 (2026-11-13)
+
+### Fix
+
+- **license**: fix dinov3 license in all
+
 ## v0.3.28 (2026-11-13)
 
 ### Fix

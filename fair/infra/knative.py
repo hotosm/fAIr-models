@@ -252,10 +252,9 @@ def _upsert_knative_service(api: Any, manifest: dict[str, Any], namespace: str) 
 
 
 def _wait_until_ready(api: Any, name: str, namespace: str, digest: str, timeout: int) -> str:
-    """Poll the revision built from this template until it is Ready and return its name."""
     deadline = time.monotonic() + timeout
     while True:
-        # The service's Ready routes to the latest ready revision, which can be an older, failed one.
+        # Service Ready tracks latestReadyRevisionName, which can be an older, failed revision.
         revision = _revision_with_hash(api, name, namespace, digest) or {}
         conditions = (revision.get("status") or {}).get("conditions") or []
         ready = next((c for c in conditions if c.get("type") == "Ready"), None)
@@ -267,6 +266,20 @@ def _wait_until_ready(api: Any, name: str, namespace: str, digest: str, timeout:
             )
         if time.monotonic() >= deadline:
             raise KnativeServiceUnavailableError(f"knative service '{name}' not ready within {timeout}s")
+        time.sleep(3)
+
+
+def _wait_until_routed(api: Any, name: str, namespace: str, timeout: int) -> None:
+    deadline = time.monotonic() + timeout
+    while True:
+        service = _get_service(api, name, namespace) or {}
+        status = service.get("status") or {}
+        if status.get("observedGeneration") == (service.get("metadata") or {}).get("generation") and any(
+            c.get("type") == "Ready" and c.get("status") == "True" for c in status.get("conditions") or []
+        ):
+            return
+        if time.monotonic() >= deadline:
+            raise KnativeServiceUnavailableError(f"knative service '{name}' not serving its revision within {timeout}s")
         time.sleep(3)
 
 
@@ -376,6 +389,7 @@ def ensure_knative_service(
             service = _get_service(api, name, ns) or {}
             pinned = _desired_traffic(_route_traffic(service), {"revisionName": ready_revision}, tag)
             _patch_service(api, name, ns, {"spec": {"traffic": pinned}})
+        _wait_until_routed(api, name, ns, timeout)
 
 
 def release_knative_service(model_name: str, namespace: str | None = None) -> bool:

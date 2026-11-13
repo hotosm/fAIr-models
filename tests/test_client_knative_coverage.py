@@ -889,6 +889,15 @@ def test_wait_times_out_before_the_new_revision_exists() -> None:
         knative_module._wait_until_ready(api, "svc", "predict", "new", 0)
 
 
+def test_routed_wait_returns_once_the_service_is_ready() -> None:
+    knative_module._wait_until_routed(_ReadyApi([], service_ready="True"), "svc", "predict", 0)
+
+
+def test_routed_wait_times_out_while_the_route_is_not_ready() -> None:
+    with pytest.raises(knative_module.KnativeServiceUnavailableError, match="not serving its revision"):
+        knative_module._wait_until_routed(_ReadyApi([], service_ready="False"), "svc", "predict", 0)
+
+
 def test_node_pool_selector_key(monkeypatch: pytest.MonkeyPatch) -> None:
     item = _build_base_model_item()
     item.properties["fair:node_pool"] = "ml-big8"

@@ -12,6 +12,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - add ZenML integration for model promotion and STAC catalog synchronization
 - implement STAC catalog management and builders for datasets and models
 
+## v0.3.30 (2026-11-13)
+
+### Fix
+
+- **outputclass**: fixes every output class with confidence made as compulsory
+- **datasets**: keep every OSM class that shares a tag key
+- **stac**: publish class objects that name the stamped property
+- **stac**: declare the label property that dataset items actually carry
+
+### Refactor
+
+- **stac**: name the label class property in one place
+
 ## v0.3.29 (2026-11-13)
 
 ### Fix

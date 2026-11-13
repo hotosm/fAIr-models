@@ -5,10 +5,11 @@ Reads:
     BASE_SHA      PR base sha (pull_request)
     HEAD_SHA      PR head sha (pull_request)
 
-Writes `name=<model>` to $GITHUB_OUTPUT and prints the name. Exits 1 with a
+Writes `name=<model>` and `trainable=<true|false>` to $GITHUB_OUTPUT and prints the name. Exits 1 with a
 clear message if no model can be resolved or required files are missing.
 """
 
+import json
 import os
 import subprocess
 import sys
@@ -27,7 +28,7 @@ def changed_model_dirs() -> list[str]:
         text=True,
         check=True,
     ).stdout.splitlines()
-    return sorted({Path(p).parts[1] for p in out if p.startswith("models/") and len(Path(p).parts) > 1})
+    return sorted({Path(p).parts[1] for p in out if p.startswith("models/") and len(Path(p).parts) > 2})
 
 
 def main() -> int:
@@ -47,10 +48,12 @@ def main() -> int:
     if missing:
         sys.exit(f"models/{name} missing: {', '.join(missing)}")
 
+    # Same rule as fair.stac.validators.is_trainable; this script runs before fair is installed.
+    trainable = "mlm:training" in json.loads(Path(f"models/{name}/stac-item.json").read_text())["assets"]
     print(name)
     if out := os.environ.get("GITHUB_OUTPUT"):
         with Path(out).open("a") as f:
-            f.write(f"name={name}\n")
+            f.write(f"name={name}\ntrainable={str(trainable).lower()}\n")
     return 0
 
 

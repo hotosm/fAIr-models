@@ -56,8 +56,21 @@ def _aoi_geometry_and_bbox(aoi: dict[str, Any]) -> tuple[dict[str, Any], list[fl
 
 
 def _osm_filters(label_classes: list[dict[str, Any]], geometry_type: str) -> dict[str, Any]:
-    """Translate STAC `label:classes` into a raw-data API `filters` block."""
-    join_or = {cls["name"]: ([] if cls["classes"] == ["*"] else list(cls["classes"])) for cls in label_classes}
+    """Translate STAC `label:classes` into a raw-data API `filters` block.
+
+    Classes that share a tag key (one class per `roof:material` value, say) are merged under that key, and `["*"]`
+    on any of them asks for every value of the key, which the API spells as an empty list.
+    """
+    join_or: dict[str, list[str]] = {}
+    any_value: set[str] = set()
+    for cls in label_classes:
+        values = join_or.setdefault(cls["name"], [])
+        if cls["classes"] == ["*"]:
+            any_value.add(cls["name"])
+        else:
+            values.extend(value for value in cls["classes"] if value not in values)
+    for key in any_value:
+        join_or[key] = []
     return {"tags": {geometry_type: {"join_or": join_or}}}
 
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime
 from typing import Any
 
@@ -53,6 +54,24 @@ def test_publish_item_posts_when_missing() -> None:
     assert published.id == "ds-1"
     assert b'"id":"ds-1"' in seen["body"]
     assert b'"collection":"datasets"' in seen["body"]
+
+
+def test_publish_item_stores_catalog_links_relative_and_no_self() -> None:
+    seen: dict[str, Any] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "GET":
+            return httpx.Response(404)
+        seen["body"] = json.loads(request.content)
+        return httpx.Response(201, json={})
+
+    item = _build_dummy_item()
+    item.add_link(pystac.Link(rel="derived_from", target="https://stac.example/api/collections/base-models/items/bm"))
+    _make_backend(handler).publish_item("datasets", item)
+
+    assert {link["rel"]: link["href"] for link in seen["body"]["links"]} == {
+        "derived_from": "collections/base-models/items/bm"
+    }
 
 
 def test_publish_item_puts_when_present() -> None:
@@ -115,6 +134,41 @@ def test_list_items_returns_features() -> None:
     assert [i.id for i in items] == ["ds-1", "ds-2"]
 
 
+def _paged_handler(bodies: list[dict]):
+    """Two search pages, the first linking to the second the way stac-fastapi-pgstac does."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        bodies.append(body)
+        if "token" not in body:
+            next_body = {**body, "token": "next:p2"}
+            next_link = {"rel": "next", "method": "POST", "href": str(request.url), "body": next_body}
+            return httpx.Response(200, json={"features": [_build_dummy_item("ds-1").to_dict()], "links": [next_link]})
+        return httpx.Response(200, json={"features": [_build_dummy_item("ds-2").to_dict()], "links": []})
+
+    return handler
+
+
+def test_list_items_follows_next_links_to_the_last_page() -> None:
+    bodies: list[dict] = []
+    backend = _make_backend(_paged_handler(bodies))
+
+    items = backend.list_items("datasets")
+
+    assert [i.id for i in items] == ["ds-1", "ds-2"]
+    assert bodies[1]["token"] == "next:p2"
+
+
+def test_list_items_stops_paging_once_the_limit_is_reached() -> None:
+    bodies: list[dict] = []
+    backend = _make_backend(_paged_handler(bodies))
+
+    items = backend.list_items("datasets", limit=1)
+
+    assert [i.id for i in items] == ["ds-1"]
+    assert len(bodies) == 1
+
+
 def test_delete_item_tolerates_404() -> None:
     def handler(_: httpx.Request) -> httpx.Response:
         return httpx.Response(404)
@@ -126,7 +180,7 @@ def test_delete_item_tolerates_404() -> None:
 def test_item_href_format() -> None:
     backend = _make_backend(lambda _: httpx.Response(200, json={}))
     href = backend.item_href("datasets", "ds-1")
-    assert href == "https://stac.example/api/collections/datasets/items/ds-1"
+    assert href == "collections/datasets/items/ds-1"
 
 
 def test_init_bootstraps_collections_via_post_and_put() -> None:

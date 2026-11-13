@@ -139,8 +139,9 @@ The runtime default in `fair/zenml/config.py` can be overridden via `FAIR_LABEL_
     correctly against `http://localhost:8082`.
 
     **GPU scheduling from STAC metadata** : `mlm:accelerator` and `mlm:accelerator_count`
-    in `stac-item.json` drive `nvidia.com/gpu` resource requests. `config.py` reads these
-    and emits pod settings only when the orchestrator is Kubernetes.
+    drive `nvidia.com/gpu` requests. Training reads them from the `mlm:training` asset, offline
+    prediction from `mlm:inference`, each falling back to the item. A GPU job needs a GPU node
+    pool with that workload's label.
 
 ## Known issues
 

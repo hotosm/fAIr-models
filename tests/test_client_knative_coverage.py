@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import io
+import json
 from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
@@ -13,6 +15,8 @@ from kubernetes.client.exceptions import ApiException
 import fair.client as client_module
 import fair.infra.knative as knative_module
 from fair.client import FairClient, FairClientError
+from fair.stac.catalog_manager import StacCatalogManager
+from fair.stac.collections import initialize_catalog
 from fair.stac.constants import BASE_MODELS_COLLECTION, DATASETS_COLLECTION, LOCAL_MODELS_COLLECTION
 
 
@@ -124,6 +128,7 @@ def _build_base_model_item(item_id: str = "dinov3s-buildings") -> pystac.Item:
         item_id,
         {
             "mlm:name": item_id,
+            "mlm:input": [{"name": "image"}],
             "mlm:hyperparameters": {"inference.confidence_threshold": 0.5},
             "version": "1",
         },
@@ -270,11 +275,30 @@ def test_mirror_asset_to_artifact_store_updates_asset_href(monkeypatch) -> None:
         def is_dir(self) -> bool:
             return False
 
+        def __str__(self) -> str:
+            return self.path
+
+        @property
+        def protocol(self) -> str:
+            return self.path.split("://", 1)[0]
+
         def read_bytes(self) -> bytes:
             return self.storage[self.path]
 
         def write_bytes(self, data: bytes) -> None:
             self.storage[self.path] = data
+
+        def open(self, mode: str, **_kwargs: object) -> io.BytesIO:
+            if mode == "rb":
+                return io.BytesIO(self.storage[self.path])
+            path, storage = self.path, self.storage
+
+            class _Writer(io.BytesIO):
+                def close(self) -> None:
+                    storage[path] = self.getvalue()
+                    super().close()
+
+            return _Writer()
 
     monkeypatch.setattr(client_module, "UPath", DummyUPath)
     monkeypatch.setattr("fair.utils.data.UPath", DummyUPath)
@@ -365,7 +389,7 @@ def test_setup_register_base_model_and_register_dataset_paths(monkeypatch, tmp_p
         label_tasks=["segmentation"],
         label_classes=[{"name": "building"}],
         keywords=["demo"],
-        chips_href=str(source_chips),
+        chips_hrefs={"image": str(source_chips)},
         labels_href=str(source_labels),
         title="Demo Dataset",
         description="demo",
@@ -379,7 +403,7 @@ def test_setup_register_base_model_and_register_dataset_paths(monkeypatch, tmp_p
 def test_finetune_promote_and_predict_workflows(monkeypatch, tmp_path) -> None:
     base_item = _build_base_model_item()
     dataset_item = _build_item("dataset-1", {"version": "1"})
-    local_model = _build_item("local-model", {"fair:base_model_id": base_item.id})
+    local_model = _build_item("local-model", {"fair:base_model_id": base_item.id, "mlm:input": [{"name": "image"}]})
     local_model.add_asset("model", pystac.Asset(href="https://example.com/local-model.onnx"))
 
     backend = DummyBackend(
@@ -448,10 +472,11 @@ def test_finetune_promote_and_predict_workflows(monkeypatch, tmp_path) -> None:
     fake_module = SimpleNamespace(training_pipeline=training_pipeline, inference_pipeline=inference_pipeline)
     monkeypatch.setattr(client_module.importlib, "import_module", lambda _: fake_module)
     monkeypatch.setattr(client_module, "promote_model_version", lambda *args, **kwargs: None)
+    publish_calls: list[dict[str, Any]] = []
     monkeypatch.setattr(
         client_module,
         "publish_promoted_model",
-        lambda **kwargs: _build_item("promoted-model", {"version": "7"}),
+        lambda **kwargs: publish_calls.append(kwargs) or _build_item("promoted-model", {"version": "7"}),
     )
     upload_calls: list[tuple[str, str]] = []
     monkeypatch.setattr(
@@ -463,9 +488,11 @@ def test_finetune_promote_and_predict_workflows(monkeypatch, tmp_path) -> None:
     assert (
         client.finetune(base_model_id=base_item.id, dataset_id=dataset_item.id, model_name="demo-model") == "demo-model"
     )
-    assert client.promote("demo-model") == "promoted-model"
-    assert client.predict(local_model.id, str(tmp_path)) == {"ok": True}
-    assert upload_calls[-1][1] == f"s3://bucket/predict/{local_model.id}/input"
+    providers = [{"name": "mapper", "roles": ["producer"]}]
+    assert client.promote("demo-model", providers=providers) == "promoted-model"
+    assert publish_calls[-1]["providers"] == providers
+    assert client.predict(local_model.id, {"image": str(tmp_path)}) == {"ok": True}
+    assert upload_calls[-1][1] == f"s3://bucket/predict/{local_model.id}/input/image"
 
     broken_backend = DummyBackend({(BASE_MODELS_COLLECTION, base_item.id): base_item})
     monkeypatch.setattr(client, "_get_backend", lambda: broken_backend)
@@ -495,16 +522,16 @@ def test_predict_resolves_base_model_when_not_local(monkeypatch, tmp_path) -> No
     fake_module = SimpleNamespace(inference_pipeline=DummyPipeline(prediction_run))
     monkeypatch.setattr(client_module.importlib, "import_module", lambda _: fake_module)
 
-    assert client.predict(base_item.id, str(tmp_path)) == {"ok": True}
+    assert client.predict(base_item.id, {"image": str(tmp_path)}) == {"ok": True}
 
     monkeypatch.setattr(client, "_get_backend", lambda: DummyBackend({}))
     with pytest.raises(FairClientError, match="not found in local-models or base-models"):
-        client.predict("ghost", str(tmp_path))
+        client.predict("ghost", {"image": str(tmp_path)})
 
 
 def test_predict_live_error_paths_and_success(monkeypatch, tmp_path) -> None:
     base_item = _build_base_model_item()
-    local_model = _build_item("local-model", {"fair:base_model_id": base_item.id})
+    local_model = _build_item("local-model", {"fair:base_model_id": base_item.id, "mlm:input": [{"name": "image"}]})
     local_model.add_asset("model", pystac.Asset(href="https://example.com/local-model.onnx"))
 
     backend = DummyBackend(
@@ -537,7 +564,7 @@ def test_predict_live_error_paths_and_success(monkeypatch, tmp_path) -> None:
 
     result = client.predict_live(
         local_model.id,
-        image_uri=image_uri,
+        imagery={"image": image_uri},
         bbox=bbox,
         zoom=zoom,
         predict_base_url=predict_base_url,
@@ -547,7 +574,7 @@ def test_predict_live_error_paths_and_success(monkeypatch, tmp_path) -> None:
     assert captured["url"] == predict_base_url
     assert captured["kwargs"]["verify"] is False
     sent = captured["kwargs"]["json"]
-    assert sent["image_uri"] == image_uri
+    assert sent["imagery"] == {"image": image_uri}
     assert sent["bbox"] == bbox
     assert sent["zoom"] == zoom
     assert "input_images" not in sent
@@ -557,7 +584,7 @@ def test_predict_live_error_paths_and_success(monkeypatch, tmp_path) -> None:
     with pytest.raises(FairClientError):
         client.predict_live(
             "missing",
-            image_uri=image_uri,
+            imagery={"image": image_uri},
             bbox=bbox,
             zoom=zoom,
             predict_base_url=predict_base_url,
@@ -569,7 +596,7 @@ def test_predict_live_error_paths_and_success(monkeypatch, tmp_path) -> None:
     with pytest.raises(FairClientError):
         client.predict_live(
             no_asset_item.id,
-            image_uri=image_uri,
+            imagery={"image": image_uri},
             bbox=bbox,
             zoom=zoom,
             predict_base_url=predict_base_url,
@@ -822,25 +849,53 @@ def test_register_base_model_skips_the_probe_without_a_domain(monkeypatch: pytes
     assert len(backend.published) == 1
 
 
+def _revision(name: str, digest: str, ready: str, message: str = "") -> dict[str, Any]:
+    return {
+        "metadata": {"name": name, "annotations": {knative_module.TEMPLATE_HASH_ANNOTATION: digest}},
+        "status": {"conditions": [{"type": "Ready", "status": ready, "message": message}]},
+    }
+
+
 class _ReadyApi:
-    def __init__(self, conditions: list[dict[str, str]]) -> None:
-        self._conditions = conditions
+    def __init__(self, revisions: list[dict[str, Any]], service_ready: str = "True") -> None:
+        self._revisions = revisions
+        self._service_ready = service_ready
 
     def get_namespaced_custom_object(self, **_: Any) -> dict[str, Any]:
-        return {"status": {"conditions": self._conditions}}
+        status = {"observedGeneration": 2, "conditions": [{"type": "Ready", "status": self._service_ready}]}
+        return {"metadata": {"generation": 2}, "status": status}
 
     def list_namespaced_custom_object(self, **_: Any) -> dict[str, Any]:
-        return {"items": []}
+        return {"items": self._revisions}
 
 
-def test_wait_until_ready_states() -> None:
-    knative_module._wait_until_ready(_ReadyApi([{"type": "Ready", "status": "True"}]), "svc", "predict", 5)
-    with pytest.raises(knative_module.KnativeServiceUnavailableError):
-        knative_module._wait_until_ready(
-            _ReadyApi([{"type": "Ready", "status": "False", "message": "boom"}]), "svc", "predict", 5
-        )
-    with pytest.raises(knative_module.KnativeServiceUnavailableError):
-        knative_module._wait_until_ready(_ReadyApi([]), "svc", "predict", 0)
+def test_wait_returns_the_new_revision_while_the_service_still_reports_the_old_failure() -> None:
+    api = _ReadyApi(
+        [_revision("svc-00009", "old", "False", "exit code 1"), _revision("svc-00010", "new", "True")],
+        service_ready="False",
+    )
+    assert knative_module._wait_until_ready(api, "svc", "predict", "new", 5) == "svc-00010"
+
+
+def test_wait_raises_when_the_new_revision_fails() -> None:
+    api = _ReadyApi([_revision("svc-00010", "new", "False", "exit code 1")])
+    with pytest.raises(knative_module.KnativeServiceUnavailableError, match="exit code 1"):
+        knative_module._wait_until_ready(api, "svc", "predict", "new", 5)
+
+
+def test_wait_times_out_before_the_new_revision_exists() -> None:
+    api = _ReadyApi([_revision("svc-00009", "old", "True")])
+    with pytest.raises(knative_module.KnativeServiceUnavailableError, match="not ready within"):
+        knative_module._wait_until_ready(api, "svc", "predict", "new", 0)
+
+
+def test_routed_wait_returns_once_the_service_is_ready() -> None:
+    knative_module._wait_until_routed(_ReadyApi([], service_ready="True"), "svc", "predict", 0)
+
+
+def test_routed_wait_times_out_while_the_route_is_not_ready() -> None:
+    with pytest.raises(knative_module.KnativeServiceUnavailableError, match="not serving its revision"):
+        knative_module._wait_until_routed(_ReadyApi([], service_ready="False"), "svc", "predict", 0)
 
 
 def test_node_pool_selector_key(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -873,7 +928,243 @@ def test_ensure_knative_service_verifies_when_timeout_set(monkeypatch: pytest.Mo
     monkeypatch.setattr(knative_module, "_knative_serving_installed", lambda: True)
     monkeypatch.setattr(knative_module, "_custom_objects_api", lambda: _ReadyApi([]))
     monkeypatch.setattr(knative_module, "_upsert_knative_service", lambda *_: None)
-    monkeypatch.setattr(knative_module, "_wait_until_ready", lambda *a: waited.append(a[1]))
+    monkeypatch.setattr(
+        knative_module, "_wait_until_ready", lambda *a: waited.append(a[1]) or "dinov3s-buildings-00002"
+    )
+    patches: list[dict[str, Any]] = []
+    monkeypatch.setattr(knative_module, "_patch_service", lambda *a: patches.append(a[3]))
     monkeypatch.setenv("FAIR_KNATIVE_VERIFY_TIMEOUT", "5")
     knative_module.ensure_knative_service(_build_base_model_item())
     assert waited == ["dinov3s-buildings"]
+    assert patches == [{"spec": {"traffic": [{"revisionName": "dinov3s-buildings-00002", "percent": 100}]}}]
+
+
+def _register_from_item(monkeypatch, tmp_path, source_item: pystac.Item) -> tuple[pystac.Item, dict[str, Any]]:
+    monkeypatch.chdir(tmp_path)
+    source_item.properties["providers"] = [{"name": "provider", "roles": ["producer"]}]
+    backend = DummyBackend()
+    archived: list[dict[str, Any]] = []
+
+    client = FairClient(catalog_path="catalog.json")
+    monkeypatch.setattr(client, "_get_backend", lambda: backend)
+    monkeypatch.setattr(client, "_upload_assets_if_remote", lambda *args, **kwargs: None)
+    monkeypatch.setattr(client_module.pystac.Item, "from_file", lambda _: source_item)
+    monkeypatch.setattr(client_module, "count_chips", lambda _: 4)
+    monkeypatch.setattr(client_module, "find_previous_active_item", lambda *args, **kwargs: None)
+    monkeypatch.setattr(client_module, "validate_item", lambda _: [])
+    monkeypatch.setattr(client_module, "create_dataset_archive", lambda **kwargs: archived.append(kwargs))
+
+    client._register_dataset_from_item("dataset.json", user_id="tester")
+    return backend.published[0][1], archived[0]
+
+
+def _imagery_links(item: pystac.Item) -> dict[str | None, str | None]:
+    return {link.title: link.get_href() for link in item.links if link.rel == "source"}
+
+
+def test_register_dataset_from_item_keeps_the_chips_and_imagery_of_each_input(monkeypatch, tmp_path) -> None:
+    source_item = _build_item("dataset-source", {"title": "Damage", "label:type": "vector", "keywords": ["demo"]})
+    source_item.add_asset("labels", pystac.Asset(href=str(tmp_path / "labels.geojson")))
+    for name in ("post", "pre"):
+        source_item.add_asset(f"chips-{name}", pystac.Asset(href=str(tmp_path / f"chips-{name}")))
+        source_item.add_link(
+            pystac.Link(
+                rel="source", target=f"https://example.com/{name}/{{z}}/{{x}}/{{y}}", title=f"Imagery for input {name}"
+            )
+        )
+
+    published, archived = _register_from_item(monkeypatch, tmp_path, source_item)
+
+    assert {key: published.assets[key].href for key in ("chips-post", "chips-pre")} == {
+        "chips-post": str(tmp_path / "chips-post"),
+        "chips-pre": str(tmp_path / "chips-pre"),
+    }
+    assert _imagery_links(published) == {
+        "Imagery for input post": "https://example.com/post/{z}/{x}/{y}",
+        "Imagery for input pre": "https://example.com/pre/{z}/{x}/{y}",
+    }
+    assert archived["chips_dirs"] == {"post": str(tmp_path / "chips-post"), "pre": str(tmp_path / "chips-pre")}
+
+
+def test_register_dataset_from_a_legacy_item_names_its_chips_and_imagery_image(monkeypatch, tmp_path) -> None:
+    source_item = _build_dataset_source_item(str(tmp_path / "chips"), str(tmp_path / "labels.geojson"))
+
+    published, archived = _register_from_item(monkeypatch, tmp_path, source_item)
+
+    assert published.assets["chips-image"].href == str(tmp_path / "chips")
+    assert "chips" not in published.assets
+    assert _imagery_links(published) == {"Imagery for input image": "https://example.com/imagery.tif"}
+    assert archived["chips_dirs"] == {"image": str(tmp_path / "chips")}
+
+
+def test_register_dataset_from_params_archives_and_publishes_pre_event_chips(monkeypatch, tmp_path) -> None:
+    monkeypatch.chdir(tmp_path)
+    labels = tmp_path / "labels.geojson"
+    labels.write_text(
+        json.dumps(
+            {
+                "type": "FeatureCollection",
+                "features": [
+                    {
+                        "type": "Feature",
+                        "geometry": {"type": "Point", "coordinates": [85.5, 27.6]},
+                        "properties": {},
+                    }
+                ],
+            }
+        )
+    )
+    backend = DummyBackend()
+    archived: list[dict[str, Any]] = []
+
+    client = FairClient(catalog_path="catalog.json")
+    monkeypatch.setattr(client, "_get_backend", lambda: backend)
+    monkeypatch.setattr(client, "_upload_assets_if_remote", lambda *args, **kwargs: None)
+    monkeypatch.setattr(client_module, "count_chips", lambda _: 4)
+    monkeypatch.setattr(client_module, "find_previous_active_item", lambda *args, **kwargs: None)
+    monkeypatch.setattr(client_module, "validate_item", lambda _: [])
+    monkeypatch.setattr(client_module, "create_dataset_archive", lambda **kwargs: archived.append(kwargs))
+
+    params = client_module.DatasetItemParams(
+        label_type="vector",
+        label_tasks=["segmentation"],
+        label_classes=[{"name": "damage", "classes": ["destroyed"]}],
+        keywords=["building"],
+        chips_hrefs={"post": str(tmp_path / "chips-post"), "pre": str(tmp_path / "chips-pre")},
+        labels_href=str(labels),
+        title="Damage Dataset",
+        description="demo",
+        user_id="tester",
+        providers=[{"name": "provider", "roles": ["producer"]}],
+    )
+    client._register_dataset_from_params(params, user_id="tester")
+
+    assert archived[0]["chips_dirs"] == {"post": str(tmp_path / "chips-post"), "pre": str(tmp_path / "chips-pre")}
+    assert backend.published[0][1].assets["chips-pre"].href.endswith("chips-pre")
+
+
+def test_submit_predict_passes_params_to_the_inference_config(monkeypatch, tmp_path) -> None:
+    local_model = _build_item(
+        "local-model",
+        {
+            "fair:base_model_id": "base",
+            "mlm:input": [{"name": "image"}],
+            "mlm:hyperparameters": {"inference.confidence_threshold": 0.5},
+            "fair:hyperparameters_spec": [{"key": "confidence_threshold", "type": "float", "default": 0.5}],
+        },
+    )
+    backend = DummyBackend({(LOCAL_MODELS_COLLECTION, local_model.id): local_model})
+    client = FairClient(stac_api_url="https://stac.example.com", config_dir=str(tmp_path))
+    config_calls: list[tuple[Any, ...]] = []
+    monkeypatch.setattr(client, "_get_backend", lambda: backend)
+    monkeypatch.setattr(client, "_artifact_store_prefix", lambda: None)
+    monkeypatch.setattr(client, "_pipeline_module_from_item", lambda _: "models.demo.pipeline")
+    monkeypatch.setattr(
+        client_module,
+        "generate_inference_config",
+        lambda *args: config_calls.append(args) or {"parameters": {}},
+    )
+    run = SimpleNamespace(id="predict-run", status="running")
+    fake_module = SimpleNamespace(inference_pipeline=DummyPipeline(run))
+    monkeypatch.setattr(client_module.importlib, "import_module", lambda _: fake_module)
+
+    run_id = client.submit_predict(
+        local_model_id=local_model.id, input_images={"image": "s3://bucket/input"}, params={"confidence_threshold": 0.8}
+    )
+
+    assert run_id == "predict-run"
+    assert config_calls[0][2] == {"confidence_threshold": 0.8}
+
+
+@pytest.mark.parametrize(
+    ("input_images", "params"),
+    [({"post": "/tmp/chips"}, None), ({"image": "/tmp/chips"}, {"epochs": 3})],
+)
+def test_predict_checks_imagery_and_params_before_uploading(monkeypatch, tmp_path, input_images, params) -> None:
+    local_model = _build_item(
+        "local-model",
+        {
+            "fair:base_model_id": "base",
+            "mlm:input": [{"name": "image"}],
+            "mlm:hyperparameters": {"inference.confidence_threshold": 0.5},
+            "fair:hyperparameters_spec": [{"key": "confidence_threshold", "type": "float", "default": 0.5}],
+        },
+    )
+    client = FairClient(stac_api_url="https://stac.example.com", config_dir=str(tmp_path), upload_artifacts=True)
+    monkeypatch.setattr(
+        client, "_get_backend", lambda: DummyBackend({(LOCAL_MODELS_COLLECTION, local_model.id): local_model})
+    )
+    monkeypatch.setattr(client, "_artifact_store_prefix", lambda: "s3://bucket")
+    monkeypatch.setattr(client, "_pipeline_module_from_item", lambda _: "models.demo.pipeline")
+    uploads: list[tuple[str, str]] = []
+    monkeypatch.setattr(
+        client_module, "upload_local_directory", lambda path, remote: uploads.append((str(path), remote))
+    )
+
+    with pytest.raises(ValueError):
+        client.submit_predict(local_model_id=local_model.id, input_images=input_images, params=params)
+    assert uploads == []
+
+
+@pytest.fixture
+def deletable_model(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> tuple[FairClient, StacCatalogManager]:
+    catalog_path = str(tmp_path / "catalog.json")
+    initialize_catalog(catalog_path)
+    catalog = StacCatalogManager(catalog_path)
+    catalog.publish_item(BASE_MODELS_COLLECTION, _build_base_model_item("dinov3s-buildings"))
+    client = FairClient(catalog_path=catalog_path)
+    monkeypatch.setattr(client, "_get_backend", lambda: catalog)
+    return client, catalog
+
+
+@pytest.mark.parametrize(
+    ("stac_api_url", "cluster", "removed"),
+    [
+        ("https://stac.example.com", True, ["dinov3s-buildings"]),
+        ("https://stac.example.com", False, []),
+        (None, True, []),
+    ],
+)
+def test_delete_base_model_removes_the_service_only_where_one_can_exist(
+    monkeypatch: pytest.MonkeyPatch, deletable_model, stac_api_url: str | None, cluster: bool, removed: list[str]
+) -> None:
+    client, catalog = deletable_model
+    client._stac_api_url = stac_api_url
+    monkeypatch.setattr(knative_module, "cluster_configured", lambda: cluster)
+    deleted: list[str] = []
+    monkeypatch.setattr(knative_module, "delete_knative_service", lambda name, namespace=None: deleted.append(name))
+
+    assert client.delete_base_model("dinov3s-buildings") == ["dinov3s-buildings"]
+
+    assert deleted == removed
+    assert not catalog.item_exists(BASE_MODELS_COLLECTION, "dinov3s-buildings")
+
+
+def test_delete_base_model_keeps_stac_when_the_service_delete_fails(
+    monkeypatch: pytest.MonkeyPatch, deletable_model
+) -> None:
+    client, catalog = deletable_model
+    client._stac_api_url = "https://stac.example.com"
+    monkeypatch.setattr(knative_module, "cluster_configured", lambda: True)
+
+    def unreachable(name: str, namespace: str | None = None) -> None:
+        raise ApiException(status=503)
+
+    monkeypatch.setattr(knative_module, "delete_knative_service", unreachable)
+
+    with pytest.raises(ApiException):
+        client.delete_base_model("dinov3s-buildings")
+
+    assert catalog.item_exists(BASE_MODELS_COLLECTION, "dinov3s-buildings")
+
+
+def test_cluster_configured_is_false_without_any_kubernetes_config(monkeypatch: pytest.MonkeyPatch) -> None:
+    from kubernetes import config
+
+    def missing() -> None:
+        raise config.ConfigException("no config")
+
+    monkeypatch.setattr(config, "load_incluster_config", missing)
+    monkeypatch.setattr(config, "load_kube_config", missing)
+
+    assert knative_module.cluster_configured() is False

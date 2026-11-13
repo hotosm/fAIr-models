@@ -8,11 +8,14 @@ from typing import TypedDict
 
 import pystac
 
+from fair.stac.validators import is_trainable
+
 
 class ModelInfo(TypedDict):
     name: str
     version: str
     path: str
+    trainable: bool
 
 
 def get_changed_models() -> set[str] | None:
@@ -67,7 +70,14 @@ def find_models() -> list[ModelInfo]:
 
         item = pystac.Item.from_file(str(stac_file))
         version = item.properties["version"]
-        models.append({"name": model_path.name, "version": version, "path": str(model_path)})
+        models.append(
+            {
+                "name": model_path.name,
+                "version": version,
+                "path": str(model_path),
+                "trainable": is_trainable(item.assets),
+            }
+        )
 
     return models
 

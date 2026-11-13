@@ -15,7 +15,7 @@ def _split(dataset: dict[str, Path]) -> dict[str, Any]:
     from models.sklearn_rgb_segmentation.pipeline import split_dataset
 
     return split_dataset.entrypoint(
-        dataset_chips=str(dataset["chips"]),
+        dataset_chips={"image": str(dataset["chips"])},
         dataset_labels=str(dataset["labels"]),
         hyperparameters=HYPERPARAMETERS,
     )
@@ -25,7 +25,7 @@ def _train(dataset: dict[str, Path], split_info: dict[str, Any]) -> bytes:
     from models.sklearn_rgb_segmentation.pipeline import train_model
 
     return train_model.entrypoint(
-        dataset_chips=str(dataset["chips"]),
+        dataset_chips={"image": str(dataset["chips"])},
         dataset_labels=str(dataset["labels"]),
         base_model_weights="",
         hyperparameters=HYPERPARAMETERS,
@@ -52,7 +52,7 @@ def test_evaluate_model(generate_toy_dataset: dict[str, Path]) -> None:
     split_info = _split(generate_toy_dataset)
     metrics = evaluate_model.entrypoint(
         trained_model=_train(generate_toy_dataset, split_info),
-        dataset_chips=str(generate_toy_dataset["chips"]),
+        dataset_chips={"image": str(generate_toy_dataset["chips"])},
         dataset_labels=str(generate_toy_dataset["labels"]),
         hyperparameters=HYPERPARAMETERS,
         split_info=split_info,

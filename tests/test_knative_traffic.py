@@ -66,6 +66,7 @@ class FakeKnative:
                 "service": name,
                 "template": copy.deepcopy(template),
                 "metadata": {"name": latest, "annotations": dict(template["metadata"].get("annotations") or {})},
+                "status": {"conditions": [{"type": "Ready", "status": "True"}]},
             }
         svc["status"]["latestReadyRevisionName"] = latest
         resolved = []
@@ -74,6 +75,8 @@ class FakeKnative:
             resolved.append({k: v for k, v in {**route, "revisionName": rev}.items() if k != "latestRevision"})
         svc["status"]["traffic"] = resolved
         svc["status"]["conditions"] = [{"type": "Ready", "status": "True"}]
+        svc["metadata"]["generation"] = svc["metadata"].get("generation", 0) + 1
+        svc["status"]["observedGeneration"] = svc["metadata"]["generation"]
 
     def get_namespaced_custom_object(self, *, name: str, **_: Any) -> dict[str, Any]:
         if name not in self.services:
@@ -98,7 +101,13 @@ class FakeKnative:
     def list_namespaced_custom_object(self, *, plural: str, label_selector: str = "", **_: Any) -> dict[str, Any]:
         if plural == kn.KNATIVE_REVISIONS:
             service = label_selector.split("=", 1)[1]
-            return {"items": [{"metadata": r["metadata"]} for r in self.revisions.values() if r["service"] == service]}
+            return {
+                "items": [
+                    {"metadata": r["metadata"], "status": r["status"]}
+                    for r in self.revisions.values()
+                    if r["service"] == service
+                ]
+            }
         return {"items": [copy.deepcopy(s) for s in self.services.values()]}
 
     def routes(self, name: str) -> list[tuple[str | None, str, int]]:

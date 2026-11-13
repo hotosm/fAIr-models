@@ -1,0 +1,6 @@
+*
+!models/deepforest_tree/
+!models/conftest.py
+!models/test_integration.py
+models/deepforest_tree/artifacts/
+models/deepforest_tree/__pycache__/

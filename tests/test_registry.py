@@ -61,3 +61,12 @@ def test_pin_image_digests_rewrites_only_image_refs() -> None:
     pin_image_digests(item, transport=_registry([]))
     assert item.assets["mlm:inference"].href == f"ghcr.io/hotosm/fair-models/demo@{DIGEST}"
     assert item.assets["mlm:training"].href == "https://example.com/not-an-image"
+
+
+def test_pin_image_digests_pins_the_batch_inference_image() -> None:
+    item = pystac.Item(id="demo", geometry=None, bbox=None, datetime=datetime.now(UTC), properties={})
+    item.add_asset("batch-inference", pystac.Asset(href="ghcr.io/hotosm/fair-models/demo:v1-inference"))
+
+    pin_image_digests(item, transport=_registry([]))
+
+    assert item.assets["batch-inference"].href == f"ghcr.io/hotosm/fair-models/demo@{DIGEST}"

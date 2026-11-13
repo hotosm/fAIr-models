@@ -948,6 +948,7 @@ wheels = [
 name = "fair-py-ops"
 source = { editable = "." }
 dependencies = [
+    { name = "aiohttp" },
     { name = "httpx" },
     { name = "mlflow" },
     { name = "onnxruntime" },
@@ -1009,6 +1010,7 @@ docs = [
 
 [package.metadata]
 requires-dist = [
+    { name = "aiohttp", specifier = ">=3.13.3" },
     { name = "geomltoolkits", marker = "extra == 'serve'", specifier = ">=2.0.2" },
     { name = "httpx", specifier = ">=0.28.1" },
     { name = "kubernetes", marker = "extra == 'k8s'", specifier = "==35.0.0" },

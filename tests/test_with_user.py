@@ -67,11 +67,14 @@ def test_proxy_submit_predict_delegates() -> None:
     client.submit_predict = submit_predict  # type: ignore[method-assign]
     proxy = client.with_user("carol")
 
-    proxy.submit_predict(local_model_id="lm-1", image_path="s3://bucket/img")
+    proxy.submit_predict(
+        local_model_id="lm-1", input_images={"image": "s3://bucket/img"}, params={"confidence_threshold": 0.3}
+    )
 
     submit_predict.assert_called_once_with(
         local_model_id="lm-1",
-        image_path="s3://bucket/img",
+        input_images={"image": "s3://bucket/img"},
+        params={"confidence_threshold": 0.3},
         config_dir=None,
     )
 
@@ -82,7 +85,7 @@ def test_proxy_promote_stamps_user_id() -> None:
     client.promote = promote  # type: ignore[method-assign]
     proxy = client.with_user("dave")
 
-    proxy.promote("ft-1", description="Looks good")
+    proxy.promote("ft-1", description="Looks good", providers=[{"name": "dave-osm", "roles": ["producer"]}])
 
     promote.assert_called_once_with(
         "ft-1",
@@ -94,6 +97,7 @@ def test_proxy_promote_stamps_user_id() -> None:
         user_id="dave",
         pipeline_run_id=None,
         paths=None,
+        providers=[{"name": "dave-osm", "roles": ["producer"]}],
     )
 
 
@@ -154,3 +158,14 @@ def test_get_backend_caches_first_call(monkeypatch: pytest.MonkeyPatch) -> None:
 
     assert first is second is third
     assert backend_init_count["calls"] == 1
+
+
+def test_proxy_predict_forwards_params() -> None:
+    client, _ = _client_with_stub_backend()
+    predict = MagicMock(return_value={"type": "FeatureCollection", "features": []})
+    client.predict = predict  # type: ignore[method-assign]
+    proxy = client.with_user("carol")
+
+    proxy.predict("lm-1", {"image": "s3://bucket/img"}, {"confidence_threshold": 0.3})
+
+    predict.assert_called_once_with("lm-1", {"image": "s3://bucket/img"}, {"confidence_threshold": 0.3})

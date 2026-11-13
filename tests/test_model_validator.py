@@ -54,7 +54,8 @@ def _scaffold(tmp_path: Path) -> None:
     (tmp_path / "README.md").write_text("# Model\n")
     (tmp_path / "stac-item.json").write_text(
         '{"assets": {"checkpoint": {"href": "https://example.com/weights.pt"}, '
-        '"model": {"href": "https://example.com/model.onnx"}}}\n'
+        '"model": {"href": "https://example.com/model.onnx"}, '
+        '"mlm:training": {"href": "ghcr.io/hotosm/fair-models/example:v1"}}}\n'
     )
     tests_dir = tmp_path / "tests"
     tests_dir.mkdir()
@@ -142,7 +143,8 @@ def inference_pipeline(): ...
     def test_missing_readme_only(self, tmp_path: Path) -> None:
         (tmp_path / "stac-item.json").write_text(
             '{"assets": {"checkpoint": {"href": "https://example.com/weights.pt"}, '
-            '"model": {"href": "https://example.com/model.onnx"}}}\n'
+            '"model": {"href": "https://example.com/model.onnx"}, '
+            '"mlm:training": {"href": "ghcr.io/hotosm/fair-models/example:v1"}}}\n'
         )
         tests_dir = tmp_path / "tests"
         tests_dir.mkdir()
@@ -245,3 +247,45 @@ def inference_pipeline(): ...
 """)
         errors = validate_model(tmp_path)
         assert any("syntax error" in e for e in errors)
+
+
+def _scaffold_prediction_only(tmp_path: Path, pipeline_source: str, test_source: str) -> None:
+    (tmp_path / "README.md").write_text("# Model\n")
+    (tmp_path / "stac-item.json").write_text(
+        '{"assets": {"model": {"href": "https://example.com/model.onnx"}, '
+        '"mlm:inference": {"href": "ghcr.io/hotosm/fair-models/example:v1-inference"}}}\n'
+    )
+    (tmp_path / "pipeline.py").write_text(pipeline_source)
+    tests_dir = tmp_path / "tests"
+    tests_dir.mkdir()
+    (tests_dir / "test_steps.py").write_text(test_source)
+
+
+_INFERENCE_ONLY_PIPELINE = """
+from zenml import pipeline, step
+
+@step
+def run_inference(): ...
+
+@pipeline
+def inference_pipeline(): ...
+"""
+
+
+class TestValidatePredictionOnlyModel:
+    def test_an_inference_pipeline_and_an_inference_test_are_enough(self, tmp_path: Path) -> None:
+        _scaffold_prediction_only(tmp_path, _INFERENCE_ONLY_PIPELINE, "def test_run_inference(): ...\n")
+
+        assert validate_model(tmp_path) == []
+
+    def test_the_inference_pipeline_is_still_required(self, tmp_path: Path) -> None:
+        _scaffold_prediction_only(tmp_path, "from zenml import step\n", "def test_run_inference(): ...\n")
+
+        assert validate_model(tmp_path) == [f"{tmp_path.name}: missing @pipeline function 'inference_pipeline'"]
+
+    def test_the_inference_test_is_required(self, tmp_path: Path) -> None:
+        _scaffold_prediction_only(tmp_path, _INFERENCE_ONLY_PIPELINE, "def test_something_else(): ...\n")
+
+        assert validate_model(tmp_path) == [
+            f"{tmp_path.name}: missing test function 'test_run_inference' in tests/test_steps.py"
+        ]

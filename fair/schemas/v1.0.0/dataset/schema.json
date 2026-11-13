@@ -39,7 +39,24 @@
             },
             "assets": {
               "type": "object",
-              "required": ["chips", "labels"],
+              "required": ["labels"],
+              "not": {
+                "propertyNames": {
+                  "not": { "pattern": "^chips(-[a-z0-9][a-z0-9_-]*)?$" }
+                }
+              },
+              "patternProperties": {
+                "^chips-[a-z0-9][a-z0-9_-]*$": {
+                  "type": "object",
+                  "required": ["href"],
+                  "properties": {
+                    "href": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  }
+                }
+              },
               "properties": {
                 "chips": {
                   "type": "object",

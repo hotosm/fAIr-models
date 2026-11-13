@@ -180,6 +180,20 @@ def build_knative_manifest(
     return manifest
 
 
+def cluster_configured() -> bool:
+    """Whether an in-cluster or kubeconfig Kubernetes config can be loaded; a stack without one has no services."""
+    from kubernetes import config
+
+    try:
+        config.load_incluster_config()
+    except config.ConfigException:
+        try:
+            config.load_kube_config()
+        except config.ConfigException:
+            return False
+    return True
+
+
 def _custom_objects_api() -> Any:
     from kubernetes import client, config
 
@@ -237,27 +251,35 @@ def _upsert_knative_service(api: Any, manifest: dict[str, Any], namespace: str) 
     )
 
 
-def _wait_until_ready(api: Any, name: str, namespace: str, timeout: int) -> None:
-    """Poll the ksvc's Ready condition until True; raise on a failed or timed-out rollout."""
+def _wait_until_ready(api: Any, name: str, namespace: str, digest: str, timeout: int) -> str:
     deadline = time.monotonic() + timeout
     while True:
-        obj = api.get_namespaced_custom_object(
-            group=KNATIVE_GROUP,
-            version=KNATIVE_VERSION,
-            namespace=namespace,
-            plural=KNATIVE_PLURAL,
-            name=name,
-        )
-        conditions = (obj.get("status") or {}).get("conditions") or []
+        # Service Ready tracks latestReadyRevisionName, which can be an older, failed revision.
+        revision = _revision_with_hash(api, name, namespace, digest) or {}
+        conditions = (revision.get("status") or {}).get("conditions") or []
         ready = next((c for c in conditions if c.get("type") == "Ready"), None)
         if ready and ready.get("status") == "True":
-            return
+            return revision["metadata"]["name"]
         if ready and ready.get("status") == "False":
             raise KnativeServiceUnavailableError(
                 f"knative service '{name}' failed to become ready: {ready.get('message')}"
             )
         if time.monotonic() >= deadline:
             raise KnativeServiceUnavailableError(f"knative service '{name}' not ready within {timeout}s")
+        time.sleep(3)
+
+
+def _wait_until_routed(api: Any, name: str, namespace: str, timeout: int) -> None:
+    deadline = time.monotonic() + timeout
+    while True:
+        service = _get_service(api, name, namespace) or {}
+        status = service.get("status") or {}
+        if status.get("observedGeneration") == (service.get("metadata") or {}).get("generation") and any(
+            c.get("type") == "Ready" and c.get("status") == "True" for c in status.get("conditions") or []
+        ):
+            return
+        if time.monotonic() >= deadline:
+            raise KnativeServiceUnavailableError(f"knative service '{name}' not serving its revision within {timeout}s")
         time.sleep(3)
 
 
@@ -282,7 +304,7 @@ def _get_service(api: Any, name: str, namespace: str) -> dict[str, Any] | None:
         raise
 
 
-def _revision_with_hash(api: Any, name: str, namespace: str, digest: str) -> str | None:
+def _revision_with_hash(api: Any, name: str, namespace: str, digest: str) -> dict[str, Any] | None:
     revisions = api.list_namespaced_custom_object(
         group=KNATIVE_GROUP,
         version=KNATIVE_VERSION,
@@ -293,7 +315,7 @@ def _revision_with_hash(api: Any, name: str, namespace: str, digest: str) -> str
     for revision in revisions.get("items", []):
         metadata = revision.get("metadata") or {}
         if (metadata.get("annotations") or {}).get(TEMPLATE_HASH_ANNOTATION) == digest:
-            return metadata.get("name")
+            return revision
     return None
 
 
@@ -350,7 +372,8 @@ def ensure_knative_service(
 
     api = _custom_objects_api()
     existing = _get_service(api, name, ns)
-    revision = _revision_with_hash(api, name, ns, digest) if existing else None
+    existing_revision = _revision_with_hash(api, name, ns, digest) if existing else None
+    revision = existing_revision["metadata"]["name"] if existing_revision else None
     if revision:
         # Keep other deployments on their existing revision.
         del manifest["spec"]["template"]
@@ -360,14 +383,13 @@ def ensure_knative_service(
 
     timeout = int(os.environ.get("FAIR_KNATIVE_VERIFY_TIMEOUT", "0"))
     if timeout > 0:
-        _wait_until_ready(api, name, ns, timeout)
+        ready_revision = _wait_until_ready(api, name, ns, digest, timeout)
         if not revision:
             # Pin the route so later template changes cannot move it.
             service = _get_service(api, name, ns) or {}
-            latest = (service.get("status") or {}).get("latestReadyRevisionName")
-            if latest:
-                pinned = _desired_traffic(_route_traffic(service), {"revisionName": latest}, tag)
-                _patch_service(api, name, ns, {"spec": {"traffic": pinned}})
+            pinned = _desired_traffic(_route_traffic(service), {"revisionName": ready_revision}, tag)
+            _patch_service(api, name, ns, {"spec": {"traffic": pinned}})
+        _wait_until_routed(api, name, ns, timeout)
 
 
 def release_knative_service(model_name: str, namespace: str | None = None) -> bool:

@@ -37,22 +37,21 @@
     "mlm:framework_version": "2.10.0",
     "mlm:pretrained": true,
     "mlm:pretrained_source": "https://raw.githubusercontent.com/GIScience/solid-waste-detection-for-fAIr/9f62fd1e4de6905a38620c195a6e62bcef280956/data/checkpoint/checkpoint_v1_extra_large.pt",
-    "mlm:accelerator": "cuda",
+    "mlm:accelerator": "amd64",
     "mlm:accelerator_count": 1,
     "fair:recommended_zoom": 22,
     "fair:min_zoom": 20,
     "fair:max_zoom": 22,
     "fair:pinned": true,
     "fair:preview": {
-      "center": [-0.22085, 5.54999],
-      "zoom": { "recommended": 20, "min": 14, "max": 22 },
+      "center": [-13.05, 8.3381],
+      "zoom": { "recommended": 18, "min": 14, "max": 22 },
       "imagery": {
-        "url": "https://tiles.openaerialmap.org/66e40c88cd0baa0001b6212d/0/66e40c88cd0baa0001b6212e/{z}/{x}/{y}",
+        "url": "https://api.imagery.hotosm.org/raster/collections/openaerialmap/items/6aae46379ed4c3b5f2d117f9/tiles/WebMercatorQuad/{z}/{x}/{y}?assets=visual",
         "type": "tms",
-        "name": "Oldfadama Agbogloshie_combined_low_compression",
         "attribution": "OpenAerialMap"
       },
-      "place": { "name": "", "country": "Ghana", "country_code": "GH" }
+      "place": { "name": "Waterloo", "country": "Sierra Leone", "country_code": "SL" }
     },
     "keywords": ["solid-waste", "semantic-segmentation", "polygon"],
     "license": "MIT",
@@ -68,14 +67,14 @@
     ],
     "fair:metrics_spec": [
       {
-        "key": "fair:accuracy",
+        "key": "accuracy",
         "name": "Accuracy",
         "description": "Fraction of correctly classified grid cells across all classes in the evaluation dataset"
       }
     ],
     "mlm:input": [
       {
-        "name": "RGB chips",
+        "name": "image",
         "bands": [
           {
             "name": "red"
@@ -359,13 +358,16 @@
       "href": "ghcr.io/hotosm/fair-models/yolo_swag_waste_grid_segmentation:latest",
       "type": "application/vnd.oci.image.index.v1+json",
       "title": "Training Docker Image",
-      "roles": ["mlm:training-runtime"]
+      "roles": ["mlm:training-runtime"],
+      "mlm:accelerator": "cuda",
+      "mlm:accelerator_count": 1
     },
     "mlm:inference": {
       "href": "ghcr.io/hotosm/fair-models/yolo_swag_waste_grid_segmentation:latest-inference",
       "type": "application/vnd.oci.image.index.v1+json",
       "title": "Inference Docker Image",
-      "roles": ["mlm:inference-runtime"]
+      "roles": ["mlm:inference-runtime"],
+      "mlm:accelerator": "amd64"
     },
     "readme": {
       "href": "https://raw.githubusercontent.com/GIScience/fAIr-models/refs/heads/master/models/yolo_swag_waste_grid_segmentation/README.md",

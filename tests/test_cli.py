@@ -245,7 +245,7 @@ def test_dataset_build_writes_draft(tmp_path, monkeypatch) -> None:
     drafts = list(out.glob("dataset-*.json"))
     assert len(drafts) == 1
     item = json.loads(drafts[0].read_text())
-    assert item["assets"]["chips"]["href"] == "/data/chips"
+    assert item["assets"]["chips-image"]["href"] == "/data/chips"
     assert item["assets"]["labels"]["href"] == "/data/labels/labels.geojson"
     assert item["properties"]["fair:source_imagery"] == "https://tiles/{z}/{x}/{y}"
     assert any(link["rel"] == "source" for link in item["links"])

@@ -12,6 +12,88 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - add ZenML integration for model promotion and STAC catalog synchronization
 - implement STAC catalog management and builders for datasets and models
 
+## v0.3.29 (2026-11-13)
+
+### Fix
+
+- **license**: fix dinov3 license in all
+
+## v0.3.28 (2026-11-13)
+
+### Fix
+
+- **action**: don't publish images in dev if pr is from fork
+- **routed**: wait until routed for knative service
+- **knative**: ready until pool is ready so wait
+
+## v0.3.27 (2026-11-12)
+
+### Fix
+
+- **category**: inherit category of fair to local ones
+
+## v0.3.26 (2026-11-10)
+
+## v0.3.25 (2026-10-28)
+
+### Fix
+
+- **knative**: ready is true poll until
+- **push**: run pypi publish on tag
+
+## v0.3.24 (2026-10-28)
+
+### Fix
+
+- **metric**: fix metfic key consistency
+
+## v0.3.23 (2026-10-27)
+
+### Fix
+
+- **stacversion**: add relative version from env variable
+
+## v0.3.22 (2026-10-27)
+
+### Fix
+
+- **batchruntime**: add is trainable function support
+
+## v0.3.21 (2026-10-27)
+
+### Feat
+
+- **onnx**: add support for inference only onnx models in fAIr
+
+## v0.3.20 (2026-10-27)
+
+### Fix
+
+- fix cell clipp to label box
+
+## v0.3.19 (2026-10-26)
+
+### Fix
+
+- **versioning**: fix pagination shorten the versioniing
+
+## v0.3.18 (2026-10-26)
+
+### Fix
+
+- **version**: bump fairpyops in model docker images
+
+## v0.3.17 (2026-10-26)
+
+### Feat
+
+- **damage**: model with pre and post support and image input
+- **deepforest-tree**: add deepforest-tree model with Docker support and testing framework
+
+### Fix
+
+- **infra**: replace MinIO and ZenML images that no longer exist
+
 ## v0.3.16 (2026-10-06)
 
 ### Fix

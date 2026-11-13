@@ -123,7 +123,7 @@ def test_predict_raises_when_inference_pipeline_returns_no_run(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    model_item = _make_item("local-model", {"fair:base_model_id": "base-1"})
+    model_item = _make_item("local-model", {"fair:base_model_id": "base-1", "mlm:input": [{"name": "image"}]})
     model_item.add_asset("model", pystac.Asset(href="https://example.com/model.onnx"))
     model_item.add_asset("mlm:training", pystac.Asset(href="https://example.com/training-image"))
     model_item.add_asset(
@@ -158,9 +158,9 @@ def test_predict_raises_when_inference_pipeline_returns_no_run(
     monkeypatch.setattr(client_module.importlib, "import_module", lambda _: module)
 
     with pytest.raises(RuntimeError, match="Inference pipeline returned no run"):
-        client.predict("local-model", str(tmp_path))
+        client.predict("local-model", {"image": str(tmp_path)})
 
-    assert uploads == [(str(tmp_path), "s3://bucket/predict/local-model/input")]
+    assert uploads == [(str(tmp_path), "s3://bucket/predict/local-model/input/image")]
 
 
 def test_artifact_store_setup_and_registration_error_paths(
@@ -341,7 +341,7 @@ def test_dataset_and_prediction_error_paths(monkeypatch: pytest.MonkeyPatch, tmp
     missing_chips_path = tmp_path / "dataset-no-chips.json"
     missing_chips.save_object(dest_href=str(missing_chips_path))
 
-    with pytest.raises(FairClientError, match="has no 'chips' asset"):
+    with pytest.raises(FairClientError, match="has no 'chips-<input name>' asset"):
         client.register_dataset(str(missing_chips_path))
 
     missing_labels = _make_item("dataset-no-labels")
@@ -378,12 +378,12 @@ def test_dataset_and_prediction_error_paths(monkeypatch: pytest.MonkeyPatch, tmp
     monkeypatch.setattr(client, "_get_backend", lambda: missing_backend)
 
     with pytest.raises(FairClientError, match="not found in local-models or base-models"):
-        client.predict("missing-model", str(tmp_path))
+        client.predict("missing-model", {"image": str(tmp_path)})
 
     with pytest.raises(FairClientError, match="not found in 'local-models'"):
         client.predict_live(
             "missing-model",
-            image_uri="https://tiles.example.com/{z}/{x}/{y}",
+            imagery={"image": "https://tiles.example.com/{z}/{x}/{y}"},
             bbox=[0.0, 0.0, 1.0, 1.0],
             zoom=18,
         )
@@ -400,7 +400,7 @@ def test_dataset_param_and_finetune_validation_error_paths(
         label_tasks=["detection"],
         label_classes=[{"name": "building"}],
         keywords=["buildings"],
-        chips_href=str(tmp_path / "chips"),
+        chips_hrefs={"image": str(tmp_path / "chips")},
         labels_href=str(tmp_path / "labels.geojson"),
         title="Demo dataset",
         description="Demo dataset",
@@ -714,4 +714,4 @@ def test_batch_inference_config_rejects_model_without_training_runtime() -> None
     model_item.add_asset("model", pystac.Asset(href="https://example.com/model.onnx"))
 
     with pytest.raises(KeyError, match="mlm:training"):
-        generate_inference_config(model_item, "s3://bucket/chips")
+        generate_inference_config(model_item, {})

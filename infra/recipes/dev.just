@@ -50,7 +50,7 @@ _seed-minio:
     #!/usr/bin/env bash
     set -euo pipefail
     docker run --rm --network host -v "$PWD/..:/workspace:ro" --entrypoint sh \
-        minio/mc:RELEASE.2025-08-13T08-35-41Z -c '
+        pgsty/mc:RELEASE.2026-10-18T00-00-00Z -c '
             mc alias set --quiet fair http://localhost:9000 minioadmin minioadmin
             mc mb --ignore-existing fair/fair-data
             mc cp --quiet --recursive /workspace/data/sample/ fair/fair-data/sample/

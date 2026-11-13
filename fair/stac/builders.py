@@ -17,6 +17,7 @@ from fair.stac.constants import (
     LOCAL_MODEL_EXTENSIONS,
     OCI_IMAGE_INDEX_TYPE,
 )
+from fair.stac.inputs import input_chips_asset, input_imagery_title
 from fair.stac.location import coverage_from_bbox, place_from_center
 from fair.stac.versioning import add_version_links
 
@@ -27,7 +28,7 @@ class DatasetItemParams:
     label_tasks: list[str]
     label_classes: list[dict[str, Any]]
     keywords: list[str]
-    chips_href: str
+    chips_hrefs: dict[str, str]
     labels_href: str
     title: str
     description: str
@@ -46,7 +47,7 @@ class DatasetItemParams:
     label_properties: list[str] | None = None
     label_description: str | None = None
     label_methods: list[str] | None = None
-    source_imagery_href: str | None = None
+    imagery_hrefs: dict[str, str] | None = None
     self_href: str | None = None
     predecessor_version_href: str | None = None
     geometry_type: Literal["point", "line", "polygon"] | None = None
@@ -229,7 +230,7 @@ def build_dataset_item(
     label_tasks: list[str],
     label_classes: list[dict[str, Any]],
     keywords: list[str],
-    chips_href: str,
+    chips_hrefs: dict[str, str],
     labels_href: str,
     title: str,
     description: str,
@@ -248,12 +249,14 @@ def build_dataset_item(
     label_properties: list[str] | None = None,
     label_description: str | None = None,
     label_methods: list[str] | None = None,
-    source_imagery_href: str | None = None,
+    imagery_hrefs: dict[str, str] | None = None,
     self_href: str | None = None,
     predecessor_version_href: str | None = None,
     geometry_type: Literal["point", "line", "polygon"] | None = None,
 ) -> pystac.Item:
     _validate_providers(providers)
+    if not chips_hrefs:
+        raise ValueError("chips_hrefs needs the chips of at least one input")
 
     if geometry is None or bbox is None:
         labels_path = Path(labels_href)
@@ -320,25 +323,19 @@ def build_dataset_item(
         stac_extensions=DATASET_EXTENSIONS,
     )
 
-    if source_imagery_href:
-        item.add_link(
-            pystac.Link(
-                rel="source",
-                target=source_imagery_href,
-                media_type="image/tiff; application=geotiff",
-                title="Source imagery",
-            )
-        )
+    for input_name, href in (imagery_hrefs or {}).items():
+        item.add_link(pystac.Link(rel="source", target=href, title=input_imagery_title(input_name)))
 
-    item.add_asset(
-        "chips",
-        pystac.Asset(
-            href=chips_href,
-            media_type="image/tiff; application=geotiff",
-            roles=["data"],
-            title="Training chips",
-        ),
-    )
+    for input_name, href in chips_hrefs.items():
+        item.add_asset(
+            input_chips_asset(input_name),
+            pystac.Asset(
+                href=href,
+                media_type="image/tiff; application=geotiff",
+                roles=["data"],
+                title=f"Chips for input {input_name}",
+            ),
+        )
     item.add_asset(
         "labels",
         pystac.Asset(
@@ -348,7 +345,6 @@ def build_dataset_item(
             title="Training labels",
         ),
     )
-
     if download_href:
         item.add_asset(
             "download",
@@ -637,6 +633,7 @@ def build_local_model_item(
         "mlm:accelerator_count",
         "fair:metrics_spec",
         "fair:hyperparameters_spec",
+        "fair:category",
     ):
         if field in base_props:
             properties[field] = base_props[field]
@@ -700,6 +697,8 @@ def build_local_model_item(
         )
     )
     add_version_links(item, self_href, predecessor_version_href)
+    for license_link in base_model_item.get_links("license"):
+        item.add_link(pystac.Link.from_dict(license_link.to_dict(transform_href=False)))
 
     base_framework = base_model_item.properties.get("mlm:framework", "PyTorch")
     base_checkpoint = base_model_item.assets.get("checkpoint")

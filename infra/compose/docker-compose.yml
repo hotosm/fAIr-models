@@ -32,7 +32,7 @@ services:
     restart: "no"
 
   minio:
-    image: minio/minio:RELEASE.2025-09-07T16-13-09Z
+    image: pgsty/minio:RELEASE.2026-08-04T00-00-00Z
     command: ["server", "/data", "--console-address", ":9001"]
     environment:
       MINIO_ROOT_USER: minioadmin
@@ -49,7 +49,7 @@ services:
       retries: 30
 
   minio-init:
-    image: minio/mc:RELEASE.2025-08-13T08-35-41Z
+    image: pgsty/mc:RELEASE.2026-10-18T00-00-00Z
     depends_on:
       minio:
         condition: service_healthy

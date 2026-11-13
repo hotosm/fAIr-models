@@ -34,6 +34,7 @@ classifiers = [
   "Typing :: Typed",
 ]
 dependencies = [
+  "aiohttp>=3.13.3",
   "httpx>=0.28.1",
   "mlflow>=2.1.1,<4",
   "onnxruntime>=1.24.4,<1.29", # 1.29 segfaults at import on distroless serving images

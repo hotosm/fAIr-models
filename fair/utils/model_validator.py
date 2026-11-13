@@ -4,6 +4,8 @@ import ast
 import json
 from pathlib import Path
 
+from fair.stac.validators import is_trainable
+
 REQUIRED_PIPELINES = frozenset({"training_pipeline", "inference_pipeline"})
 REQUIRED_STEPS = frozenset({"split_dataset"})
 REQUIRED_FILES = frozenset({"pipeline.py", "README.md", "stac-item.json"})
@@ -11,6 +13,8 @@ REQUIRED_TEST_FILE = Path("tests") / "test_steps.py"
 REQUIRED_TEST_FUNCTIONS = frozenset(
     {"test_split_dataset", "test_train_model", "test_evaluate_model", "test_export_onnx"}
 )
+PREDICTION_ONLY_PIPELINES = frozenset({"inference_pipeline"})
+PREDICTION_ONLY_TEST_FUNCTIONS = frozenset({"test_run_inference"})
 
 
 def _has_decorator(func: ast.FunctionDef, name: str) -> bool:
@@ -36,15 +40,21 @@ def _find_top_level_functions(source: str) -> set[str]:
     return {node.name for node in ast.iter_child_nodes(tree) if isinstance(node, ast.FunctionDef)}
 
 
-def _asset_href_is_https_url(model_dir: Path, asset_name: str) -> bool | None:
+def _stac_assets(model_dir: Path) -> dict | None:
     stac_path = model_dir / "stac-item.json"
     if not stac_path.exists():
         return None
     try:
-        item = json.loads(stac_path.read_text())
+        return json.loads(stac_path.read_text()).get("assets", {})
     except (OSError, json.JSONDecodeError):
         return None
-    href = item.get("assets", {}).get(asset_name, {}).get("href", "")
+
+
+def _asset_href_is_https_url(model_dir: Path, asset_name: str) -> bool | None:
+    assets = _stac_assets(model_dir)
+    if assets is None:
+        return None
+    href = assets.get(asset_name, {}).get("href", "")
     if not href:
         return None
     return href.startswith(("http://", "https://"))
@@ -114,10 +124,15 @@ def validate_model(model_dir: Path) -> list[str]:
         errors.append(f"{model_dir.name}: syntax error in pipeline.py: {exc}")
         return errors
 
-    for name in sorted(REQUIRED_PIPELINES - pipelines):
+    assets = _stac_assets(model_dir)
+    trainable = assets is None or is_trainable(assets)
+    required_pipelines = REQUIRED_PIPELINES if trainable else PREDICTION_ONLY_PIPELINES
+    required_steps = REQUIRED_STEPS if trainable else frozenset()
+
+    for name in sorted(required_pipelines - pipelines):
         errors.append(f"{model_dir.name}: missing @pipeline function '{name}'")
 
-    for name in sorted(REQUIRED_STEPS - steps):
+    for name in sorted(required_steps - steps):
         errors.append(f"{model_dir.name}: missing @step function '{name}'")
 
     checkpoint_is_url = _asset_href_is_https_url(model_dir, "checkpoint")
@@ -131,12 +146,13 @@ def validate_model(model_dir: Path) -> list[str]:
         errors.append(f"{model_dir.name}: model asset href must be an https URL")
 
     errors.extend(_validate_step_return_types(source, model_dir.name))
-    errors.extend(_validate_test_steps(model_dir))
+    required_tests = REQUIRED_TEST_FUNCTIONS if trainable else PREDICTION_ONLY_TEST_FUNCTIONS
+    errors.extend(_validate_test_steps(model_dir, required_tests))
 
     return errors
 
 
-def _validate_test_steps(model_dir: Path) -> list[str]:
+def _validate_test_steps(model_dir: Path, required_tests: frozenset[str]) -> list[str]:
     errors: list[str] = []
 
     test_file = model_dir / REQUIRED_TEST_FILE
@@ -156,7 +172,7 @@ def _validate_test_steps(model_dir: Path) -> list[str]:
         errors.append(f"{model_dir.name}: syntax error in {REQUIRED_TEST_FILE}: {exc}")
         return errors
 
-    for name in sorted(REQUIRED_TEST_FUNCTIONS - test_functions):
+    for name in sorted(required_tests - test_functions):
         errors.append(f"{model_dir.name}: missing test function '{name}' in {REQUIRED_TEST_FILE}")
 
     return errors

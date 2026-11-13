@@ -849,29 +849,44 @@ def test_register_base_model_skips_the_probe_without_a_domain(monkeypatch: pytes
     assert len(backend.published) == 1
 
 
+def _revision(name: str, digest: str, ready: str, message: str = "") -> dict[str, Any]:
+    return {
+        "metadata": {"name": name, "annotations": {knative_module.TEMPLATE_HASH_ANNOTATION: digest}},
+        "status": {"conditions": [{"type": "Ready", "status": ready, "message": message}]},
+    }
+
+
 class _ReadyApi:
-    def __init__(self, conditions: list[dict[str, str]], observed_generation: int = 1) -> None:
-        self._conditions = conditions
-        self._observed_generation = observed_generation
+    def __init__(self, revisions: list[dict[str, Any]], service_ready: str = "True") -> None:
+        self._revisions = revisions
+        self._service_ready = service_ready
 
     def get_namespaced_custom_object(self, **_: Any) -> dict[str, Any]:
-        status = {"observedGeneration": self._observed_generation, "conditions": self._conditions}
-        return {"metadata": {"generation": 1}, "status": status}
+        status = {"observedGeneration": 2, "conditions": [{"type": "Ready", "status": self._service_ready}]}
+        return {"metadata": {"generation": 2}, "status": status}
 
     def list_namespaced_custom_object(self, **_: Any) -> dict[str, Any]:
-        return {"items": []}
+        return {"items": self._revisions}
 
 
-def test_wait_until_ready_states() -> None:
-    knative_module._wait_until_ready(_ReadyApi([{"type": "Ready", "status": "True"}]), "svc", "predict", 5)
-    with pytest.raises(knative_module.KnativeServiceUnavailableError):
-        knative_module._wait_until_ready(
-            _ReadyApi([{"type": "Ready", "status": "False", "message": "boom"}]), "svc", "predict", 5
-        )
-    with pytest.raises(knative_module.KnativeServiceUnavailableError):
-        knative_module._wait_until_ready(_ReadyApi([]), "svc", "predict", 0)
+def test_wait_returns_the_new_revision_while_the_service_still_reports_the_old_failure() -> None:
+    api = _ReadyApi(
+        [_revision("svc-00009", "old", "False", "exit code 1"), _revision("svc-00010", "new", "True")],
+        service_ready="False",
+    )
+    assert knative_module._wait_until_ready(api, "svc", "predict", "new", 5) == "svc-00010"
+
+
+def test_wait_raises_when_the_new_revision_fails() -> None:
+    api = _ReadyApi([_revision("svc-00010", "new", "False", "exit code 1")])
+    with pytest.raises(knative_module.KnativeServiceUnavailableError, match="exit code 1"):
+        knative_module._wait_until_ready(api, "svc", "predict", "new", 5)
+
+
+def test_wait_times_out_before_the_new_revision_exists() -> None:
+    api = _ReadyApi([_revision("svc-00009", "old", "True")])
     with pytest.raises(knative_module.KnativeServiceUnavailableError, match="not ready within"):
-        knative_module._wait_until_ready(_ReadyApi([{"type": "Ready", "status": "True"}], 0), "svc", "predict", 0)
+        knative_module._wait_until_ready(api, "svc", "predict", "new", 0)
 
 
 def test_node_pool_selector_key(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -904,10 +919,15 @@ def test_ensure_knative_service_verifies_when_timeout_set(monkeypatch: pytest.Mo
     monkeypatch.setattr(knative_module, "_knative_serving_installed", lambda: True)
     monkeypatch.setattr(knative_module, "_custom_objects_api", lambda: _ReadyApi([]))
     monkeypatch.setattr(knative_module, "_upsert_knative_service", lambda *_: None)
-    monkeypatch.setattr(knative_module, "_wait_until_ready", lambda *a: waited.append(a[1]))
+    monkeypatch.setattr(
+        knative_module, "_wait_until_ready", lambda *a: waited.append(a[1]) or "dinov3s-buildings-00002"
+    )
+    patches: list[dict[str, Any]] = []
+    monkeypatch.setattr(knative_module, "_patch_service", lambda *a: patches.append(a[3]))
     monkeypatch.setenv("FAIR_KNATIVE_VERIFY_TIMEOUT", "5")
     knative_module.ensure_knative_service(_build_base_model_item())
     assert waited == ["dinov3s-buildings"]
+    assert patches == [{"spec": {"traffic": [{"revisionName": "dinov3s-buildings-00002", "percent": 100}]}}]
 
 
 def _register_from_item(monkeypatch, tmp_path, source_item: pystac.Item) -> tuple[pystac.Item, dict[str, Any]]:

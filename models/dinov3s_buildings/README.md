@@ -11,7 +11,7 @@ Binary building-footprint segmentation for very high resolution RGB aerial image
 | Output    | GeoJSON `FeatureCollection` of `Polygon` features in EPSG:4326, each with `class` and `score`                   |
 | Coverage  | Global; trained on the HOT VHR Building Segmentation dataset (~37k chips worldwide)                             |
 | Use cases | Edge / constrained-infra inference, batch building inventory where size matters more than the last few pp of F1 |
-| License   | Apache-2.0                                                                                                      |
+| License   | DINOv3 License                                                                                                  |
 
 ## Operating envelope
 
@@ -210,10 +210,10 @@ where `sq(r) = exp(-|log(r)|)` peaks at `r=1.0` and penalises ratios symmetrical
 
 ## License
 
-Apache-2.0. The DINOv3-ViT-S/16 encoder weights come from Facebook Research's DINOv3 (Oquab et al., 2025), Apache-2.0. The decoder architecture, multi-task training recipe, post-processing pipeline (DP+MBR-safe vectorisation, watershed instance separation), and per-area finetune scaffolding come from [`dinov3-hot-ablation`](https://github.com/kshitijrajsharma/dinov3-hot-ablation) by Kshitij Raj Sharma, Apache-2.0.
+The published ONNX model contains the DINOv3-ViT-S/16 encoder weights from Meta's DINOv3 (Siméoni et al., 2025), released under the [DINOv3 License](https://github.com/facebookresearch/dinov3/blob/main/LICENSE.md). The model and every local model fine-tuned from it fall under that license; the STAC item declares `other` with a link to it. The pipeline code is AGPL-3.0-only, as is the rest of this repository. The decoder architecture, multi-task training recipe, post-processing pipeline (DP+MBR-safe vectorisation, watershed instance separation), and per-area finetune scaffolding come from [`dinov3-hot-ablation`](https://github.com/kshitijrajsharma/dinov3-hot-ablation) by Kshitij Raj Sharma, Apache-2.0.
 
 ## Citation
 
-- Encoder: [DINOv3](https://arxiv.org/abs/2508.10104) (Oquab et al., 2025).
+- Encoder: [DINOv3](https://arxiv.org/abs/2508.10104) (Siméoni et al., 2025).
 - Decoder + training + post-processing recipe: [`dinov3-hot-ablation`](https://github.com/kshitijrajsharma/dinov3-hot-ablation) by Kshitij Raj Sharma.
 - Independent metric reproduction: [polymetrics](https://github.com/kshitijrajsharma/polymetrics).

@@ -59,7 +59,7 @@
       "place": { "name": "Freetown", "country": "Sierra Leone", "country_code": "SL" }
     },
     "keywords": ["building", "semantic-segmentation", "polygon"],
-    "license": "Apache-2.0",
+    "license": "other",
     "version": "1",
     "deprecated": false,
     "providers": [
@@ -433,9 +433,9 @@
   "links": [
     {
       "rel": "license",
-      "href": "https://www.apache.org/licenses/LICENSE-2.0",
+      "href": "https://github.com/facebookresearch/dinov3/blob/main/LICENSE.md",
       "type": "text/html",
-      "title": "Apache License 2.0"
+      "title": "DINOv3 License"
     },
     {
       "rel": "cite-as",

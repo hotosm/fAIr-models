@@ -171,9 +171,11 @@ Before starting, ensure you have:
     | Creative Commons Attribution-NonCommercial-ShareAlike 4.0 | `CC-BY-NC-SA-4.0` |
     | Creative Commons Zero 1.0 | `CC0-1.0` |
     | Open Data Commons Open Database License 1.0 | `ODbL-1.0` |
+    | Any other license, linked with `rel: license` | `other` |
 
     The license is declared in your `stac-item.json` under `properties.license`.
-    CI rejects any other license value. Local models fine-tuned from a model
+    For a license outside this list, set `other` and add a `license` link to
+    its text. CI rejects any other value. Local models fine-tuned from a model
     carry its `license`.
 
 ## Directory Structure
@@ -777,7 +779,7 @@ validated by CI against the platform's requirements schema.
 | `mlm:hyperparameters`   | object   | Default training hyperparameters                                                                                              |
 | `keywords`              | string[] | Feature tags + task + output geometry type                                                                                    |
 | `version`               | string   | Semantic version (start with `"1"`)                                                                                           |
-| `license`               | string   | SPDX license identifier                                                                                                       |
+| `license`               | string   | SPDX license identifier, or `other` with a `license` link                                                                     |
 | `fair:metrics_spec`     | object[] | Evaluation metrics vocabulary (see below)                                                                                     |
 | `fair:split_spec`       | object   | Train/val split specification (see below)                                                                                     |
 
@@ -1269,7 +1271,7 @@ Before opening a PR, make sure:
 
     - [ ] `stac-item.json` declares `fair:metrics_spec`, `fair:split_spec`, and `fair:hyperparameters_spec`
     - [ ] `keywords` includes a feature tag, a task value, and exactly one geometry type
-    - [ ] `license` is a supported SPDX identifier
+    - [ ] `license` is a supported SPDX identifier, or `other` with a `license` link
     - [ ] `just validate` passes for the model and STAC item
 
 The full requirements are described in the sections above, especially the STAC metadata, pipeline structure, assets, and README guidance. CI checks the detailed metadata, pipeline exports, Docker build, and consistency rules for you.

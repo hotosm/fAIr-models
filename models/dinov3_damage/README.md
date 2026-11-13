@@ -35,7 +35,7 @@ A footprint with less than 90% of its pixels imaged in both pre and post is retu
 
 ## License
 
-The pipeline code is AGPL-3.0-only, as is the rest of this repository. The pretrained checkpoint is trained on xBD and its model card publishes it under CC BY-NC-SA 4.0, so the STAC item declares `CC-BY-NC-SA-4.0`, which local models fine-tuned from it inherit.
+The pipeline code is AGPL-3.0-only, as is the rest of this repository. The pretrained checkpoint is trained on xBD and its model card publishes it under CC BY-NC-SA 4.0. The model uses the DINOv3-ViT-L/16 SAT-493M encoder weights from Meta's DINOv3, which its ONNX model contains, released under the [DINOv3 License](https://github.com/facebookresearch/dinov3/blob/main/LICENSE.md). Both licenses apply, so the STAC item declares `other` with a link to each, which local models fine-tuned from it inherit.
 
 ## Citation
 

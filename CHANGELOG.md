@@ -12,6 +12,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - add ZenML integration for model promotion and STAC catalog synchronization
 - implement STAC catalog management and builders for datasets and models
 
+## v0.3.31 (2026-11-13)
+
+### Fix
+
+- **pipeline**: dino damage call the predic load session like others
+- **mlruns**: gitignore mock instrumention
+
 ## v0.3.30 (2026-11-13)
 
 ### Fix

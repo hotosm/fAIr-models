@@ -265,16 +265,10 @@ def run_inference(
     input_images: dict[str, str],
     inference_params: dict[str, Any],
 ) -> Annotated[dict[str, Any], "predictions"]:
-    """ONNX inference via `dinov3_hot.serve.predict_session`."""
-    from dinov3_hot.serve import predict_session
-
+    """ONNX inference through `predict`, the same path as live serving."""
     from fair.serve.base import load_session
 
-    return predict_session(
-        load_session(model_uri),
-        Path(resolve_directory(input_images[IMAGE_INPUT])),
-        inference_params,
-    )
+    return predict(load_session(model_uri), input_images, inference_params)
 
 
 @step(output_materializers={"onnx_model": ONNXMaterializer})

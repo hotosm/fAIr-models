@@ -12,6 +12,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - add ZenML integration for model promotion and STAC catalog synchronization
 - implement STAC catalog management and builders for datasets and models
 
+## v0.3.28 (2026-11-13)
+
+### Fix
+
+- **action**: don't publish images in dev if pr is from fork
+- **routed**: wait until routed for knative service
+- **knative**: ready until pool is ready so wait
+
 ## v0.3.27 (2026-11-12)
 
 ### Fix

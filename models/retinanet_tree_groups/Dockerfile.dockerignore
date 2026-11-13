@@ -1,0 +1,5 @@
+*
+!models/retinanet_tree_groups/
+!models/conftest.py
+!models/test_integration.py
+models/retinanet_tree_groups/**/__pycache__/

@@ -20,7 +20,7 @@ labels. The model never predicts a crown outline, only an axis-aligned box, whic
 - The scale is `chip ground resolution / 0.05 m`, where the ground resolution comes from the zoom and row in the chip name
   `OAM-<x>-<y>-<z>.<ext>` (Web Mercator, `cos(latitude)`); a scale above 16 is rejected. A zoom 20 chip at Freetown (14.8 cm per pixel) is
   upscaled about 3x. Chips must therefore keep their OAM names.
-- Features carry `class` (always 1), `label` (`tree`), `confidence` and `source` (the chip file name).
+- Features carry `class` (always 1) and `confidence`.
 - The container images pin the library by commit SHA (`TD_HOT_REF` in the Dockerfile, one value for both images); update it whenever the
   library changes.
 

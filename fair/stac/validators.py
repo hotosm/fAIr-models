@@ -34,6 +34,7 @@ def validate_item(item: pystac.Item) -> list[str]:
     errors.extend(_validate_keyword_vocabulary(item))
     errors.extend(_validate_hyperparameters_spec_coverage(item))
     errors.extend(_validate_prediction_variables_declared(item))
+    errors.extend(_validate_prediction_confidence(item))
     errors.extend(_validate_input_names(item))
     return errors
 
@@ -64,6 +65,18 @@ def prediction_output(properties: dict) -> dict | None:
 
 def _variable_names(output: dict) -> list[str]:
     return [variable if isinstance(variable, str) else variable["name"] for variable in output["variables"]]
+
+
+def _validate_prediction_confidence(item: pystac.Item) -> list[str]:
+    output = prediction_output(item.properties)
+    # A local model carries its base model's outputs, which may predate this rule.
+    if output is None or FAIR_LOCAL_MODEL_SCHEMA in item.stac_extensions:
+        return []
+    if "confidence" not in _variable_names(output):
+        return [f"mlm:output '{output['name']}' must declare a 'confidence' variable"]
+    if item.properties.get("cube:variables", {}).get("confidence", {}).get("extent") != [0, 1]:
+        return ["cube:variables 'confidence' must have an extent of [0, 1]"]
+    return []
 
 
 def _validate_prediction_variables_declared(item: pystac.Item) -> list[str]:

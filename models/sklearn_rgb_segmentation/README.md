@@ -13,11 +13,11 @@ dataset of RGB chips with matching building (or other single-class) labels can t
 
 ## Inputs and outputs
 
-| Stage      | Shape                 | Notes                                 |
-| ---------- | --------------------- | ------------------------------------- |
-| Input      | `[pixels, 3]` float32 | RGB values scaled to 0 to 1           |
-| Output     | `[pixels, 2]` float32 | Background and building probabilities |
-| Prediction | GeoJSON               | Building polygons in EPSG:4326        |
+| Stage      | Shape                 | Notes                                                        |
+| ---------- | --------------------- | ------------------------------------------------------------ |
+| Input      | `[pixels, 3]` float32 | RGB values scaled to 0 to 1                                  |
+| Output     | `[pixels, 2]` float32 | Background and building probabilities                        |
+| Prediction | GeoJSON               | Building polygons in EPSG:4326 with `class` and `confidence` |
 
 ## Training
 

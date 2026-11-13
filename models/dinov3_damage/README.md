@@ -4,13 +4,13 @@ Building damage grading from pre-event and post-event RGB imagery. A frozen DINO
 
 ## Summary
 
-|          |                                                                                                                                |
-| -------- | ------------------------------------------------------------------------------------------------------------------------------ |
-| Task     | Building damage classification per footprint                                                                                   |
-| Input    | Post-event RGB chips (`post` input, dataset asset `chips-post`) and pre-event RGB chips of the same tiles (`pre`, `chips-pre`) |
-| Output   | GeoJSON `FeatureCollection` of footprint polygons in EPSG:4326 with `damage_class`, `damage`, `damage_confidence` and `osm_id` |
-| Window   | 512 x 512 px; training uses 2 x 2 blocks of 256 px fAIr chips, prediction slides the window over the area mosaic               |
-| Training | xBD (xView2) building damage dataset                                                                                           |
+|          |                                                                                                                                             |
+| -------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| Task     | Building damage classification per footprint                                                                                                |
+| Input    | Post-event RGB chips (`post` input, dataset asset `chips-post`) and pre-event RGB chips of the same tiles (`pre`, `chips-pre`)              |
+| Output   | GeoJSON `FeatureCollection` of footprint polygons in EPSG:4326 with `damage_class`, `confidence` (null for no-data footprints) and `osm_id` |
+| Window   | 512 x 512 px; training uses 2 x 2 blocks of 256 px fAIr chips, prediction slides the window over the area mosaic                            |
+| Training | xBD (xView2) building damage dataset                                                                                                        |
 
 ## Training on fAIr
 
@@ -35,7 +35,7 @@ A footprint with less than 90% of its pixels imaged in both pre and post is retu
 
 ## License
 
-The pipeline code is AGPL-3.0-only, as is the rest of this repository. The pretrained checkpoint is trained on xBD and its model card publishes it under CC BY-NC-SA 4.0. The model uses the DINOv3-ViT-L/16 SAT-493M encoder weights from Meta's DINOv3, which its ONNX model contains, released under the [DINOv3 License](https://github.com/facebookresearch/dinov3/blob/main/LICENSE.md). Both licenses apply, so the STAC item declares `other` with a link to each, which local models fine-tuned from it inherit.
+The pipeline code is AGPL-3.0-only. The pretrained checkpoint, trained on xBD, is CC BY-NC-SA 4.0 per its model card. Its ONNX model contains Meta's DINOv3-ViT-L/16 SAT-493M encoder weights under the [DINOv3 License](https://github.com/facebookresearch/dinov3/blob/main/LICENSE.md). The STAC item declares `other` with a link to each license, and local models fine-tuned from it inherit both.
 
 ## Citation
 

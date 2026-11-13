@@ -27,11 +27,10 @@ def test_predict_grades_every_footprint_with_the_declared_variables(
     assert len(result["features"]) == 8
     for feature in result["features"]:
         properties = feature["properties"]
-        assert set(properties) == {"damage_class", "damage", "damage_confidence", "osm_id"}
+        assert set(properties) == {"damage_class", "confidence", "osm_id"}
         assert properties["osm_id"] is None
-        assert properties["damage"] == "destroyed"
         assert properties["damage_class"] == 3
-        assert properties["damage_confidence"] > 0.9
+        assert properties["confidence"] > 0.9
         assert feature["geometry"]["type"] == "Polygon"
 
 

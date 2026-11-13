@@ -153,7 +153,7 @@
         "description": "Building polygons after watershed post-processing, one row per feature.",
         "tasks": ["semantic-segmentation"],
         "result": { "shape": [-1, 2], "dim_order": ["batch", "variables"], "data_type": "float32" },
-        "variables": ["class", "score"],
+        "variables": ["class", "confidence"],
         "classification:classes": [
           { "name": "building", "value": 1, "description": "Building footprints" }
         ],
@@ -179,7 +179,7 @@
         "values": [1],
         "data_type": "uint8"
       },
-      "score": {
+      "confidence": {
         "dimensions": ["features"],
         "type": "data",
         "description": "Mean building probability over the polygon.",

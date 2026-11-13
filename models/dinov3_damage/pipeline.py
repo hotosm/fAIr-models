@@ -19,7 +19,7 @@ MODEL_NAME = "dinov3-damage"
 POST_INPUT = "post"
 PRE_INPUT = "pre"
 DAMAGE_CLASS_COUNT = 4
-OUTPUT_VARIABLES = ["damage_class", "damage", "damage_confidence", "osm_id"]
+OUTPUT_VARIABLES = ["damage_class", "confidence", "osm_id"]
 # Every footprint that stood before the event, including those mapped since as destroyed.
 OSM_FOOTPRINT_FAMILIES = [
     {"key": "building", "status": "standing"},
@@ -49,6 +49,7 @@ def predict(session: Any, input_images: dict[str, str], params: dict[str, Any]) 
         )
         scored = predict_damage_onnx(session, post_raster, pre_raster, buildings, config)
     kept = filter_by_confidence(scored, float(params["confidence_threshold"]))
+    kept = kept.assign(confidence=kept["damage_confidence"].round(4))
     if "osm_id" not in kept.columns:
         kept = kept.assign(osm_id=None)
     return json.loads(kept[[*OUTPUT_VARIABLES, "geometry"]].to_crs("EPSG:4326").to_json(na="null"))

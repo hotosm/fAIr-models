@@ -16,7 +16,8 @@ def test_run_inference(tree_chips: Path, toy_model: Path) -> None:
 
     trees = unary_union([shape(f["geometry"]) for f in result["features"]])
     left_half = box(WEST, SOUTH, (WEST + EAST) / 2, NORTH)
-    assert {f["properties"]["label"] for f in result["features"]} == {"tree"}
+    assert all(set(f["properties"]) == {"class", "confidence"} for f in result["features"])
+    assert all(0.5 <= f["properties"]["confidence"] <= 1.0 for f in result["features"])
     assert trees.symmetric_difference(left_half).area < 0.01 * left_half.area
 
 

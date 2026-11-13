@@ -247,11 +247,11 @@
         "description": "Building footprints with their predicted damage, one row per feature.",
         "tasks": ["semantic-segmentation"],
         "result": {
-          "shape": [-1, 4],
+          "shape": [-1, 3],
           "dim_order": ["batch", "variables"],
           "data_type": "other"
         },
-        "variables": ["damage_class", "damage", "damage_confidence", "osm_id"],
+        "variables": ["damage_class", "confidence", "osm_id"],
         "classification:classes": [
           {
             "name": "no-damage",
@@ -313,13 +313,7 @@
         "nodata": -1,
         "data_type": "int8"
       },
-      "damage": {
-        "dimensions": ["features"],
-        "type": "data",
-        "description": "Name of the predicted damage class.",
-        "values": ["no-damage", "minor-damage", "major-damage", "destroyed", "no-data"]
-      },
-      "damage_confidence": {
+      "confidence": {
         "dimensions": ["features"],
         "type": "data",
         "description": "Mean probability of the predicted class over the footprint; null for no-data footprints.",

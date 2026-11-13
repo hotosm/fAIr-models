@@ -40,9 +40,10 @@ that contains the classes", and a Class Object's `name` as "the property key wit
 each `Feature` corresponding to class labels". Both must therefore name a property that is
 actually present on the features in `labels.geojson`.
 
-`fair.datasets` writes those features. For each OSM feature it matches, it stamps a 1-based class
-index onto `properties.label` (`LABEL_CLASS_PROPERTY`), reserving `0` for background. Items built
-by `build_dataset_item` declare exactly that:
+`fair.datasets` writes those features. For each OSM feature it matches, it stamps the class's
+`value` onto `properties.label` (`LABEL_CLASS_PROPERTY`), or its 1-based position when the classes
+carry no values (`0` is then background). Items built by `build_dataset_item` declare exactly
+that:
 
 ```json
 "label:type": "vector",
@@ -114,11 +115,11 @@ used, so the same item links correctly from inside the stack and from its public
 
 After registering a dataset three times:
 
-| Item ID                                     | Version | Deprecated | Links                                                 |
-| ------------------------------------------- | ------- | ---------- | ----------------------------------------------------- |
-| `buildings-banepa-semantic-segmentation-v1` | 1       | true       | `successor-version` -> v2                             |
-| `buildings-banepa-semantic-segmentation-v2` | 2       | true       | `successor-version` -> v3                             |
-| `buildings-banepa-semantic-segmentation`    | 3       | false      | `predecessor-version` -> v2                           |
+| Item ID                                     | Version | Deprecated | Links                       |
+| ------------------------------------------- | ------- | ---------- | --------------------------- |
+| `buildings-banepa-semantic-segmentation-v1` | 1       | true       | `successor-version` -> v2   |
+| `buildings-banepa-semantic-segmentation-v2` | 2       | true       | `successor-version` -> v3   |
+| `buildings-banepa-semantic-segmentation`    | 3       | false      | `predecessor-version` -> v2 |
 
 ## Timestamps
 

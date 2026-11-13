@@ -78,7 +78,7 @@ def predict(session: Any, input_images: dict[str, str], params: dict[str, Any]) 
     import numpy as np
     import rasterio
     from pyproj import Transformer
-    from rasterio.features import shapes
+    from rasterio.features import geometry_mask, shapes
     from shapely.geometry import mapping, shape
     from shapely.ops import transform as shapely_transform
 
@@ -101,11 +101,12 @@ def predict(session: Any, input_images: dict[str, str], params: dict[str, Any]) 
         height, width = rgb.shape[1], rgb.shape[2]
         probs = np.asarray(session.run(None, {input_name: rgb.reshape(3, -1).T})[-1])[:, building_idx]
         mask = postprocess(probs, height, width, threshold)
+        probability = probs.reshape(height, width)
         for geom, _ in shapes(mask, mask=mask.astype(bool), transform=transform):
+            inside = geometry_mask([geom], out_shape=mask.shape, transform=transform, invert=True)
             polygon = shapely_transform(lambda x, y, _z=None, t=to_wgs84: t.transform(x, y), shape(geom))
-            features.append(
-                {"type": "Feature", "properties": {"class": 1, "label": "building"}, "geometry": mapping(polygon)}
-            )
+            properties = {"class": 1, "confidence": round(float(probability[inside].mean()), 4)}
+            features.append({"type": "Feature", "properties": properties, "geometry": mapping(polygon)})
     return {"type": "FeatureCollection", "features": features}
 
 

@@ -75,14 +75,14 @@ def _osm_filters(label_classes: list[dict[str, Any]], geometry_type: str) -> dic
 
 
 def _stamp_class_label(feature: dict[str, Any], label_classes: list[dict[str, Any]]) -> int | None:
-    """Stamp `properties[LABEL_CLASS_PROPERTY] = i` for the first match (1-based; 0 = background)."""
     tags = (feature.get("properties") or {}).get("tags") or {}
     for index, cls in enumerate(label_classes, start=1):
         key = cls["name"]
         values = cls["classes"]
         if key in tags and (values == ["*"] or tags[key] in values):
-            feature.setdefault("properties", {})[LABEL_CLASS_PROPERTY] = index
-            return index
+            value = cls.get("value", index)
+            feature.setdefault("properties", {})[LABEL_CLASS_PROPERTY] = value
+            return value
     return None
 
 

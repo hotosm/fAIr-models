@@ -104,14 +104,14 @@ list, a `result.dim_order` of `["batch", "variables"]`, and the
 `cube:dimensions`, and list the
 [datacube extension](https://github.com/stac-extensions/datacube) in
 `stac_extensions`. The class variable holds the class `value` and declares
-those values in its `values` list. A model can declare more variables, such as
-a confidence score with an `extent` of `[0, 1]`. Declare every property the
-features carry, including descriptive ones such as a class name `label`.
+those values in its `values` list. Every model also declares a `confidence`
+variable with an `extent` of `[0, 1]`. Declare every property the features
+carry, and leave out properties that repeat the class, such as a class name.
 
 The output's `result.data_type` is one type for the whole row. When the
 variables differ in type, give each variable its own `data_type` in
-`cube:variables` and read types from there. A variable holding text, such as
-`label`, omits `data_type` and lists its allowed text in `values`.
+`cube:variables` and read types from there. A variable holding text omits
+`data_type` and lists its allowed text in `values`.
 
 ```json title="Prediction variables in stac-item.json"
 "cube:dimensions": {
@@ -119,7 +119,7 @@ variables differ in type, give each variable its own `data_type` in
 },
 "cube:variables": {
   "class": { "dimensions": ["features"], "type": "data", "values": [1], "data_type": "uint8" },
-  "score": { "dimensions": ["features"], "type": "data", "extent": [0, 1], "data_type": "float32" }
+  "confidence": { "dimensions": ["features"], "type": "data", "extent": [0, 1], "data_type": "float32" }
 }
 ```
 

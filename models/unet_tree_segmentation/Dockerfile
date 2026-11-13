@@ -1,7 +1,7 @@
 # Builder stage: batch prediction dependencies (ONNX on CPU, no training stack).
 FROM ghcr.io/astral-sh/uv:0.11.8-python3.13-trixie-slim AS builder
 ENV UV_SYSTEM_PYTHON=1 UV_LINK_MODE=copy
-ARG FAIR_PY_OPS_VERSION=0.3.17
+ARG FAIR_PY_OPS_VERSION=0.3.29
 
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv pip install \
@@ -31,7 +31,7 @@ ENTRYPOINT ["/usr/local/bin/python"]
 
 # Test stage: pytest extras, plus onnx to build the toy model the tests run.
 FROM runtime AS test
-ARG FAIR_PY_OPS_VERSION=0.3.17
+ARG FAIR_PY_OPS_VERSION=0.3.29
 COPY --from=ghcr.io/astral-sh/uv:0.11.8 /uv /usr/local/bin/uv
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv pip install --system "fair-py-ops[test]==${FAIR_PY_OPS_VERSION}" onnx==1.22.0
@@ -39,7 +39,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 # Inference builder: distroless-ready CPU venv for live serving.
 FROM ghcr.io/astral-sh/uv:0.11.8-trixie-slim AS inference-builder
 ENV UV_PYTHON_INSTALL_DIR=/python UV_PYTHON_PREFERENCE=only-managed
-ARG FAIR_PY_OPS_VERSION=0.3.17
+ARG FAIR_PY_OPS_VERSION=0.3.29
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 RUN uv python install 3.13

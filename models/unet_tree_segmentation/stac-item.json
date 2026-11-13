@@ -122,7 +122,7 @@
         "description": "Tree crown polygons traced from the thresholded pixel mask, one row per feature.",
         "tasks": ["semantic-segmentation"],
         "result": { "shape": [-1, 2], "dim_order": ["batch", "variables"], "data_type": "float32" },
-        "variables": ["class", "label"],
+        "variables": ["class", "confidence"],
         "classification:classes": [
           { "name": "tree", "value": 1, "description": "Tree crown pixels" }
         ],
@@ -141,18 +141,19 @@
       }
     },
     "cube:variables": {
-      "label": {
-        "dimensions": ["features"],
-        "type": "data",
-        "description": "Class name of the predicted class (tree).",
-        "values": ["tree"]
-      },
       "class": {
         "dimensions": ["features"],
         "type": "data",
         "description": "Predicted class value (1 = tree).",
         "values": [1],
         "data_type": "uint8"
+      },
+      "confidence": {
+        "dimensions": ["features"],
+        "type": "data",
+        "description": "Mean tree probability over the polygon.",
+        "extent": [0, 1],
+        "data_type": "float32"
       }
     },
     "mlm:hyperparameters": {

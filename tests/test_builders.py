@@ -16,6 +16,7 @@ from fair.stac.builders import (
     build_local_model_item,
 )
 from fair.stac.constants import DATACUBE_SCHEMA, LABEL_CLASS_PROPERTY
+from fair.stac.validators import validate_item
 
 _GEOM = {"type": "Polygon", "coordinates": [[[0, -90], [180, -90], [180, 90], [0, 90], [0, -90]]]}
 _MLM_INPUT = [
@@ -119,7 +120,7 @@ class TestDatasetLabelSemantics:
             "label_tasks": ["segmentation"],
             "label_classes": _OSM_LABEL_CLASSES,
             "keywords": ["building"],
-            "chips_href": "chips/",
+            "chips_hrefs": {"image": "chips/"},
             "labels_href": geojson_path,
             "title": "Labelled dataset",
             "description": "Chips and labels.",
@@ -159,6 +160,31 @@ class TestDatasetLabelSemantics:
         description = self._item(geojson_path).properties["label:description"]
         assert "1 = building=yes|house" in description
         assert "2 = highway=*" in description
+
+    def test_explicit_class_values_are_stamped_and_declared(self, geojson_path):
+        damage_classes = [
+            {"name": "building", "classes": ["*"], "value": 1},
+            {"name": "destroyed:building", "classes": ["*"], "value": 4},
+        ]
+        destroyed = {"properties": {"tags": {"destroyed:building": "yes"}}}
+
+        assert _stamp_class_label(destroyed, damage_classes) == 4
+        assert destroyed["properties"][LABEL_CLASS_PROPERTY] == 4
+        properties = self._item(geojson_path, label_classes=damage_classes).properties
+        assert properties["label:classes"] == [{"name": LABEL_CLASS_PROPERTY, "classes": [1, 4]}]
+        assert "4 = destroyed:building=*" in properties["label:description"]
+
+    def test_background_value_zero_is_kept(self, geojson_path):
+        waste_classes = [
+            {"name": "waste", "classes": ["*"], "value": 1},
+            {"name": "background", "classes": ["*"], "value": 0},
+        ]
+        background = {"properties": {"tags": {"background": "yes"}}}
+
+        assert _stamp_class_label(background, waste_classes) == 0
+        properties = self._item(geojson_path, label_classes=waste_classes).properties
+        assert properties["label:classes"] == [{"name": LABEL_CLASS_PROPERTY, "classes": [0, 1]}]
+        assert "(0 = background)" not in properties["label:description"]
 
     def test_explicit_label_properties_are_left_alone(self, geojson_path):
         """A caller describing its own label file keeps full control."""

@@ -30,20 +30,26 @@ def preprocess(image_path: Any) -> Any:
     return rgb[np.newaxis]
 
 
-def postprocess(logits: Any, threshold: float) -> Any:
-    """Turn (2, H, W) background and tree logits into a uint8 tree mask."""
+def tree_probability(logits: Any) -> Any:
+    """Per-pixel tree probability from (2, H, W) background and tree logits."""
     import numpy as np
 
     logits = np.asarray(logits, dtype=np.float64)
     # Softmax over two classes is a sigmoid of the logit difference.
-    tree_probability = 1.0 / (1.0 + np.exp(logits[1 - TREE_CHANNEL] - logits[TREE_CHANNEL]))
-    return (tree_probability >= threshold).astype(np.uint8)
+    return 1.0 / (1.0 + np.exp(logits[1 - TREE_CHANNEL] - logits[TREE_CHANNEL]))
+
+
+def postprocess(logits: Any, threshold: float) -> Any:
+    """Turn (2, H, W) background and tree logits into a uint8 tree mask."""
+    import numpy as np
+
+    return (tree_probability(logits) >= threshold).astype(np.uint8)
 
 
 def predict(session: Any, input_images: dict[str, str], params: dict[str, Any]) -> dict[str, Any]:
     import rasterio
     from pyproj import Transformer
-    from rasterio.features import shapes
+    from rasterio.features import geometry_mask, shapes
     from shapely.geometry import mapping, shape
     from shapely.ops import transform as shapely_transform
 
@@ -60,12 +66,13 @@ def predict(session: Any, input_images: dict[str, str], params: dict[str, Any]) 
             transform = src.transform
             to_wgs84 = Transformer.from_crs(src.crs, "EPSG:4326", always_xy=True)
         logits = session.run(None, {input_name: preprocess(chip_path)})[0][0]
+        probability = tree_probability(logits)
         mask = postprocess(logits, threshold)
         for geom, _ in shapes(mask, mask=mask.astype(bool), transform=transform):
+            inside = geometry_mask([geom], out_shape=mask.shape, transform=transform, invert=True)
             polygon = shapely_transform(lambda x, y, _z=None, t=to_wgs84: t.transform(x, y), shape(geom))
-            features.append(
-                {"type": "Feature", "properties": {"class": 1, "label": "tree"}, "geometry": mapping(polygon)}
-            )
+            properties = {"class": 1, "confidence": round(float(probability[inside].mean()), 4)}
+            features.append({"type": "Feature", "properties": properties, "geometry": mapping(polygon)})
     return {"type": "FeatureCollection", "features": features}
 
 

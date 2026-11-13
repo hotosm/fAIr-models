@@ -8,7 +8,7 @@ Binary building-footprint segmentation for very high resolution RGB aerial image
 | --------- | --------------------------------------------------------------------------------------------------------------- |
 | Task      | Building footprint extraction                                                                                   |
 | Input     | 3-band RGB GeoTIFF chips, VHR (~30 cm GSD)                                                                      |
-| Output    | GeoJSON `FeatureCollection` of `Polygon` features in EPSG:4326, each with `class` and `score`                   |
+| Output    | GeoJSON `FeatureCollection` of `Polygon` features in EPSG:4326, each with `class` and `confidence`              |
 | Coverage  | Global; trained on the HOT VHR Building Segmentation dataset (~37k chips worldwide)                             |
 | Use cases | Edge / constrained-infra inference, batch building inventory where size matters more than the last few pp of F1 |
 | License   | DINOv3 License                                                                                                  |
@@ -57,7 +57,7 @@ A long-running container exposes `POST /predict` on port 8080. Request body:
 }
 ```
 
-The server fetches the tiles for the requested bbox, runs sliding-window inference, and returns a GeoJSON `FeatureCollection`. Each feature has `properties.class = 1` and `properties.score` in `[0, 1]`.
+The server fetches the tiles for the requested bbox, runs sliding-window inference, and returns a GeoJSON `FeatureCollection`. Each feature has `properties.class = 1` and `properties.confidence` in `[0, 1]`.
 
 ### Fine-tuning on a local area
 
@@ -87,12 +87,12 @@ Per-area fine-tune re-tunes these via the `tune_postprocess` step on the user's 
 ```json
 {
   "type": "Feature",
-  "properties": {"class": 1, "score": 0.84},
+  "properties": {"class": 1, "confidence": 0.84},
   "geometry":   {"type": "Polygon", "coordinates": [...]}
 }
 ```
 
-The `score` is the mean predicted mask probability across the pixels belonging to that polygon's source watershed instance.
+The `confidence` is the mean predicted mask probability across the pixels belonging to that polygon's source watershed instance.
 
 ## Compute footprint
 
@@ -210,7 +210,7 @@ where `sq(r) = exp(-|log(r)|)` peaks at `r=1.0` and penalises ratios symmetrical
 
 ## License
 
-The published ONNX model contains the DINOv3-ViT-S/16 encoder weights from Meta's DINOv3 (Siméoni et al., 2025), released under the [DINOv3 License](https://github.com/facebookresearch/dinov3/blob/main/LICENSE.md). The model and every local model fine-tuned from it fall under that license; the STAC item declares `other` with a link to it. The pipeline code is AGPL-3.0-only, as is the rest of this repository. The decoder architecture, multi-task training recipe, post-processing pipeline (DP+MBR-safe vectorisation, watershed instance separation), and per-area finetune scaffolding come from [`dinov3-hot-ablation`](https://github.com/kshitijrajsharma/dinov3-hot-ablation) by Kshitij Raj Sharma, Apache-2.0.
+The published ONNX model contains the DINOv3-ViT-S/16 encoder weights from Meta's DINOv3 (Siméoni et al., 2025), released under the [DINOv3 License](https://github.com/facebookresearch/dinov3/blob/main/LICENSE.md). The model and every local model fine-tuned from it fall under that license; the STAC item declares `other` with a link to it. The pipeline code is AGPL-3.0-only. The decoder architecture, multi-task training recipe, post-processing pipeline (DP+MBR-safe vectorisation, watershed instance separation), and per-area finetune scaffolding come from [`dinov3-hot-ablation`](https://github.com/kshitijrajsharma/dinov3-hot-ablation) by Kshitij Raj Sharma, Apache-2.0.
 
 ## Citation
 

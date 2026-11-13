@@ -152,8 +152,8 @@
         "name": "tree crowns",
         "description": "Tree crown boxes after confidence filtering and non-maximum suppression, one polygon per feature.",
         "tasks": ["object-detection"],
-        "result": { "shape": [-1, 4], "dim_order": ["batch", "variables"], "data_type": "float32" },
-        "variables": ["class", "label", "confidence", "source"],
+        "result": { "shape": [-1, 2], "dim_order": ["batch", "variables"], "data_type": "float32" },
+        "variables": ["class", "confidence"],
         "classification:classes": [{ "name": "tree", "value": 1, "description": "Tree crown" }],
         "post_processing_function": {
           "format": "python",
@@ -177,23 +177,12 @@
         "values": [1],
         "data_type": "uint8"
       },
-      "label": {
-        "dimensions": ["features"],
-        "type": "data",
-        "description": "Class name of the predicted class (tree).",
-        "values": ["tree"]
-      },
       "confidence": {
         "dimensions": ["features"],
         "type": "data",
         "description": "Sigmoid score of the detection.",
         "extent": [0, 1],
         "data_type": "float32"
-      },
-      "source": {
-        "dimensions": ["features"],
-        "type": "auxiliary",
-        "description": "File name of the chip the box was detected in."
       }
     },
     "mlm:hyperparameters": {

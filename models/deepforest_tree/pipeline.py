@@ -19,7 +19,6 @@ from fair.zenml.materializers import CheckpointBytesMaterializer, ONNXMaterializ
 from fair.zenml.metrics import log_loss_history
 
 CLASS_VALUE = 1
-CLASS_LABEL = "tree"
 IOU_MATCH = 0.5  # box IoU at which a prediction counts as a true positive
 MIN_BOX_PX = 2.0  # clipped label boxes thinner than this are degenerate for the box loss
 CHIP_SUFFIXES = {".tif", ".tiff"}
@@ -34,12 +33,7 @@ def predict(session: Any, input_images: dict[str, str], params: dict[str, Any]) 
     collection = predict_session(session, resolve_directory(input_images[IMAGE_INPUT]), params)
     for feature in collection["features"]:
         props = feature["properties"]
-        feature["properties"] = {
-            "class": CLASS_VALUE,
-            "label": CLASS_LABEL,
-            "confidence": props["confidence"],
-            "source": props["source"],
-        }
+        feature["properties"] = {"class": CLASS_VALUE, "confidence": props["confidence"]}
     return collection
 
 

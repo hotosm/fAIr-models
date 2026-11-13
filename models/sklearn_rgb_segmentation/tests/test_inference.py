@@ -17,4 +17,5 @@ def test_predict_returns_building_polygons(generate_toy_dataset: dict[str, Path]
 
     assert result["type"] == "FeatureCollection"
     assert result["features"]
-    assert all(f["properties"]["label"] == "building" for f in result["features"])
+    assert all(set(f["properties"]) == {"class", "confidence"} for f in result["features"])
+    assert all(0.5 <= f["properties"]["confidence"] <= 1.0 for f in result["features"])

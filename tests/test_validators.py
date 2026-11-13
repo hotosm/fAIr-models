@@ -583,16 +583,30 @@ class TestPredictionVariables:
     def test_item_with_declared_variables_is_valid(self):
         assert validate_item(_model_with_prediction_variables()) == []
 
+    def test_base_model_without_a_confidence_output_is_rejected(self):
+        model = _model_with_prediction_variables()
+        output = next(o for o in model.properties["mlm:output"] if o.get("variables"))
+        output["variables"] = ["class"]
+        del model.properties["cube:variables"]["confidence"]
+
+        assert "mlm:output 'buildings' must declare a 'confidence' variable" in validate_item(model)
+
+    def test_base_model_confidence_outside_zero_to_one_is_rejected(self):
+        model = _model_with_prediction_variables()
+        model.properties["cube:variables"]["confidence"]["extent"] = [0, 100]
+
+        assert "cube:variables 'confidence' must have an extent of [0, 1]" in validate_item(model)
+
     def test_item_rejects_output_variable_missing_from_cube_variables(self):
         model = _model_with_prediction_variables()
-        del model.properties["cube:variables"]["score"]
+        del model.properties["cube:variables"]["confidence"]
 
-        assert "mlm:output 'buildings' variable 'score' has no entry in cube:variables" in validate_item(model)
+        assert "mlm:output 'buildings' variable 'confidence' has no entry in cube:variables" in validate_item(model)
 
     def test_predictions_carrying_every_declared_variable_pass(self):
         model = _model_with_prediction_variables()
         model.properties["cube:variables"]["class"]["nodata"] = -1
-        predictions = _polygon_predictions({"class": 1, "score": 0.9}, {"class": -1, "score": 0.1})
+        predictions = _polygon_predictions({"class": 1, "confidence": 0.9}, {"class": -1, "confidence": 0.1})
 
         assert validate_predictions_geojson(predictions, model) == []
 
@@ -600,20 +614,20 @@ class TestPredictionVariables:
         predictions = _polygon_predictions({"class": 1})
 
         assert validate_predictions_geojson(predictions, _model_with_prediction_variables()) == [
-            "features[0].properties missing declared variable 'score'"
+            "features[0].properties missing declared variable 'confidence'"
         ]
 
     def test_predictions_with_null_properties_fail(self):
-        predictions = _polygon_predictions({"class": 1, "score": 0.5})
+        predictions = _polygon_predictions({"class": 1, "confidence": 0.5})
         predictions["features"][0]["properties"] = None
 
         assert validate_predictions_geojson(predictions, _model_with_prediction_variables()) == [
             "features[0].properties missing declared variable 'class'",
-            "features[0].properties missing declared variable 'score'",
+            "features[0].properties missing declared variable 'confidence'",
         ]
 
     def test_predictions_with_undeclared_class_value_fail(self):
-        predictions = _polygon_predictions({"class": 7, "score": 0.5})
+        predictions = _polygon_predictions({"class": 7, "confidence": 0.5})
 
         assert validate_predictions_geojson(predictions, _model_with_prediction_variables()) == [
             "features[0].properties.class=7 not in declared values [1]"

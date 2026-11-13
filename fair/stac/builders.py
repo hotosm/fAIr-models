@@ -204,25 +204,18 @@ def _raster_bands_from_model_input(mlm_input: list[dict[str, Any]]) -> list[dict
 
 
 def _class_objects_for_stamped_labels(label_classes: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Class Objects describing what the label file actually carries.
-
-    `label_classes` as passed in is the OSM *filter* spec (tag key -> accepted tag
-    values). `fair.datasets._stamp_class_label` turns each matching feature into
-    ``properties[LABEL_CLASS_PROPERTY] = <1-based index into that list>``, so the
-    published Class Object names that key and enumerates those indices. 0 is
-    reserved for background and never appears on a feature.
-    """
-    return [{"name": LABEL_CLASS_PROPERTY, "classes": list(range(1, len(label_classes) + 1))}]
+    values = sorted({cls.get("value", index) for index, cls in enumerate(label_classes, start=1)})
+    return [{"name": LABEL_CLASS_PROPERTY, "classes": values}]
 
 
 def _osm_class_mapping(label_classes: list[dict[str, Any]]) -> str:
-    """Index -> OSM tag mapping, which `label:classes` alone cannot express."""
     pairs = "; ".join(
-        f"{index} = {cls.get('name', LABEL_CLASS_PROPERTY)}"
+        f"{cls.get('value', index)} = {cls.get('name', LABEL_CLASS_PROPERTY)}"
         f"={'|'.join(str(value) for value in (cls.get('classes') or ['*']))}"
         for index, cls in enumerate(label_classes, start=1)
     )
-    return f"Class values in `{LABEL_CLASS_PROPERTY}` (0 = background): {pairs}."
+    background = "" if any("value" in cls for cls in label_classes) else " (0 = background)"
+    return f"Class values in `{LABEL_CLASS_PROPERTY}`{background}: {pairs}."
 
 
 def build_dataset_item(

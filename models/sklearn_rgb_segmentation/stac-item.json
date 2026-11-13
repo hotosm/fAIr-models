@@ -150,7 +150,7 @@
         "description": "Building polygons traced from the thresholded pixel mask, one row per feature.",
         "tasks": ["semantic-segmentation"],
         "result": { "shape": [-1, 2], "dim_order": ["batch", "variables"], "data_type": "float32" },
-        "variables": ["class", "label"],
+        "variables": ["class", "confidence"],
         "classification:classes": [
           { "name": "building", "value": 1, "description": "Building pixels" }
         ],
@@ -169,18 +169,19 @@
       }
     },
     "cube:variables": {
-      "label": {
-        "dimensions": ["features"],
-        "type": "data",
-        "description": "Class name of the predicted class (building).",
-        "values": ["building"]
-      },
       "class": {
         "dimensions": ["features"],
         "type": "data",
         "description": "Predicted class value (1 = building).",
         "values": [1],
         "data_type": "uint8"
+      },
+      "confidence": {
+        "dimensions": ["features"],
+        "type": "data",
+        "description": "Mean building probability over the polygon.",
+        "extent": [0, 1],
+        "data_type": "float32"
       }
     },
     "mlm:hyperparameters": {

@@ -213,7 +213,7 @@
           "dim_order": ["batch", "variables"],
           "data_type": "float32"
         },
-        "variables": ["class", "label"],
+        "variables": ["class", "confidence"],
         "classification:classes": [
           {
             "name": "road",
@@ -236,11 +236,12 @@
       }
     },
     "cube:variables": {
-      "label": {
+      "confidence": {
         "dimensions": ["features"],
         "type": "data",
-        "description": "Predicted class name.",
-        "values": ["road"]
+        "description": "Mean road probability along the centerline before simplification.",
+        "extent": [0, 1],
+        "data_type": "float32"
       },
       "class": {
         "dimensions": ["features"],

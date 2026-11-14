@@ -132,8 +132,7 @@ def predict(session: Any, input_images: dict[str, str], params: dict[str, Any]) 
     probability = _blend_probabilities(session, rgb, valid)
     del rgb
     road = probability_ridges(probability, valid, threshold)
-    del probability
     return {
         "type": "FeatureCollection",
-        "features": trace(road, grid, crs),
+        "features": trace(road, grid, crs, probability),
     }

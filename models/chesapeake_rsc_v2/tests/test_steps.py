@@ -94,7 +94,9 @@ def test_run_inference(toy_chips, tmp_path):
     result = pipeline.predict(Session(), {"image": str(tmp_path)}, {})
     assert len(result["features"]) == 1
     feature = result["features"][0]
-    assert feature["properties"] == {"class": 1, "label": "road"}
+    assert set(feature["properties"]) == {"class", "confidence"}
+    assert feature["properties"]["class"] == 1
+    assert 0 <= feature["properties"]["confidence"] <= 1
     assert feature["geometry"]["type"] == "LineString"
     with rasterio.open(sorted(tmp_path.glob("*.tif"))[0]) as src:
         seam = src.bounds.right
@@ -109,8 +111,10 @@ def test_centerline_junction():
     mask[16, 2:30] = True
     mask[4:17, 16] = True
     mask[17:19, 16] = True
-    features = trace(mask, from_origin(85, 27, 0.00001, 0.00001), CRS.from_epsg(4326))
+    probability = np.full(mask.shape, 0.75, dtype=np.float32)
+    features = trace(mask, from_origin(85, 27, 0.00001, 0.00001), CRS.from_epsg(4326), probability)
     assert len(features) == 3
+    assert all(f["properties"]["confidence"] == pytest.approx(0.75) for f in features)
     ends = [
         tuple(point) for f in features for point in (f["geometry"]["coordinates"][0], f["geometry"]["coordinates"][-1])
     ]
@@ -176,6 +180,9 @@ def test_centerlines_reproject_to_wgs84():
     mask = np.zeros((8, 8), dtype=bool)
     mask[4, 1:7] = True
     grid = from_origin(111319.49079327357, 111325.1428663851, 1, 1)
-    features = trace(mask, grid, CRS.from_epsg(3857))
+    probability = np.zeros(mask.shape, dtype=np.float32)
+    probability[4, 1:7] = np.linspace(0.2, 0.8, 6)
+    features = trace(mask, grid, CRS.from_epsg(3857), probability)
+    assert features[0]["properties"]["confidence"] == pytest.approx(0.5)
     coords = features[0]["geometry"]["coordinates"]
     assert all(1 < lon < 1.001 and 0.999 < lat < 1 for lon, lat in coords)

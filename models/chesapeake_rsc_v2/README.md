@@ -6,7 +6,7 @@ The [MIT-licensed weights](https://huggingface.co/isaaccorley/chesapeakersc-v2) 
 
 ## Inference
 
-The pipeline resamples georeferenced uint8 RGB chips to approximately 0.6 m, divides pixel values by 255, and predicts road probabilities in 512 × 512 windows with 50% Hann overlap. It traces probability ridges with a 0.08 floor. Output is WGS84 GeoJSON LineStrings with class 1 and label road.
+The pipeline resamples georeferenced uint8 RGB chips to approximately 0.6 m, divides pixel values by 255, and predicts road probabilities in 512 × 512 windows with 50% Hann overlap. It traces probability ridges with a 0.08 floor. Output is WGS84 GeoJSON LineStrings with class 1 and a confidence value equal to the mean road probability along the centerline before simplification.
 
 Send north-up chips with a shared CRS in one request to connect roads across tile seams. Requests support up to 16 million pixels at 0.6 m. CPU inference uses ONNX Runtime.
 

@@ -70,7 +70,7 @@ def _edges(skeleton: np.ndarray) -> Iterator[tuple[Pixel, Pixel]]:
             yield (col, row), (c, r)
 
 
-def trace(mask: np.ndarray, grid: Affine, crs: CRS) -> list[dict]:
+def trace(mask: np.ndarray, grid: Affine, crs: CRS, probability: np.ndarray) -> list[dict]:
     """Return WGS84 road features, pruning short terminal spurs at junctions."""
     edges = list(_edges(skeletonize(mask)))
     if not edges:
@@ -84,12 +84,14 @@ def trace(mask: np.ndarray, grid: Affine, crs: CRS) -> list[dict]:
         degrees = sorted((degree[start], degree[end]))
         if line.length < 4 and degrees[0] == 1 and degrees[1] >= 3:
             continue
+        pixels = np.asarray(line.coords, dtype=np.intp)
+        confidence = float(probability[pixels[:, 1], pixels[:, 0]].mean())
         coords = [grid * (x + 0.5, y + 0.5) for x, y in line.simplify(0.5).coords]
         features.append(
             {
                 "type": "Feature",
                 "geometry": transform_geom(crs, "EPSG:4326", {"type": "LineString", "coordinates": coords}),
-                "properties": {"class": 1, "label": "road"},
+                "properties": {"class": 1, "confidence": confidence},
             }
         )
     return features

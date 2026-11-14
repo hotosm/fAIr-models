@@ -215,6 +215,7 @@ class FairClient:
         *,
         knative_template: str | None = None,
         knative_namespace: str | None = None,
+        pin_images: bool = True,
     ) -> str:
         cat = self._get_backend()
         if isinstance(stac_item, str):
@@ -228,7 +229,7 @@ class FairClient:
             raise FairClientError(f"Schema validation failed: {errs}")
         if errs := validate_model_asset_urls(item):
             raise FairClientError(f"Asset URL validation failed: {errs}")
-        if self._stac_api_url:
+        if self._stac_api_url and pin_images:
             try:
                 registry.pin_image_digests(item)
             except registry.RegistryError as exc:

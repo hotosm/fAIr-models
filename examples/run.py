@@ -42,7 +42,7 @@ def run(model: str, overrides: dict[str, object]) -> None:
     install_s3_cleanup_handler()
     client.setup()
 
-    base_model_id = client.register_base_model(str(stac_path))
+    base_model_id = client.register_base_model(str(stac_path), pin_images=os.environ.get("FAIR_CI") != "1")
     dataset_id = client.register_dataset(dataset_path)
     finetuned_model_id = client.finetune(
         base_model_id=base_model_id,

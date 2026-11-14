@@ -849,6 +849,32 @@ def test_register_base_model_skips_the_probe_without_a_domain(monkeypatch: pytes
     assert len(backend.published) == 1
 
 
+@pytest.mark.parametrize(
+    ("pin_images", "expected_href"),
+    [
+        (True, "ghcr.io/hotosm/fair-models/demo@sha256:abc"),
+        (False, "ghcr.io/hotosm/fair-models/demo:ci"),
+    ],
+)
+def test_register_base_model_pins_images_only_when_asked(
+    monkeypatch: pytest.MonkeyPatch, pin_images: bool, expected_href: str
+) -> None:
+    monkeypatch.delenv("FAIR_PREDICT_DOMAIN", raising=False)
+    item = _build_base_model_item()
+    item.assets["mlm:training"].href = "ghcr.io/hotosm/fair-models/demo:ci"
+    client, backend = _gated_client(monkeypatch, item)
+    client._stac_api_url = "http://stac.example.com"
+    monkeypatch.setattr(knative_module, "_knative_serving_installed", lambda: False)
+    monkeypatch.setattr(
+        client_module.registry, "resolve_digest", lambda ref, **_: f"{ref.rsplit(':', 1)[0]}@sha256:abc"
+    )
+
+    client.register_base_model("base.json", pin_images=pin_images)
+
+    assert item.assets["mlm:training"].href == expected_href
+    assert len(backend.published) == 1
+
+
 def _revision(name: str, digest: str, ready: str, message: str = "") -> dict[str, Any]:
     return {
         "metadata": {"name": name, "annotations": {knative_module.TEMPLATE_HASH_ANNOTATION: digest}},

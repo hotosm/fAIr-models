@@ -52,6 +52,7 @@
       "place": { "name": "Freetown", "country": "Sierra Leone", "country_code": "SL" }
     },
     "keywords": ["tree", "object-detection", "polygon"],
+    "fair:label_geometry_types": ["point", "polygon"],
     "license": "MIT",
     "version": "1",
     "deprecated": false,

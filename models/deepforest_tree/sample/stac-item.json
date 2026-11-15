@@ -1,0 +1,113 @@
+{
+  "type": "Feature",
+  "stac_version": "1.1.0",
+  "stac_extensions": [
+    "https://stac-extensions.github.io/label/v1.0.1/schema.json",
+    "https://stac-extensions.github.io/file/v2.1.0/schema.json",
+    "https://stac-extensions.github.io/version/v1.2.0/schema.json",
+    "https://hotosm.github.io/fAIr-models/schemas/v1.0.0/dataset/schema.json"
+  ],
+  "id": "deepforest-tree-sample",
+  "geometry": {
+    "type": "MultiPolygon",
+    "coordinates": [
+      [
+        [
+          [
+            -13.238865280151368,
+            8.474073592789066
+          ],
+          [
+            -13.236125564575195,
+            8.474073592789066
+          ],
+          [
+            -13.236125564575195,
+            8.476783313385162
+          ],
+          [
+            -13.238865280151368,
+            8.476783313385162
+          ],
+          [
+            -13.238865280151368,
+            8.474073592789066
+          ]
+        ]
+      ]
+    ]
+  },
+  "bbox": [
+    -13.238865280151368,
+    8.474073592789066,
+    -13.236125564575195,
+    8.476783313385162
+  ],
+  "properties": {
+    "title": "deepforest-tree-sample",
+    "description": "Sample for the deepforest_tree pipeline: OSM tree points over OpenAerialMap imagery of Freetown, Sierra Leone.",
+    "label:type": "vector",
+    "label:tasks": [
+      "object-detection"
+    ],
+    "label:classes": [
+      {
+        "name": "label",
+        "classes": [
+          1
+        ]
+      }
+    ],
+    "label:properties": [
+      "label"
+    ],
+    "keywords": [
+      "tree",
+      "object-detection",
+      "point"
+    ],
+    "fair:user_id": "anonymous",
+    "version": "1",
+    "deprecated": false,
+    "providers": [
+      {
+        "name": "anonymous",
+        "roles": [
+          "producer"
+        ]
+      }
+    ],
+    "fair:source_imagery": "https://tiles.openaerialmap.org/690585b76415e43597ffd7ea/0/690585b76415e43597ffd7eb/{z}/{x}/{y}",
+    "fair:geometry_type": "point",
+    "license": "ODbL-1.0",
+    "label:description": "Class values in `label` (0 = background): 1 = natural=tree.",
+    "created": "2026-11-14T21:37:32.436997+00:00",
+    "updated": "2026-11-14T21:37:32.436997+00:00",
+    "datetime": "2026-11-14T21:37:32.436997Z"
+  },
+  "links": [
+    {
+      "rel": "source",
+      "href": "https://tiles.openaerialmap.org/690585b76415e43597ffd7ea/0/690585b76415e43597ffd7eb/{z}/{x}/{y}",
+      "title": "Imagery for input image"
+    }
+  ],
+  "assets": {
+    "chips-image": {
+      "href": "chips-image",
+      "type": "image/tiff; application=geotiff",
+      "title": "Chips for input image",
+      "roles": [
+        "data"
+      ]
+    },
+    "labels": {
+      "href": "labels/labels.geojson",
+      "type": "application/geo+json",
+      "title": "Training labels",
+      "roles": [
+        "labels"
+      ]
+    }
+  }
+}

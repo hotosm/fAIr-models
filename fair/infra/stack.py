@@ -1,6 +1,6 @@
 """Bring the local Compose stack up and register its ZenML stack.
 
-Ships the Compose definition, DB init, ZenML stack config, and sample data as
+Ships the Compose definition, DB init and ZenML stack config as
 package resources so `fair stack up` works from any install without a repo
 clone. Falls back to the repo layout for editable installs.
 """
@@ -41,14 +41,6 @@ def stack_config_file() -> Path:
     return _asset(("stacks", "compose.yaml"), ("stacks", "compose.yaml"))
 
 
-def sample_data_dir() -> Path:
-    return _asset(("data", "sample"), ("data", "sample"))
-
-
-def _compose_env() -> dict[str, str]:
-    return {**os.environ, "FAIR_SAMPLE_DATA": str(sample_data_dir())}
-
-
 def _require(binary: str) -> None:
     if shutil.which(binary) is None:
         raise FairStackError(f"{binary!r} not found on PATH; install it and retry")
@@ -56,7 +48,7 @@ def _require(binary: str) -> None:
 
 def _compose(*args: str) -> None:
     _require("docker")
-    subprocess.run(["docker", "compose", "-f", str(compose_file()), *args], check=True, env=_compose_env())
+    subprocess.run(["docker", "compose", "-f", str(compose_file()), *args], check=True)
 
 
 def _zenml_bin() -> str:

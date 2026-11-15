@@ -195,6 +195,12 @@
             }
           }
         },
+        "fair:label_geometry_types": {
+          "type": "array",
+          "items": { "enum": ["point", "line", "polygon"] },
+          "minItems": 1,
+          "uniqueItems": true
+        },
         "fair:preview": {
           "type": "object",
           "required": ["center", "zoom", "imagery"],

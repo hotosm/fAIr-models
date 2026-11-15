@@ -1,3 +1,4 @@
 *.pyc
 __pycache__/
 .pytest_cache/
+models/sklearn_rgb_segmentation/sample/

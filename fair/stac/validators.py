@@ -36,6 +36,7 @@ def validate_item(item: pystac.Item) -> list[str]:
     errors.extend(_validate_prediction_variables_declared(item))
     errors.extend(_validate_prediction_confidence(item))
     errors.extend(_validate_input_names(item))
+    errors.extend(_validate_label_geometry_types(item))
     return errors
 
 
@@ -195,6 +196,23 @@ def geometry_keywords() -> set[str]:
     return set(_load_keywords_schema()["allowed_geometry_types"])
 
 
+def accepted_label_geometries(properties: Mapping[str, Any]) -> list[str]:
+    """Label geometries a model trains on: `fair:label_geometry_types`, else its geometry keyword."""
+    declared = properties.get("fair:label_geometry_types")
+    if declared:
+        return list(declared)
+    allowed = geometry_keywords()
+    return [keyword for keyword in properties.get("keywords", []) if keyword in allowed]
+
+
+def _validate_label_geometry_types(item: pystac.Item) -> list[str]:
+    declared = item.properties.get("fair:label_geometry_types")
+    keyword = geometry_keywords() & set(item.properties.get("keywords", []))
+    if declared and keyword and not keyword & set(declared):
+        return [f"fair:label_geometry_types {declared} must include the geometry keyword {sorted(keyword)}"]
+    return []
+
+
 def validate_compatibility(
     base_model_item: pystac.Item,
     dataset_item: pystac.Item,
@@ -229,8 +247,9 @@ def validate_compatibility(
         )
 
     geom_types = set(schema.get("allowed_geometry_types", []))
-    model_geom = model_keywords & geom_types
-    dataset_geom = dataset_keywords & geom_types
+    model_geom = set(accepted_label_geometries(base_model_item.properties))
+    dataset_geometry = dataset_item.properties.get("fair:geometry_type")
+    dataset_geom = {dataset_geometry} if dataset_geometry else dataset_keywords & geom_types
     if model_geom and dataset_geom and not model_geom & dataset_geom:
         errors.append(f"Geometry type mismatch: model={sorted(model_geom)}, dataset={sorted(dataset_geom)}")
 
@@ -327,7 +346,7 @@ def _validate_feature_variables(index: int, feature_properties: dict, model_prop
     return errors
 
 
-_KEYWORD_TO_GEOJSON_TYPES: dict[str, set[str]] = {
+GEOMETRY_GEOJSON_TYPES: dict[str, set[str]] = {
     "polygon": {"Polygon", "MultiPolygon"},
     "line": {"LineString", "MultiLineString"},
     "point": {"Point", "MultiPoint"},
@@ -342,7 +361,7 @@ def _allowed_geometry_geojson_types(item: pystac.Item) -> set[str] | None:
         return None
     result: set[str] = set()
     for kw in declared:
-        result |= _KEYWORD_TO_GEOJSON_TYPES.get(kw, set())
+        result |= GEOMETRY_GEOJSON_TYPES.get(kw, set())
     return result
 
 

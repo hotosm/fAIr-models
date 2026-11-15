@@ -10,18 +10,13 @@ runner = CliRunner()
 
 
 def test_assets_resolve_to_existing_paths() -> None:
-    for path in (stack.compose_file(), stack.stack_config_file(), stack.sample_data_dir()):
+    for path in (stack.compose_file(), stack.stack_config_file()):
         assert path.exists()
 
 
 def test_missing_asset_raises() -> None:
     with pytest.raises(stack.FairStackError):
         stack._asset(("nope", "missing.yml"), ("nope", "missing.yml"))
-
-
-def test_compose_env_points_at_sample_data() -> None:
-    env = stack._compose_env()
-    assert env["FAIR_SAMPLE_DATA"] == str(stack.sample_data_dir())
 
 
 def test_up_brings_stack_up_then_registers(monkeypatch) -> None:

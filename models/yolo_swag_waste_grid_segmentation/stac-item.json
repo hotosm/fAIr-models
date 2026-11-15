@@ -44,14 +44,14 @@
     "fair:max_zoom": 22,
     "fair:pinned": true,
     "fair:preview": {
-      "center": [-13.05, 8.3381],
+      "center": [-0.22, 5.5464],
       "zoom": { "recommended": 18, "min": 14, "max": 22 },
       "imagery": {
-        "url": "https://api.imagery.hotosm.org/raster/collections/openaerialmap/items/6aae46379ed4c3b5f2d117f9/tiles/WebMercatorQuad/{z}/{x}/{y}?assets=visual",
+        "url": "https://api.imagery.hotosm.org/raster/collections/openaerialmap/items/66e40ff3cd0baa0001b6212f/tiles/WebMercatorQuad/{z}/{x}/{y}?assets=visual",
         "type": "tms",
         "attribution": "OpenAerialMap"
       },
-      "place": { "name": "Waterloo", "country": "Sierra Leone", "country_code": "SL" }
+      "place": { "name": "Old Fadama, Accra", "country": "Ghana", "country_code": "GH" }
     },
     "keywords": ["solid-waste", "semantic-segmentation", "polygon"],
     "license": "MIT",

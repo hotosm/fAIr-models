@@ -161,6 +161,10 @@ class TestDatasetLabelSemantics:
         assert "1 = building=yes|house" in description
         assert "2 = highway=*" in description
 
+    def test_empty_description_leaves_only_the_class_mapping(self, geojson_path):
+        description = self._item(geojson_path, description="").properties["label:description"]
+        assert description.startswith("Class values in `label`")
+
     def test_explicit_class_values_are_stamped_and_declared(self, geojson_path):
         damage_classes = [
             {"name": "building", "classes": ["*"], "value": 1},

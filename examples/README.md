@@ -1,7 +1,7 @@
 # Examples
 
-End-to-end pipelines that register a base model, finetune on the sample
-Banepa OAM+OSM dataset, promote, and run inference. One runner for all
+End-to-end pipelines that register a base model, finetune on the
+model's sample dataset (`models/<name>/sample/`), promote, and run inference. One runner for all
 models.
 
 ## Quick Start
@@ -38,10 +38,9 @@ uv run python examples/run.py dinov3s_buildings --epochs 1 --samples-per-epoch 6
 
 1. Reads `models/<name>/stac-item.json`; derives the task type from
    `mlm:tasks[0]` and the model id from `id`.
-2. Picks the matching dataset at `data/sample/buildings-banepa-<task>/stac-item.json`.
+2. Reads the model's sample dataset at `models/<name>/sample/stac-item.json`.
 3. Calls `FairClient.setup → register_base_model → register_dataset →
-finetune → promote → predict`.
-4. Predicts on `data/sample/test/oam/`.
+finetune → promote → predict` on the sample chips.
 
 Each step runs inside the model's docker image (via ZenML's docker
 orchestrator). KNative serves that same image on a deployed cluster, see
@@ -55,7 +54,6 @@ orchestrator). KNative serves that same image on a deployed cluster, see
 | <http://localhost:5000>             | MLflow runs and metrics                            |
 | <http://localhost:8082/collections> | STAC items for registered models and datasets      |
 | <http://localhost:9001>             | MinIO browser (login: `minioadmin` / `minioadmin`) |
-| `data/sample/test/predictions/`     | Per-task predictions on disk                       |
 
 ## Adding a new model
 

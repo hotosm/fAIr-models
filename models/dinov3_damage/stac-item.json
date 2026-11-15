@@ -48,7 +48,7 @@
     "fair:memory_limit": "8Gi",
     "fair:recommended_zoom": 18,
     "fair:preview": {
-      "center": [85.3767, 28.2648],
+      "center": [85.1111, 27.8646],
       "zoom": {
         "recommended": 18
       },

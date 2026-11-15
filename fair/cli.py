@@ -15,7 +15,7 @@ import pystac
 import typer
 
 from fair.client import FairClient
-from fair.datasets import materialize_dataset
+from fair.datasets import PRE_INPUT, materialize_dataset, preview_sample
 from fair.infra import knative, registry, stack
 from fair.stac.builders import build_dataset_item
 from fair.stac.constants import (
@@ -71,44 +71,106 @@ def _dump_item(item: pystac.Item) -> str:
     return json.dumps(item.to_dict(transform_hrefs=False), indent=2)
 
 
+RAW_DATA_API_URL = "https://api-prod.raw-data.hotosm.org/v1"
+
+
+def _parse_classes(classes: str) -> list[dict[str, Any]]:
+    parsed: list[dict[str, Any]] = []
+    for entry in (part.strip() for part in classes.split(",")):
+        if entry:
+            key, _, value = entry.partition("=")
+            parsed.append({"name": key, "classes": [value] if value else ["*"]})
+    return parsed
+
+
 @dataset_app.command("build")
 def dataset_build(
-    tms: Annotated[str, typer.Option(help="TMS/XYZ tile URL template")],
-    aoi: Annotated[Path, typer.Option(exists=True, dir_okay=False, help="AOI GeoJSON file")],
-    zoom: Annotated[int, typer.Option(help="Tile zoom level")],
+    tms: Annotated[str | None, typer.Option(help="TMS/XYZ tile URL template")] = None,
+    aoi: Annotated[Path | None, typer.Option(exists=True, dir_okay=False, help="AOI GeoJSON file")] = None,
+    zoom: Annotated[int | None, typer.Option(help="Tile zoom level")] = None,
+    from_preview: Annotated[
+        Path | None,
+        typer.Option(
+            exists=True, dir_okay=False, help="Model stac-item.json; imagery, zoom and area come from fair:preview"
+        ),
+    ] = None,
+    tiles: Annotated[int, typer.Option(min=1, help="With --from-preview: tile square side")] = 8,
     out: Annotated[Path, typer.Option(help="Directory for downloaded assets + draft")] = Path("drafts"),
-    title: Annotated[str | None, typer.Option(help="Dataset title (default: derived from AOI filename)")] = None,
-    classes: Annotated[str, typer.Option(help="Comma-separated OSM tag keys to label")] = "building",
-    geometry_type: Annotated[str, typer.Option(help="point | line | polygon")] = "polygon",
-    tasks: Annotated[str, typer.Option(help="Comma-separated label tasks")] = "semantic-segmentation",
+    title: Annotated[str | None, typer.Option(help="Dataset title (default: derived from AOI or model)")] = None,
+    classes: Annotated[str, typer.Option(help="Comma-separated OSM tag keys or key=value pairs")] = "building",
+    geometry_type: Annotated[str | None, typer.Option(help="point | line | polygon")] = None,
+    tasks: Annotated[str | None, typer.Option(help="Comma-separated label tasks")] = None,
     keywords: Annotated[str | None, typer.Option(help="Comma-separated keywords")] = None,
-    osm_url: Annotated[str | None, typer.Option(help="raw-data API URL (default: $FAIR_RAW_DATA_API_URL)")] = None,
+    osm_url: Annotated[
+        str | None, typer.Option(help="raw-data API URL (default: $FAIR_RAW_DATA_API_URL, else HOT's public API)")
+    ] = None,
+    labels: Annotated[
+        Path | None,
+        typer.Option(exists=True, dir_okay=False, help="Own labels GeoJSON (integer `label` per --classes order)"),
+    ] = None,
+    labels_license: Annotated[str | None, typer.Option(help="SPDX license of --labels")] = None,
 ) -> None:
-    """Download chips + OSM labels for an AOI and write an editable draft STAC item."""
-    osm_api = osm_url or os.environ.get("FAIR_RAW_DATA_API_URL")
-    if not osm_api:
-        raise typer.BadParameter("raw-data API URL required via --osm-url or $FAIR_RAW_DATA_API_URL")
+    """Download chips + labels (OSM or --labels) for an area and write an editable draft STAC item."""
+    if from_preview is not None:
+        model_item = json.loads(from_preview.read_text())
+        sample = preview_sample(model_item, tiles)
+        tms_urls = sample.tms_urls
+        if tms is not None:
+            if len(tms_urls) != 1:
+                raise typer.BadParameter(f"--tms replaces one input's imagery; the model has {sorted(tms_urls)}")
+            tms_urls = {name: tms for name in tms_urls}
+        resolved_zoom = zoom or sample.zoom
+        aoi_geojson = json.loads(aoi.read_text()) if aoi else sample.aoi
+        if geometry_type is None and len(sample.geometry_types) > 1:
+            raise typer.BadParameter(f"the model accepts {sample.geometry_types}; pick one with --geometry-type")
+        if geometry_type is not None and geometry_type not in sample.geometry_types:
+            raise typer.BadParameter(f"the model accepts {sample.geometry_types} labels, not {geometry_type}")
+        default_tasks, default_geometry = sample.tasks, sample.geometry_types[0]
+        resolved_title = title or f"{model_item['id']}-sample"
+    else:
+        if tms is None or aoi is None or zoom is None:
+            raise typer.BadParameter("--tms, --aoi and --zoom are required without --from-preview")
+        tms_urls = {IMAGE_INPUT: tms}
+        resolved_zoom = zoom
+        aoi_geojson = json.loads(aoi.read_text())
+        default_tasks, default_geometry = ["semantic-segmentation"], "polygon"
+        resolved_title = title or f"{aoi.stem}-{geometry_type or default_geometry}"
+    resolved_geometry = geometry_type or default_geometry
+    label_tasks = [t.strip() for t in tasks.split(",") if t.strip()] if tasks else default_tasks
 
-    label_classes: list[dict[str, Any]] = [
-        {"name": c.strip(), "classes": ["*"]} for c in classes.split(",") if c.strip()
-    ]
-    label_tasks = [t.strip() for t in tasks.split(",") if t.strip()]
+    label_classes = _parse_classes(classes)
+    if labels is not None:
+        if labels_license is None:
+            raise typer.BadParameter("--labels needs --labels-license (an SPDX identifier)")
+        own_labels: dict[str, Any] | None = json.loads(labels.read_text())
+        osm_api = None
+        license_id = labels_license
+        label_description: str | None = (
+            f"Labels from {labels.name}, `label` 1 to {len(label_classes)} in the order {classes}."
+        )
+    else:
+        osm_api = osm_url or os.environ.get("FAIR_RAW_DATA_API_URL", RAW_DATA_API_URL)
+        own_labels = None
+        license_id = "ODbL-1.0"
+        label_description = None
     keyword_list: list[str] = (
         [k.strip() for k in keywords.split(",") if k.strip()]
         if keywords
-        else [str(cls["name"]) for cls in label_classes]
+        else [*dict.fromkeys(str(cls["name"]) for cls in label_classes), *label_tasks, resolved_geometry]
     )
-    resolved_title = title or f"{aoi.stem}-{geometry_type}"
     user_id = os.environ.get("FAIR_USER_ID", "anonymous")
+    data_dir = out if from_preview is not None else out / resolved_title
 
-    chips_href, labels_href, geometry, bbox = materialize_dataset(
-        tms_url=tms,
-        aoi=json.loads(aoi.read_text()),
-        zoom=zoom,
-        out_dir=str(out / resolved_title),
+    chips_dirs, labels_href, geometry, bbox = materialize_dataset(
+        tms_urls=tms_urls,
+        aoi=aoi_geojson,
+        zoom=resolved_zoom,
+        out_dir=str(data_dir),
         label_classes=label_classes,
-        geometry_type=geometry_type,
+        geometry_type=resolved_geometry,
         osm_api_url=osm_api,
+        labels=own_labels,
+        slim_labels=from_preview is not None,
     )
 
     item = build_dataset_item(
@@ -116,24 +178,26 @@ def dataset_build(
         label_tasks=label_tasks,
         label_classes=label_classes,
         keywords=keyword_list,
-        chips_hrefs={IMAGE_INPUT: chips_href},
-        labels_href=labels_href,
+        chips_hrefs={name: os.path.relpath(path, out) for name, path in chips_dirs.items()},
+        labels_href=os.path.relpath(labels_href, out),
         title=resolved_title,
         description="",
         user_id=user_id,
         providers=[{"name": user_id, "roles": ["producer"]}],
         geometry=geometry,
         bbox=bbox,
-        source_imagery=tms,
-        imagery_hrefs={IMAGE_INPUT: tms},
-        geometry_type=geometry_type,  # type: ignore[arg-type]
+        source_imagery=next(url for name, url in tms_urls.items() if name != PRE_INPUT),
+        imagery_hrefs=tms_urls,
+        geometry_type=resolved_geometry,  # type: ignore[arg-type]
+        license_id=license_id,
+        label_description=label_description,
     )
 
     out.mkdir(parents=True, exist_ok=True)
-    draft = out / f"dataset-{item.id}.json"
+    draft = out / ("stac-item.json" if from_preview is not None else f"dataset-{item.id}.json")
     draft.write_text(_dump_item(item))
     typer.echo(f"wrote draft {draft}")
-    typer.echo(f"edit title/description/keywords/license, then: fair dataset register {draft}")
+    typer.echo(f"edit title/description/keywords, then: fair dataset register {draft}")
 
 
 @dataset_app.command("register")

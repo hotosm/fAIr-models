@@ -3,3 +3,4 @@
 !models/yolo_swag_waste_grid_segmentation/
 !models/conftest.py
 !models/test_integration.py
+models/yolo_swag_waste_grid_segmentation/sample/

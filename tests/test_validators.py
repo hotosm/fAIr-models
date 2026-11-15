@@ -129,6 +129,45 @@ def test_compatible_pair(tmp_path):
     assert validate_compatibility(_model(), _dataset(tmp_path)) == []
 
 
+@pytest.mark.parametrize(
+    ("accepted", "dataset_geometry", "compatible"),
+    [
+        (["point", "polygon"], "point", True),
+        (["point", "polygon"], "line", False),
+        (None, "point", False),
+    ],
+)
+def test_declared_label_geometry_types_decide_compatibility(tmp_path, accepted, dataset_geometry, compatible):
+    model = _model(keywords=["building", "polygon"])
+    if accepted:
+        model.properties["fair:label_geometry_types"] = accepted
+    dataset = _dataset(tmp_path, keywords=["building", "polygon"])
+    dataset.properties["fair:geometry_type"] = dataset_geometry
+
+    mismatch = any("Geometry type mismatch" in e for e in validate_compatibility(model, dataset))
+
+    assert mismatch is not compatible
+
+
+def test_dataset_without_geometry_field_falls_back_to_its_keywords(tmp_path):
+    model = _model(keywords=["building", "polygon"])
+    model.properties["fair:label_geometry_types"] = ["point", "polygon"]
+    dataset = _dataset(tmp_path, keywords=["building", "line"])
+    dataset.properties.pop("fair:geometry_type", None)
+
+    assert any("Geometry type mismatch" in e for e in validate_compatibility(model, dataset))
+
+
+def test_label_geometry_types_must_include_the_geometry_keyword():
+    model = _model(keywords=["building", "polygon"])
+    model.properties["fair:label_geometry_types"] = ["point"]
+
+    with patch.object(model, "validate", return_value=None):
+        errors = validate_item(model)
+
+    assert any("must include the geometry keyword" in e for e in errors)
+
+
 @pytest.mark.parametrize("name", ["RGB chips", "pre/event", "Pre"])
 def test_input_names_must_be_slugs(name):
     model = _model()

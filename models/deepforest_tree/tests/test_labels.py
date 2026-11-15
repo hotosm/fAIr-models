@@ -24,8 +24,16 @@ def test_a_tree_point_becomes_a_square_crown_of_its_diameter() -> None:
     assert _side_degrees(crown) == pytest.approx(10 / METRES_PER_DEGREE)
 
 
+@pytest.mark.parametrize(("diameter", "side_m"), [("2.131 m", 2.131), ("7.8m", 7.8), ("4 M", 4.0)])
+def test_a_diameter_written_in_metres_sets_the_crown(diameter: str, side_m: float) -> None:
+    crown = _point_crown(_point(0.0, 0.0, {"tags": {"natural": "tree", "diameter_crown": diameter}}))
+    assert _side_degrees(crown) == pytest.approx(side_m / METRES_PER_DEGREE)
+
+
 @pytest.mark.parametrize(
-    "diameter", [None, "3 m", "nan", "-3", "0"], ids=["missing", "free text", "nan", "negative", "zero"]
+    "diameter",
+    [None, "3 ft", "large", "nan", "-3", "0"],
+    ids=["missing", "other unit", "free text", "nan", "negative", "zero"],
 )
 def test_a_tree_point_without_a_usable_diameter_takes_the_default_crown(diameter: str | None) -> None:
     tags = {"natural": "tree"} if diameter is None else {"natural": "tree", "diameter_crown": diameter}

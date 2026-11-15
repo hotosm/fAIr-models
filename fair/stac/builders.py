@@ -273,7 +273,7 @@ def build_dataset_item(
     if not declares_own_labels and label_type == "vector" and label_classes:
         resolved_label_classes = _class_objects_for_stamped_labels(label_classes)
         if resolved_label_description is None:
-            resolved_label_description = f"{description}\n\n{_osm_class_mapping(label_classes)}"
+            resolved_label_description = "\n\n".join(filter(None, [description, _osm_class_mapping(label_classes)]))
 
     properties: dict[str, Any] = {
         "title": title,

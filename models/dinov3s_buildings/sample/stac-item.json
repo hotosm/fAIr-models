@@ -1,0 +1,113 @@
+{
+  "type": "Feature",
+  "stac_version": "1.1.0",
+  "stac_extensions": [
+    "https://stac-extensions.github.io/label/v1.0.1/schema.json",
+    "https://stac-extensions.github.io/file/v2.1.0/schema.json",
+    "https://stac-extensions.github.io/version/v1.2.0/schema.json",
+    "https://hotosm.github.io/fAIr-models/schemas/v1.0.0/dataset/schema.json"
+  ],
+  "id": "dinov3s-buildings-sample",
+  "geometry": {
+    "type": "MultiPolygon",
+    "coordinates": [
+      [
+        [
+          [
+            -13.24057846069336,
+            8.473058300924615
+          ],
+          [
+            -13.235099029541015,
+            8.473058300924615
+          ],
+          [
+            -13.235099029541015,
+            8.478477737316917
+          ],
+          [
+            -13.24057846069336,
+            8.478477737316917
+          ],
+          [
+            -13.24057846069336,
+            8.473058300924615
+          ]
+        ]
+      ]
+    ]
+  },
+  "bbox": [
+    -13.24057846069336,
+    8.473058300924615,
+    -13.235099029541015,
+    8.478477737316917
+  ],
+  "properties": {
+    "title": "dinov3s-buildings-sample",
+    "description": "Sample for the dinov3s_buildings pipeline: OSM buildings over OpenAerialMap imagery of Freetown, Sierra Leone.",
+    "label:type": "vector",
+    "label:tasks": [
+      "semantic-segmentation"
+    ],
+    "label:classes": [
+      {
+        "name": "label",
+        "classes": [
+          1
+        ]
+      }
+    ],
+    "label:properties": [
+      "label"
+    ],
+    "keywords": [
+      "building",
+      "semantic-segmentation",
+      "polygon"
+    ],
+    "fair:user_id": "anonymous",
+    "version": "1",
+    "deprecated": false,
+    "providers": [
+      {
+        "name": "anonymous",
+        "roles": [
+          "producer"
+        ]
+      }
+    ],
+    "fair:source_imagery": "https://tiles.openaerialmap.org/690585b76415e43597ffd7ea/0/690585b76415e43597ffd7eb/{z}/{x}/{y}",
+    "fair:geometry_type": "polygon",
+    "license": "ODbL-1.0",
+    "label:description": "Class values in `label` (0 = background): 1 = building=*.",
+    "created": "2026-11-14T20:59:52.663463+00:00",
+    "updated": "2026-11-14T20:59:52.663463+00:00",
+    "datetime": "2026-11-14T20:59:52.663463Z"
+  },
+  "links": [
+    {
+      "rel": "source",
+      "href": "https://tiles.openaerialmap.org/690585b76415e43597ffd7ea/0/690585b76415e43597ffd7eb/{z}/{x}/{y}",
+      "title": "Imagery for input image"
+    }
+  ],
+  "assets": {
+    "chips-image": {
+      "href": "chips-image",
+      "type": "image/tiff; application=geotiff",
+      "title": "Chips for input image",
+      "roles": [
+        "data"
+      ]
+    },
+    "labels": {
+      "href": "labels/labels.geojson",
+      "type": "application/geo+json",
+      "title": "Training labels",
+      "roles": [
+        "labels"
+      ]
+    }
+  }
+}

@@ -110,7 +110,12 @@
         },
         "classification:classes": [
           { "name": "background", "value": 0, "description": "Non-tree pixels" },
-          { "name": "tree", "value": 1, "description": "Tree crown pixels" }
+          {
+            "name": "tree",
+            "value": 1,
+            "description": "Tree crown pixels",
+            "fair:osm_tags": { "natural": ["tree"] }
+          }
         ],
         "post_processing_function": {
           "format": "python",

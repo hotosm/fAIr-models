@@ -49,7 +49,7 @@ def create_toy_data(root: Path) -> dict[str, Path]:
         features.append(
             {
                 "type": "Feature",
-                "properties": {"label": 1},
+                "properties": {"building": "yes", "label": 1},
                 "geometry": {
                     "type": "Polygon",
                     "coordinates": [
@@ -89,6 +89,7 @@ def _build_dataset_stac_item(chips_dir: Path, labels_dir: Path) -> dict[str, Any
             "description": "Toy DINOv3 buildings dataset",
             "label:type": "vector",
             "label:tasks": ["segmentation"],
+            "label:properties": ["building"],
             "label:classes": [{"name": "building", "classes": ["yes"]}],
             "label:description": "Segmentation labels",
             "keywords": ["building"],

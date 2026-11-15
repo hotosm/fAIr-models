@@ -1014,3 +1014,17 @@ class TestPredictionOnlyBaseModel:
     def test_only_the_onnx_url_is_required_without_a_training_runtime(self):
         assert required_model_asset_keys(_prediction_only_base_model()) == ("model",)
         assert required_model_asset_keys(_valid_base_model()) == ("checkpoint", "model")
+
+
+@pytest.mark.parametrize(
+    ("tags", "valid"),
+    [({"natural": ["tree"]}, True), ({"natural": "tree"}, False), ({"natural": []}, False), (["tree"], False)],
+)
+def test_osm_tags_map_each_key_to_a_list_of_values(tags, valid):
+    model = _model()
+    model.properties["mlm:output"] = [{"classification:classes": [{"name": "tree", "value": 1, "fair:osm_tags": tags}]}]
+
+    with patch.object(model, "validate", return_value=None):
+        errors = validate_item(model)
+
+    assert any("fair:osm_tags must map" in e for e in errors) is not valid

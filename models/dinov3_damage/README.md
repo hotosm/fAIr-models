@@ -14,7 +14,7 @@ Building damage grading from pre-event and post-event RGB imagery. A frozen DINO
 
 ## Training on fAIr
 
-A dataset for this model carries post-event chips as `chips-post`, pre-event chips of the same tiles as `chips-pre`, and polygon labels whose `label` is 1 to 4 in the order no damage, minor damage, major damage, destroyed. `split_dataset` groups chips into 2 x 2 tile blocks, keeps the blocks that intersect the labels, and assigns whole blocks to train or val, stratified by the damage classes each block holds. `train_model` builds one window per block whose labelled pixels are at least 90% imaged in both pre and post, masks labels that fall off the imagery, and stretches each window per channel. With `strict_head` on (the default), only the localization and damage heads train. The step returns the base checkpoint unless the val damage macro F1, over the classes the labels contain, improves.
+A dataset for this model carries post-event chips as `chips-post`, pre-event chips of the same tiles as `chips-pre`, and polygon labels whose `class` property holds the damage grade: `no-damage`, `minor-damage`, `major-damage` or `destroyed`, the model's class names. `split_dataset` groups chips into 2 x 2 tile blocks, keeps the blocks that intersect the labels, and assigns whole blocks to train or val, stratified by the damage classes each block holds. `train_model` builds one window per block whose labelled pixels are at least 90% imaged in both pre and post, masks labels that fall off the imagery, and stretches each window per channel. With `strict_head` on (the default), only the localization and damage heads train. The step returns the base checkpoint unless the val damage macro F1, over the classes the labels contain, improves.
 
 ## Prediction
 

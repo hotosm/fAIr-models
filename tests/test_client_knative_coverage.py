@@ -460,6 +460,7 @@ def test_finetune_promote_and_predict_workflows(monkeypatch, tmp_path) -> None:
         ),
     )
     monkeypatch.setattr(client_module, "Client", lambda: zenml_client)
+    monkeypatch.setattr(client, "_adapt_labels", lambda *args: str(tmp_path / "labels"))
 
     training_run = SimpleNamespace(id="train-run", status="completed")
     prediction_run = SimpleNamespace(
@@ -989,7 +990,15 @@ def _imagery_links(item: pystac.Item) -> dict[str | None, str | None]:
 
 
 def test_register_dataset_from_item_keeps_the_chips_and_imagery_of_each_input(monkeypatch, tmp_path) -> None:
-    source_item = _build_item("dataset-source", {"title": "Damage", "label:type": "vector", "keywords": ["demo"]})
+    source_item = _build_item(
+        "dataset-source",
+        {
+            "title": "Damage",
+            "label:type": "vector",
+            "label:classes": [{"name": "damage", "classes": ["destroyed"]}],
+            "keywords": ["demo"],
+        },
+    )
     source_item.add_asset("labels", pystac.Asset(href=str(tmp_path / "labels.geojson")))
     for name in ("post", "pre"):
         source_item.add_asset(f"chips-{name}", pystac.Asset(href=str(tmp_path / f"chips-{name}")))

@@ -13,77 +13,45 @@
     "coordinates": [
       [
         [
-          [
-            -0.22520599365234376,
-            5.542193130560389
-          ],
-          [
-            -0.21424713134765624,
-            5.542193130560389
-          ],
-          [
-            -0.21424713134765624,
-            5.553100534528928
-          ],
-          [
-            -0.22520599365234376,
-            5.553100534528928
-          ],
-          [
-            -0.22520599365234376,
-            5.542193130560389
-          ]
+          [-0.22520599365234376, 5.543560000366383],
+          [-0.21699371337890624, 5.543560000366383],
+          [-0.21699371337890624, 5.551733686893103],
+          [-0.22520599365234376, 5.551733686893103],
+          [-0.22520599365234376, 5.543560000366383]
         ]
       ]
     ]
   },
-  "bbox": [
-    -0.22520599365234376,
-    5.542193130560389,
-    -0.21424713134765624,
-    5.553100534528928
-  ],
+  "bbox": [-0.22520599365234376, 5.543560000366383, -0.21699371337890624, 5.551733686893103],
   "properties": {
     "title": "yolo_swag_waste_grid_segmentation-sample",
     "description": "Solid Waste Assessment on Grids (SWAG) waste cells over OpenAerialMap imagery of Old Fadama, Accra, Ghana.",
     "label:type": "vector",
-    "label:tasks": [
-      "semantic-segmentation"
-    ],
+    "label:tasks": ["semantic-segmentation"],
     "label:classes": [
       {
-        "name": "label",
-        "classes": [
-          1
-        ]
+        "name": "class",
+        "classes": ["background", "waste"]
       }
     ],
-    "label:properties": [
-      "label"
-    ],
-    "keywords": [
-      "waste",
-      "semantic-segmentation",
-      "polygon"
-    ],
+    "label:properties": ["class"],
+    "keywords": ["solid-waste", "semantic-segmentation", "polygon"],
     "fair:user_id": "anonymous",
     "version": "1",
     "deprecated": false,
     "providers": [
       {
         "name": "anonymous",
-        "roles": [
-          "producer"
-        ]
+        "roles": ["producer"]
       }
     ],
     "fair:source_imagery": "https://api.imagery.hotosm.org/raster/collections/openaerialmap/items/66e40ff3cd0baa0001b6212f/tiles/WebMercatorQuad/{z}/{x}/{y}?assets=visual",
     "fair:geometry_type": "polygon",
     "license": "MIT",
-    "label:description": "5 m waste cells of OpenAerialMap scene 66e40ff3cd0baa0001b6212f, from https://github.com/GIScience/solid-waste-detection-for-fAIr/blob/9f62fd1/data/labels/66e40ff3cd0baa0001b6212f_tiles.gpkg; label 1 is waste, label 0 is reviewed background.",
-    "created": "2026-11-14T22:20:08.989508+00:00",
-    "updated": "2026-11-14T22:20:08.989508+00:00",
-    "datetime": "2026-11-14T22:20:08.989508Z"
+    "label:description": "5 m cells of OpenAerialMap scene 66e40ff3cd0baa0001b6212f, from https://github.com/GIScience/solid-waste-detection-for-fAIr/blob/9f62fd1/data/labels/66e40ff3cd0baa0001b6212f_tiles.gpkg; `class` is waste or reviewed background.",
+    "created": "2026-11-15T09:56:57.321041+00:00",
+    "updated": "2026-11-15T09:56:57.321041+00:00",
+    "datetime": "2026-11-15T09:56:57.321041Z"
   },
   "links": [
     {
@@ -97,17 +65,13 @@
       "href": "chips-image",
       "type": "image/tiff; application=geotiff",
       "title": "Chips for input image",
-      "roles": [
-        "data"
-      ]
+      "roles": ["data"]
     },
     "labels": {
       "href": "labels/labels.geojson",
       "type": "application/geo+json",
       "title": "Training labels",
-      "roles": [
-        "labels"
-      ]
+      "roles": ["labels"]
     }
   }
 }

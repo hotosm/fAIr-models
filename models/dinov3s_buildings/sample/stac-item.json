@@ -13,77 +13,45 @@
     "coordinates": [
       [
         [
-          [
-            -13.24057846069336,
-            8.473058300924615
-          ],
-          [
-            -13.235099029541015,
-            8.473058300924615
-          ],
-          [
-            -13.235099029541015,
-            8.478477737316917
-          ],
-          [
-            -13.24057846069336,
-            8.478477737316917
-          ],
-          [
-            -13.24057846069336,
-            8.473058300924615
-          ]
+          [-13.239891815185548, 8.473737451285777],
+          [-13.235785675048827, 8.473737451285777],
+          [-13.235785675048827, 8.477798595353113],
+          [-13.239891815185548, 8.477798595353113],
+          [-13.239891815185548, 8.473737451285777]
         ]
       ]
     ]
   },
-  "bbox": [
-    -13.24057846069336,
-    8.473058300924615,
-    -13.235099029541015,
-    8.478477737316917
-  ],
+  "bbox": [-13.239891815185548, 8.473737451285777, -13.235785675048827, 8.477798595353113],
   "properties": {
     "title": "dinov3s-buildings-sample",
     "description": "Sample for the dinov3s_buildings pipeline: OSM buildings over OpenAerialMap imagery of Freetown, Sierra Leone.",
     "label:type": "vector",
-    "label:tasks": [
-      "semantic-segmentation"
-    ],
+    "label:tasks": ["semantic-segmentation"],
     "label:classes": [
       {
-        "name": "label",
-        "classes": [
-          1
-        ]
+        "name": "building",
+        "classes": ["construction", "yes"]
       }
     ],
-    "label:properties": [
-      "label"
-    ],
-    "keywords": [
-      "building",
-      "semantic-segmentation",
-      "polygon"
-    ],
+    "label:properties": ["building"],
+    "keywords": ["building", "semantic-segmentation", "polygon"],
     "fair:user_id": "anonymous",
     "version": "1",
     "deprecated": false,
     "providers": [
       {
         "name": "anonymous",
-        "roles": [
-          "producer"
-        ]
+        "roles": ["producer"]
       }
     ],
     "fair:source_imagery": "https://tiles.openaerialmap.org/690585b76415e43597ffd7ea/0/690585b76415e43597ffd7eb/{z}/{x}/{y}",
     "fair:geometry_type": "polygon",
     "license": "ODbL-1.0",
-    "label:description": "Class values in `label` (0 = background): 1 = building=*.",
-    "created": "2026-11-14T20:59:52.663463+00:00",
-    "updated": "2026-11-14T20:59:52.663463+00:00",
-    "datetime": "2026-11-14T20:59:52.663463Z"
+    "label:description": "OSM buildings with their tags.",
+    "created": "2026-11-15T09:37:29.266595+00:00",
+    "updated": "2026-11-15T09:37:29.266595+00:00",
+    "datetime": "2026-11-15T09:37:29.266595Z"
   },
   "links": [
     {
@@ -97,17 +65,13 @@
       "href": "chips-image",
       "type": "image/tiff; application=geotiff",
       "title": "Chips for input image",
-      "roles": [
-        "data"
-      ]
+      "roles": ["data"]
     },
     "labels": {
       "href": "labels/labels.geojson",
       "type": "application/geo+json",
       "title": "Training labels",
-      "roles": [
-        "labels"
-      ]
+      "roles": ["labels"]
     }
   }
 }

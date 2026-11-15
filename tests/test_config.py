@@ -152,7 +152,7 @@ def _local_model(**kw: Any):
 
 
 def test_training_config(tmp_path):
-    cfg = generate_training_config(_base_model(), _dataset(tmp_path), model_name="finetuned")
+    cfg = generate_training_config(_base_model(), _dataset(tmp_path), model_name="finetuned", labels_href="labels/")
     p = cfg["parameters"]
     hp = p["hyperparameters"]
     assert cfg["model"]["name"] == "finetuned"
@@ -169,21 +169,25 @@ def test_training_config(tmp_path):
 
 def test_training_config_passes_the_chips_of_each_model_input_by_name(tmp_path):
     dataset = _dataset(tmp_path, chips_hrefs={"post": "data/post/", "pre": "data/pre/"})
-    cfg = generate_training_config(_with_inputs(_base_model(), "post", "pre"), dataset, model_name="damage")
+    cfg = generate_training_config(
+        _with_inputs(_base_model(), "post", "pre"), dataset, model_name="damage", labels_href="labels/"
+    )
     assert cfg["parameters"]["dataset_chips"] == {"post": "data/post/", "pre": "data/pre/"}
 
 
 def test_training_config_reads_a_legacy_chips_asset_for_a_single_input_model(tmp_path):
     dataset = _dataset(tmp_path)
     dataset.add_asset("chips", dataset.assets.pop("chips-image"))
-    cfg = generate_training_config(_base_model(), dataset, model_name="buildings")
+    cfg = generate_training_config(_base_model(), dataset, model_name="buildings", labels_href="labels/")
     assert cfg["parameters"]["dataset_chips"] == {"image": "data/oam/"}
 
 
 def test_training_config_raises_when_the_dataset_lacks_chips_for_a_model_input(tmp_path):
     dataset = _dataset(tmp_path, chips_hrefs={"post": "data/post/"})
     with pytest.raises(KeyError, match="pre"):
-        generate_training_config(_with_inputs(_base_model(), "post", "pre"), dataset, model_name="damage")
+        generate_training_config(
+            _with_inputs(_base_model(), "post", "pre"), dataset, model_name="damage", labels_href="labels/"
+        )
 
 
 def test_training_overrides(tmp_path):
@@ -191,6 +195,7 @@ def test_training_overrides(tmp_path):
         _base_model(),
         _dataset(tmp_path),
         model_name="t",
+        labels_href="labels/",
         overrides={"epochs": 1},
     )
     hp = cfg["parameters"]["hyperparameters"]
@@ -409,7 +414,7 @@ def test_workload_selectors_use_label_domain():
 def test_training_config_includes_k8s_settings(tmp_path):
     item = _item_with_accelerator("cuda", 1)
     ds = _dataset(tmp_path)
-    cfg = generate_training_config(item, ds, model_name="gpu-test")
+    cfg = generate_training_config(item, ds, model_name="gpu-test", labels_href="labels/")
     assert "orchestrator.kubernetes" in cfg["steps"]["train_model"]["settings"]
     assert "orchestrator.kubernetes" in cfg["steps"]["evaluate_model"]["settings"]
     assert "orchestrator.kubernetes" not in cfg.get("settings", {})
@@ -426,11 +431,11 @@ def test_inference_config_includes_k8s_settings():
 def test_a_lone_chips_asset_feeds_only_an_image_input(tmp_path):
     dataset = _dataset(tmp_path)
     dataset.assets["chips"] = dataset.assets.pop("chips-image")
-    assert generate_training_config(_base_model(), dataset, model_name="m")["parameters"]["dataset_chips"] == {
-        "image": "data/oam/"
-    }
+    assert generate_training_config(_base_model(), dataset, model_name="m", labels_href="labels/")["parameters"][
+        "dataset_chips"
+    ] == {"image": "data/oam/"}
     with pytest.raises(KeyError, match="rgb"):
-        generate_training_config(_with_inputs(_base_model(), "rgb"), dataset, model_name="m")
+        generate_training_config(_with_inputs(_base_model(), "rgb"), dataset, model_name="m", labels_href="labels/")
 
 
 def test_inference_config_rejects_a_model_whose_input_names_are_not_slugs():

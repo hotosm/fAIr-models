@@ -13,77 +13,45 @@
     "coordinates": [
       [
         [
-          [
-            -13.238865280151368,
-            8.474073592789066
-          ],
-          [
-            -13.236125564575195,
-            8.474073592789066
-          ],
-          [
-            -13.236125564575195,
-            8.476783313385162
-          ],
-          [
-            -13.238865280151368,
-            8.476783313385162
-          ],
-          [
-            -13.238865280151368,
-            8.474073592789066
-          ]
+          [-13.238521957397461, 8.474413167220053],
+          [-13.236468887329101, 8.474413167220053],
+          [-13.236468887329101, 8.476443741053437],
+          [-13.238521957397461, 8.476443741053437],
+          [-13.238521957397461, 8.474413167220053]
         ]
       ]
     ]
   },
-  "bbox": [
-    -13.238865280151368,
-    8.474073592789066,
-    -13.236125564575195,
-    8.476783313385162
-  ],
+  "bbox": [-13.238521957397461, 8.474413167220053, -13.236468887329101, 8.476443741053437],
   "properties": {
     "title": "deepforest-tree-sample",
     "description": "Sample for the deepforest_tree pipeline: OSM tree points over OpenAerialMap imagery of Freetown, Sierra Leone.",
     "label:type": "vector",
-    "label:tasks": [
-      "object-detection"
-    ],
+    "label:tasks": ["object-detection"],
     "label:classes": [
       {
-        "name": "label",
-        "classes": [
-          1
-        ]
+        "name": "natural",
+        "classes": ["tree"]
       }
     ],
-    "label:properties": [
-      "label"
-    ],
-    "keywords": [
-      "tree",
-      "object-detection",
-      "point"
-    ],
+    "label:properties": ["natural"],
+    "keywords": ["tree", "object-detection", "point"],
     "fair:user_id": "anonymous",
     "version": "1",
     "deprecated": false,
     "providers": [
       {
         "name": "anonymous",
-        "roles": [
-          "producer"
-        ]
+        "roles": ["producer"]
       }
     ],
     "fair:source_imagery": "https://tiles.openaerialmap.org/690585b76415e43597ffd7ea/0/690585b76415e43597ffd7eb/{z}/{x}/{y}",
     "fair:geometry_type": "point",
     "license": "ODbL-1.0",
-    "label:description": "Class values in `label` (0 = background): 1 = natural=tree.",
-    "created": "2026-11-14T21:37:32.436997+00:00",
-    "updated": "2026-11-14T21:37:32.436997+00:00",
-    "datetime": "2026-11-14T21:37:32.436997Z"
+    "label:description": "OSM `natural=tree` points with their tags; `diameter_crown` sets the crown box size.",
+    "created": "2026-11-15T09:37:39.778667+00:00",
+    "updated": "2026-11-15T09:37:39.778667+00:00",
+    "datetime": "2026-11-15T09:37:39.778667Z"
   },
   "links": [
     {
@@ -97,17 +65,13 @@
       "href": "chips-image",
       "type": "image/tiff; application=geotiff",
       "title": "Chips for input image",
-      "roles": [
-        "data"
-      ]
+      "roles": ["data"]
     },
     "labels": {
       "href": "labels/labels.geojson",
       "type": "application/geo+json",
       "title": "Training labels",
-      "roles": [
-        "labels"
-      ]
+      "roles": ["labels"]
     }
   }
 }

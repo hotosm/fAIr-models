@@ -118,7 +118,14 @@
           "dim_order": ["detections", "coordinate"],
           "data_type": "float32"
         },
-        "classification:classes": [{ "name": "tree", "value": 1, "description": "Tree crown" }],
+        "classification:classes": [
+          {
+            "name": "tree",
+            "value": 1,
+            "description": "Tree crown",
+            "fair:osm_tags": { "natural": ["tree"] }
+          }
+        ],
         "post_processing_function": {
           "format": "python",
           "expression": "models.deepforest_tree.pipeline:postprocess"

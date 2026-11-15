@@ -267,7 +267,7 @@ def load_labels(labels_path: Path, target_crs) -> Any:
     labels = labels.to_crs(target_crs)
 
     if "label" not in labels.columns:
-        labels["label"] = 1
+        raise ValueError(f"labels in {labels_path} have no `label` column; fine-tune through FairClient to set it")
     return labels.reset_index(drop=True)
 
 

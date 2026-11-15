@@ -4,24 +4,27 @@ Mirrors the backend's server-side build (download imagery chips + OSM labels for
 an AOI) so an operator can produce a draft dataset STAC item from a TMS URL and a
 GeoJSON AOI, edit it, and register it. The download itself uses geomltoolkits,
 which lives in the `serve` optional extra.
+
+Labels keep their source form (OSM `tags`, or the contributor's class property);
+a model's class values are applied at training time by `fair.stac.label_classes`.
 """
 
 import asyncio
 import json
 import logging
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from fair.stac.builders import _bbox_from_coords, _flatten_coords
-from fair.stac.constants import LABEL_CLASS_PROPERTY
+from fair.stac.label_classes import model_classes
 from fair.stac.validators import GEOMETRY_GEOJSON_TYPES, accepted_label_geometries
 
 logger = logging.getLogger(__name__)
 
 PRE_INPUT = "pre"
-BACKGROUND_LABEL = 0
-SLIM_PROPERTIES = {LABEL_CLASS_PROPERTY, "tags"}
+DEFAULT_CLASS_PROPERTY = "class"
 
 
 def _require_geomltoolkits() -> tuple[Any, Any]:
@@ -61,46 +64,50 @@ def _aoi_geometry_and_bbox(aoi: dict[str, Any]) -> tuple[dict[str, Any], list[fl
     return {"type": "MultiPolygon", "coordinates": polygons}, _bbox_from_coords(coords)
 
 
-def _osm_filters(label_classes: list[dict[str, Any]], geometry_type: str) -> dict[str, Any]:
-    """Translate STAC `label:classes` into a raw-data API `filters` block.
-
-    Classes that share a tag key (one class per `roof:material` value, say) are merged under that key, and `["*"]`
-    on any of them asks for every value of the key, which the API spells as an empty list.
-    """
-    join_or: dict[str, list[str]] = {}
-    any_value: set[str] = set()
-    for cls in label_classes:
-        values = join_or.setdefault(cls["name"], [])
-        if cls["classes"] == ["*"]:
-            any_value.add(cls["name"])
-        else:
-            values.extend(value for value in cls["classes"] if value not in values)
-    for key in any_value:
-        join_or[key] = []
+def osm_filters(osm_tags: Mapping[str, list[str]], geometry_type: str) -> dict[str, Any]:
+    """raw-data API `filters` for `osm_tags`; `["*"]` asks for every value, which the API spells as an empty list."""
+    join_or = {key: [] if "*" in values else list(values) for key, values in osm_tags.items()}
     return {"tags": {geometry_type: {"join_or": join_or}}}
 
 
-def _stamp_class_label(feature: dict[str, Any], label_classes: list[dict[str, Any]]) -> int | None:
-    tags = (feature.get("properties") or {}).get("tags") or {}
-    for index, cls in enumerate(label_classes, start=1):
-        key = cls["name"]
-        values = cls["classes"]
-        if key in tags and (values == ["*"] or tags[key] in values):
-            value = cls.get("value", index)
-            feature.setdefault("properties", {})[LABEL_CLASS_PROPERTY] = value
-            return value
-    return None
+def model_osm_tags(model_properties: Mapping[str, Any]) -> dict[str, list[str]]:
+    """OSM tags of every model class that declares `fair:osm_tags`, merged by key."""
+    merged: dict[str, list[str]] = {}
+    for cls in model_classes(model_properties):
+        for key, values in cls.osm_tags.items():
+            if "*" in values or merged.get(key) == ["*"]:
+                merged[key] = ["*"]
+            else:
+                merged[key] = sorted({*merged.get(key, []), *values})
+    return merged
+
+
+def osm_label_features(osm_features: list[dict[str, Any]], osm_tags: Mapping[str, list[str]]) -> list[dict[str, Any]]:
+    """Label features from raw-data API features: the tag keys that match `osm_tags`, beside the full `tags`."""
+    features = []
+    for feature in osm_features:
+        tags = (feature.get("properties") or {}).get("tags") or {}
+        matched = {
+            key: tags[key] for key, values in osm_tags.items() if key in tags and ("*" in values or tags[key] in values)
+        }
+        if matched:
+            features.append(
+                {"type": "Feature", "properties": {**matched, "tags": tags}, "geometry": feature["geometry"]}
+            )
+    return features
 
 
 @dataclass(frozen=True)
 class PreviewSample:
-    """Build parameters for a model's sample dataset, read from its `fair:preview`."""
+    """Build parameters for a model's sample dataset, read from its `fair:preview` and classes."""
 
     tms_urls: dict[str, str]
     zoom: int
     aoi: dict[str, Any]
     tasks: list[str]
     geometry_types: list[str]
+    osm_tags: dict[str, list[str]]
+    keywords: list[str]
 
 
 def preview_sample(model_item: dict[str, Any], tiles: int) -> PreviewSample:
@@ -137,17 +144,25 @@ def preview_sample(model_item: dict[str, Any], tiles: int) -> PreviewSample:
     geometry_types = accepted_label_geometries(properties)
     if not geometry_types:
         raise ValueError(f"model declares none of the label geometry types {sorted(GEOMETRY_GEOJSON_TYPES)}")
-    return PreviewSample(tms_urls, zoom, aoi, list(properties["mlm:tasks"]), geometry_types)
+    keywords = [keyword for keyword in properties.get("keywords", []) if keyword not in GEOMETRY_GEOJSON_TYPES]
+    return PreviewSample(
+        tms_urls=tms_urls,
+        zoom=zoom,
+        aoi=aoi,
+        tasks=list(properties["mlm:tasks"]),
+        geometry_types=geometry_types,
+        osm_tags=model_osm_tags(properties),
+        keywords=keywords,
+    )
 
 
 def select_labels(
-    labels: dict[str, Any], aoi_geometry: dict[str, Any], geometry_type: str, label_classes: list[dict[str, Any]]
+    labels: dict[str, Any], aoi_geometry: dict[str, Any], geometry_type: str, class_property: str
 ) -> list[dict[str, Any]]:
-    """Features of `labels` inside the AOI; raise when a geometry type or class value does not match."""
+    """Features of `labels` inside the AOI, keeping only `class_property`; raise on a wrong geometry or no class."""
     from shapely.geometry import shape
 
     area = shape(aoi_geometry)
-    allowed_values = {BACKGROUND_LABEL} | {cls.get("value", index) for index, cls in enumerate(label_classes, start=1)}
     selected: list[dict[str, Any]] = []
     problems: list[str] = []
     for position, feature in enumerate(labels.get("features", [])):
@@ -156,15 +171,26 @@ def select_labels(
             continue
         if geometry["type"] not in GEOMETRY_GEOJSON_TYPES[geometry_type]:
             problems.append(f"feature {position}: {geometry['type']} is not a {geometry_type}")
-        value = (feature.get("properties") or {}).get(LABEL_CLASS_PROPERTY)
-        if value not in allowed_values:
-            problems.append(f"feature {position}: {LABEL_CLASS_PROPERTY}={value!r} not in {sorted(allowed_values)}")
-        selected.append(feature)
+        value = (feature.get("properties") or {}).get(class_property)
+        if value is None:
+            problems.append(f"feature {position}: no {class_property!r} property")
+        selected.append({"type": "Feature", "properties": {class_property: value}, "geometry": geometry})
     if problems:
         raise ValueError("labels do not match the dataset:\n" + "\n".join(problems[:20]))
     if not selected:
         raise ValueError("no label inside the dataset area")
     return selected
+
+
+def label_classes_of(features: list[dict[str, Any]], names: list[str]) -> list[dict[str, Any]]:
+    """STAC Label extension `label:classes`: the values each property in `names` takes across the features."""
+    values: dict[str, set[str]] = {name: set() for name in names}
+    for feature in features:
+        properties = feature.get("properties") or {}
+        for name in names:
+            if name in properties:
+                values[name].add(str(properties[name]))
+    return [{"name": name, "classes": sorted(found)} for name, found in values.items() if found]
 
 
 def feature_collection_lines(features: list[dict[str, Any]]) -> str:
@@ -185,19 +211,29 @@ def _download_chips(tms_mod: Any, tms_url: str, zoom: int, aoi: str, target: Pat
     downloaded.rmdir()
 
 
+@dataclass(frozen=True)
+class MaterializedDataset:
+    chips_dirs: dict[str, str]
+    labels_file: str
+    geometry: dict[str, Any]
+    bbox: list[float]
+    label_properties: list[str]
+    label_classes: list[dict[str, Any]]
+
+
 def materialize_dataset(
     *,
     tms_urls: dict[str, str],
     aoi: dict[str, Any],
     zoom: int,
     out_dir: str,
-    label_classes: list[dict[str, Any]],
     geometry_type: str,
-    osm_api_url: str | None,
+    osm_tags: Mapping[str, list[str]] | None = None,
+    osm_api_url: str | None = None,
     labels: dict[str, Any] | None = None,
-    slim_labels: bool = False,
-) -> tuple[dict[str, str], str, dict[str, Any], list[float]]:
-    """Download chips per input and labels (own `labels`, else OSM) for `aoi`; return chips, labels, geometry, bbox."""
+    class_property: str = DEFAULT_CLASS_PROPERTY,
+) -> MaterializedDataset:
+    """Download chips per input and labels (own `labels`, else OSM features matching `osm_tags`) for `aoi`."""
     tms_mod, osm_mod = _require_geomltoolkits()
 
     out = Path(out_dir)
@@ -215,30 +251,33 @@ def materialize_dataset(
         chips_dirs[input_name] = str(target)
 
     if labels is not None:
-        features = select_labels(labels, geometry, geometry_type, label_classes)
+        features = select_labels(labels, geometry, geometry_type, class_property)
+        names = [class_property]
     else:
-        if osm_api_url is None:
-            raise ValueError("OSM labels need the raw-data API URL")
+        if not osm_tags or osm_api_url is None:
+            raise ValueError("OSM labels need osm_tags and the raw-data API URL")
         osm = asyncio.run(
             osm_mod.download_osm_data(
                 geojson=aoi_str,
                 api_url=osm_api_url,
-                filters=_osm_filters(label_classes, geometry_type),
+                filters=osm_filters(osm_tags, geometry_type),
                 geometry_types=[geometry_type],
             )
         )
-        features = [feat for feat in osm.get("features", []) if _stamp_class_label(feat, label_classes) is not None]
+        features = osm_label_features(osm.get("features", []), osm_tags)
+        names = list(osm_tags)
+    if not features:
+        raise ValueError("no label inside the dataset area")
+    label_classes = label_classes_of(features, names)
     labels_file = labels_dir / "labels.geojson"
-    if slim_labels:
-        features = [
-            {
-                "type": "Feature",
-                "properties": {key: value for key, value in feature["properties"].items() if key in SLIM_PROPERTIES},
-                "geometry": feature["geometry"],
-            }
-            for feature in features
-        ]
     labels_file.write_text(feature_collection_lines(features))
 
     logger.info("Materialized %d labels -> %s, chips -> %s", len(features), labels_file, chips_dirs)
-    return chips_dirs, str(labels_file), geometry, bbox
+    return MaterializedDataset(
+        chips_dirs=chips_dirs,
+        labels_file=str(labels_file),
+        geometry=geometry,
+        bbox=bbox,
+        label_properties=[cls["name"] for cls in label_classes],
+        label_classes=label_classes,
+    )

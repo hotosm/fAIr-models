@@ -18,8 +18,8 @@ import pystac
 import pytest
 
 from fair.utils.data import (
-    _is_remote,
     create_dataset_archive,
+    is_remote,
     list_files,
     resolve_directory,
     resolve_path,
@@ -32,16 +32,16 @@ _NOW = datetime(2024, 1, 1, tzinfo=UTC)
 
 class TestIsRemote:
     def test_s3(self) -> None:
-        assert _is_remote("s3://bucket/key") is True
+        assert is_remote("s3://bucket/key") is True
 
     def test_https(self) -> None:
-        assert _is_remote("https://example.com/file") is True
+        assert is_remote("https://example.com/file") is True
 
     def test_local(self) -> None:
-        assert _is_remote("/data/sample/train") is False
+        assert is_remote("/data/sample/train") is False
 
     def test_relative(self) -> None:
-        assert _is_remote("data/file.tif") is False
+        assert is_remote("data/file.tif") is False
 
 
 class TestListFiles:

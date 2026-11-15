@@ -147,8 +147,11 @@ def generate_training_config(
     dataset_item: pystac.Item,
     model_name: str,
     overrides: dict[str, Any] | None = None,
+    *,
+    labels_href: str,
     experiment_tracker: str | None = None,
 ) -> dict[str, Any]:
+    """ZenML training config; `labels_href` points at labels already adapted to the model's class values."""
     # ZenML config schema: https://docs.zenml.io/concepts/steps_and_pipelines/yaml_configuration
     props = base_model_item.properties
 
@@ -161,11 +164,6 @@ def generate_training_config(
     if missing := [name for name in input_names(base_model_item) if name not in chips_assets]:
         msg = f"Dataset item '{dataset_item.id}' has no chips for model input(s): {', '.join(missing)}"
         raise KeyError(msg)
-    labels_asset = ds_props.get("labels")
-    if labels_asset is None:
-        msg = f"Dataset item '{dataset_item.id}' missing 'labels' asset"
-        raise KeyError(msg)
-    labels_href = http_url_to_s3_uri(labels_asset.href)
 
     checkpoint_asset = base_model_item.assets.get("checkpoint")
     if checkpoint_asset is None:
@@ -186,7 +184,7 @@ def generate_training_config(
     parameters: dict[str, Any] = {
         "base_model_weights": http_url_to_s3_uri(checkpoint_asset.href),
         "dataset_chips": {name: http_url_to_s3_uri(ds_props[key].href) for name, key in chips_assets.items()},
-        "dataset_labels": labels_href,
+        "dataset_labels": http_url_to_s3_uri(labels_href),
         "hyperparameters": hyperparams,
     }
     if num_classes is not None:

@@ -111,12 +111,12 @@
           {
             "name": "background",
             "value": 0,
-            "description": "Grid cell selected from label=0 features, or randomly sampled from cells with zero waste overlap when no label=0 features are provided"
+            "description": "Grid cell selected from background-class features, or randomly sampled from cells with zero waste overlap when the labels don't include background-class features"
           },
           {
             "name": "waste",
             "value": 1,
-            "description": "Grid cell is covered by label=1 features above waste_overlap_threshold"
+            "description": "Grid cell is covered by waste-class features above waste_overlap_threshold"
           }
         ],
         "post_processing_function": {
@@ -185,7 +185,7 @@
       "strategy": "grid_5m_stratified_grouped",
       "default_ratio": 0.1,
       "seed": 42,
-      "description": "Mosaic chips and build a 5 m x 5 m grid. Cells from each label=1 waste polygon and each label=0 background polygon remain in one split."
+      "description": "Mosaic chips and build a 5 m x 5 m grid. Cells from each waste polygon and each background polygon remain in one split."
     },
     "fair:hyperparameters_spec": [
       {
@@ -279,7 +279,7 @@
         "default": 0.8,
         "min": 0.0,
         "max": 1.0,
-        "description": "Minimum fractional area of a grid cell covered by label=1 features for the cell to be labeled 'waste'"
+        "description": "Minimum fractional area of a grid cell covered by waste-class features for the cell to be labeled 'waste'"
       },
       {
         "key": "cell_size_m",

@@ -66,3 +66,13 @@ def test_oversized_sample_fails(model_dir: Path) -> None:
     (model_dir / "sample" / "padding.bin").write_bytes(b"0" * (validate_stac_items.SAMPLE_MAX_BYTES + 1))
 
     assert any("over the" in error for error in _errors(model_dir))
+
+
+def test_sample_classes_outside_the_model_fail(model_dir: Path) -> None:
+    item_path = model_dir / "sample" / "stac-item.json"
+    item = json.loads(item_path.read_text())
+    item["properties"]["label:properties"] = ["highway"]
+    item["properties"]["label:classes"] = [{"name": "highway", "classes": ["primary"]}]
+    item_path.write_text(json.dumps(item))
+
+    assert any("do not fit the model classes" in error and "highway=primary" in error for error in _errors(model_dir))

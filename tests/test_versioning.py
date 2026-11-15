@@ -29,7 +29,7 @@ def _make_dataset(item_id: str, version: str = "1", deprecated: bool = False) ->
         item_id=item_id,
         label_type="vector",
         label_tasks=["segmentation"],
-        label_classes=[],
+        label_classes=[{"name": "building", "classes": ["yes"]}],
         keywords=["building"],
         chips_hrefs={"image": "chips/"},
         labels_href="labels.geojson",

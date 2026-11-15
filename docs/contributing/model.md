@@ -140,10 +140,10 @@ fair dataset build \
   --out models/your_model/sample
 ```
 
-Labels come from OSM. To use your own, add `--labels labels.geojson
---labels-license <SPDX>`; each feature needs an integer `label`, 1 for the
-first class in `--classes`. `fair dataset build --help` lists the other
-options.
+Labels come from OSM, filtered by your classes'
+[`fair:osm_tags`](#fairosm_tags). To use your own, add `--labels labels.geojson
+--labels-license <SPDX>`; each feature names its class in a `class` property,
+such as `"class": "waste"`.
 
 Commit the folder with the model. `just validate` checks it and keeps it under
 5 MiB.
@@ -891,7 +891,7 @@ The split strategy depends on the task type:
         "strategy": "grid_5m_stratified_grouped",
         "default_ratio": 0.1,
         "seed": 42,
-        "description": "Mosaic chips and build a 5 m x 5 m grid. Cells from each label=1 waste polygon and each label=0 background polygon remain in one split."
+        "description": "Mosaic chips and build a 5 m x 5 m grid. Cells from each waste polygon and each background polygon remain in one split."
     }
     ```
 
@@ -957,6 +957,32 @@ field for the label geometry a model accepts.
 "keywords": ["tree", "object-detection", "polygon"],
 "fair:label_geometry_types": ["point", "polygon"]
 ```
+
+### fair:osm_tags
+
+Datasets keep their source labels: OSM tags, or a `class` property in your own
+labels. When a fine-tune starts, fAIr sets `label` on each label to the `value`
+of its matching class, taken from the first `mlm:output` with
+`classification:classes`. Your pipeline reads `label` from `dataset_labels`.
+
+A label matches a class through the class's `fair:osm_tags`, or when a label
+property's value equals the class `name`. `["*"]` accepts any value of the
+tag.
+
+```json title="fair:osm_tags (dinov3s_buildings)"
+"classification:classes": [
+  { "name": "background", "value": 0 },
+  { "name": "building", "value": 1, "fair:osm_tags": { "building": ["*"] } }
+]
+```
+
+When a dataset class matches nothing, the fine-tune stops and lists the classes
+on both sides. Map them with `class_map`: each key is a dataset class as
+`property=value`, from the dataset's `label:classes`, and each value is a model
+class `name`. For example
+`fair model train ... --class-map '{"roof=iron": "metal_sheet"}'`. The
+[Classification extension](https://github.com/stac-extensions/classification#class-object)
+doesn't define a field that links a class to OSM tags.
 
 ### Hyperparameters
 
@@ -1290,6 +1316,7 @@ Before opening a PR, make sure:
 
     - [ ] `stac-item.json` declares `fair:metrics_spec`, `fair:split_spec`, and `fair:hyperparameters_spec`
     - [ ] `keywords` includes a feature tag, a task value, and exactly one geometry type
+    - [ ] Classes trained from OSM labels declare `fair:osm_tags`
     - [ ] `license` is a supported SPDX identifier, or `other` with a `license` link
     - [ ] `just validate` passes for the model and STAC item
 

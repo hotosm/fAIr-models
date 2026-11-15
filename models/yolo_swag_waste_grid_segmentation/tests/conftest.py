@@ -69,7 +69,7 @@ def create_toy_data(root: Path) -> dict[str, Path]:
             features.append(
                 {
                     "type": "Feature",
-                    "properties": {"label": label},
+                    "properties": {"class": "waste" if label == 1 else "background", "label": label},
                     "geometry": {
                         "type": "Polygon",
                         "coordinates": [[[west, south], [east, south], [east, north], [west, north], [west, south]]],
@@ -113,7 +113,8 @@ def _build_dataset_stac_item(chips_dir: Path, labels_dir: Path) -> dict[str, Any
             "description": "Toy waste-grid dataset",
             "label:type": "vector",
             "label:tasks": ["segmentation"],
-            "label:classes": [{"name": "waste", "classes": ["yes"]}],
+            "label:properties": ["class"],
+            "label:classes": [{"name": "class", "classes": ["background", "waste"]}],
             "label:description": "Polygon labels covering the left half of the mosaic",
             "keywords": ["solid-waste"],
             "fair:user_id": "test",

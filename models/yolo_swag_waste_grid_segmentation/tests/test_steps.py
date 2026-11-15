@@ -125,3 +125,23 @@ def test_export_onnx(
     assert isinstance(output, np.ndarray)
     assert output.shape == (1, 2)
     assert np.isfinite(output).all()
+
+
+def test_load_labels_rejects_labels_without_a_label_column(tmp_path: Path) -> None:
+    import json
+
+    import pytest
+
+    from models.yolo_swag_waste_grid_segmentation.pipeline import load_labels
+
+    ring = [[0.0, 0.0], [0.001, 0.0], [0.001, 0.001], [0.0, 0.0]]
+    feature = {
+        "type": "Feature",
+        "properties": {"class": "waste"},
+        "geometry": {"type": "Polygon", "coordinates": [ring]},
+    }
+    labels = tmp_path / "labels.geojson"
+    labels.write_text(json.dumps({"type": "FeatureCollection", "features": [feature]}))
+
+    with pytest.raises(ValueError, match="no `label` column"):
+        load_labels(labels, "EPSG:3857")

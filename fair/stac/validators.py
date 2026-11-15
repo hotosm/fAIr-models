@@ -37,6 +37,25 @@ def validate_item(item: pystac.Item) -> list[str]:
     errors.extend(_validate_prediction_confidence(item))
     errors.extend(_validate_input_names(item))
     errors.extend(_validate_label_geometry_types(item))
+    errors.extend(_validate_osm_tags(item))
+    return errors
+
+
+def _validate_osm_tags(item: pystac.Item) -> list[str]:
+    errors: list[str] = []
+    for output in item.properties.get("mlm:output", []):
+        for cls in output.get("classification:classes", []):
+            tags = cls.get("fair:osm_tags")
+            if tags is None:
+                continue
+            valid = isinstance(tags, dict) and all(
+                isinstance(values, list) and values and all(isinstance(v, str) for v in values)
+                for values in tags.values()
+            )
+            if not valid:
+                errors.append(
+                    f"class {cls.get('name')!r}: fair:osm_tags must map each OSM key to a list of values, got {tags!r}"
+                )
     return errors
 
 

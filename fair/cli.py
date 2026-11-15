@@ -15,7 +15,7 @@ import pystac
 import typer
 
 from fair.client import FairClient
-from fair.datasets import PRE_INPUT, materialize_dataset, preview_sample
+from fair.datasets import DEFAULT_CLASS_PROPERTY, PRE_INPUT, materialize_dataset, preview_sample
 from fair.infra import knative, registry, stack
 from fair.stac.builders import build_dataset_item
 from fair.stac.constants import (
@@ -74,12 +74,24 @@ def _dump_item(item: pystac.Item) -> str:
 RAW_DATA_API_URL = "https://api-prod.raw-data.hotosm.org/v1"
 
 
-def _parse_classes(classes: str) -> list[dict[str, Any]]:
-    parsed: list[dict[str, Any]] = []
-    for entry in (part.strip() for part in classes.split(",")):
+def _parse_osm_tags(osm_tags: str) -> dict[str, list[str]]:
+    parsed: dict[str, list[str]] = {}
+    for entry in (part.strip() for part in osm_tags.split(",")):
         if entry:
             key, _, value = entry.partition("=")
-            parsed.append({"name": key, "classes": [value] if value else ["*"]})
+            values = parsed.setdefault(key, [])
+            if "*" not in values:
+                values[:] = ["*"] if not value else [*values, value]
+    return parsed
+
+
+def _parse_class_map(raw: str) -> dict[str, str]:
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise typer.BadParameter(f"--class-map is not JSON: {exc}") from exc
+    if not isinstance(parsed, dict) or not all(isinstance(v, str) for v in parsed.values()):
+        raise typer.BadParameter('--class-map must map "property=value" to a model class name')
     return parsed
 
 
@@ -97,7 +109,10 @@ def dataset_build(
     tiles: Annotated[int, typer.Option(min=1, help="With --from-preview: tile square side")] = 8,
     out: Annotated[Path, typer.Option(help="Directory for downloaded assets + draft")] = Path("drafts"),
     title: Annotated[str | None, typer.Option(help="Dataset title (default: derived from AOI or model)")] = None,
-    classes: Annotated[str, typer.Option(help="Comma-separated OSM tag keys or key=value pairs")] = "building",
+    osm_tags: Annotated[
+        str | None,
+        typer.Option(help="OSM tag keys or key=value pairs, comma-separated (default: the model's fair:osm_tags)"),
+    ] = None,
     geometry_type: Annotated[str | None, typer.Option(help="point | line | polygon")] = None,
     tasks: Annotated[str | None, typer.Option(help="Comma-separated label tasks")] = None,
     keywords: Annotated[str | None, typer.Option(help="Comma-separated keywords")] = None,
@@ -106,8 +121,11 @@ def dataset_build(
     ] = None,
     labels: Annotated[
         Path | None,
-        typer.Option(exists=True, dir_okay=False, help="Own labels GeoJSON (integer `label` per --classes order)"),
+        typer.Option(exists=True, dir_okay=False, help="Own labels GeoJSON with a class per feature"),
     ] = None,
+    class_property: Annotated[str, typer.Option(help="Property of --labels that holds the class")] = (
+        DEFAULT_CLASS_PROPERTY
+    ),
     labels_license: Annotated[str | None, typer.Option(help="SPDX license of --labels")] = None,
 ) -> None:
     """Download chips + labels (OSM or --labels) for an area and write an editable draft STAC item."""
@@ -126,6 +144,7 @@ def dataset_build(
         if geometry_type is not None and geometry_type not in sample.geometry_types:
             raise typer.BadParameter(f"the model accepts {sample.geometry_types} labels, not {geometry_type}")
         default_tasks, default_geometry = sample.tasks, sample.geometry_types[0]
+        default_osm_tags, default_keywords = sample.osm_tags, sample.keywords
         resolved_title = title or f"{model_item['id']}-sample"
     else:
         if tms is None or aoi is None or zoom is None:
@@ -134,63 +153,66 @@ def dataset_build(
         resolved_zoom = zoom
         aoi_geojson = json.loads(aoi.read_text())
         default_tasks, default_geometry = ["semantic-segmentation"], "polygon"
+        default_osm_tags, default_keywords = {"building": ["*"]}, ["building"]
         resolved_title = title or f"{aoi.stem}-{geometry_type or default_geometry}"
     resolved_geometry = geometry_type or default_geometry
     label_tasks = [t.strip() for t in tasks.split(",") if t.strip()] if tasks else default_tasks
 
-    label_classes = _parse_classes(classes)
+    if labels is not None and osm_tags is not None:
+        raise typer.BadParameter("--osm-tags selects OSM labels; drop it when passing --labels")
+    if labels is None and class_property != DEFAULT_CLASS_PROPERTY:
+        raise typer.BadParameter("--class-property names a property of --labels")
     if labels is not None:
         if labels_license is None:
             raise typer.BadParameter("--labels needs --labels-license (an SPDX identifier)")
         own_labels: dict[str, Any] | None = json.loads(labels.read_text())
-        osm_api = None
+        osm_api, tag_filter = None, None
         license_id = labels_license
-        label_description: str | None = (
-            f"Labels from {labels.name}, `label` 1 to {len(label_classes)} in the order {classes}."
-        )
     else:
+        tag_filter = _parse_osm_tags(osm_tags) if osm_tags else default_osm_tags
+        if not tag_filter:
+            raise typer.BadParameter("the model declares no fair:osm_tags; pass --osm-tags or --labels")
         osm_api = osm_url or os.environ.get("FAIR_RAW_DATA_API_URL", RAW_DATA_API_URL)
         own_labels = None
         license_id = "ODbL-1.0"
-        label_description = None
     keyword_list: list[str] = (
         [k.strip() for k in keywords.split(",") if k.strip()]
         if keywords
-        else [*dict.fromkeys(str(cls["name"]) for cls in label_classes), *label_tasks, resolved_geometry]
+        else [*dict.fromkeys([*default_keywords, *label_tasks, resolved_geometry])]
     )
     user_id = os.environ.get("FAIR_USER_ID", "anonymous")
     data_dir = out if from_preview is not None else out / resolved_title
 
-    chips_dirs, labels_href, geometry, bbox = materialize_dataset(
+    built = materialize_dataset(
         tms_urls=tms_urls,
         aoi=aoi_geojson,
         zoom=resolved_zoom,
         out_dir=str(data_dir),
-        label_classes=label_classes,
         geometry_type=resolved_geometry,
+        osm_tags=tag_filter,
         osm_api_url=osm_api,
         labels=own_labels,
-        slim_labels=from_preview is not None,
+        class_property=class_property,
     )
 
     item = build_dataset_item(
         label_type="vector",
         label_tasks=label_tasks,
-        label_classes=label_classes,
+        label_classes=built.label_classes,
+        label_properties=built.label_properties,
         keywords=keyword_list,
-        chips_hrefs={name: os.path.relpath(path, out) for name, path in chips_dirs.items()},
-        labels_href=os.path.relpath(labels_href, out),
+        chips_hrefs={name: os.path.relpath(path, out) for name, path in built.chips_dirs.items()},
+        labels_href=os.path.relpath(built.labels_file, out),
         title=resolved_title,
         description="",
         user_id=user_id,
         providers=[{"name": user_id, "roles": ["producer"]}],
-        geometry=geometry,
-        bbox=bbox,
+        geometry=built.geometry,
+        bbox=built.bbox,
         source_imagery=next(url for name, url in tms_urls.items() if name != PRE_INPUT),
         imagery_hrefs=tms_urls,
         geometry_type=resolved_geometry,  # type: ignore[arg-type]
         license_id=license_id,
-        label_description=label_description,
     )
 
     out.mkdir(parents=True, exist_ok=True)
@@ -218,6 +240,10 @@ def model_train(
     learning_rate: Annotated[float | None, typer.Option()] = None,
     samples_per_epoch: Annotated[int | None, typer.Option()] = None,
     chip_size: Annotated[int | None, typer.Option()] = None,
+    class_map: Annotated[
+        str | None,
+        typer.Option(help='JSON mapping dataset classes to model classes, e.g. \'{"natural=palm": "tree"}\''),
+    ] = None,
 ) -> None:
     """Finetune a base model on a dataset (blocks until the training run finishes)."""
     overrides: dict[str, object] = {}
@@ -236,6 +262,7 @@ def model_train(
         dataset_id=dataset,
         model_name=name,
         overrides=overrides or None,
+        class_map=_parse_class_map(class_map) if class_map else None,
     )
     typer.echo(model_name)
 

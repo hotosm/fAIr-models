@@ -140,7 +140,12 @@
         },
         "classification:classes": [
           { "name": "background", "value": 0, "description": "Non-building pixels" },
-          { "name": "building", "value": 1, "description": "Building footprints" }
+          {
+            "name": "building",
+            "value": 1,
+            "description": "Building footprints",
+            "fair:osm_tags": { "building": ["*"] }
+          }
         ],
         "post_processing_function": {
           "format": "python",

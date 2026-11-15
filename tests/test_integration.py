@@ -26,7 +26,7 @@ def _make_dataset(title: str, version: str = "1") -> pystac.Item:
     return build_dataset_item(
         label_type="vector",
         label_tasks=["segmentation"],
-        label_classes=[],
+        label_classes=[{"name": "building", "classes": ["yes"]}],
         keywords=["building"],
         chips_hrefs={"image": "chips/"},
         labels_href="labels.geojson",

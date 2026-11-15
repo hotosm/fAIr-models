@@ -7,7 +7,6 @@ import jsonschema
 import pystac
 import pytest
 
-from fair.datasets import _stamp_class_label
 from fair.stac.builders import (
     _infer_runtime_media_type,
     _slugify,
@@ -15,7 +14,7 @@ from fair.stac.builders import (
     build_dataset_item,
     build_local_model_item,
 )
-from fair.stac.constants import DATACUBE_SCHEMA, LABEL_CLASS_PROPERTY
+from fair.stac.constants import DATACUBE_SCHEMA
 from fair.stac.validators import validate_item
 
 _GEOM = {"type": "Polygon", "coordinates": [[[0, -90], [180, -90], [180, 90], [0, 90], [0, -90]]]}
@@ -72,8 +71,8 @@ _METRICS_SPEC = [
 
 _PROVIDERS = [{"name": "HOTOSM", "roles": ["producer"], "url": "https://www.hotosm.org"}]
 _OSM_LABEL_CLASSES = [
-    {"name": "building", "classes": ["yes", "house"]},
-    {"name": "highway", "classes": ["*"]},
+    {"name": "building", "classes": ["house", "yes"]},
+    {"name": "highway", "classes": ["residential"]},
 ]
 
 _BASE_DEFAULTS: dict[str, Any] = {
@@ -109,16 +108,12 @@ def _base_model(**kw: Any) -> pystac.Item:
 
 
 class TestDatasetLabelSemantics:
-    """The Label extension requires `label:properties` and every
-    `label:classes[].name` to name a property that is present on the label
-    asset's features. These pin the item to what `fair.datasets` actually writes.
-    """
-
     def _item(self, geojson_path, **kw: Any) -> pystac.Item:
         kwargs: dict[str, Any] = {
             "label_type": "vector",
             "label_tasks": ["segmentation"],
             "label_classes": _OSM_LABEL_CLASSES,
+            "label_properties": ["building", "highway"],
             "keywords": ["building"],
             "chips_hrefs": {"image": "chips/"},
             "labels_href": geojson_path,
@@ -130,84 +125,28 @@ class TestDatasetLabelSemantics:
         kwargs.update(kw)
         return build_dataset_item(**kwargs)
 
-    def test_declared_properties_exist_on_stamped_features(self, geojson_path):
-        """Round-trip against the library's own materializer.
-
-        `_stamp_class_label` is what writes the label file this item describes, so
-        every key and value the item declares must be findable on its output.
-        """
-        features = [
-            {"properties": {"osm_id": 1, "osm_type": "way", "tags": {"building": "house"}}},
-            {"properties": {"osm_id": 2, "osm_type": "way", "tags": {"highway": "residential"}}},
-        ]
-        for feature in features:
-            assert _stamp_class_label(feature, _OSM_LABEL_CLASSES) is not None
-
+    def test_label_classes_and_properties_are_written_as_given(self, geojson_path):
         properties = self._item(geojson_path).properties
-        for key in properties["label:properties"]:
-            for feature in features:
-                assert key in feature["properties"]
-        for class_object in properties["label:classes"]:
-            for feature in features:
-                assert class_object["name"] in feature["properties"]
-                assert feature["properties"][class_object["name"]] in class_object["classes"]
-
-    def test_osm_filter_sentinel_does_not_reach_the_catalog(self, geojson_path):
-        """`["*"]` is a raw-data API wildcard, not a class value."""
-        assert "*" not in json.dumps(self._item(geojson_path).properties["label:classes"])
-
-    def test_osm_tag_mapping_is_preserved_in_label_description(self, geojson_path):
-        description = self._item(geojson_path).properties["label:description"]
-        assert "1 = building=yes|house" in description
-        assert "2 = highway=*" in description
-
-    def test_empty_description_leaves_only_the_class_mapping(self, geojson_path):
-        description = self._item(geojson_path, description="").properties["label:description"]
-        assert description.startswith("Class values in `label`")
-
-    def test_explicit_class_values_are_stamped_and_declared(self, geojson_path):
-        damage_classes = [
-            {"name": "building", "classes": ["*"], "value": 1},
-            {"name": "destroyed:building", "classes": ["*"], "value": 4},
-        ]
-        destroyed = {"properties": {"tags": {"destroyed:building": "yes"}}}
-
-        assert _stamp_class_label(destroyed, damage_classes) == 4
-        assert destroyed["properties"][LABEL_CLASS_PROPERTY] == 4
-        properties = self._item(geojson_path, label_classes=damage_classes).properties
-        assert properties["label:classes"] == [{"name": LABEL_CLASS_PROPERTY, "classes": [1, 4]}]
-        assert "4 = destroyed:building=*" in properties["label:description"]
-
-    def test_background_value_zero_is_kept(self, geojson_path):
-        waste_classes = [
-            {"name": "waste", "classes": ["*"], "value": 1},
-            {"name": "background", "classes": ["*"], "value": 0},
-        ]
-        background = {"properties": {"tags": {"background": "yes"}}}
-
-        assert _stamp_class_label(background, waste_classes) == 0
-        properties = self._item(geojson_path, label_classes=waste_classes).properties
-        assert properties["label:classes"] == [{"name": LABEL_CLASS_PROPERTY, "classes": [0, 1]}]
-        assert "(0 = background)" not in properties["label:description"]
-
-    def test_explicit_label_properties_are_left_alone(self, geojson_path):
-        """A caller describing its own label file keeps full control."""
-        properties = self._item(
-            geojson_path,
-            label_properties=["building"],
-            label_description="Untouched.",
-        ).properties
-        assert properties["label:properties"] == ["building"]
+        assert properties["label:properties"] == ["building", "highway"]
         assert properties["label:classes"] == _OSM_LABEL_CLASSES
-        assert properties["label:description"] == "Untouched."
 
-    def test_raster_labels_still_declare_no_properties(self, geojson_path):
-        properties = self._item(geojson_path, label_type="raster").properties
+    def test_label_properties_default_to_the_class_names(self, geojson_path):
+        assert self._item(geojson_path, label_properties=None).properties["label:properties"] == [
+            "building",
+            "highway",
+        ]
+
+    def test_vector_labels_need_label_classes(self, geojson_path):
+        with pytest.raises(ValueError, match="label_classes"):
+            self._item(geojson_path, label_classes=[], label_properties=None)
+
+    def test_label_description_falls_back_to_the_description(self, geojson_path):
+        assert self._item(geojson_path).properties["label:description"] == "Chips and labels."
+        assert self._item(geojson_path, label_description="OSM").properties["label:description"] == "OSM"
+
+    def test_raster_labels_declare_no_properties(self, geojson_path):
+        properties = self._item(geojson_path, label_type="raster", label_properties=None).properties
         assert properties["label:properties"] is None
-
-    def test_class_entry_without_values_does_not_raise(self, geojson_path):
-        properties = self._item(geojson_path, label_classes=[{"name": "building"}]).properties
-        assert properties["label:classes"] == [{"name": LABEL_CLASS_PROPERTY, "classes": [1]}]
 
 
 class TestBuildDatasetItem:
@@ -268,7 +207,7 @@ class TestBuildDatasetItem:
         item = build_dataset_item(
             label_type="vector",
             label_tasks=["segmentation"],
-            label_classes=[],
+            label_classes=[{"name": "building", "classes": ["yes"]}],
             keywords=["building"],
             chips_hrefs={"image": "c/"},
             labels_href=geojson_path,
@@ -286,7 +225,7 @@ class TestBuildDatasetItem:
             build_dataset_item(
                 label_type="vector",
                 label_tasks=["segmentation"],
-                label_classes=[],
+                label_classes=[{"name": "building", "classes": ["yes"]}],
                 keywords=["building"],
                 chips_hrefs={"image": "c/"},
                 labels_href=str(path),
@@ -301,7 +240,7 @@ class TestBuildDatasetItem:
         item = build_dataset_item(
             label_type="vector",
             label_tasks=["segmentation"],
-            label_classes=[],
+            label_classes=[{"name": "building", "classes": ["yes"]}],
             keywords=["building"],
             chips_hrefs={"image": "c/"},
             labels_href=geojson_path,
@@ -352,7 +291,7 @@ class TestBuildDatasetItem:
         item = build_dataset_item(
             label_type="vector",
             label_tasks=["segmentation"],
-            label_classes=[],
+            label_classes=[{"name": "building", "classes": ["yes"]}],
             keywords=["building"],
             chips_hrefs={"image": "c/"},
             labels_href=geojson_path,

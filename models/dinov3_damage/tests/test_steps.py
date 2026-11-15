@@ -100,7 +100,7 @@ def test_split_dataset_puts_each_damage_class_in_both_splits(toy_chips: Path, to
         tiles = [box(*mercantile.bounds(*parse_chip_name(name))) for name in chip_names]
         return {int(row.label) for row in labels.itertuples() if any(tile.contains(row.geometry) for tile in tiles)}
 
-    assert classes(info["train_chip_names"]) == classes(info["val_chip_names"]) == {1, 4}
+    assert classes(info["train_chip_names"]) == classes(info["val_chip_names"]) == {0, 3}
 
 
 def test_train_model(

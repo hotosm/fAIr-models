@@ -13,7 +13,6 @@ from fair.stac.constants import (
     CONTAINER_REGISTRIES,
     DATACUBE_SCHEMA,
     DATASET_EXTENSIONS,
-    LABEL_CLASS_PROPERTY,
     LOCAL_MODEL_EXTENSIONS,
     OCI_IMAGE_INDEX_TYPE,
 )
@@ -203,21 +202,6 @@ def _raster_bands_from_model_input(mlm_input: list[dict[str, Any]]) -> list[dict
     return bands or None
 
 
-def _class_objects_for_stamped_labels(label_classes: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    values = sorted({cls.get("value", index) for index, cls in enumerate(label_classes, start=1)})
-    return [{"name": LABEL_CLASS_PROPERTY, "classes": values}]
-
-
-def _osm_class_mapping(label_classes: list[dict[str, Any]]) -> str:
-    pairs = "; ".join(
-        f"{cls.get('value', index)} = {cls.get('name', LABEL_CLASS_PROPERTY)}"
-        f"={'|'.join(str(value) for value in (cls.get('classes') or ['*']))}"
-        for index, cls in enumerate(label_classes, start=1)
-    )
-    background = "" if any("value" in cls for cls in label_classes) else " (0 = background)"
-    return f"Class values in `{LABEL_CLASS_PROPERTY}`{background}: {pairs}."
-
-
 def build_dataset_item(
     label_type: Literal["vector", "raster"],
     label_tasks: list[str],
@@ -261,27 +245,19 @@ def build_dataset_item(
 
     resolved_id = item_id if item_id is not None else _slugify(title)
 
-    # A caller that passes `label_properties` is describing its own label file and is
-    # left alone. Otherwise the labels came from `fair.datasets`, so declare the key
-    # that module stamps rather than "class", which appears on no feature it writes.
-    declares_own_labels = label_properties is not None
-    resolved_label_properties = (
-        label_properties if declares_own_labels else (None if label_type == "raster" else [LABEL_CLASS_PROPERTY])
-    )
-    resolved_label_classes = label_classes
-    resolved_label_description = label_description
-    if not declares_own_labels and label_type == "vector" and label_classes:
-        resolved_label_classes = _class_objects_for_stamped_labels(label_classes)
-        if resolved_label_description is None:
-            resolved_label_description = "\n\n".join(filter(None, [description, _osm_class_mapping(label_classes)]))
+    if label_type == "vector" and not label_properties:
+        # https://github.com/stac-extensions/label#class-object: each class `name` is a feature property.
+        label_properties = [cls["name"] for cls in label_classes]
+        if not label_properties:
+            raise ValueError("vector labels need label_classes naming the feature properties that hold the classes")
 
     properties: dict[str, Any] = {
         "title": title,
         "description": description,
         "label:type": label_type,
         "label:tasks": label_tasks,
-        "label:classes": resolved_label_classes,
-        "label:properties": resolved_label_properties,
+        "label:classes": label_classes,
+        "label:properties": label_properties,
         "keywords": keywords,
         "fair:user_id": user_id,
         "version": version,
@@ -296,9 +272,7 @@ def build_dataset_item(
         properties["fair:geometry_type"] = geometry_type
     if license_id is not None:
         properties["license"] = license_id
-    properties["label:description"] = (
-        resolved_label_description if resolved_label_description is not None else description
-    )
+    properties["label:description"] = label_description if label_description is not None else description
     if label_methods is not None:
         properties["label:methods"] = label_methods
 

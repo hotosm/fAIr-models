@@ -2,6 +2,7 @@ import json
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
+import click
 import pytest
 from typer.testing import CliRunner
 
@@ -355,7 +356,7 @@ def test_dataset_build_own_labels_need_a_license(tmp_path, monkeypatch) -> None:
 
     missing_license = runner.invoke(app, command)
     assert missing_license.exit_code != 0
-    assert "--labels-license" in missing_license.output
+    assert "--labels-license" in click.unstyle(missing_license.output)
 
     result = runner.invoke(app, [*command, "--labels-license", "CC-BY-4.0"])
     assert result.exit_code == 0, result.output
@@ -549,4 +550,4 @@ def test_dataset_build_rejects_options_that_do_not_apply(tmp_path, monkeypatch, 
     )
 
     assert result.exit_code != 0
-    assert message in result.output
+    assert message in click.unstyle(result.output)

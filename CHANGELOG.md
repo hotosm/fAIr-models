@@ -12,6 +12,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - add ZenML integration for model promotion and STAC catalog synchronization
 - implement STAC catalog management and builders for datasets and models
 
+## v0.3.32 (2026-11-15)
+
+### Fix
+
+- **datastes**: fix the schema docs and cli with label matching
+- **sample**: refactor samples to individual models
+- **docker**: load docker image from previous job
+
+### Refactor
+
+- **label**: refactors how sample labels should be supplied to give room for models with different leabel schem than default
+- **sample**: refactor how sample of models are changed
+
 ## v0.3.31 (2026-11-13)
 
 ### Fix

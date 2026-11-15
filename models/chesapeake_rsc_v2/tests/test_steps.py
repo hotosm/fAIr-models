@@ -19,6 +19,16 @@ from models.chesapeake_rsc_v2.centerlines import probability_ridges, trace
 from models.chesapeake_rsc_v2.training import spatial_split
 
 
+def test_example_dataset_is_compatible(generate_toy_dataset):
+    import pystac
+
+    from fair.stac.validators import validate_compatibility
+
+    model = pystac.Item.from_file(str(Path(pipeline.__file__).with_name("stac-item.json")))
+    dataset = pystac.Item.from_file(str(generate_toy_dataset["dataset_stac_item"]))
+    assert validate_compatibility(model, dataset) == []
+
+
 @pytest.fixture(scope="module")
 def split(toy_chips, toy_labels):
     with pytest.MonkeyPatch.context() as patch:

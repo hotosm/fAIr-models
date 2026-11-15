@@ -196,7 +196,8 @@
           {
             "name": "road",
             "value": 1,
-            "description": "Visible or occluded road."
+            "description": "Visible or occluded road.",
+            "fair:osm_tags": { "highway": ["*"] }
           }
         ],
         "post_processing_function": {
@@ -218,7 +219,8 @@
           {
             "name": "road",
             "value": 1,
-            "description": "Visible or occluded road."
+            "description": "Visible or occluded road.",
+            "fair:osm_tags": { "highway": ["*"] }
           }
         ],
         "post_processing_function": {

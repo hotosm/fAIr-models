@@ -5,6 +5,7 @@ from typing import Any
 
 import pystac
 import pytest
+from zenml.config.pipeline_run_configuration import PipelineRunConfiguration
 
 from fair.stac.builders import build_base_model_item, build_dataset_item
 from fair.zenml.config import (
@@ -441,3 +442,52 @@ def test_a_lone_chips_asset_feeds_only_an_image_input(tmp_path):
 def test_inference_config_rejects_a_model_whose_input_names_are_not_slugs():
     with pytest.raises(ValueError, match="not slugs"):
         generate_inference_config(_with_inputs(_local_model(), "RGB chips"), {"RGB chips": "s3://chips"})
+
+
+def test_offline_prediction_takes_the_memory_and_cpu_the_model_declares():
+    item = _item_with_accelerator("amd64")
+    item.properties.update({"fair:cpu_request": "1", "fair:memory_request": "4Gi", "fair:memory_limit": "8Gi"})
+
+    resources = _scheduling_settings(item, "inference")["orchestrator.kubernetes"]["pod_settings"]["resources"]
+
+    assert resources == {"requests": {"cpu": "1", "memory": "4Gi"}, "limits": {"memory": "8Gi"}}
+
+
+def test_offline_prediction_resources_ignore_the_environment(monkeypatch):
+    monkeypatch.setenv("FAIR_K8S_MEMORY_LIMIT", "12Gi")
+    monkeypatch.setenv("FAIR_INFERENCE_MEMORY_LIMIT", "16Gi")
+
+    resources = _scheduling_settings(_item_with_accelerator(), "inference")["orchestrator.kubernetes"]["pod_settings"][
+        "resources"
+    ]
+
+    assert resources == {"requests": {"memory": "1Gi"}, "limits": {"memory": "2Gi"}}
+
+
+def test_offline_prediction_skips_the_defaults_once_the_model_declares_any_resource():
+    item = _item_with_accelerator("amd64")
+    item.properties["fair:cpu_request"] = "1"
+
+    resources = _scheduling_settings(item, "inference")["orchestrator.kubernetes"]["pod_settings"]["resources"]
+
+    assert resources == {"requests": {"cpu": "1"}, "limits": {}}
+
+
+def test_offline_prediction_of_a_local_model_takes_the_base_model_resources():
+    base = _base_model()
+    base.properties.update({"fair:memory_request": "4Gi", "fair:memory_limit": "8Gi"})
+
+    config = generate_inference_config(_local_model(), {"image": "/data/input/"}, resources_item=base)
+
+    resources = config["steps"]["run_inference"]["settings"]["orchestrator.kubernetes"]["pod_settings"]["resources"]
+    assert resources == {"requests": {"memory": "4Gi"}, "limits": {"memory": "8Gi"}}
+
+
+def test_offline_prediction_retries_a_failed_step_and_training_does_not(tmp_path):
+    training = generate_training_config(_base_model(), _dataset(tmp_path), model_name="t", labels_href="labels/")
+    inference = generate_inference_config(_local_model(), {"image": "/data/input/"})
+
+    assert "retry" not in training
+    retry = PipelineRunConfiguration.model_validate(inference).retry
+    assert retry is not None
+    assert retry.max_retries == 2

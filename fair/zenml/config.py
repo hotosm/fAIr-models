@@ -58,13 +58,24 @@ def _workload_toleration(workload: str) -> dict[str, str]:
     return {"key": f"{LABEL_DOMAIN}/{workload}", "operator": "Equal", "value": "true", "effect": "NoSchedule"}
 
 
+# ZenML's Kubernetes orchestrator sets the step Job backoffLimit from max_retries and ignores delay and backoff.
+_INFERENCE_STEP_RETRY = {"max_retries": 2}
+
 _WORKLOAD_RESOURCE_DEFAULTS: dict[str, dict[str, str]] = {
     "training": {"memory_request": "2Gi", "memory_limit": "2.5Gi"},
     "inference": {"memory_request": "1Gi", "memory_limit": "2Gi"},
 }
+_RESOURCES = ("memory_request", "memory_limit", "cpu_request", "cpu_limit")
 
 
-def _resource_value(workload: str, resource: str) -> str | None:
+def _resource_value(item: pystac.Item, workload: str, resource: str) -> str | None:
+    if workload == "inference":
+        # Same STAC keys as the Knative service (fair/infra/knative.py).
+        declared = {name: item.properties.get(f"fair:{name}") for name in _RESOURCES}
+        if all(value is None for value in declared.values()):
+            return _WORKLOAD_RESOURCE_DEFAULTS["inference"].get(resource)
+        value = declared[resource]
+        return str(value) if value is not None else None
     upper_workload = workload.upper()
     upper_resource = resource.upper()
     return (
@@ -74,12 +85,12 @@ def _resource_value(workload: str, resource: str) -> str | None:
     )
 
 
-def _cpu_resources(workload: str) -> dict[str, dict[str, str]]:
+def _cpu_resources(item: pystac.Item, workload: str) -> dict[str, dict[str, str]]:
     resources: dict[str, dict[str, str]] = {"requests": {}, "limits": {}}
-    memory_request = _resource_value(workload, "memory_request")
-    memory_limit = _resource_value(workload, "memory_limit")
-    cpu_request = _resource_value(workload, "cpu_request")
-    cpu_limit = _resource_value(workload, "cpu_limit")
+    memory_request = _resource_value(item, workload, "memory_request")
+    memory_limit = _resource_value(item, workload, "memory_limit")
+    cpu_request = _resource_value(item, workload, "cpu_request")
+    cpu_limit = _resource_value(item, workload, "cpu_limit")
     if memory_request:
         resources["requests"]["memory"] = memory_request
     if memory_limit:
@@ -103,8 +114,8 @@ def _accelerator(item: pystac.Item, workload: str) -> tuple[str | None, str]:
     return accelerator, str(count)
 
 
-def _scheduling_settings(item: pystac.Item, workload: str) -> dict[str, Any]:
-    cpu_resources = _cpu_resources(workload)
+def _scheduling_settings(item: pystac.Item, workload: str, resources_item: pystac.Item | None = None) -> dict[str, Any]:
+    cpu_resources = _cpu_resources(resources_item or item, workload)
 
     if _force_cpu_mode():
         return {
@@ -266,8 +277,10 @@ def generate_inference_config(
     model_item: pystac.Item,
     input_images: Mapping[str, str],
     overrides: dict[str, Any] | None = None,
+    *,
+    resources_item: pystac.Item | None = None,
 ) -> dict[str, Any]:
-    """`input_images` maps each of the model's input names to its chips path."""
+    """`input_images` maps input names to chips paths; `resources_item` declares the pod resources."""
     # Works for both base-model and local-model items (same MLM structure)
     props = model_item.properties
 
@@ -310,7 +323,8 @@ def generate_inference_config(
         }
         config["settings"] = {"docker": docker_cfg}
 
-    k8s = _scheduling_settings(model_item, "inference")
+    config["retry"] = dict(_INFERENCE_STEP_RETRY)
+    k8s = _scheduling_settings(model_item, "inference", resources_item)
     if k8s:
         config.setdefault("steps", {}).setdefault("run_inference", {}).setdefault("settings", {}).update(k8s)
 

@@ -1078,6 +1078,34 @@ def test_register_dataset_from_params_archives_and_publishes_pre_event_chips(mon
     assert backend.published[0][1].assets["chips-pre"].href.endswith("chips-pre")
 
 
+def _client_with_catalog(monkeypatch, tmp_path, backend: DummyBackend) -> FairClient:
+    client = FairClient(stac_api_url="https://stac.example.com", config_dir=str(tmp_path))
+    monkeypatch.setattr(client, "_get_backend", lambda: backend)
+    monkeypatch.setattr(client, "_artifact_store_prefix", lambda: None)
+    monkeypatch.setattr(client, "_pipeline_module_from_item", lambda _: "models.demo.pipeline")
+    return client
+
+
+def test_submit_predict_rejects_a_local_model_without_a_base_model_id(monkeypatch, tmp_path) -> None:
+    local_model = _build_item("local-model", {"mlm:input": [{"name": "image"}]})
+    client = _client_with_catalog(
+        monkeypatch, tmp_path, DummyBackend({(LOCAL_MODELS_COLLECTION, "local-model"): local_model})
+    )
+
+    with pytest.raises(FairClientError, match="missing 'fair:base_model_id'"):
+        client.submit_predict(local_model_id="local-model", input_images={"image": "s3://bucket/input"})
+
+
+def test_submit_predict_fails_when_the_base_model_is_missing(monkeypatch, tmp_path) -> None:
+    local_model = _build_item("local-model", {"fair:base_model_id": "gone", "mlm:input": [{"name": "image"}]})
+    client = _client_with_catalog(
+        monkeypatch, tmp_path, DummyBackend({(LOCAL_MODELS_COLLECTION, "local-model"): local_model})
+    )
+
+    with pytest.raises(KeyError, match="gone"):
+        client.submit_predict(local_model_id="local-model", input_images={"image": "s3://bucket/input"})
+
+
 def test_submit_predict_passes_params_to_the_inference_config(monkeypatch, tmp_path) -> None:
     local_model = _build_item(
         "local-model",
@@ -1088,16 +1116,19 @@ def test_submit_predict_passes_params_to_the_inference_config(monkeypatch, tmp_p
             "fair:hyperparameters_spec": [{"key": "confidence_threshold", "type": "float", "default": 0.5}],
         },
     )
-    backend = DummyBackend({(LOCAL_MODELS_COLLECTION, local_model.id): local_model})
+    base_model = _build_item("base", {"fair:memory_limit": "8Gi"})
+    backend = DummyBackend(
+        {(LOCAL_MODELS_COLLECTION, local_model.id): local_model, (BASE_MODELS_COLLECTION, base_model.id): base_model}
+    )
     client = FairClient(stac_api_url="https://stac.example.com", config_dir=str(tmp_path))
-    config_calls: list[tuple[Any, ...]] = []
+    config_calls: list[tuple[tuple[Any, ...], dict[str, Any]]] = []
     monkeypatch.setattr(client, "_get_backend", lambda: backend)
     monkeypatch.setattr(client, "_artifact_store_prefix", lambda: None)
     monkeypatch.setattr(client, "_pipeline_module_from_item", lambda _: "models.demo.pipeline")
     monkeypatch.setattr(
         client_module,
         "generate_inference_config",
-        lambda *args: config_calls.append(args) or {"parameters": {}},
+        lambda *args, **kwargs: config_calls.append((args, kwargs)) or {"parameters": {}},
     )
     run = SimpleNamespace(id="predict-run", status="running")
     fake_module = SimpleNamespace(inference_pipeline=DummyPipeline(run))
@@ -1108,7 +1139,9 @@ def test_submit_predict_passes_params_to_the_inference_config(monkeypatch, tmp_p
     )
 
     assert run_id == "predict-run"
-    assert config_calls[0][2] == {"confidence_threshold": 0.8}
+    args, kwargs = config_calls[0]
+    assert args[2] == {"confidence_threshold": 0.8}
+    assert kwargs["resources_item"] is base_model
 
 
 @pytest.mark.parametrize(

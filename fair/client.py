@@ -712,13 +712,7 @@ class FairClient:
         if predict_base_url:
             return predict_base_url
 
-        if collection == BASE_MODELS_COLLECTION:
-            base_item = model_item
-        else:
-            base_id = model_item.properties.get("fair:base_model_id")
-            if not base_id:
-                raise FairClientError(f"Local model '{model_item.id}' missing 'fair:base_model_id'")
-            base_item = self._get_backend().get_item(BASE_MODELS_COLLECTION, base_id)
+        base_item = model_item if collection == BASE_MODELS_COLLECTION else self._base_model_of(model_item)
 
         endpoint_asset = base_item.assets.get("mlm:inference-endpoint")
         if endpoint_asset is None:
@@ -728,6 +722,12 @@ class FairClient:
                 "predict URL is recorded in STAC."
             )
         return endpoint_asset.href
+
+    def _base_model_of(self, local_model_item: pystac.Item) -> pystac.Item:
+        base_id = local_model_item.properties.get("fair:base_model_id")
+        if not base_id:
+            raise FairClientError(f"Local model '{local_model_item.id}' missing 'fair:base_model_id'")
+        return self._get_backend().get_item(BASE_MODELS_COLLECTION, base_id)
 
     def _predict_verify_ssl(self) -> bool:
         value = os.environ.get("FAIR_PREDICT_VERIFY_SSL")
@@ -778,6 +778,7 @@ class FairClient:
     ) -> tuple[Any, Path]:
         cat = self._get_backend()
         model_item = None
+        collection = LOCAL_MODELS_COLLECTION
         for collection in (LOCAL_MODELS_COLLECTION, BASE_MODELS_COLLECTION):
             try:
                 model_item = cat.get_item(collection, local_model_id)
@@ -794,6 +795,8 @@ class FairClient:
         require_imagery_for_inputs(model_item, input_images)
         if params:
             validate_inference_params(params, model_item)
+        # Resources are declared once, on the base model that every local model is trained from.
+        resources_item = model_item if collection == BASE_MODELS_COLLECTION else self._base_model_of(model_item)
 
         prefix = self._artifact_store_prefix()
         if self._upload_artifacts and prefix:
@@ -803,7 +806,7 @@ class FairClient:
                 upload_local_directory(Path(path), uploaded[name])
             input_images = {**input_images, **uploaded}
 
-        cfg_data = generate_inference_config(model_item, input_images, params)
+        cfg_data = generate_inference_config(model_item, input_images, params, resources_item=resources_item)
         cfg_dir = Path(config_dir) if config_dir else self._config_dir
         cfg_dir.mkdir(parents=True, exist_ok=True)
         inf_cfg = cfg_dir / f"inference_{local_model_id[:8]}.yaml"

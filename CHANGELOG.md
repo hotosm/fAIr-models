@@ -12,6 +12,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - add ZenML integration for model promotion and STAC catalog synchronization
 - implement STAC catalog management and builders for datasets and models
 
+## v0.3.34 (2026-11-16)
+
+### Fix
+
+- **knative**: source /home/krschap/code/hotosm/fAIr-models/.venv/bin/activate
+
 ## v0.3.33 (2026-11-16)
 
 ### Fix

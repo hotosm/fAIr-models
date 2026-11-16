@@ -12,6 +12,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - add ZenML integration for model promotion and STAC catalog synchronization
 - implement STAC catalog management and builders for datasets and models
 
+## v0.3.33 (2026-11-16)
+
+### Fix
+
+- **executor**: add model executor in serve under threat
+- **test**: fix color
+- **chore**: ignore model sample to precommit hook
+
 ## v0.3.32 (2026-11-15)
 
 ### Fix

@@ -2,9 +2,11 @@
 
 import asyncio
 import importlib
+import itertools
 import json
 import sys
 import textwrap
+import time
 from pathlib import Path
 from typing import Any
 
@@ -532,3 +534,66 @@ def test_fetch_chips_raises_the_failed_download_error_and_cancels_the_others(
     with pytest.raises(FileNotFoundError, match="404 for pre"):
         asyncio.run(serve_base._fetch_chips(imagery, [85.5, 27.6, 85.52, 27.63], 18, str(tmp_path)))
     assert cancelled == [imagery["post"]]
+
+
+class _SlowPipeline:
+    def predict(self, session: Any, input_images: dict[str, str], params: dict[str, Any]) -> dict[str, Any]:
+        time.sleep(0.5)
+        return {"type": "FeatureCollection", "features": []}
+
+
+def test_event_loop_stays_responsive_while_a_prediction_is_running(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from fair.serve import base as serve_base
+
+    _patch_fetch_chips(monkeypatch, tmp_path)
+
+    def slow_load_session(model_uri: str) -> object:
+        time.sleep(0.5)
+        return object()
+
+    monkeypatch.setattr(serve_base, "load_session", slow_load_session)
+
+    async def scenario() -> float:
+        prediction = asyncio.ensure_future(
+            serve_base._predict(_request(client_disconnects=False), _SlowPipeline(), False)
+        )
+        ticks = [time.monotonic()]
+        while not prediction.done():
+            await asyncio.sleep(0.02)
+            ticks.append(time.monotonic())
+        assert (await prediction).status_code == 200
+        return max(b - a for a, b in itertools.pairwise(ticks))
+
+    assert asyncio.run(scenario()) < 0.2
+
+
+class _IntervalRecordingPipeline:
+    def __init__(self) -> None:
+        self.intervals: list[tuple[float, float]] = []
+
+    def predict(self, session: Any, input_images: dict[str, str], params: dict[str, Any]) -> dict[str, Any]:
+        started = time.monotonic()
+        time.sleep(0.3)
+        self.intervals.append((started, time.monotonic()))
+        return {"type": "FeatureCollection", "features": []}
+
+
+def test_concurrent_requests_run_predictions_one_at_a_time(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    from fair.serve import base as serve_base
+
+    _patch_fetch_chips(monkeypatch, tmp_path)
+    monkeypatch.setattr(serve_base, "load_session", lambda model_uri: object())
+    pipeline = _IntervalRecordingPipeline()
+
+    async def scenario() -> None:
+        await asyncio.gather(
+            serve_base._predict(_request(client_disconnects=False), pipeline, False),
+            serve_base._predict(_request(client_disconnects=False), pipeline, False),
+        )
+
+    asyncio.run(scenario())
+
+    first, second = sorted(pipeline.intervals)
+    assert first[1] <= second[0]

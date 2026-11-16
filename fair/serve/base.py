@@ -2,6 +2,7 @@
 for an `image` input), `bbox`, `zoom` and `params`, and runs `predict` of the pipeline module named by MODEL_MODULE."""
 
 import asyncio
+import functools
 import importlib
 import inspect
 import json
@@ -9,6 +10,7 @@ import logging
 import os
 import tempfile
 from collections.abc import Awaitable
+from concurrent.futures import ThreadPoolExecutor
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -30,6 +32,8 @@ _MIN_ZOOM = 14
 _MAX_ZOOM = 22
 _DISCONNECT_POLL_SECONDS = 0.5
 _CLIENT_CLOSED_REQUEST = 499
+# Off the event loop so /health answers Knative's probe; one worker keeps predictions sequential.
+_MODEL_EXECUTOR = ThreadPoolExecutor(max_workers=1, thread_name_prefix="fair-predict")
 
 
 class ClientDisconnectedError(Exception):
@@ -183,7 +187,8 @@ async def _predict(request: Request, pipeline: Any, forward_bbox: bool) -> JSONR
     assert parsed is not None
 
     try:
-        session = load_session(parsed["model_uri"])
+        loop = asyncio.get_running_loop()
+        session = await loop.run_in_executor(_MODEL_EXECUTOR, load_session, parsed["model_uri"])
         with tempfile.TemporaryDirectory(prefix="fair-serve-") as tmp:
             chips_dirs = await _await_unless_disconnected(
                 request, _fetch_chips(parsed["imagery"], parsed["bbox"], parsed["zoom"], tmp)
@@ -196,7 +201,10 @@ async def _predict(request: Request, pipeline: Any, forward_bbox: bool) -> JSONR
                     status_code=422,
                 )
             predict_kwargs = {"bbox": parsed["bbox"]} if forward_bbox else {}
-            result = pipeline.predict(session, chips_dirs, parsed["params"], **predict_kwargs)
+            result = await loop.run_in_executor(
+                _MODEL_EXECUTOR,
+                functools.partial(pipeline.predict, session, chips_dirs, parsed["params"], **predict_kwargs),
+            )
     except ClientDisconnectedError:
         logger.info("client disconnected; prediction skipped")
         return JSONResponse({"error": "client disconnected"}, status_code=_CLIENT_CLOSED_REQUEST)

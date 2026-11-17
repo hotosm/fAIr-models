@@ -41,7 +41,7 @@
     "mlm:accelerator_count": 1,
     "fair:recommended_zoom": 20,
     "fair:preview": {
-      "center": [-13.23723, 8.47532],
+      "center": [-13.24755, 8.44965],
       "zoom": { "recommended": 20, "min": 19, "max": 22 },
       "imagery": {
         "url": "https://tiles.openaerialmap.org/690585b76415e43597ffd7ea/0/690585b76415e43597ffd7eb/{z}/{x}/{y}",

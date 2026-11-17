@@ -446,11 +446,13 @@ def test_inference_config_rejects_a_model_whose_input_names_are_not_slugs():
 
 def test_offline_prediction_takes_the_memory_and_cpu_the_model_declares():
     item = _item_with_accelerator("amd64")
-    item.properties.update({"fair:cpu_request": "1", "fair:memory_request": "4Gi", "fair:memory_limit": "8Gi"})
+    item.properties.update(
+        {"fair:cpu_request": "1", "fair:cpu_limit": "2", "fair:memory_request": "4Gi", "fair:memory_limit": "8Gi"}
+    )
 
     resources = _scheduling_settings(item, "inference")["orchestrator.kubernetes"]["pod_settings"]["resources"]
 
-    assert resources == {"requests": {"cpu": "1", "memory": "4Gi"}, "limits": {"memory": "8Gi"}}
+    assert resources == {"requests": {"cpu": "1", "memory": "4Gi"}, "limits": {"cpu": "2", "memory": "8Gi"}}
 
 
 def test_offline_prediction_resources_ignore_the_environment(monkeypatch):
@@ -464,13 +466,13 @@ def test_offline_prediction_resources_ignore_the_environment(monkeypatch):
     assert resources == {"requests": {"memory": "1Gi"}, "limits": {"memory": "2Gi"}}
 
 
-def test_offline_prediction_skips_the_defaults_once_the_model_declares_any_resource():
+def test_offline_prediction_defaults_each_resource_the_model_leaves_out():
     item = _item_with_accelerator("amd64")
-    item.properties["fair:cpu_request"] = "1"
+    item.properties.update({"fair:cpu_request": "1", "fair:cpu_limit": "2"})
 
     resources = _scheduling_settings(item, "inference")["orchestrator.kubernetes"]["pod_settings"]["resources"]
 
-    assert resources == {"requests": {"cpu": "1"}, "limits": {}}
+    assert resources == {"requests": {"cpu": "1", "memory": "1Gi"}, "limits": {"cpu": "2", "memory": "2Gi"}}
 
 
 def test_offline_prediction_of_a_local_model_takes_the_base_model_resources():

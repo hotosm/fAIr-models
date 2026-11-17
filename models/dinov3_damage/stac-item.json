@@ -48,24 +48,26 @@
     "fair:memory_limit": "8Gi",
     "fair:recommended_zoom": 18,
     "fair:preview": {
-      "center": [85.1111, 27.8646],
+      "center": [95.9845, 21.8835],
       "zoom": {
         "recommended": 18
       },
       "imagery": {
-        "url": "https://titiler.hotosm.org/cog/tiles/WebMercatorQuad/{z}/{x}/{y}@1x?url=https%3A%2F%2Fproduction-raw-data-api.s3.amazonaws.com%2FISO3%2FNPL%2Fdisasters%2Fnepal-flood%2F2026-08-28%2Fvantor_post_composite_2026-09-01.tif",
+        "url": "https://titiler.hotosm.org/cog/tiles/WebMercatorQuad/{z}/{x}/{y}@1x?url=https%3A%2F%2Fmaxar-opendata.s3.amazonaws.com%2Fevents%2FEarthquake-Myanmar-March-2025%2Fard%2F46%2F122000133123%2F2025-03-31%2F1030010110C88400-visual.tif",
         "type": "tms",
-        "name": "Vantor post-flood"
+        "name": "Maxar post-earthquake, 31 March 2025",
+        "attribution": "Maxar Open Data Program, CC BY-NC 4.0"
       },
       "pre_imagery": {
-        "url": "https://api.imagery.hotosm.org/raster/collections/openaerialmap/tiles/WebMercatorQuad/{z}/{x}/{y}?ids=6a92f09910691da75dd828c3,6a90c0f1d8f7b27f66739990&assets=visual",
+        "url": "https://titiler.hotosm.org/cog/tiles/WebMercatorQuad/{z}/{x}/{y}@1x?url=https%3A%2F%2Fmaxar-opendata.s3.amazonaws.com%2Fevents%2FEarthquake-Myanmar-March-2025%2Fard%2F46%2F122000133123%2F2025-03-23%2F103001010FCDBB00-visual.tif",
         "type": "tms",
-        "name": "Vantor pre-flood"
+        "name": "Maxar pre-earthquake, 23 March 2025",
+        "attribution": "Maxar Open Data Program, CC BY-NC 4.0"
       },
       "place": {
-        "name": "Bhote Koshi flood extent",
-        "country": "Nepal",
-        "country_code": "NP"
+        "name": "Sagaing",
+        "country": "Myanmar",
+        "country_code": "MM"
       }
     },
     "keywords": ["building", "semantic-segmentation", "polygon"],

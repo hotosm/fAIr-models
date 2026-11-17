@@ -330,6 +330,25 @@ class TestBuildBaseModelItem:
 
 
 class TestBuildLocalModelItem:
+    def test_links_the_base_model_readme(self):
+        base = _base_model(readme_href="https://example.com/README.md")
+        local = build_local_model_item(
+            base_model_item=base,
+            item_id="local-v1",
+            checkpoint_href="https://example.com/finetuned.pt",
+            onnx_href="https://example.com/finetuned.onnx",
+            mlm_hyperparameters={"epochs": 1},
+            keywords=["building"],
+            base_model_href="../base-models/example-unet/example-unet.json",
+            dataset_href="../datasets/ds-1/ds-1.json",
+            version="1",
+            title="Local UNet v1",
+            description="Finetuned model.",
+            user_id="osm-42",
+            providers=_PROVIDERS,
+        )
+        assert local.assets["readme"].href == "https://example.com/README.md"
+
     def test_inherits_base_and_overrides(self):
         base = _base_model()
         local = build_local_model_item(

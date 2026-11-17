@@ -57,10 +57,7 @@ def run(model: str, overrides: dict[str, object]) -> None:
         model_name=f"{base_id}-finetuned-sample",
         overrides=overrides,
     )
-    local_model_id = client.promote(
-        finetuned_model_id,
-        description=f"{base_id} finetuned on {sample['id']}",
-    )
+    local_model_id = client.promote(finetuned_model_id)
     client.predict(local_model_id, sample_chips)
 
 

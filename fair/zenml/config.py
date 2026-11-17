@@ -65,17 +65,13 @@ _WORKLOAD_RESOURCE_DEFAULTS: dict[str, dict[str, str]] = {
     "training": {"memory_request": "2Gi", "memory_limit": "2.5Gi"},
     "inference": {"memory_request": "1Gi", "memory_limit": "2Gi"},
 }
-_RESOURCES = ("memory_request", "memory_limit", "cpu_request", "cpu_limit")
 
 
 def _resource_value(item: pystac.Item, workload: str, resource: str) -> str | None:
     if workload == "inference":
         # Same STAC keys as the Knative service (fair/infra/knative.py).
-        declared = {name: item.properties.get(f"fair:{name}") for name in _RESOURCES}
-        if all(value is None for value in declared.values()):
-            return _WORKLOAD_RESOURCE_DEFAULTS["inference"].get(resource)
-        value = declared[resource]
-        return str(value) if value is not None else None
+        value = item.properties.get(f"fair:{resource}")
+        return str(value) if value is not None else _WORKLOAD_RESOURCE_DEFAULTS["inference"].get(resource)
     upper_workload = workload.upper()
     upper_resource = resource.upper()
     return (

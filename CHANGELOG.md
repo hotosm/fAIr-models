@@ -16,7 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fix
 
-- **knative**: source /home/krschap/code/hotosm/fAIr-models/.venv/bin/activate
+- **inference**: size offline prediction pods from the base model's fair:* resource keys and retry a failed prediction step twice
 
 ## v0.3.33 (2026-11-16)
 
@@ -212,7 +212,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fix
 
-- **source-/home/krschap/code/hotosm/fAIr-models-knative/.venv/bin/activate**: imagetag
+- **dockerfile**: move the model images from bookworm to trixie
 - **dockerfile**: pin the version
 - **pipeline**: conf param temp fix for now and the keyword
 - **model-import**: remove model from the root repo and docker file

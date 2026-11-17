@@ -647,7 +647,7 @@ class FairClient:
             base_model_item_id=resolved_base_id,
             dataset_item_id=resolved_dataset_id,
             user_id=effective_user_id,
-            description=description or f"{model_name} finetuned on {resolved_dataset_id}",
+            description=description,
             title=title,
             keywords=keywords,
             artifact_store_prefix=self._artifact_store_prefix() if self._upload_artifacts else None,

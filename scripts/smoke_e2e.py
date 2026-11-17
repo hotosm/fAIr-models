@@ -292,7 +292,7 @@ def run(cfg: Config) -> int:
         )
 
         result = _request(client, "GET", f"/api/v1/predictions/{pred_id}/result/")
-        for key in ("geojson", "fgb", "pmtiles"):
+        for key in ("geojson", "geoparquet", "pmtiles"):
             url = result.get(key)
             if not url or not url.startswith("http"):
                 raise SmokeError(f"missing {key} URL in result: {result}")

@@ -1028,3 +1028,63 @@ def test_osm_tags_map_each_key_to_a_list_of_values(tags, valid):
         errors = validate_item(model)
 
     assert any("fair:osm_tags must map" in e for e in errors) is not valid
+
+
+_SKLEARN_STAC_ITEM = Path(__file__).parents[1] / "models" / "sklearn_rgb_segmentation" / "stac-item.json"
+
+
+def _model_declaring(resources: dict[str, str]) -> pystac.Item:
+    model = pystac.Item.from_file(str(_SKLEARN_STAC_ITEM))
+    model.properties.update(resources)
+    return model
+
+
+@pytest.mark.parametrize(
+    "resources",
+    [
+        {"fair:cpu_request": "500m", "fair:cpu_limit": "4"},
+        {"fair:cpu_request": "0.5", "fair:cpu_limit": "4000m"},
+        {"fair:memory_request": "4Gi", "fair:memory_limit": "8Gi"},
+        {"fair:memory_request": "0.5Gi", "fair:memory_limit": "16Gi", "fair:cpu_limit": "1"},
+    ],
+)
+def test_resources_within_the_accepted_range_are_valid(resources):
+    assert validate_item(_model_declaring(resources)) == []
+
+
+@pytest.mark.parametrize(
+    ("resources", "key"),
+    [
+        ({"fair:memory_request": "4Gi", "fair:memory_limit": "32Gi"}, "32Gi"),
+        ({"fair:memory_request": "100Mi", "fair:memory_limit": "1Gi"}, "100Mi"),
+        ({"fair:cpu_limit": "8"}, "'8'"),
+        ({"fair:cpu_limit": "4001m"}, "4001m"),
+        ({"fair:cpu_limit": "50m"}, "50m"),
+        ({"fair:cpu_limit": "1.0005"}, "1.0005"),
+    ],
+)
+def test_resources_outside_the_accepted_range_are_rejected(resources, key):
+    assert any(key in error for error in validate_item(_model_declaring(resources)))
+
+
+@pytest.mark.parametrize(
+    ("resources", "missing"),
+    [
+        ({"fair:memory_request": "4Gi"}, "fair:memory_limit"),
+        ({"fair:memory_limit": "4Gi"}, "fair:memory_request"),
+        ({"fair:cpu_request": "1"}, "fair:cpu_limit"),
+    ],
+)
+def test_a_paired_resource_needs_its_pair(resources, missing):
+    assert any(missing in error for error in validate_item(_model_declaring(resources)))
+
+
+@pytest.mark.parametrize(
+    "resources",
+    [
+        {"fair:memory_request": "8Gi", "fair:memory_limit": "4Gi"},
+        {"fair:cpu_request": "2", "fair:cpu_limit": "500m"},
+    ],
+)
+def test_a_limit_below_its_request_is_rejected(resources):
+    assert any("below" in error for error in validate_item(_model_declaring(resources)))

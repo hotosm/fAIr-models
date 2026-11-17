@@ -210,6 +210,8 @@ def publish_promoted_model(
     split_info: dict[str, Any] | None = raw_meta.get("fair/split")
 
     base_model_item = catalog_manager.get_item(BASE_MODELS_COLLECTION, base_model_item_id)
+    base_title = base_model_item.properties["title"]
+    description = description or f"{model_name}, fine-tuned from {base_title}"
     if errs := validate_metrics_against_spec(metrics or {}, base_model_item):
         msg = f"Evaluation metrics do not match the base model's fair:metrics_spec: {errs}"
         raise RuntimeError(msg)

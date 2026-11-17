@@ -335,6 +335,18 @@ def test_publish_title_override(mock_cls, cm):
 
 
 @patch("fair.zenml.promotion.Client")
+def test_publish_describes_an_undescribed_model_by_its_base_model(mock_cls, cm):
+    mv, client = _mock_mv({"epochs": 1})
+    mock_cls.return_value = client
+    client.get_model_version.return_value = mv
+    base_title = cm.get_item("base-models", "example-unet").properties["title"]
+
+    item = _publish(cm, version=1, description="")
+
+    assert item.properties["description"] == f"unet-finetuned-banepa, fine-tuned from {base_title}"
+
+
+@patch("fair.zenml.promotion.Client")
 def test_publish_keeps_mlm_name_stable_across_versions(mock_cls, cm):
     """Two promotes of the same model_name -> same mlm:name, distinct ids."""
     mv, client = _mock_mv({"epochs": 1})

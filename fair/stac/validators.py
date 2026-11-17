@@ -38,6 +38,33 @@ def validate_item(item: pystac.Item) -> list[str]:
     errors.extend(_validate_input_names(item))
     errors.extend(_validate_label_geometry_types(item))
     errors.extend(_validate_osm_tags(item))
+    errors.extend(_validate_resource_limits(item))
+    return errors
+
+
+def _quantity(value: str) -> float:
+    # The base-model schema admits only plain cores, millicores and Gi.
+    if value.endswith("Gi"):
+        return float(value[:-2])
+    if value.endswith("m"):
+        return float(value[:-1]) / 1000
+    return float(value)
+
+
+def _validate_resource_limits(item: pystac.Item) -> list[str]:
+    errors: list[str] = []
+    for resource in ("cpu", "memory"):
+        request = item.properties.get(f"fair:{resource}_request")
+        limit = item.properties.get(f"fair:{resource}_limit")
+        if not (isinstance(request, str) and isinstance(limit, str)):
+            continue
+        try:
+            below = _quantity(limit) < _quantity(request)
+        except ValueError:
+            # The schema check already reports a value that is not a quantity.
+            continue
+        if below:
+            errors.append(f"fair:{resource}_limit {limit} is below fair:{resource}_request {request}")
     return errors
 
 

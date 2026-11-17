@@ -12,6 +12,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - add ZenML integration for model promotion and STAC catalog synchronization
 - implement STAC catalog management and builders for datasets and models
 
+## v0.3.35 (2026-11-17)
+
+### Fix
+
+- **cpu-limit**: add cpu memory limit to the schema itself
+
 ## v0.3.34 (2026-11-16)
 
 ### Fix

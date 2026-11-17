@@ -55,7 +55,7 @@ RUN --mount=type=cache,target=/python/.cache/uv \
     uv venv && uv pip install \
     "fair-py-ops[serve]==${FAIR_PY_OPS_VERSION}" \
     onnxruntime==1.28.0 \
-    geomltoolkits==2.1.0 \
+    geomltoolkits==2.1.2 \
     omegaconf==2.3.0 \
     && uv pip install --no-deps "dda @ git+https://github.com/hotosm/dda@${DDA_REF}"
 COPY models/dinov3_damage/pipeline.py /app/models/dinov3_damage/pipeline.py

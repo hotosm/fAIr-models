@@ -1,0 +1,497 @@
+{
+  "type": "Feature",
+  "stac_version": "1.1.0",
+  "stac_extensions": [
+    "https://stac-extensions.github.io/mlm/v1.5.1/schema.json",
+    "https://stac-extensions.github.io/version/v1.2.0/schema.json",
+    "https://stac-extensions.github.io/classification/v2.0.0/schema.json",
+    "https://stac-extensions.github.io/file/v2.1.0/schema.json",
+    "https://stac-extensions.github.io/raster/v1.1.0/schema.json",
+    "https://stac-extensions.github.io/datacube/v2.3.0/schema.json",
+    "https://hotosm.github.io/fAIr-models/schemas/v1.0.0/base-model/schema.json"
+  ],
+  "id": "unet-roads",
+  "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+      [
+        [
+          -180,
+          -90
+        ],
+        [
+          180,
+          -90
+        ],
+        [
+          180,
+          90
+        ],
+        [
+          -180,
+          90
+        ],
+        [
+          -180,
+          -90
+        ]
+      ]
+    ]
+  },
+  "bbox": [
+    -180,
+    -90,
+    180,
+    90
+  ],
+  "properties": {
+    "datetime": "2026-11-01T00:00:00Z",
+    "created": "2026-11-01T00:00:00Z",
+    "updated": "2026-11-05T00:00:00Z",
+    "title": "Road Surface (U-Net)",
+    "description": "A U-Net with a ResNet34 encoder that segments roads in very high resolution RGB aerial and satellite imagery and returns the road surface as polygons. The road probability maps of a request are mosaicked, thresholded, vectorised, simplified and filtered by area. Trained on SpaceNet 3 roads (Khartoum, Paris) and fine-tuned on OpenAerialMap drone imagery with OpenStreetMap highways (Maputo, Freetown, Dar es Salaam). Fine-tunable on any road surface polygon dataset.",
+    "mlm:name": "unet-roads",
+    "mlm:architecture": "U-Net (ResNet34 encoder)",
+    "mlm:tasks": [
+      "semantic-segmentation"
+    ],
+    "mlm:framework": "PyTorch",
+    "mlm:framework_version": "2.14.1",
+    "mlm:pretrained": true,
+    "mlm:pretrained_source": "SpaceNet 3 roads (Khartoum, Paris), then OpenStreetMap highways over OpenAerialMap drone imagery (Maputo, Freetown, Dar es Salaam); ImageNet encoder",
+    "fair:recommended_zoom": 19,
+    "fair:preview": {
+      "center": [
+        85.5205,
+        27.6295
+      ],
+      "zoom": {
+        "recommended": 19,
+        "min": 17,
+        "max": 21
+      },
+      "imagery": {
+        "url": "https://tiles.openaerialmap.org/62d85d11d8499800053796c1/0/62d85d11d8499800053796c2/{z}/{x}/{y}",
+        "type": "tms",
+        "name": "OpenAerialMap - Banepa",
+        "attribution": "OpenAerialMap"
+      },
+      "place": {
+        "name": "Banepa",
+        "country": "Nepal",
+        "country_code": "NP"
+      }
+    },
+    "keywords": [
+      "road",
+      "semantic-segmentation",
+      "polygon"
+    ],
+    "license": "CC-BY-SA-4.0",
+    "version": "1",
+    "deprecated": false,
+    "providers": [
+      {
+        "name": "Rafael Cardoso",
+        "roles": [
+          "producer"
+        ]
+      },
+      {
+        "name": "HOTOSM",
+        "roles": [
+          "host"
+        ],
+        "url": "https://www.hotosm.org",
+        "description": "Humanitarian OpenStreetMap Team"
+      }
+    ],
+    "fair:metrics_spec": [
+      {
+        "key": "iou_road",
+        "name": "Road IoU",
+        "description": "Intersection over union of predicted and labelled road pixels on the held-out chips."
+      },
+      {
+        "key": "relaxed_precision",
+        "name": "Relaxed precision",
+        "description": "Share of the predicted road mask's centreline within the relaxed tolerance of the labelled mask's centreline."
+      },
+      {
+        "key": "relaxed_recall",
+        "name": "Relaxed recall",
+        "description": "Share of the labelled road mask's centreline within the relaxed tolerance of the predicted mask's centreline."
+      },
+      {
+        "key": "relaxed_f1",
+        "name": "Relaxed F1",
+        "description": "Harmonic mean of relaxed precision and relaxed recall."
+      }
+    ],
+    "fair:split_spec": {
+      "strategy": "spatial",
+      "default_ratio": 0.2,
+      "seed": 42,
+      "description": "Blocks of neighbouring OpenAerialMap tiles are held out together so a road never runs across train and validation; small datasets fall back to holding out single chips."
+    },
+    "fair:hyperparameters_spec": [
+      {
+        "key": "val_ratio",
+        "name": "Validation ratio",
+        "description": "Fraction of chips held out for validation.",
+        "type": "float",
+        "default": 0.2,
+        "min": 0.1,
+        "max": 0.5
+      },
+      {
+        "key": "split_seed",
+        "name": "Split seed",
+        "description": "Random seed for the train and validation split.",
+        "type": "int",
+        "default": 42,
+        "min": 0,
+        "max": 100000
+      },
+      {
+        "key": "block_size",
+        "name": "Split block size",
+        "description": "Side length, in tiles, of the spatial blocks held out together.",
+        "type": "int",
+        "default": 4,
+        "min": 1,
+        "max": 32
+      },
+      {
+        "key": "epochs",
+        "name": "Epochs",
+        "description": "Passes over the training chips.",
+        "type": "int",
+        "default": 20,
+        "min": 1,
+        "max": 300
+      },
+      {
+        "key": "batch_size",
+        "name": "Batch size",
+        "description": "Chips per optimisation step.",
+        "type": "int",
+        "default": 8,
+        "min": 1,
+        "max": 64
+      },
+      {
+        "key": "learning_rate",
+        "name": "Learning rate",
+        "description": "AdamW learning rate.",
+        "type": "float",
+        "default": 5e-05,
+        "min": 1e-06,
+        "max": 0.01
+      },
+      {
+        "key": "road_width_m",
+        "name": "Road width (m)",
+        "description": "Width that line or point labels are buffered to before they are burned into training masks; polygon labels are burned as drawn.",
+        "type": "float",
+        "default": 6.0,
+        "min": 1.0,
+        "max": 30.0
+      },
+      {
+        "key": "relaxed_tolerance_px",
+        "name": "Relaxed tolerance (px)",
+        "description": "Distance, in model pixels, within which the centrelines of the predicted and labelled road masks count as matching.",
+        "type": "int",
+        "default": 3,
+        "min": 0,
+        "max": 20
+      },
+      {
+        "key": "confidence_threshold",
+        "name": "Confidence threshold",
+        "description": "Minimum road probability for a pixel to be part of a road polygon.",
+        "type": "float",
+        "default": 0.5,
+        "min": 0.0,
+        "max": 1.0
+      },
+      {
+        "key": "min_area_m2",
+        "name": "Minimum area (m2)",
+        "description": "Road polygons smaller than this are dropped as noise.",
+        "type": "float",
+        "default": 30.0,
+        "min": 0.0,
+        "max": 10000.0
+      },
+      {
+        "key": "simplify_m",
+        "name": "Simplification tolerance (m)",
+        "description": "Douglas-Peucker tolerance applied to the road polygons.",
+        "type": "float",
+        "default": 0.5,
+        "min": 0.0,
+        "max": 10.0
+      },
+      {
+        "key": "photometric_augment",
+        "name": "Colour and zoom augmentation",
+        "description": "Apply random brightness, contrast, saturation, gamma, channel shift, noise and zoom during training.",
+        "type": "bool",
+        "default": true
+      }
+    ],
+    "mlm:input": [
+      {
+        "name": "image",
+        "bands": [
+          {
+            "name": "red"
+          },
+          {
+            "name": "green"
+          },
+          {
+            "name": "blue"
+          }
+        ],
+        "input": {
+          "shape": [
+            -1,
+            3,
+            256,
+            256
+          ],
+          "dim_order": [
+            "batch",
+            "bands",
+            "height",
+            "width"
+          ],
+          "data_type": "float32"
+        },
+        "pre_processing_function": {
+          "format": "python",
+          "expression": "models.unet_roads.pipeline:preprocess"
+        }
+      }
+    ],
+    "mlm:output": [
+      {
+        "name": "road logits",
+        "tasks": [
+          "semantic-segmentation"
+        ],
+        "result": {
+          "shape": [
+            -1,
+            1,
+            256,
+            256
+          ],
+          "dim_order": [
+            "batch",
+            "channel",
+            "height",
+            "width"
+          ],
+          "data_type": "float32"
+        },
+        "classification:classes": [
+          {
+            "name": "background",
+            "value": 0,
+            "description": "Non-road pixels"
+          },
+          {
+            "name": "road",
+            "value": 1,
+            "description": "Road pixels"
+          }
+        ],
+        "post_processing_function": {
+          "format": "python",
+          "expression": "models.unet_roads.pipeline:postprocess"
+        }
+      },
+      {
+        "name": "roads",
+        "description": "Road surface polygons vectorised from the thresholded road mask, one row per feature.",
+        "tasks": [
+          "semantic-segmentation"
+        ],
+        "result": {
+          "shape": [
+            -1,
+            2
+          ],
+          "dim_order": [
+            "batch",
+            "variables"
+          ],
+          "data_type": "float32"
+        },
+        "variables": [
+          "class",
+          "label"
+        ],
+        "classification:classes": [
+          {
+            "name": "road",
+            "value": 1,
+            "description": "Road surface"
+          }
+        ],
+        "post_processing_function": {
+          "format": "python",
+          "expression": "models.unet_roads.pipeline:postprocess"
+        }
+      }
+    ],
+    "cube:dimensions": {
+      "features": {
+        "type": "geometry",
+        "bbox": [
+          -180,
+          -90,
+          180,
+          90
+        ],
+        "geometry_types": [
+          "Polygon",
+          "MultiPolygon"
+        ],
+        "reference_system": 4326
+      }
+    },
+    "cube:variables": {
+      "label": {
+        "dimensions": [
+          "features"
+        ],
+        "type": "data",
+        "description": "Class name of the predicted class (road).",
+        "values": [
+          "road"
+        ]
+      },
+      "class": {
+        "dimensions": [
+          "features"
+        ],
+        "type": "data",
+        "description": "Predicted class value (1 = road).",
+        "values": [
+          1
+        ],
+        "data_type": "uint8"
+      }
+    },
+    "mlm:hyperparameters": {
+      "training.val_ratio": 0.2,
+      "training.split_seed": 42,
+      "training.block_size": 4,
+      "training.epochs": 20,
+      "training.batch_size": 8,
+      "training.learning_rate": 5e-05,
+      "training.road_width_m": 6.0,
+      "training.relaxed_tolerance_px": 3,
+      "inference.confidence_threshold": 0.5,
+      "inference.simplify_m": 0.5,
+      "training.photometric_augment": true,
+      "inference.min_area_m2": 30.0
+    }
+  },
+  "assets": {
+    "checkpoint": {
+      "href": "https://huggingface.co/Rafael990/unet-roads/resolve/main/unet-roads.pt",
+      "type": "application/octet-stream; framework=pytorch",
+      "roles": [
+        "mlm:model",
+        "mlm:weights"
+      ],
+      "mlm:artifact_type": "torch.save",
+      "raster:bands": [
+        {
+          "name": "red"
+        },
+        {
+          "name": "green"
+        },
+        {
+          "name": "blue"
+        }
+      ]
+    },
+    "model": {
+      "href": "https://huggingface.co/Rafael990/unet-roads/resolve/main/unet-roads.onnx",
+      "type": "application/octet-stream; framework=onnx",
+      "roles": [
+        "mlm:model",
+        "mlm:compiled"
+      ],
+      "mlm:artifact_type": "onnx",
+      "raster:bands": [
+        {
+          "name": "red"
+        },
+        {
+          "name": "green"
+        },
+        {
+          "name": "blue"
+        }
+      ]
+    },
+    "source-code": {
+      "href": "https://github.com/hotosm/fAIr-models/tree/develop/models/unet_roads",
+      "type": "text/html",
+      "roles": [
+        "code"
+      ],
+      "mlm:entrypoint": "models.unet_roads.pipeline:predict"
+    },
+    "mlm:training": {
+      "href": "ghcr.io/hotosm/fair-models/unet_roads:latest",
+      "type": "application/vnd.oci.image.index.v1+json",
+      "roles": [
+        "mlm:training-runtime"
+      ]
+    },
+    "mlm:inference": {
+      "href": "ghcr.io/hotosm/fair-models/unet_roads:latest-inference",
+      "type": "application/vnd.oci.image.index.v1+json",
+      "roles": [
+        "mlm:inference-runtime"
+      ]
+    },
+    "readme": {
+      "href": "https://raw.githubusercontent.com/hotosm/fAIr-models/refs/heads/develop/models/unet_roads/README.md",
+      "type": "text/markdown",
+      "roles": [
+        "metadata"
+      ]
+    }
+  },
+  "links": [
+    {
+      "rel": "license",
+      "href": "https://creativecommons.org/licenses/by-sa/4.0/",
+      "type": "text/html",
+      "title": "Creative Commons Attribution-ShareAlike 4.0"
+    },
+    {
+      "rel": "cite-as",
+      "href": "https://doi.org/10.1007/978-3-319-24574-4_28",
+      "type": "text/html",
+      "title": "Ronneberger et al. 2015, U-Net"
+    },
+    {
+      "rel": "cite-as",
+      "href": "https://arxiv.org/abs/1807.01232",
+      "type": "text/html",
+      "title": "Van Etten et al. 2018, SpaceNet: A Remote Sensing Dataset and Challenge Series"
+    }
+  ]
+}

@@ -61,22 +61,14 @@ def preprocess(image_path: Any, params: dict[str, Any] | None = None) -> Any:
     return preprocess_chip(image_path, parse_preprocess_params(params))
 
 
-def postprocess(raw_output: Any, params: dict[str, Any] | None = None) -> Any:
-    """The probability map of one chip -> polygons in model-input pixels (threshold, trace, minimum area, simplify).
+def postprocess(raw_output: Any, params: dict[str, Any] | None = None) -> dict[str, Any]:
+    """`ts_hot.predict_session` output -> the FeatureCollection: threshold, trace, minimum area, simplify, georeference.
 
-    No CRS is involved here: `ts_hot.predict_session` georeferences the polygons.
+    The decoding keys are the `inference.*` parameters; the features get the fAIr property names.
     """
-    from ts_hot import parse_postprocess_params
-    from ts_hot.decode import decode_polygons
+    from ts_hot import postprocess_outputs
 
-    return decode_polygons(raw_output, parse_postprocess_params(params))
-
-
-def predict(session: Any, input_images: dict[str, str], params: dict[str, Any]) -> dict[str, Any]:
-    """Module-level predict for `fair.serve.base`: `ts_hot.predict_session`, features renamed to the fAIr schema."""
-    from ts_hot import predict_session
-
-    collection = predict_session(session, resolve_directory(input_images[IMAGE_INPUT]), params)
+    collection = postprocess_outputs(raw_output, params)
     for feature in collection["features"]:
         props = feature["properties"]
         feature["properties"] = {
@@ -86,6 +78,16 @@ def predict(session: Any, input_images: dict[str, str], params: dict[str, Any]) 
             "source": props["source"],
         }
     return collection
+
+
+def predict(session: Any, input_images: dict[str, str], params: dict[str, Any]) -> dict[str, Any]:
+    """Module-level predict for `fair.serve.base` and `run_inference`: inference, then `postprocess`."""
+    from ts_hot import predict_session
+
+    chips_dir = resolve_directory(input_images[IMAGE_INPUT])
+    chip_probabilities = predict_session(session, chips_dir, params)
+    predictions = postprocess(chip_probabilities, params)
+    return predictions
 
 
 @step

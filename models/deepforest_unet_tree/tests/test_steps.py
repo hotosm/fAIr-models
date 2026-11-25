@@ -98,8 +98,9 @@ def test_train_model(
     trained = torch.load(io.BytesIO(model_bytes), map_location="cpu", weights_only=True)
     base = torch.load(io.BytesIO(unet_checkpoint), map_location="cpu", weights_only=True)
     assert trained.keys() == base.keys()
-    # The encoder is frozen by default; the decoder head must have moved.
-    assert torch.equal(trained["encoder.layer4.2.conv3.weight"], base["encoder.layer4.2.conv3.weight"])
+    # By default the encoder is frozen except layer4 (trained at a tenth of the rate); the decoder head must have moved.
+    assert torch.equal(trained["encoder.layer3.5.conv3.weight"], base["encoder.layer3.5.conv3.weight"])
+    assert not torch.equal(trained["encoder.layer4.2.conv3.weight"], base["encoder.layer4.2.conv3.weight"])
     assert not torch.equal(trained["head.weight"], base["head.weight"])
 
 
@@ -192,3 +193,26 @@ def test_predict_declares_every_feature_variable(
         assert feature["geometry"]["type"] == "Polygon"
         assert set(feature["properties"]) == {"class", "label", "confidence", "source"}
         assert feature["properties"]["class"] == 1 and feature["properties"]["label"] == "tree"
+
+
+@pytest.fixture(scope="session")
+def onnx_session(unet_checkpoint: bytes) -> Any:
+    import onnxruntime as ort
+
+    from models.deepforest_unet_tree.pipeline import export_onnx
+
+    onnx_bytes = export_onnx.entrypoint(trained_model=unet_checkpoint, hyperparameters={})
+    return ort.InferenceSession(onnx_bytes, providers=["CPUExecutionProvider"])
+
+
+def test_predict_inference_params_act_and_empty_params_work(toy_chips: Path, onnx_session: Any) -> None:
+    from models.deepforest_unet_tree.pipeline import predict
+
+    images = {"image": str(toy_chips)}
+    scale = {"model_gsd_m": 0.3}
+    everything = predict(onnx_session, images, {**scale, "confidence_threshold": 0.0})  # the fAIr alias of threshold
+    assert everything["features"]
+    # Random weights give probabilities strictly below 1, so a threshold of 1 or a huge minimum area leaves nothing.
+    assert predict(onnx_session, images, {**scale, "threshold": 1.0}) == {"type": "FeatureCollection", "features": []}
+    assert not predict(onnx_session, images, {**scale, "threshold": 0.0, "min_area_px": 10**9})["features"]
+    assert predict(onnx_session, images, {})["type"] == "FeatureCollection"  # empty params use the documented defaults

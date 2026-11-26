@@ -12,6 +12,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - add ZenML integration for model promotion and STAC catalog synchronization
 - implement STAC catalog management and builders for datasets and models
 
+## v0.3.36 (2026-11-26)
+
+### Feat
+
+- add ChesapeakeRSC v2 road model
+
+### Fix
+
+- **bundle**: fixes bundle to be produced by the fair models itself
+- supply Chesapeake sample for upstream example runner
+- use road fixtures in the Chesapeake example
+- align road predictions with current output requirements
+- **bump**: geomltoolkits version in dino damage
+
+### Refactor
+
+- keep Chesapeake example fix scoped
+- trim road pipeline allocations and fixtures
+- use Rasterio for coordinate transforms
+- keep road contribution scoped to the model
+- simplify road inference and model docs
+
 ## v0.3.35 (2026-11-17)
 
 ### Fix

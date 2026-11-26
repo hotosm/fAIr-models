@@ -1,0 +1,122 @@
+{
+  "type": "Feature",
+  "stac_version": "1.1.0",
+  "stac_extensions": [
+    "https://stac-extensions.github.io/label/v1.0.1/schema.json",
+    "https://stac-extensions.github.io/file/v2.1.0/schema.json",
+    "https://stac-extensions.github.io/version/v1.2.0/schema.json",
+    "https://hotosm.github.io/fAIr-models/schemas/v1.0.0/dataset/schema.json"
+  ],
+  "id": "unet-roads-sample",
+  "geometry": {
+    "type": "MultiPolygon",
+    "coordinates": [
+      [
+        [
+          [
+            85.5182716369629,
+            27.634272342140697
+          ],
+          [
+            85.52100448608398,
+            27.634272342140697
+          ],
+          [
+            85.52100448608398,
+            27.6366918515693
+          ],
+          [
+            85.5182716369629,
+            27.6366918515693
+          ],
+          [
+            85.5182716369629,
+            27.634272342140697
+          ]
+        ]
+      ]
+    ]
+  },
+  "bbox": [
+    85.5182716369629,
+    27.634272342140697,
+    85.52100448608398,
+    27.6366918515693
+  ],
+  "properties": {
+    "title": "unet-roads sample: Banepa roads",
+    "description": "Sixteen OpenAerialMap drone chips of Banepa, Nepal, at zoom 19 with OpenStreetMap highway centrelines, for the fAIr example run and CI.",
+    "label:type": "vector",
+    "label:tasks": [
+      "semantic-segmentation"
+    ],
+    "label:classes": [
+      {
+        "name": "highway",
+        "classes": [
+          "residential",
+          "track",
+          "unclassified"
+        ]
+      }
+    ],
+    "label:properties": [
+      "highway"
+    ],
+    "keywords": [
+      "road",
+      "semantic-segmentation",
+      "line"
+    ],
+    "fair:user_id": "anonymous",
+    "version": "1",
+    "deprecated": false,
+    "providers": [
+      {
+        "name": "Rafael Cardoso",
+        "roles": [
+          "producer"
+        ]
+      },
+      {
+        "name": "OpenStreetMap contributors",
+        "roles": [
+          "licensor"
+        ],
+        "url": "https://www.openstreetmap.org/copyright"
+      }
+    ],
+    "fair:source_imagery": "https://tiles.openaerialmap.org/62d85d11d8499800053796c1/0/62d85d11d8499800053796c2/{z}/{x}/{y}",
+    "fair:geometry_type": "line",
+    "license": "ODbL-1.0",
+    "label:description": "OpenStreetMap highway centrelines (residential, unclassified, track) inside the chips",
+    "created": "2026-11-26T14:43:27.937379+00:00",
+    "updated": "2026-11-26T14:43:27.937379+00:00",
+    "datetime": "2026-11-26T14:43:27.937379Z"
+  },
+  "links": [
+    {
+      "rel": "source",
+      "href": "https://tiles.openaerialmap.org/62d85d11d8499800053796c1/0/62d85d11d8499800053796c2/{z}/{x}/{y}",
+      "title": "Imagery for input image"
+    }
+  ],
+  "assets": {
+    "chips-image": {
+      "href": "chips-image",
+      "type": "image/tiff; application=geotiff",
+      "title": "Chips for input image",
+      "roles": [
+        "data"
+      ]
+    },
+    "labels": {
+      "href": "labels/labels.geojson",
+      "type": "application/geo+json",
+      "title": "Training labels",
+      "roles": [
+        "labels"
+      ]
+    }
+  }
+}

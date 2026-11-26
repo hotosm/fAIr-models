@@ -71,7 +71,10 @@ def test_predict_returns_road_polygons(generate_toy_dataset: dict[str, Any]) -> 
     assert result["type"] == "FeatureCollection"
     assert result["features"]
     assert {f["geometry"]["type"] for f in result["features"]} <= {"Polygon", "MultiPolygon"}
-    assert all(f["properties"] == {"class": 1, "label": "road"} for f in result["features"])
+    for f in result["features"]:
+        assert f["properties"]["class"] == 1
+        assert 0.0 <= f["properties"]["confidence"] <= 1.0
+        assert set(f["properties"]) == {"class", "confidence"}
 
 
 def test_predict_merges_chips_into_one_polygon(generate_toy_dataset: dict[str, Any]) -> None:

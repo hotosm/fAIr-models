@@ -61,7 +61,11 @@ def create_toy_data(root: Path) -> dict[str, Any]:
             [BASE_LON, centre - half],
         ]
         roads.append(
-            {"type": "Feature", "properties": {"label": 1}, "geometry": {"type": "Polygon", "coordinates": [ring]}}
+            {
+                "type": "Feature",
+                "properties": {"highway": "residential", "label": 1},
+                "geometry": {"type": "Polygon", "coordinates": [ring]},
+            }
         )
 
     labels_dir = root / "labels"
@@ -91,7 +95,8 @@ def _build_dataset_stac_item(chips_dir: Path, labels_dir: Path) -> dict[str, Any
             "description": "Toy road surface dataset",
             "label:type": "vector",
             "label:tasks": ["segmentation"],
-            "label:classes": [{"name": "highway", "classes": ["*"]}],
+            "label:properties": ["highway"],
+            "label:classes": [{"name": "highway", "classes": ["residential"]}],
             "label:description": "Road surface polygons",
             "keywords": ["road", "polygon"],
             "fair:user_id": "test",

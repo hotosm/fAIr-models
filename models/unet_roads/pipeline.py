@@ -184,11 +184,12 @@ def _polygon_features(probability: Any, transform: Any, crs: Any, params: dict[s
     """Threshold one probability raster and vectorise the road mask into WGS84 polygon features."""
     import numpy as np
     from pyproj import Geod, Transformer
-    from rasterio.features import shapes
+    from rasterio.features import geometry_mask, shapes
     from shapely.geometry import mapping, shape
     from shapely.ops import transform as shapely_transform
 
-    mask = (np.asarray(probability) >= float(params["confidence_threshold"])).astype(np.uint8)
+    probability = np.asarray(probability, dtype=np.float32)
+    mask = (probability >= float(params["confidence_threshold"])).astype(np.uint8)
     to_wgs84 = Transformer.from_crs(crs, "EPSG:4326", always_xy=True)
     geod = Geod(ellps="WGS84")
     width = mask.shape[1]
@@ -198,6 +199,9 @@ def _polygon_features(probability: Any, transform: Any, crs: Any, params: dict[s
     tolerance = float(params["simplify_m"]) / pixel_m * abs(transform.a)
     features = []
     for geometry, _ in shapes(mask, mask=mask.astype(bool), transform=transform):
+        # Confidence is the mean road probability over the raw (unsimplified) polygon.
+        inside = geometry_mask([geometry], out_shape=mask.shape, transform=transform, invert=True)
+        confidence = round(float(probability[inside].mean()), 4) if inside.any() else 0.0
         polygon = shape(geometry).simplify(tolerance, preserve_topology=True)
         if not polygon.is_valid:
             polygon = polygon.buffer(0)
@@ -207,7 +211,11 @@ def _polygon_features(probability: Any, transform: Any, crs: Any, params: dict[s
         if abs(geod.geometry_area_perimeter(geo_polygon)[0]) < float(params["min_area_m2"]):
             continue
         features.append(
-            {"type": "Feature", "properties": {"class": 1, "label": "road"}, "geometry": mapping(geo_polygon)}
+            {
+                "type": "Feature",
+                "properties": {"class": 1, "confidence": confidence},
+                "geometry": mapping(geo_polygon),
+            }
         )
     return features
 

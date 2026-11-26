@@ -47,7 +47,7 @@
   "properties": {
     "datetime": "2026-11-01T00:00:00Z",
     "created": "2026-11-01T00:00:00Z",
-    "updated": "2026-11-05T00:00:00Z",
+    "updated": "2026-11-26T00:00:00Z",
     "title": "Road Surface (U-Net)",
     "description": "A U-Net with a ResNet34 encoder that segments roads in very high resolution RGB aerial and satellite imagery and returns the road surface as polygons. The road probability maps of a request are mosaicked, thresholded, vectorised, simplified and filtered by area. Trained on SpaceNet 3 roads (Khartoum, Paris) and fine-tuned on OpenAerialMap drone imagery with OpenStreetMap highways (Maputo, Freetown, Dar es Salaam). Fine-tunable on any road surface polygon dataset.",
     "mlm:name": "unet-roads",
@@ -62,8 +62,8 @@
     "fair:recommended_zoom": 19,
     "fair:preview": {
       "center": [
-        85.5205,
-        27.6295
+        85.5203,
+        27.6349
       ],
       "zoom": {
         "recommended": 19,
@@ -307,7 +307,12 @@
           {
             "name": "road",
             "value": 1,
-            "description": "Road pixels"
+            "description": "Road pixels",
+            "fair:osm_tags": {
+              "highway": [
+                "*"
+              ]
+            }
           }
         ],
         "post_processing_function": {
@@ -334,13 +339,18 @@
         },
         "variables": [
           "class",
-          "label"
+          "confidence"
         ],
         "classification:classes": [
           {
             "name": "road",
             "value": 1,
-            "description": "Road surface"
+            "description": "Road surface",
+            "fair:osm_tags": {
+              "highway": [
+                "*"
+              ]
+            }
           }
         ],
         "post_processing_function": {
@@ -366,16 +376,6 @@
       }
     },
     "cube:variables": {
-      "label": {
-        "dimensions": [
-          "features"
-        ],
-        "type": "data",
-        "description": "Class name of the predicted class (road).",
-        "values": [
-          "road"
-        ]
-      },
       "class": {
         "dimensions": [
           "features"
@@ -386,6 +386,18 @@
           1
         ],
         "data_type": "uint8"
+      },
+      "confidence": {
+        "dimensions": [
+          "features"
+        ],
+        "type": "data",
+        "description": "Mean road probability over the polygon.",
+        "extent": [
+          0,
+          1
+        ],
+        "data_type": "float32"
       }
     },
     "mlm:hyperparameters": {
@@ -401,7 +413,11 @@
       "inference.simplify_m": 0.5,
       "training.photometric_augment": true,
       "inference.min_area_m2": 30.0
-    }
+    },
+    "fair:label_geometry_types": [
+      "line",
+      "polygon"
+    ]
   },
   "assets": {
     "checkpoint": {

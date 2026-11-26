@@ -65,6 +65,14 @@ serve = [
   "starlette>=0.40,<0.46",
   "uvicorn[standard]>=0.34",
 ]
+bundle = [
+  "geopandas>=1.2",
+  "mercantile>=1.2.1",
+  "pillow>=11",
+  "pmtiles>=3.8.1",
+  "pyarrow>=21",
+  "rasterio>=1.4",
+]
 
 [project.urls]
 Homepage = "https://github.com/hotosm/fAIr-models"

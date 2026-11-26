@@ -960,6 +960,15 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
+bundle = [
+    { name = "geopandas" },
+    { name = "mercantile" },
+    { name = "pillow" },
+    { name = "pmtiles" },
+    { name = "pyarrow" },
+    { name = "rasterio", version = "1.4.4", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
+    { name = "rasterio", version = "1.5.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
+]
 k8s = [
     { name = "kubernetes" },
     { name = "opentelemetry-proto" },
@@ -1018,18 +1027,24 @@ docs = [
 requires-dist = [
     { name = "aiohttp", specifier = ">=3.13.3" },
     { name = "geomltoolkits", marker = "extra == 'serve'", specifier = ">=2.1.2" },
+    { name = "geopandas", marker = "extra == 'bundle'", specifier = ">=1.2" },
     { name = "httpx", specifier = ">=0.28.1" },
     { name = "kubernetes", marker = "extra == 'k8s'", specifier = "==35.0.0" },
     { name = "kubernetes", marker = "extra == 'test'", specifier = "==35.0.0" },
+    { name = "mercantile", marker = "extra == 'bundle'", specifier = ">=1.2.1" },
     { name = "mercantile", marker = "extra == 'serve'", specifier = ">=1.2.1" },
     { name = "mlflow", specifier = ">=2.1.1,<4" },
     { name = "onnxruntime", specifier = ">=1.24.4,<1.29" },
     { name = "opentelemetry-proto", marker = "extra == 'k8s'", specifier = ">=1.25.0" },
+    { name = "pillow", marker = "extra == 'bundle'", specifier = ">=11" },
+    { name = "pmtiles", marker = "extra == 'bundle'", specifier = ">=3.8.1" },
+    { name = "pyarrow", marker = "extra == 'bundle'", specifier = ">=21" },
     { name = "pypgstac", extras = ["psycopg"], marker = "extra == 'k8s'", specifier = ">=0.9" },
     { name = "pystac", extras = ["validation"], specifier = ">=1.14.3,<2" },
     { name = "pystac-client", marker = "extra == 'k8s'", specifier = ">=0.9,<1" },
     { name = "pytest", marker = "extra == 'test'", specifier = ">=8.0" },
     { name = "pytest-cov", marker = "extra == 'test'", specifier = ">=6.0" },
+    { name = "rasterio", marker = "extra == 'bundle'", specifier = ">=1.4" },
     { name = "reverse-geocode", specifier = ">=1.6.6" },
     { name = "s3fs", marker = "extra == 'serve'", specifier = ">=2025.3.0" },
     { name = "shapely", marker = "extra == 'serve'", specifier = ">=2.0" },
@@ -1041,7 +1056,7 @@ requires-dist = [
     { name = "zenml", extras = ["connectors-aws", "connectors-kubernetes", "s3fs", "server"], marker = "extra == 'k8s'", specifier = "==0.94.2" },
     { name = "zenml", extras = ["server"], marker = "extra == 'test'", specifier = "==0.94.2" },
 ]
-provides-extras = ["k8s", "serve", "test"]
+provides-extras = ["bundle", "k8s", "serve", "test"]
 
 [package.metadata.requires-dev]
 ci = [
@@ -1353,7 +1368,7 @@ wheels = [
 
 [[package]]
 name = "geopandas"
-version = "1.1.2"
+version = "1.2.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "numpy" },
@@ -1363,9 +1378,9 @@ dependencies = [
     { name = "pyproj" },
     { name = "shapely" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/8d/24/5eb5685d7bf89d64218919379f882d19a60f8219d66d833c83b1cf264c95/geopandas-1.1.2.tar.gz", hash = "sha256:33f7b33565c46a45b8459a2ab699ec943fdbb5716e58e251b3c413cf7783106c", size = 336037, upload-time = "2025-12-22T21:06:13.749Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/d3/6b/079d42d468f6537b0e8ba04ad411d53fe6b03070801e5b85328b01d28772/geopandas-1.2.0.tar.gz", hash = "sha256:72425b0dec1b77122b1e00f72c2b3b91f320cf0331ae236d37e26865e8808628", size = 337713, upload-time = "2026-09-28T15:53:57.721Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/54/e4/fac19dc34cb686c96011388b813ff7b858a70681e5ce6ce7698e5021b0f4/geopandas-1.1.2-py3-none-any.whl", hash = "sha256:2bb0b1052cb47378addb4ba54c47f8d4642dcbda9b61375638274f49d9f0bb0d", size = 341734, upload-time = "2025-12-22T21:06:12.498Z" },
+    { url = "https://files.pythonhosted.org/packages/c7/26/10e1061c79b388621b7bae46fcd4942a8c62f960018adf4c38719e9e91ac/geopandas-1.2.0-py3-none-any.whl", hash = "sha256:948fd57df4f713697d5cce149333c0e4714965320c9f5ffa411666c577962eba", size = 368068, upload-time = "2026-09-28T15:53:55.62Z" },
 ]
 
 [[package]]
@@ -2938,6 +2953,15 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/f9/e2/3e91f31a7d2b083fe6ef3fa267035b518369d9511ffab804f839851d2779/pluggy-1.6.0.tar.gz", hash = "sha256:7dcc130b76258d33b90f61b658791dede3486c3e6bfb003ee5c9bfb396dd22f3", size = 69412, upload-time = "2025-05-15T12:30:07.975Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/54/20/4d324d65cc6d9205fabedc306948156824eb9f0ee1633355a8f7ec5c66bf/pluggy-1.6.0-py3-none-any.whl", hash = "sha256:e920276dd6813095e9377c0bc5566d94c932c33b27a3e3945d8389c374dd4746", size = 20538, upload-time = "2025-05-15T12:30:06.134Z" },
+]
+
+[[package]]
+name = "pmtiles"
+version = "3.8.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/b9/b4/d1f0d62e37c885c441ef34360a72d9350ab87924ac5eb60b762ef9e14466/pmtiles-3.8.1.tar.gz", hash = "sha256:0f594a61b37fca039f06162428781f76a4233f5beea94444702f0dc41f20f007", size = 14931, upload-time = "2026-09-16T18:37:09.704Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/06/d4/1c451e0fb91caa3826a4ea34514ee6742802db3cbef3209976051e989d17/pmtiles-3.8.1-py3-none-any.whl", hash = "sha256:718561bb21f8c7dd5464fdcc3b9ad0e7b1c917be60ddfdf9a5ab56b8c67f7bde", size = 17058, upload-time = "2026-09-16T18:37:08.283Z" },
 ]
 
 [[package]]

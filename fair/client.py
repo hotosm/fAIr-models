@@ -25,6 +25,7 @@ from fair.stac.api_backend import StacApiBackend
 from fair.stac.builders import (
     BaseModelItemParams,
     DatasetItemParams,
+    add_bundle_links,
     build_base_model_item,
     build_dataset_item,
 )
@@ -453,6 +454,7 @@ class FairClient:
 
         collection_root = paths.ROOT if paths is not None else DATASETS_COLLECTION
         self._upload_assets_if_remote(dataset_item, collection_root)
+        add_bundle_links(dataset_item)
 
         if prev:
             successor_href = cat.item_href(DATASETS_COLLECTION, dataset_item.id)

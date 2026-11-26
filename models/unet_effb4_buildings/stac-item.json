@@ -99,6 +99,7 @@
     "mlm:output": [
       {
         "name": "multi-channel logits",
+        "description": "Four logit channels: 0 building mask (sigmoid > threshold is foreground), 1 normalised distance transform and 2 building boundary (auxiliary training targets, unused at inference), 3 instance centreness (h-maxima inside the mask seed the watershed).",
         "tasks": [
           "instance-segmentation"
         ],
@@ -109,24 +110,15 @@
         },
         "classification:classes": [
           {
-            "name": "mask",
+            "name": "background",
             "value": 0,
-            "description": "Channel 0: binary building/background mask logit (sigmoid > threshold → foreground)"
+            "description": "Non-building pixels"
           },
           {
-            "name": "edt",
+            "name": "building",
             "value": 1,
-            "description": "Channel 1: normalised Euclidean distance transform logit (auxiliary output, not used at inference)"
-          },
-          {
-            "name": "boundary",
-            "value": 2,
-            "description": "Channel 2: building boundary logit (auxiliary output, not used at inference)"
-          },
-          {
-            "name": "centreness",
-            "value": 3,
-            "description": "Channel 3: instance centreness logit; h-maxima inside the mask seed the watershed"
+            "description": "Building footprint",
+            "fair:osm_tags": { "building": ["*"] }
           }
         ],
         "post_processing_function": {
@@ -146,7 +138,7 @@
           "dim_order": ["batch", "variables"],
           "data_type": "float32"
         },
-        "variables": ["class", "score"],
+        "variables": ["class", "confidence"],
         "classification:classes": [
           {
             "name": "building",
@@ -176,7 +168,7 @@
         "values": [1],
         "data_type": "uint8"
       },
-      "score": {
+      "confidence": {
         "dimensions": ["features"],
         "type": "data",
         "description": "Mean building-mask probability over the polygon.",

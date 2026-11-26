@@ -38,7 +38,7 @@ the same 256 × 256 size. Inference uses the mask and the centreness map: peaks
 of the centreness map inside the mask seed a marker-controlled watershed, and
 instances smaller than 30 pixels are dropped. The distance and boundary
 channels are auxiliary training targets. Each output polygon carries `class`
-(1 = building) and `score` (mean mask probability over the polygon).
+(1 = building) and `confidence` (mean mask probability over the polygon).
 
 ## Pretrained Source
 

@@ -257,7 +257,7 @@ def _preprocess_onnx_image(img_path: Any) -> tuple[Any, Any, Any]:
 def _vectorize_instance_labels(label_map: Any, mask_prob: Any, transform: Any, crs: Any) -> list[dict[str, Any]]:
     """Convert an integer instance label map to GeoJSON features in EPSG:4326.
 
-    Each feature carries class 1 (building) and its mean mask probability as score.
+    Each feature carries class 1 (building) and its mean mask probability as confidence.
     """
     import numpy as np
     import rasterio.features
@@ -277,7 +277,7 @@ def _vectorize_instance_labels(label_map: Any, mask_prob: Any, transform: Any, c
         if transformer:
             coords = geom["coordinates"]
             geom["coordinates"] = [[list(transformer.transform(x, y)) for x, y in ring] for ring in coords]
-        properties = {"class": 1, "score": round(float(scores[int(value)]), 4)}
+        properties = {"class": 1, "confidence": round(float(scores[int(value)]), 4)}
         features.append({"type": "Feature", "properties": properties, "geometry": geom})
     return features
 

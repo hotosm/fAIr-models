@@ -43,7 +43,7 @@ jobs:
           python-version: "3.13"
           enable-cache: true
       - name: Install dependencies
-        run: uv sync --group dev
+        run: uv sync --group dev --extra bundle
       - name: Run ruff checks
         run: |
           uv run ruff check --output-format=github --no-fix .
@@ -79,7 +79,9 @@ jobs:
           python-version: "3.13"
           enable-cache: true
       - name: Install dependencies
-        run: uv sync --group dev
+        run: uv sync --group dev --extra bundle
+      - name: Install tippecanoe
+        run: sudo apt-get update && sudo apt-get install -y tippecanoe
       - name: Run pytest with coverage
         run: uv run pytest --tb=short -q --cov=fair --cov-report=term-missing
           --cov-report=xml:coverage.xml

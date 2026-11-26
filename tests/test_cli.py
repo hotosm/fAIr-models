@@ -2,9 +2,12 @@ import json
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
+import click
+import pytest
 from typer.testing import CliRunner
 
 from fair.cli import _client, app
+from fair.datasets import MaterializedDataset
 
 runner = CliRunner()
 
@@ -92,7 +95,20 @@ def test_model_train_passes_overrides(monkeypatch) -> None:
         dataset_id="d-1",
         model_name="my-model",
         overrides={"epochs": 2},
+        class_map=None,
     )
+
+
+def test_model_train_passes_the_class_map(monkeypatch) -> None:
+    client, _ = _stub_client(monkeypatch)
+    command = ["model", "train", "--base", "b", "--dataset", "d", "--name", "m", "--class-map"]
+
+    result = runner.invoke(app, [*command, '{"natural=palm": "tree"}'])
+
+    assert result.exit_code == 0, result.output
+    assert client.finetune.call_args.kwargs["class_map"] == {"natural=palm": "tree"}
+    assert runner.invoke(app, [*command, "natural=palm"]).exit_code != 0
+    assert runner.invoke(app, [*command, '{"natural=palm": 1}']).exit_code != 0
 
 
 def test_model_promote_without_out(monkeypatch) -> None:
@@ -220,7 +236,14 @@ def test_dataset_build_writes_draft(tmp_path, monkeypatch) -> None:
     geometry = {"type": "Polygon", "coordinates": _SQUARE}
     monkeypatch.setattr(
         "fair.cli.materialize_dataset",
-        lambda **kwargs: ("/data/chips", "/data/labels/labels.geojson", geometry, [0.0, 0.0, 1.0, 1.0]),
+        lambda *, out_dir, **kwargs: MaterializedDataset(
+            chips_dirs={"image": f"{out_dir}/chips-image"},
+            labels_file=f"{out_dir}/labels/labels.geojson",
+            geometry=geometry,
+            bbox=[0.0, 0.0, 1.0, 1.0],
+            label_properties=["building"],
+            label_classes=[{"name": "building", "classes": ["yes"]}],
+        ),
     )
 
     result = runner.invoke(
@@ -245,22 +268,147 @@ def test_dataset_build_writes_draft(tmp_path, monkeypatch) -> None:
     drafts = list(out.glob("dataset-*.json"))
     assert len(drafts) == 1
     item = json.loads(drafts[0].read_text())
-    assert item["assets"]["chips-image"]["href"] == "/data/chips"
-    assert item["assets"]["labels"]["href"] == "/data/labels/labels.geojson"
+    assert item["assets"]["chips-image"]["href"] == "aoi-polygon/chips-image"
+    assert item["assets"]["labels"]["href"] == "aoi-polygon/labels/labels.geojson"
     assert item["properties"]["fair:source_imagery"] == "https://tiles/{z}/{x}/{y}"
+    assert item["properties"]["license"] == "ODbL-1.0"
+    assert item["properties"]["label:properties"] == ["building"]
+    assert item["properties"]["label:classes"] == [{"name": "building", "classes": ["yes"]}]
     assert any(link["rel"] == "source" for link in item["links"])
 
 
-def test_dataset_build_requires_osm_url(tmp_path, monkeypatch) -> None:
-    monkeypatch.delenv("FAIR_RAW_DATA_API_URL", raising=False)
-    aoi = tmp_path / "aoi.geojson"
-    aoi.write_text(json.dumps({"type": "Feature", "geometry": {"type": "Polygon", "coordinates": _SQUARE}}))
+def _model_with_preview(tmp_path, inputs: list[str]):
+    preview = {
+        "center": [85.52, 27.63],
+        "zoom": {"recommended": 18},
+        "imagery": {"url": "https://post/{z}/{x}/{y}"},
+        "pre_imagery": {"url": "https://pre/{z}/{x}/{y}"},
+    }
+    model = tmp_path / "stac-item.json"
+    model.write_text(
+        json.dumps(
+            {
+                "id": "demo-model",
+                "properties": {
+                    "mlm:input": [{"name": name} for name in inputs],
+                    "mlm:output": [
+                        {
+                            "classification:classes": [
+                                {"name": "background", "value": 0},
+                                {"name": "building", "value": 1, "fair:osm_tags": {"building": ["*"]}},
+                            ]
+                        }
+                    ],
+                    "mlm:tasks": ["semantic-segmentation"],
+                    "keywords": ["building", "polygon"],
+                    "fair:preview": preview,
+                },
+            }
+        )
+    )
+    return model
+
+
+def _capture_materialize(monkeypatch) -> dict:
+    captured: dict = {}
+
+    def fake(*, out_dir, tms_urls, **kwargs):
+        captured.update(out_dir=out_dir, tms_urls=tms_urls, **kwargs)
+        return MaterializedDataset(
+            chips_dirs={name: f"{out_dir}/chips-{name}" for name in tms_urls},
+            labels_file=f"{out_dir}/labels/labels.geojson",
+            geometry={"type": "Polygon", "coordinates": _SQUARE},
+            bbox=[0, 0, 1, 1],
+            label_properties=["building"],
+            label_classes=[{"name": "building", "classes": ["yes"]}],
+        )
+
+    monkeypatch.setattr("fair.cli.materialize_dataset", fake)
+    return captured
+
+
+def test_dataset_build_from_preview_writes_a_sample_item(tmp_path, monkeypatch) -> None:
+    captured = _capture_materialize(monkeypatch)
+    model = _model_with_preview(tmp_path, ["post", "pre"])
+    out = tmp_path / "sample"
 
     result = runner.invoke(
         app,
-        ["dataset", "build", "--tms", "https://t/{z}/{x}/{y}", "--aoi", str(aoi), "--zoom", "19"],
+        ["dataset", "build", "--from-preview", str(model), "--out", str(out)],
+        env={"FAIR_RAW_DATA_API_URL": "https://osm"},
     )
+
+    assert result.exit_code == 0, result.output
+    assert captured["tms_urls"] == {"pre": "https://pre/{z}/{x}/{y}", "post": "https://post/{z}/{x}/{y}"}
+    assert captured["zoom"] == 18
+    assert captured["osm_tags"] == {"building": ["*"]}
+    item = json.loads((out / "stac-item.json").read_text())
+    assert item["assets"]["chips-pre"]["href"] == "chips-pre"
+    assert item["properties"]["fair:source_imagery"] == "https://post/{z}/{x}/{y}"
+
+
+def test_dataset_build_own_labels_need_a_license(tmp_path, monkeypatch) -> None:
+    _capture_materialize(monkeypatch)
+    labels = tmp_path / "labels.geojson"
+    labels.write_text(json.dumps({"type": "FeatureCollection", "features": []}))
+    model = _model_with_preview(tmp_path, ["image"])
+    command = ["dataset", "build", "--from-preview", str(model), "--labels", str(labels), "--out", str(tmp_path / "s")]
+
+    missing_license = runner.invoke(app, command)
+    assert missing_license.exit_code != 0
+    assert "--labels-license" in click.unstyle(missing_license.output)
+
+    result = runner.invoke(app, [*command, "--labels-license", "CC-BY-4.0"])
+    assert result.exit_code == 0, result.output
+    assert json.loads((tmp_path / "s" / "stac-item.json").read_text())["properties"]["license"] == "CC-BY-4.0"
+
+
+def test_dataset_build_tms_override_needs_a_single_input_model(tmp_path, monkeypatch) -> None:
+    _capture_materialize(monkeypatch)
+    model = _model_with_preview(tmp_path, ["post", "pre"])
+
+    result = runner.invoke(
+        app,
+        [
+            "dataset",
+            "build",
+            "--from-preview",
+            str(model),
+            "--tms",
+            "https://other/{z}/{x}/{y}",
+            "--osm-url",
+            "u",
+            "--out",
+            str(tmp_path / "s"),
+        ],
+    )
+
     assert result.exit_code != 0
+    assert "replaces one input" in result.output
+
+
+@pytest.mark.parametrize(
+    ("env_url", "flag_url", "expected"),
+    [
+        (None, None, "https://api-prod.raw-data.hotosm.org/v1"),
+        ("https://env-osm", None, "https://env-osm"),
+        ("https://env-osm", "https://flag-osm", "https://flag-osm"),
+    ],
+)
+def test_dataset_build_raw_data_url_defaults_and_overrides(tmp_path, monkeypatch, env_url, flag_url, expected) -> None:
+    captured = _capture_materialize(monkeypatch)
+    monkeypatch.delenv("FAIR_RAW_DATA_API_URL", raising=False)
+    if env_url:
+        monkeypatch.setenv("FAIR_RAW_DATA_API_URL", env_url)
+    aoi = tmp_path / "aoi.geojson"
+    aoi.write_text(json.dumps({"type": "Polygon", "coordinates": _SQUARE}))
+    command = ["dataset", "build", "--tms", "https://t/{z}/{x}/{y}", "--aoi", str(aoi), "--zoom", "19"]
+    command += ["--out", str(tmp_path / "d"), *(["--osm-url", flag_url] if flag_url else [])]
+
+    result = runner.invoke(app, command)
+
+    assert result.exit_code == 0, result.output
+    assert captured["osm_api_url"] == expected
 
 
 def test_knative_register_applies_the_service(tmp_path, monkeypatch) -> None:
@@ -315,3 +463,91 @@ def test_knative_delete_delegates(monkeypatch) -> None:
     assert result.exit_code == 0
     assert deleted == [("dinov3s_buildings", None)]
     assert "deleted dinov3s-buildings" in result.output
+
+
+def test_dataset_build_accepts_only_the_label_geometries_the_model_declares(tmp_path, monkeypatch) -> None:
+    _capture_materialize(monkeypatch)
+    model = _model_with_preview(tmp_path, ["image"])
+    out = tmp_path / "sample"
+    command = ["dataset", "build", "--from-preview", str(model), "--geometry-type", "point", "--out", str(out)]
+    env = {"FAIR_RAW_DATA_API_URL": "https://osm"}
+
+    rejected = runner.invoke(app, command, env=env)
+    assert rejected.exit_code != 0
+    assert "the model accepts" in rejected.output
+
+    item = json.loads(model.read_text())
+    item["properties"]["fair:label_geometry_types"] = ["point", "polygon"]
+    model.write_text(json.dumps(item))
+    accepted = runner.invoke(app, command, env=env)
+
+    assert accepted.exit_code == 0, accepted.output
+    properties = json.loads((out / "stac-item.json").read_text())["properties"]
+    assert properties["keywords"] == ["building", "semantic-segmentation", "point"]
+    assert properties["fair:geometry_type"] == "point"
+
+
+@pytest.mark.parametrize(
+    ("flag", "expected"),
+    [
+        ([], {"building": ["*"]}),
+        (["--osm-tags", "natural=tree,natural=shrub,building"], {"natural": ["tree", "shrub"], "building": ["*"]}),
+        (["--osm-tags", "building=house,building"], {"building": ["*"]}),
+    ],
+)
+def test_dataset_build_osm_tags_default_and_override(tmp_path, monkeypatch, flag, expected) -> None:
+    captured = _capture_materialize(monkeypatch)
+    aoi = tmp_path / "aoi.geojson"
+    aoi.write_text(json.dumps({"type": "Polygon", "coordinates": _SQUARE}))
+    command = ["dataset", "build", "--tms", "https://t/{z}/{x}/{y}", "--aoi", str(aoi), "--zoom", "19"]
+
+    result = runner.invoke(app, [*command, "--out", str(tmp_path / "d"), *flag], env={"FAIR_RAW_DATA_API_URL": "u"})
+
+    assert result.exit_code == 0, result.output
+    assert captured["osm_tags"] == expected
+
+
+def test_dataset_build_from_a_model_without_osm_tags_needs_them(tmp_path, monkeypatch) -> None:
+    _capture_materialize(monkeypatch)
+    model = _model_with_preview(tmp_path, ["image"])
+    item = json.loads(model.read_text())
+    del item["properties"]["mlm:output"][0]["classification:classes"][1]["fair:osm_tags"]
+    model.write_text(json.dumps(item))
+
+    result = runner.invoke(app, ["dataset", "build", "--from-preview", str(model), "--out", str(tmp_path / "s")])
+
+    assert result.exit_code != 0
+    assert "no fair:osm_tags" in result.output
+
+
+@pytest.mark.parametrize(
+    ("extra", "message"),
+    [
+        (["--labels", "LABELS", "--osm-tags", "building"], "--osm-tags"),
+        (["--class-property", "kind"], "--class-property"),
+    ],
+)
+def test_dataset_build_rejects_options_that_do_not_apply(tmp_path, monkeypatch, extra, message) -> None:
+    _capture_materialize(monkeypatch)
+    labels = tmp_path / "labels.geojson"
+    labels.write_text(json.dumps({"type": "FeatureCollection", "features": []}))
+    model = _model_with_preview(tmp_path, ["image"])
+    extra = [str(labels) if arg == "LABELS" else arg for arg in extra]
+
+    result = runner.invoke(
+        app,
+        [
+            "dataset",
+            "build",
+            "--from-preview",
+            str(model),
+            "--labels-license",
+            "MIT",
+            "--out",
+            str(tmp_path / "s"),
+            *extra,
+        ],
+    )
+
+    assert result.exit_code != 0
+    assert message in click.unstyle(result.output)

@@ -58,10 +58,20 @@ k8s = [
   "zenml[connectors-aws,connectors-kubernetes,s3fs,server]==0.94.2",
 ]
 serve = [
-  "geomltoolkits>=2.0.2",
+  "geomltoolkits>=2.1.2",
+  "mercantile>=1.2.1",
   "s3fs>=2025.3.0",
+  "shapely>=2.0",
   "starlette>=0.40,<0.46",
   "uvicorn[standard]>=0.34",
+]
+bundle = [
+  "geopandas>=1.2",
+  "mercantile>=1.2.1",
+  "pillow>=11",
+  "pmtiles>=3.8.1",
+  "pyarrow>=21",
+  "rasterio>=1.4",
 ]
 
 [project.urls]
@@ -81,7 +91,6 @@ include = [
   "infra/compose/docker-compose.yml",
   "infra/compose/init-db.sql",
   "stacks/compose.yaml",
-  "data/sample/",
   "fair_zenml_patch.pth",
   "LICENSE",
   "README.md",
@@ -103,7 +112,6 @@ packages = ["fair"]
 "infra/compose/docker-compose.yml" = "fair/infra/compose/docker-compose.yml"
 "infra/compose/init-db.sql" = "fair/infra/compose/init-db.sql"
 "stacks/compose.yaml" = "fair/infra/stacks/compose.yaml"
-"data/sample" = "fair/infra/data/sample"
 
 
 [dependency-groups]
@@ -115,6 +123,8 @@ dev = [
   "pytest-cov>=6.0",
   "commitizen>=4.1",
   "pre-commit>=4.0",
+  "mercantile>=1.2.1",
+  "shapely>=2.0",
 ]
 ci = [{ include-group = "dev" }]
 docs = [

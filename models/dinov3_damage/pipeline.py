@@ -19,7 +19,7 @@ MODEL_NAME = "dinov3-damage"
 POST_INPUT = "post"
 PRE_INPUT = "pre"
 DAMAGE_CLASS_COUNT = 4
-OUTPUT_VARIABLES = ["damage_class", "damage", "damage_confidence", "osm_id"]
+OUTPUT_VARIABLES = ["damage_class", "confidence", "osm_id"]
 # Every footprint that stood before the event, including those mapped since as destroyed.
 OSM_FOOTPRINT_FAMILIES = [
     {"key": "building", "status": "standing"},
@@ -49,6 +49,7 @@ def predict(session: Any, input_images: dict[str, str], params: dict[str, Any]) 
         )
         scored = predict_damage_onnx(session, post_raster, pre_raster, buildings, config)
     kept = filter_by_confidence(scored, float(params["confidence_threshold"]))
+    kept = kept.assign(confidence=kept["damage_confidence"].round(4))
     if "osm_id" not in kept.columns:
         kept = kept.assign(osm_id=None)
     return json.loads(kept[[*OUTPUT_VARIABLES, "geometry"]].to_crs("EPSG:4326").to_json(na="null"))
@@ -86,7 +87,6 @@ def _checkpoint_file(checkpoint: bytes) -> Iterator[Path]:
 
 
 def _read_labels(dataset_labels: str) -> Any:
-    """The dataset's labels GeoDataFrame; label i (1..4) is xBD damage code i."""
     import geopandas as gpd
 
     labels_files = sorted(resolve_directory(dataset_labels, "*.geojson").glob("*.geojson"))
@@ -95,9 +95,9 @@ def _read_labels(dataset_labels: str) -> Any:
     labels = gpd.read_file(labels_files[0])
     if labels.crs is None or not labels.crs.equals("EPSG:4326", ignore_axis_order=True):
         raise ValueError(f"labels must be EPSG:4326, got {labels.crs}")
-    if not labels["label"].isin(range(1, DAMAGE_CLASS_COUNT + 1)).all():
+    if not labels["label"].isin(range(DAMAGE_CLASS_COUNT)).all():
         raise ValueError(
-            f"labels must be 1..{DAMAGE_CLASS_COUNT} (no damage, minor, major, destroyed), "
+            f"labels must be 0..{DAMAGE_CLASS_COUNT - 1} (no damage, minor, major, destroyed), "
             f"got {sorted(labels['label'].unique())}"
         )
     return labels
@@ -113,7 +113,8 @@ def _damage_windows(
     from dda.pipeline.chip_windows import windows_from_chips
 
     labels = _read_labels(dataset_labels)
-    labels["damage"] = labels["label"]
+    # dda numbers the xBD damage grades 1..4.
+    labels["damage"] = labels["label"] + 1
     return windows_from_chips(
         resolve_directory(dataset_chips[POST_INPUT], "*.tif*"),
         resolve_directory(dataset_chips[PRE_INPUT], "*.tif*"),

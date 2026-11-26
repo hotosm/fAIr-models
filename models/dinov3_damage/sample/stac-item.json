@@ -1,0 +1,88 @@
+{
+  "type": "Feature",
+  "stac_version": "1.1.0",
+  "stac_extensions": [
+    "https://stac-extensions.github.io/label/v1.0.1/schema.json",
+    "https://stac-extensions.github.io/file/v2.1.0/schema.json",
+    "https://stac-extensions.github.io/version/v1.2.0/schema.json",
+    "https://hotosm.github.io/fAIr-models/schemas/v1.0.0/dataset/schema.json"
+  ],
+  "id": "dinov3-damage-sample",
+  "geometry": {
+    "type": "MultiPolygon",
+    "coordinates": [
+      [
+        [
+          [85.10697784423829, 27.862160024003533],
+          [85.11519012451171, 27.862160024003533],
+          [85.11519012451171, 27.8694168634846],
+          [85.10697784423829, 27.8694168634846],
+          [85.10697784423829, 27.862160024003533]
+        ]
+      ]
+    ]
+  },
+  "bbox": [85.10697784423829, 27.862160024003533, 85.11519012451171, 27.8694168634846],
+  "properties": {
+    "title": "dinov3-damage-sample",
+    "description": "Sample for the dinov3-damage pipeline: 2026 Nepal flood, Bhote Koshi, pre and post Vantor imagery.",
+    "label:type": "vector",
+    "label:tasks": ["semantic-segmentation"],
+    "label:classes": [
+      {
+        "name": "class",
+        "classes": ["destroyed", "major-damage", "minor-damage", "no-damage"]
+      }
+    ],
+    "label:properties": ["class"],
+    "keywords": ["building", "semantic-segmentation", "polygon"],
+    "fair:user_id": "anonymous",
+    "version": "1",
+    "deprecated": false,
+    "providers": [
+      {
+        "name": "anonymous",
+        "roles": ["producer"]
+      }
+    ],
+    "fair:source_imagery": "https://titiler.hotosm.org/cog/tiles/WebMercatorQuad/{z}/{x}/{y}@1x?url=https%3A%2F%2Fproduction-raw-data-api.s3.amazonaws.com%2FISO3%2FNPL%2Fdisasters%2Fnepal-flood%2F2026-08-28%2Fvantor_post_composite_2026-09-01.tif",
+    "fair:geometry_type": "polygon",
+    "license": "ODbL-1.0",
+    "label:description": "OSM building footprints; `class` is the damage grade from a dinov3-damage prediction on the post imagery. Buildings tagged `damage:event=2026NepalFlood` and predicted as no-damage are set to major-damage.",
+    "created": "2026-11-15T09:19:29.996279+00:00",
+    "updated": "2026-11-15T09:19:29.996279+00:00",
+    "datetime": "2026-11-15T09:19:29.996279Z"
+  },
+  "links": [
+    {
+      "rel": "source",
+      "href": "https://api.imagery.hotosm.org/raster/collections/openaerialmap/tiles/WebMercatorQuad/{z}/{x}/{y}?ids=6a92f09910691da75dd828c3,6a90c0f1d8f7b27f66739990&assets=visual",
+      "title": "Imagery for input pre"
+    },
+    {
+      "rel": "source",
+      "href": "https://titiler.hotosm.org/cog/tiles/WebMercatorQuad/{z}/{x}/{y}@1x?url=https%3A%2F%2Fproduction-raw-data-api.s3.amazonaws.com%2FISO3%2FNPL%2Fdisasters%2Fnepal-flood%2F2026-08-28%2Fvantor_post_composite_2026-09-01.tif",
+      "title": "Imagery for input post"
+    }
+  ],
+  "assets": {
+    "chips-pre": {
+      "href": "chips-pre",
+      "type": "image/tiff; application=geotiff",
+      "title": "Chips for input pre",
+      "roles": ["data"]
+    },
+    "chips-post": {
+      "href": "chips-post",
+      "type": "image/tiff; application=geotiff",
+      "title": "Chips for input post",
+      "roles": ["data"]
+    },
+    "labels": {
+      "href": "labels/labels.geojson",
+      "type": "application/geo+json",
+      "title": "Training labels",
+      "roles": ["labels"]
+    }
+  }
+}

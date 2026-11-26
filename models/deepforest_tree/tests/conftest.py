@@ -64,7 +64,7 @@ def create_toy_data(root: Path) -> dict[str, Path]:
     features = [
         {
             "type": "Feature",
-            "properties": {"label": 1},
+            "properties": {"natural": "tree", "label": 1},
             "geometry": tree_polygon(BASE_LON + i * STEP, BASE_LAT, px, py),
         }
         for i in range(CHIP_COUNT)
@@ -95,7 +95,8 @@ def _build_dataset_stac_item(chips_dir: Path, labels_dir: Path) -> dict[str, Any
             "description": "Toy tree-crown detection dataset",
             "label:type": "vector",
             "label:tasks": ["object-detection"],
-            "label:classes": [{"name": "tree", "classes": ["yes"]}],
+            "label:properties": ["natural"],
+            "label:classes": [{"name": "natural", "classes": ["tree"]}],
             "label:description": "Tree crown polygons",
             "keywords": ["tree", "object-detection", "polygon"],
             "fair:user_id": "test",

@@ -1,16 +1,47 @@
 #!/usr/bin/env python
-"""Validate all STAC items (base models + datasets) against fAIr schemas."""
+"""Validate every model STAC item and, for trainable models, the sample dataset each one ships."""
 
 import glob
+import json
 import sys
+from pathlib import Path
 
 import pystac
 
-from fair.stac.validators import validate_item, validate_model_weight_href
+from fair.stac.label_classes import LabelClassError, adapt_features
+from fair.stac.validators import is_trainable, validate_compatibility, validate_item, validate_model_weight_href
+
+SAMPLE_MAX_BYTES = 5 * 1024 * 1024
+
+
+def sample_errors(model: pystac.Item, model_dir: Path) -> list[str]:
+    sample_path = model_dir / "sample" / "stac-item.json"
+    if not sample_path.is_file():
+        return [f"trainable model has no sample dataset at {sample_path}"]
+    sample = pystac.Item.from_file(str(sample_path))
+    errors = [f"sample: {err}" for err in validate_item(sample)]
+    errors += [f"sample: {err}" for err in validate_compatibility(model, sample)]
+    for key, asset in sample.assets.items():
+        target = sample_path.parent / asset.href
+        if "data" in (asset.roles or []) and not any(target.glob("*.tif")):
+            errors.append(f"sample asset {key} has no .tif chips at {target}")
+        if "labels" in (asset.roles or []):
+            if not target.is_file():
+                errors.append(f"sample labels file is missing at {target}")
+                continue
+            features = json.loads(target.read_text())["features"]
+            try:
+                adapt_features(features, sample.properties, model.properties)
+            except LabelClassError as exc:
+                errors.append(f"sample labels do not fit the model classes: {exc}")
+    size = sum(f.stat().st_size for f in sample_path.parent.rglob("*") if f.is_file())
+    if size > SAMPLE_MAX_BYTES:
+        errors.append(f"sample is {size / 1e6:.1f} MB, over the {SAMPLE_MAX_BYTES / 1e6:.1f} MB limit")
+    return errors
 
 
 def main() -> int:
-    paths = sorted(glob.glob("models/*/stac-item.json") + glob.glob("data/sample/*/stac-item.json"))
+    paths = sorted(glob.glob("models/*/stac-item.json"))
     if not paths:
         print("No stac-item.json found")
         return 1
@@ -18,11 +49,9 @@ def main() -> int:
     failed = False
     for path in paths:
         item = pystac.Item.from_file(path)
-        errors = validate_item(item)
-
-        is_model = path.startswith("models/")
-        if is_model:
-            errors.extend(validate_model_weight_href(item))
+        errors = validate_item(item) + validate_model_weight_href(item)
+        if is_trainable(item.assets):
+            errors += sample_errors(item, Path(path).parent)
 
         if errors:
             failed = True

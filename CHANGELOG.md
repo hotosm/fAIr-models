@@ -12,6 +12,103 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - add ZenML integration for model promotion and STAC catalog synchronization
 - implement STAC catalog management and builders for datasets and models
 
+## v0.3.36 (2026-11-26)
+
+### Feat
+
+- add ChesapeakeRSC v2 road model
+
+### Fix
+
+- **bundle**: fixes bundle to be produced by the fair models itself
+- supply Chesapeake sample for upstream example runner
+- use road fixtures in the Chesapeake example
+- align road predictions with current output requirements
+- **bump**: geomltoolkits version in dino damage
+
+### Refactor
+
+- keep Chesapeake example fix scoped
+- trim road pipeline allocations and fixtures
+- use Rasterio for coordinate transforms
+- keep road contribution scoped to the model
+- simplify road inference and model docs
+
+## v0.3.35 (2026-11-17)
+
+### Fix
+
+- **cpu-limit**: add cpu memory limit to the schema itself
+
+## v0.3.34 (2026-11-16)
+
+### Fix
+
+- **inference**: size offline prediction pods from the base model's fair:* resource keys and retry a failed prediction step twice
+
+## v0.3.33 (2026-11-16)
+
+### Fix
+
+- **executor**: add model executor in serve under threat
+- **test**: fix color
+- **chore**: ignore model sample to precommit hook
+
+## v0.3.32 (2026-11-15)
+
+### Fix
+
+- **datastes**: fix the schema docs and cli with label matching
+- **sample**: refactor samples to individual models
+- **docker**: load docker image from previous job
+
+### Refactor
+
+- **label**: refactors how sample labels should be supplied to give room for models with different leabel schem than default
+- **sample**: refactor how sample of models are changed
+
+## v0.3.31 (2026-11-13)
+
+### Fix
+
+- **pipeline**: dino damage call the predic load session like others
+- **mlruns**: gitignore mock instrumention
+
+## v0.3.30 (2026-11-13)
+
+### Fix
+
+- **outputclass**: fixes every output class with confidence made as compulsory
+- **datasets**: keep every OSM class that shares a tag key
+- **stac**: publish class objects that name the stamped property
+- **stac**: declare the label property that dataset items actually carry
+
+### Refactor
+
+- **stac**: name the label class property in one place
+
+## v0.3.29 (2026-11-13)
+
+### Fix
+
+- **license**: fix dinov3 license in all
+
+## v0.3.28 (2026-11-13)
+
+### Fix
+
+- **action**: don't publish images in dev if pr is from fork
+- **routed**: wait until routed for knative service
+- **knative**: ready until pool is ready so wait
+
+## v0.3.27 (2026-11-12)
+
+### Fix
+
+- **category**: inherit category of fair to local ones
+
+## v0.3.26 (2026-11-10)
+
 ## v0.3.25 (2026-10-28)
 
 ### Fix
@@ -143,7 +240,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fix
 
-- **source-/home/krschap/code/hotosm/fAIr-models-knative/.venv/bin/activate**: imagetag
+- **dockerfile**: move the model images from bookworm to trixie
 - **dockerfile**: pin the version
 - **pipeline**: conf param temp fix for now and the keyword
 - **model-import**: remove model from the root repo and docker file

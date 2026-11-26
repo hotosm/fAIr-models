@@ -460,6 +460,7 @@ def test_finetune_promote_and_predict_workflows(monkeypatch, tmp_path) -> None:
         ),
     )
     monkeypatch.setattr(client_module, "Client", lambda: zenml_client)
+    monkeypatch.setattr(client, "_adapt_labels", lambda *args: str(tmp_path / "labels"))
 
     training_run = SimpleNamespace(id="train-run", status="completed")
     prediction_run = SimpleNamespace(
@@ -849,29 +850,79 @@ def test_register_base_model_skips_the_probe_without_a_domain(monkeypatch: pytes
     assert len(backend.published) == 1
 
 
+@pytest.mark.parametrize(
+    ("pin_images", "expected_href"),
+    [
+        (True, "ghcr.io/hotosm/fair-models/demo@sha256:abc"),
+        (False, "ghcr.io/hotosm/fair-models/demo:ci"),
+    ],
+)
+def test_register_base_model_pins_images_only_when_asked(
+    monkeypatch: pytest.MonkeyPatch, pin_images: bool, expected_href: str
+) -> None:
+    monkeypatch.delenv("FAIR_PREDICT_DOMAIN", raising=False)
+    item = _build_base_model_item()
+    item.assets["mlm:training"].href = "ghcr.io/hotosm/fair-models/demo:ci"
+    client, backend = _gated_client(monkeypatch, item)
+    client._stac_api_url = "http://stac.example.com"
+    monkeypatch.setattr(knative_module, "_knative_serving_installed", lambda: False)
+    monkeypatch.setattr(
+        client_module.registry, "resolve_digest", lambda ref, **_: f"{ref.rsplit(':', 1)[0]}@sha256:abc"
+    )
+
+    client.register_base_model("base.json", pin_images=pin_images)
+
+    assert item.assets["mlm:training"].href == expected_href
+    assert len(backend.published) == 1
+
+
+def _revision(name: str, digest: str, ready: str, message: str = "") -> dict[str, Any]:
+    return {
+        "metadata": {"name": name, "annotations": {knative_module.TEMPLATE_HASH_ANNOTATION: digest}},
+        "status": {"conditions": [{"type": "Ready", "status": ready, "message": message}]},
+    }
+
+
 class _ReadyApi:
-    def __init__(self, conditions: list[dict[str, str]], observed_generation: int = 1) -> None:
-        self._conditions = conditions
-        self._observed_generation = observed_generation
+    def __init__(self, revisions: list[dict[str, Any]], service_ready: str = "True") -> None:
+        self._revisions = revisions
+        self._service_ready = service_ready
 
     def get_namespaced_custom_object(self, **_: Any) -> dict[str, Any]:
-        status = {"observedGeneration": self._observed_generation, "conditions": self._conditions}
-        return {"metadata": {"generation": 1}, "status": status}
+        status = {"observedGeneration": 2, "conditions": [{"type": "Ready", "status": self._service_ready}]}
+        return {"metadata": {"generation": 2}, "status": status}
 
     def list_namespaced_custom_object(self, **_: Any) -> dict[str, Any]:
-        return {"items": []}
+        return {"items": self._revisions}
 
 
-def test_wait_until_ready_states() -> None:
-    knative_module._wait_until_ready(_ReadyApi([{"type": "Ready", "status": "True"}]), "svc", "predict", 5)
-    with pytest.raises(knative_module.KnativeServiceUnavailableError):
-        knative_module._wait_until_ready(
-            _ReadyApi([{"type": "Ready", "status": "False", "message": "boom"}]), "svc", "predict", 5
-        )
-    with pytest.raises(knative_module.KnativeServiceUnavailableError):
-        knative_module._wait_until_ready(_ReadyApi([]), "svc", "predict", 0)
+def test_wait_returns_the_new_revision_while_the_service_still_reports_the_old_failure() -> None:
+    api = _ReadyApi(
+        [_revision("svc-00009", "old", "False", "exit code 1"), _revision("svc-00010", "new", "True")],
+        service_ready="False",
+    )
+    assert knative_module._wait_until_ready(api, "svc", "predict", "new", 5) == "svc-00010"
+
+
+def test_wait_raises_when_the_new_revision_fails() -> None:
+    api = _ReadyApi([_revision("svc-00010", "new", "False", "exit code 1")])
+    with pytest.raises(knative_module.KnativeServiceUnavailableError, match="exit code 1"):
+        knative_module._wait_until_ready(api, "svc", "predict", "new", 5)
+
+
+def test_wait_times_out_before_the_new_revision_exists() -> None:
+    api = _ReadyApi([_revision("svc-00009", "old", "True")])
     with pytest.raises(knative_module.KnativeServiceUnavailableError, match="not ready within"):
-        knative_module._wait_until_ready(_ReadyApi([{"type": "Ready", "status": "True"}], 0), "svc", "predict", 0)
+        knative_module._wait_until_ready(api, "svc", "predict", "new", 0)
+
+
+def test_routed_wait_returns_once_the_service_is_ready() -> None:
+    knative_module._wait_until_routed(_ReadyApi([], service_ready="True"), "svc", "predict", 0)
+
+
+def test_routed_wait_times_out_while_the_route_is_not_ready() -> None:
+    with pytest.raises(knative_module.KnativeServiceUnavailableError, match="not serving its revision"):
+        knative_module._wait_until_routed(_ReadyApi([], service_ready="False"), "svc", "predict", 0)
 
 
 def test_node_pool_selector_key(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -904,10 +955,15 @@ def test_ensure_knative_service_verifies_when_timeout_set(monkeypatch: pytest.Mo
     monkeypatch.setattr(knative_module, "_knative_serving_installed", lambda: True)
     monkeypatch.setattr(knative_module, "_custom_objects_api", lambda: _ReadyApi([]))
     monkeypatch.setattr(knative_module, "_upsert_knative_service", lambda *_: None)
-    monkeypatch.setattr(knative_module, "_wait_until_ready", lambda *a: waited.append(a[1]))
+    monkeypatch.setattr(
+        knative_module, "_wait_until_ready", lambda *a: waited.append(a[1]) or "dinov3s-buildings-00002"
+    )
+    patches: list[dict[str, Any]] = []
+    monkeypatch.setattr(knative_module, "_patch_service", lambda *a: patches.append(a[3]))
     monkeypatch.setenv("FAIR_KNATIVE_VERIFY_TIMEOUT", "5")
     knative_module.ensure_knative_service(_build_base_model_item())
     assert waited == ["dinov3s-buildings"]
+    assert patches == [{"spec": {"traffic": [{"revisionName": "dinov3s-buildings-00002", "percent": 100}]}}]
 
 
 def _register_from_item(monkeypatch, tmp_path, source_item: pystac.Item) -> tuple[pystac.Item, dict[str, Any]]:
@@ -934,7 +990,15 @@ def _imagery_links(item: pystac.Item) -> dict[str | None, str | None]:
 
 
 def test_register_dataset_from_item_keeps_the_chips_and_imagery_of_each_input(monkeypatch, tmp_path) -> None:
-    source_item = _build_item("dataset-source", {"title": "Damage", "label:type": "vector", "keywords": ["demo"]})
+    source_item = _build_item(
+        "dataset-source",
+        {
+            "title": "Damage",
+            "label:type": "vector",
+            "label:classes": [{"name": "damage", "classes": ["destroyed"]}],
+            "keywords": ["demo"],
+        },
+    )
     source_item.add_asset("labels", pystac.Asset(href=str(tmp_path / "labels.geojson")))
     for name in ("post", "pre"):
         source_item.add_asset(f"chips-{name}", pystac.Asset(href=str(tmp_path / f"chips-{name}")))
@@ -1014,6 +1078,34 @@ def test_register_dataset_from_params_archives_and_publishes_pre_event_chips(mon
     assert backend.published[0][1].assets["chips-pre"].href.endswith("chips-pre")
 
 
+def _client_with_catalog(monkeypatch, tmp_path, backend: DummyBackend) -> FairClient:
+    client = FairClient(stac_api_url="https://stac.example.com", config_dir=str(tmp_path))
+    monkeypatch.setattr(client, "_get_backend", lambda: backend)
+    monkeypatch.setattr(client, "_artifact_store_prefix", lambda: None)
+    monkeypatch.setattr(client, "_pipeline_module_from_item", lambda _: "models.demo.pipeline")
+    return client
+
+
+def test_submit_predict_rejects_a_local_model_without_a_base_model_id(monkeypatch, tmp_path) -> None:
+    local_model = _build_item("local-model", {"mlm:input": [{"name": "image"}]})
+    client = _client_with_catalog(
+        monkeypatch, tmp_path, DummyBackend({(LOCAL_MODELS_COLLECTION, "local-model"): local_model})
+    )
+
+    with pytest.raises(FairClientError, match="missing 'fair:base_model_id'"):
+        client.submit_predict(local_model_id="local-model", input_images={"image": "s3://bucket/input"})
+
+
+def test_submit_predict_fails_when_the_base_model_is_missing(monkeypatch, tmp_path) -> None:
+    local_model = _build_item("local-model", {"fair:base_model_id": "gone", "mlm:input": [{"name": "image"}]})
+    client = _client_with_catalog(
+        monkeypatch, tmp_path, DummyBackend({(LOCAL_MODELS_COLLECTION, "local-model"): local_model})
+    )
+
+    with pytest.raises(KeyError, match="gone"):
+        client.submit_predict(local_model_id="local-model", input_images={"image": "s3://bucket/input"})
+
+
 def test_submit_predict_passes_params_to_the_inference_config(monkeypatch, tmp_path) -> None:
     local_model = _build_item(
         "local-model",
@@ -1024,16 +1116,19 @@ def test_submit_predict_passes_params_to_the_inference_config(monkeypatch, tmp_p
             "fair:hyperparameters_spec": [{"key": "confidence_threshold", "type": "float", "default": 0.5}],
         },
     )
-    backend = DummyBackend({(LOCAL_MODELS_COLLECTION, local_model.id): local_model})
+    base_model = _build_item("base", {"fair:memory_limit": "8Gi"})
+    backend = DummyBackend(
+        {(LOCAL_MODELS_COLLECTION, local_model.id): local_model, (BASE_MODELS_COLLECTION, base_model.id): base_model}
+    )
     client = FairClient(stac_api_url="https://stac.example.com", config_dir=str(tmp_path))
-    config_calls: list[tuple[Any, ...]] = []
+    config_calls: list[tuple[tuple[Any, ...], dict[str, Any]]] = []
     monkeypatch.setattr(client, "_get_backend", lambda: backend)
     monkeypatch.setattr(client, "_artifact_store_prefix", lambda: None)
     monkeypatch.setattr(client, "_pipeline_module_from_item", lambda _: "models.demo.pipeline")
     monkeypatch.setattr(
         client_module,
         "generate_inference_config",
-        lambda *args: config_calls.append(args) or {"parameters": {}},
+        lambda *args, **kwargs: config_calls.append((args, kwargs)) or {"parameters": {}},
     )
     run = SimpleNamespace(id="predict-run", status="running")
     fake_module = SimpleNamespace(inference_pipeline=DummyPipeline(run))
@@ -1044,7 +1139,9 @@ def test_submit_predict_passes_params_to_the_inference_config(monkeypatch, tmp_p
     )
 
     assert run_id == "predict-run"
-    assert config_calls[0][2] == {"confidence_threshold": 0.8}
+    args, kwargs = config_calls[0]
+    assert args[2] == {"confidence_threshold": 0.8}
+    assert kwargs["resources_item"] is base_model
 
 
 @pytest.mark.parametrize(

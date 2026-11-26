@@ -7,7 +7,9 @@ from typing import Any
 import numpy as np
 import pytest
 import shapely.geometry as sgeom
-from dinov3_hot.serve import INFERENCE_BATCH_SIZE, MODEL_INPUT_SIZE, predict_session
+from dinov3_hot.serve import INFERENCE_BATCH_SIZE, MODEL_INPUT_SIZE
+
+from models.dinov3s_buildings.pipeline import predict
 
 
 class _StubSession:
@@ -25,14 +27,14 @@ class _StubSession:
 
 
 def test_predict_returns_feature_collection(toy_chips: Path) -> None:
-    result = predict_session(_StubSession(), toy_chips, {"confidence_threshold": 0.5})
+    result = predict(_StubSession(), {"image": str(toy_chips)}, {"confidence_threshold": 0.5})
 
     assert result["type"] == "FeatureCollection"
     assert len(result["features"]) > 0
     for feature in result["features"]:
         assert feature["type"] == "Feature"
-        assert "score" in feature["properties"]
-        assert 0.0 <= feature["properties"]["score"] <= 1.0
+        assert set(feature["properties"]) == {"class", "confidence"}
+        assert 0.0 <= feature["properties"]["confidence"] <= 1.0
         geom = sgeom.shape(feature["geometry"])
         assert geom.geom_type in ("Polygon", "MultiPolygon")
         minx, miny, maxx, maxy = geom.bounds
@@ -42,4 +44,4 @@ def test_predict_returns_feature_collection(toy_chips: Path) -> None:
 
 def test_predict_requires_confidence_threshold(toy_chips: Path) -> None:
     with pytest.raises(ValueError, match="confidence_threshold"):
-        predict_session(_StubSession(), toy_chips, {})
+        predict(_StubSession(), {"image": str(toy_chips)}, {})

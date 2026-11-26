@@ -32,6 +32,25 @@ Extends the [Label Extension](https://stac-extensions.github.io/label/v1.0.1/sch
 
 **Required assets:** `labels`, and the chips of each model input as `chips-<input name>`. The chips of one tile carry the same filename in every input, and the imagery of each input is linked with `rel` `source` and the title `Imagery for input <input name>`. A dataset whose chips are a single `chips` asset gives them to the `image` input of a model with one input.
 
+### How labels are encoded
+
+Labels keep their source form. The [Label Extension](https://github.com/stac-extensions/label)
+defines `label:properties` as "the names of the property field(s) in each `Feature` of the label
+asset's `FeatureCollection` that contains the classes", so the item names those properties and the
+values found:
+
+```json
+"label:type": "vector",
+"label:properties": ["building"],
+"label:classes": [{"name": "building", "classes": ["house", "yes"]}]
+```
+
+OSM labels keep their `tags`, with each matched tag key, such as `building`, copied beside them.
+Your own labels carry a `class` property. When a fine-tune starts, fAIr writes the matching model
+class `value` to `label` in the copy the pipeline reads; see
+[fair:osm_tags](contributing/model.md#fairosm_tags). `label:properties` is `null` for `label:type: "raster"`, per the
+extension.
+
 ## Local Model (Finetuned)
 
 Extends the base model schema with training provenance: links to the base model and dataset, evaluation metrics, training duration, and ZenML artifact references.
@@ -87,11 +106,11 @@ used, so the same item links correctly from inside the stack and from its public
 
 After registering a dataset three times:
 
-| Item ID                                     | Version | Deprecated | Links                                                 |
-| ------------------------------------------- | ------- | ---------- | ----------------------------------------------------- |
-| `buildings-banepa-semantic-segmentation-v1` | 1       | true       | `successor-version` -> v2                             |
-| `buildings-banepa-semantic-segmentation-v2` | 2       | true       | `successor-version` -> v3                             |
-| `buildings-banepa-semantic-segmentation`    | 3       | false      | `predecessor-version` -> v2                           |
+| Item ID                                     | Version | Deprecated | Links                       |
+| ------------------------------------------- | ------- | ---------- | --------------------------- |
+| `buildings-banepa-semantic-segmentation-v1` | 1       | true       | `successor-version` -> v2   |
+| `buildings-banepa-semantic-segmentation-v2` | 2       | true       | `successor-version` -> v3   |
+| `buildings-banepa-semantic-segmentation`    | 3       | false      | `predecessor-version` -> v2 |
 
 ## Timestamps
 

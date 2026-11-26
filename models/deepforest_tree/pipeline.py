@@ -19,11 +19,10 @@ from fair.zenml.materializers import CheckpointBytesMaterializer, ONNXMaterializ
 from fair.zenml.metrics import log_loss_history
 
 CLASS_VALUE = 1
-CLASS_LABEL = "tree"
 IOU_MATCH = 0.5  # box IoU at which a prediction counts as a true positive
 MIN_BOX_PX = 2.0  # clipped label boxes thinner than this are degenerate for the box loss
 CHIP_SUFFIXES = {".tif", ".tiff"}
-DEFAULT_CROWN_M = 5.0  # crown side of a tree point without a numeric `diameter_crown`
+DEFAULT_CROWN_M = 5.0  # crown side of a tree point without a usable metre `diameter_crown`
 METRES_PER_DEGREE = 111_320  # spherical approximation, within 1% of WGS84 latitude degrees
 
 
@@ -34,12 +33,7 @@ def predict(session: Any, input_images: dict[str, str], params: dict[str, Any]) 
     collection = predict_session(session, resolve_directory(input_images[IMAGE_INPUT]), params)
     for feature in collection["features"]:
         props = feature["properties"]
-        feature["properties"] = {
-            "class": CLASS_VALUE,
-            "label": CLASS_LABEL,
-            "confidence": props["confidence"],
-            "source": props["source"],
-        }
+        feature["properties"] = {"class": CLASS_VALUE, "confidence": props["confidence"]}
     return collection
 
 
@@ -111,9 +105,10 @@ def _point_crown(feature: dict[str, Any]) -> dict[str, Any]:
     lon, lat = feature["geometry"]["coordinates"][:2]
     properties = feature.get("properties") or {}
     tags = properties.get("tags") or properties
+    diameter = str(tags.get("diameter_crown") or DEFAULT_CROWN_M).strip().lower().removesuffix("m").strip()
     try:
-        side_m = float(tags.get("diameter_crown") or DEFAULT_CROWN_M)
-    except ValueError:  # a free-text diameter such as "3 m" takes the default side
+        side_m = float(diameter)
+    except ValueError:  # Key:diameter_crown: "If no unit is given metres are assumed"
         side_m = DEFAULT_CROWN_M
     if not (math.isfinite(side_m) and side_m > 0):
         side_m = DEFAULT_CROWN_M

@@ -4,17 +4,17 @@ Building damage grading from pre-event and post-event RGB imagery. A frozen DINO
 
 ## Summary
 
-|          |                                                                                                                                |
-| -------- | ------------------------------------------------------------------------------------------------------------------------------ |
-| Task     | Building damage classification per footprint                                                                                   |
-| Input    | Post-event RGB chips (`post` input, dataset asset `chips-post`) and pre-event RGB chips of the same tiles (`pre`, `chips-pre`) |
-| Output   | GeoJSON `FeatureCollection` of footprint polygons in EPSG:4326 with `damage_class`, `damage`, `damage_confidence` and `osm_id` |
-| Window   | 512 x 512 px; training uses 2 x 2 blocks of 256 px fAIr chips, prediction slides the window over the area mosaic               |
-| Training | xBD (xView2) building damage dataset                                                                                           |
+|          |                                                                                                                                             |
+| -------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| Task     | Building damage classification per footprint                                                                                                |
+| Input    | Post-event RGB chips (`post` input, dataset asset `chips-post`) and pre-event RGB chips of the same tiles (`pre`, `chips-pre`)              |
+| Output   | GeoJSON `FeatureCollection` of footprint polygons in EPSG:4326 with `damage_class`, `confidence` (null for no-data footprints) and `osm_id` |
+| Window   | 512 x 512 px; training uses 2 x 2 blocks of 256 px fAIr chips, prediction slides the window over the area mosaic                            |
+| Training | xBD (xView2) building damage dataset                                                                                                        |
 
 ## Training on fAIr
 
-A dataset for this model carries post-event chips as `chips-post`, pre-event chips of the same tiles as `chips-pre`, and polygon labels whose `label` is 1 to 4 in the order no damage, minor damage, major damage, destroyed. `split_dataset` groups chips into 2 x 2 tile blocks, keeps the blocks that intersect the labels, and assigns whole blocks to train or val, stratified by the damage classes each block holds. `train_model` builds one window per block whose labelled pixels are at least 90% imaged in both pre and post, masks labels that fall off the imagery, and stretches each window per channel. With `strict_head` on (the default), only the localization and damage heads train. The step returns the base checkpoint unless the val damage macro F1, over the classes the labels contain, improves.
+A dataset for this model carries post-event chips as `chips-post`, pre-event chips of the same tiles as `chips-pre`, and polygon labels whose `class` property holds the damage grade: `no-damage`, `minor-damage`, `major-damage` or `destroyed`, the model's class names. `split_dataset` groups chips into 2 x 2 tile blocks, keeps the blocks that intersect the labels, and assigns whole blocks to train or val, stratified by the damage classes each block holds. `train_model` builds one window per block whose labelled pixels are at least 90% imaged in both pre and post, masks labels that fall off the imagery, and stretches each window per channel. With `strict_head` on (the default), only the localization and damage heads train. The step returns the base checkpoint unless the val damage macro F1, over the classes the labels contain, improves.
 
 ## Prediction
 
@@ -35,7 +35,7 @@ A footprint with less than 90% of its pixels imaged in both pre and post is retu
 
 ## License
 
-The pipeline code is AGPL-3.0-only, as is the rest of this repository. The pretrained checkpoint is trained on xBD and its model card publishes it under CC BY-NC-SA 4.0, so the STAC item declares `CC-BY-NC-SA-4.0`, which local models fine-tuned from it inherit.
+The pipeline code is AGPL-3.0-only. The pretrained checkpoint, trained on xBD, is CC BY-NC-SA 4.0 per its model card. Its ONNX model contains Meta's DINOv3-ViT-L/16 SAT-493M encoder weights under the [DINOv3 License](https://github.com/facebookresearch/dinov3/blob/main/LICENSE.md). The STAC item declares `other` with a link to each license, and local models fine-tuned from it inherit both.
 
 ## Citation
 

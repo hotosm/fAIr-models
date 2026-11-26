@@ -226,7 +226,6 @@ implementation.md
 .DS_Store
 
 # data
-data/sample/predict/predictions
 stac_catalog
 
 # hatch-vcs generated version file
@@ -242,6 +241,7 @@ infra/*.kubeconfig
 soul.md
 .fair-mode
 mlflow.db
+mlruns/
 
 # process
 onboard/
@@ -256,7 +256,5 @@ runs
 
 
 data/benchmark
-data/sample/train/freetown
 data/free_town
 ci-artifacts
-data/sample/buildings-freetown-instance-segmentation/stac-item.json

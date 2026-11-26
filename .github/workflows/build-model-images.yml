@@ -123,6 +123,7 @@ jobs:
           cache-to: type=gha,mode=max,scope=${{ matrix.name }}
 
       - name: Push runtime image
+        if: ${{ !github.event.pull_request.head.repo.fork }}
         run: |
           while IFS= read -r tag; do
             [[ -n "$tag" ]] || continue
@@ -194,6 +195,7 @@ jobs:
           if-no-files-found: ignore
 
       - name: Push inference image
+        if: ${{ !github.event.pull_request.head.repo.fork }}
         run: |
           while IFS= read -r tag; do
             [[ -n "$tag" ]] || continue

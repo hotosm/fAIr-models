@@ -50,6 +50,7 @@ def test_proxy_submit_finetune_delegates() -> None:
         dataset_id="d-1",
         model_name="m-1",
         overrides={"epochs": 3},
+        class_map={"roof=iron": "metal_sheet"},
     )
 
     submit_finetune.assert_called_once_with(
@@ -58,6 +59,7 @@ def test_proxy_submit_finetune_delegates() -> None:
         model_name="m-1",
         overrides={"epochs": 3},
         config_dir=None,
+        class_map={"roof=iron": "metal_sheet"},
     )
 
 

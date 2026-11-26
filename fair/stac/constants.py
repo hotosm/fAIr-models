@@ -5,6 +5,9 @@ VERSION_SCHEMA = "https://stac-extensions.github.io/version/v1.2.0/schema.json"
 CLASSIFICATION_SCHEMA = "https://stac-extensions.github.io/classification/v2.0.0/schema.json"
 FILE_SCHEMA = "https://stac-extensions.github.io/file/v2.1.0/schema.json"
 LABEL_SCHEMA = "https://stac-extensions.github.io/label/v1.0.1/schema.json"
+WEB_MAP_LINKS_SCHEMA = "https://stac-extensions.github.io/web-map-links/v1.3.0/schema.json"
+PARQUET_MEDIA_TYPE = "application/vnd.apache.parquet"
+PMTILES_MEDIA_TYPE = "application/vnd.pmtiles"
 RASTER_SCHEMA = "https://stac-extensions.github.io/raster/v1.1.0/schema.json"
 DATACUBE_SCHEMA = "https://stac-extensions.github.io/datacube/v2.3.0/schema.json"
 
@@ -30,6 +33,9 @@ LOCAL_MODEL_EXTENSIONS = [
 ]
 DATASET_EXTENSIONS = [LABEL_SCHEMA, FILE_SCHEMA, VERSION_SCHEMA, FAIR_DATASET_SCHEMA]
 
+# Property `adapt_features` sets to the model class value.
+LABEL_CLASS_PROPERTY = "label"
+
 BASE_MODELS_COLLECTION = "base-models"
 LOCAL_MODELS_COLLECTION = "local-models"
 DATASETS_COLLECTION = "datasets"
@@ -37,5 +43,6 @@ DATASETS_COLLECTION = "datasets"
 CONTAINER_REGISTRIES = ("ghcr.io", "docker.io", "quay.io")
 
 TRAINING_ASSET = "mlm:training"
+INFERENCE_ASSET = "mlm:inference"
 # Full toolchain image for batch predictions of a model that has no training runtime.
 BATCH_INFERENCE_ASSET = "batch-inference"

@@ -138,7 +138,12 @@
         },
         "classification:classes": [
           { "name": "background", "value": 0, "description": "Non-building pixels" },
-          { "name": "building", "value": 1, "description": "Building pixels" }
+          {
+            "name": "building",
+            "value": 1,
+            "description": "Building pixels",
+            "fair:osm_tags": { "building": ["*"] }
+          }
         ],
         "post_processing_function": {
           "format": "python",
@@ -150,7 +155,7 @@
         "description": "Building polygons traced from the thresholded pixel mask, one row per feature.",
         "tasks": ["semantic-segmentation"],
         "result": { "shape": [-1, 2], "dim_order": ["batch", "variables"], "data_type": "float32" },
-        "variables": ["class", "label"],
+        "variables": ["class", "confidence"],
         "classification:classes": [
           { "name": "building", "value": 1, "description": "Building pixels" }
         ],
@@ -169,18 +174,19 @@
       }
     },
     "cube:variables": {
-      "label": {
-        "dimensions": ["features"],
-        "type": "data",
-        "description": "Class name of the predicted class (building).",
-        "values": ["building"]
-      },
       "class": {
         "dimensions": ["features"],
         "type": "data",
         "description": "Predicted class value (1 = building).",
         "values": [1],
         "data_type": "uint8"
+      },
+      "confidence": {
+        "dimensions": ["features"],
+        "type": "data",
+        "description": "Mean building probability over the polygon.",
+        "extent": [0, 1],
+        "data_type": "float32"
       }
     },
     "mlm:hyperparameters": {
@@ -214,12 +220,14 @@
     "mlm:training": {
       "href": "ghcr.io/hotosm/fair-models/sklearn_rgb_segmentation:latest",
       "type": "application/vnd.oci.image.index.v1+json",
-      "roles": ["mlm:training-runtime"]
+      "roles": ["mlm:training-runtime"],
+      "mlm:accelerator": "amd64"
     },
     "mlm:inference": {
       "href": "ghcr.io/hotosm/fair-models/sklearn_rgb_segmentation:latest-inference",
       "type": "application/vnd.oci.image.index.v1+json",
-      "roles": ["mlm:inference-runtime"]
+      "roles": ["mlm:inference-runtime"],
+      "mlm:accelerator": "amd64"
     },
     "readme": {
       "href": "https://raw.githubusercontent.com/hotosm/fAIr-models/refs/heads/develop/models/sklearn_rgb_segmentation/README.md",

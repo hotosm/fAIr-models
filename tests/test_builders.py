@@ -70,6 +70,10 @@ _METRICS_SPEC = [
 ]
 
 _PROVIDERS = [{"name": "HOTOSM", "roles": ["producer"], "url": "https://www.hotosm.org"}]
+_OSM_LABEL_CLASSES = [
+    {"name": "building", "classes": ["house", "yes"]},
+    {"name": "highway", "classes": ["residential"]},
+]
 
 _BASE_DEFAULTS: dict[str, Any] = {
     "item_id": "example-unet",
@@ -101,6 +105,48 @@ _BASE_DEFAULTS: dict[str, Any] = {
 
 def _base_model(**kw: Any) -> pystac.Item:
     return build_base_model_item(**{**_BASE_DEFAULTS, **kw})
+
+
+class TestDatasetLabelSemantics:
+    def _item(self, geojson_path, **kw: Any) -> pystac.Item:
+        kwargs: dict[str, Any] = {
+            "label_type": "vector",
+            "label_tasks": ["segmentation"],
+            "label_classes": _OSM_LABEL_CLASSES,
+            "label_properties": ["building", "highway"],
+            "keywords": ["building"],
+            "chips_hrefs": {"image": "chips/"},
+            "labels_href": geojson_path,
+            "title": "Labelled dataset",
+            "description": "Chips and labels.",
+            "user_id": "osm-user-42",
+            "providers": _PROVIDERS,
+        }
+        kwargs.update(kw)
+        return build_dataset_item(**kwargs)
+
+    def test_label_classes_and_properties_are_written_as_given(self, geojson_path):
+        properties = self._item(geojson_path).properties
+        assert properties["label:properties"] == ["building", "highway"]
+        assert properties["label:classes"] == _OSM_LABEL_CLASSES
+
+    def test_label_properties_default_to_the_class_names(self, geojson_path):
+        assert self._item(geojson_path, label_properties=None).properties["label:properties"] == [
+            "building",
+            "highway",
+        ]
+
+    def test_vector_labels_need_label_classes(self, geojson_path):
+        with pytest.raises(ValueError, match="label_classes"):
+            self._item(geojson_path, label_classes=[], label_properties=None)
+
+    def test_label_description_falls_back_to_the_description(self, geojson_path):
+        assert self._item(geojson_path).properties["label:description"] == "Chips and labels."
+        assert self._item(geojson_path, label_description="OSM").properties["label:description"] == "OSM"
+
+    def test_raster_labels_declare_no_properties(self, geojson_path):
+        properties = self._item(geojson_path, label_type="raster", label_properties=None).properties
+        assert properties["label:properties"] is None
 
 
 class TestBuildDatasetItem:
@@ -161,7 +207,7 @@ class TestBuildDatasetItem:
         item = build_dataset_item(
             label_type="vector",
             label_tasks=["segmentation"],
-            label_classes=[],
+            label_classes=[{"name": "building", "classes": ["yes"]}],
             keywords=["building"],
             chips_hrefs={"image": "c/"},
             labels_href=geojson_path,
@@ -179,7 +225,7 @@ class TestBuildDatasetItem:
             build_dataset_item(
                 label_type="vector",
                 label_tasks=["segmentation"],
-                label_classes=[],
+                label_classes=[{"name": "building", "classes": ["yes"]}],
                 keywords=["building"],
                 chips_hrefs={"image": "c/"},
                 labels_href=str(path),
@@ -194,7 +240,7 @@ class TestBuildDatasetItem:
         item = build_dataset_item(
             label_type="vector",
             label_tasks=["segmentation"],
-            label_classes=[],
+            label_classes=[{"name": "building", "classes": ["yes"]}],
             keywords=["building"],
             chips_hrefs={"image": "c/"},
             labels_href=geojson_path,
@@ -245,7 +291,7 @@ class TestBuildDatasetItem:
         item = build_dataset_item(
             label_type="vector",
             label_tasks=["segmentation"],
-            label_classes=[],
+            label_classes=[{"name": "building", "classes": ["yes"]}],
             keywords=["building"],
             chips_hrefs={"image": "c/"},
             labels_href=geojson_path,
@@ -284,6 +330,25 @@ class TestBuildBaseModelItem:
 
 
 class TestBuildLocalModelItem:
+    def test_links_the_base_model_readme(self):
+        base = _base_model(readme_href="https://example.com/README.md")
+        local = build_local_model_item(
+            base_model_item=base,
+            item_id="local-v1",
+            checkpoint_href="https://example.com/finetuned.pt",
+            onnx_href="https://example.com/finetuned.onnx",
+            mlm_hyperparameters={"epochs": 1},
+            keywords=["building"],
+            base_model_href="../base-models/example-unet/example-unet.json",
+            dataset_href="../datasets/ds-1/ds-1.json",
+            version="1",
+            title="Local UNet v1",
+            description="Finetuned model.",
+            user_id="osm-42",
+            providers=_PROVIDERS,
+        )
+        assert local.assets["readme"].href == "https://example.com/README.md"
+
     def test_inherits_base_and_overrides(self):
         base = _base_model()
         local = build_local_model_item(

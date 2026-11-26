@@ -2,9 +2,11 @@
 
 import asyncio
 import importlib
+import itertools
 import json
 import sys
 import textwrap
+import time
 from pathlib import Path
 from typing import Any
 
@@ -43,7 +45,11 @@ def _patch_fetch_chips(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> list[
 
     async def fake_fetch_chips(imagery: dict[str, str], bbox: list[float], zoom: int, out_dir: str) -> dict[str, str]:
         chips_calls.append({"imagery": imagery, "bbox": bbox, "zoom": zoom, "out_dir": out_dir})
-        return {name: str(Path(out_dir) / name) for name in imagery}
+        chips_dirs = {name: Path(out_dir) / name for name in imagery}
+        for chips_dir in chips_dirs.values():
+            chips_dir.mkdir()
+            (chips_dir / "OAM-1-1-18.tif").touch()
+        return {name: str(chips_dir) for name, chips_dir in chips_dirs.items()}
 
     monkeypatch.setattr(serve_base, "_fetch_chips", fake_fetch_chips)
     return chips_calls
@@ -436,6 +442,31 @@ def test_predict_passes_each_input_chips_directory_by_name(monkeypatch: pytest.M
     assert pipeline.input_images == {"post": str(out_dir / "post"), "pre": str(out_dir / "pre")}
 
 
+def test_an_input_without_tiles_in_the_area_is_refused_before_predict(monkeypatch: pytest.MonkeyPatch) -> None:
+    from fair.serve import base as serve_base
+
+    async def fetch_without_pre_tiles(
+        imagery: dict[str, str], bbox: list[float], zoom: int, out_dir: str
+    ) -> dict[str, str]:
+        chips_dirs = {name: Path(out_dir) / name for name in imagery}
+        for chips_dir in chips_dirs.values():
+            chips_dir.mkdir()
+        (chips_dirs["post"] / "OAM-1-1-18.tif").touch()
+        return {name: str(chips_dir) for name, chips_dir in chips_dirs.items()}
+
+    monkeypatch.setattr(serve_base, "_fetch_chips", fetch_without_pre_tiles)
+    monkeypatch.setattr(serve_base, "load_session", lambda model_uri: object())
+    pipeline = _RecordingPipeline()
+    imagery = {"post": "https://post.example/{z}/{x}/{y}", "pre": "https://pre.example/{z}/{x}/{y}"}
+    body = {**VALID_REQUEST, "imagery": imagery}
+
+    response = asyncio.run(serve_base._predict(_request(client_disconnects=False, body=body), pipeline, False))
+
+    assert response.status_code == 422
+    assert bytes(response.body) == b'{"error":"The imagery has no tiles in this area for input(s): pre"}'
+    assert pipeline.calls == 0
+
+
 def test_predict_reads_image_uri_as_the_image_input(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     from fair.serve import base as serve_base
 
@@ -503,3 +534,66 @@ def test_fetch_chips_raises_the_failed_download_error_and_cancels_the_others(
     with pytest.raises(FileNotFoundError, match="404 for pre"):
         asyncio.run(serve_base._fetch_chips(imagery, [85.5, 27.6, 85.52, 27.63], 18, str(tmp_path)))
     assert cancelled == [imagery["post"]]
+
+
+class _SlowPipeline:
+    def predict(self, session: Any, input_images: dict[str, str], params: dict[str, Any]) -> dict[str, Any]:
+        time.sleep(0.5)
+        return {"type": "FeatureCollection", "features": []}
+
+
+def test_event_loop_stays_responsive_while_a_prediction_is_running(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from fair.serve import base as serve_base
+
+    _patch_fetch_chips(monkeypatch, tmp_path)
+
+    def slow_load_session(model_uri: str) -> object:
+        time.sleep(0.5)
+        return object()
+
+    monkeypatch.setattr(serve_base, "load_session", slow_load_session)
+
+    async def scenario() -> float:
+        prediction = asyncio.ensure_future(
+            serve_base._predict(_request(client_disconnects=False), _SlowPipeline(), False)
+        )
+        ticks = [time.monotonic()]
+        while not prediction.done():
+            await asyncio.sleep(0.02)
+            ticks.append(time.monotonic())
+        assert (await prediction).status_code == 200
+        return max(b - a for a, b in itertools.pairwise(ticks))
+
+    assert asyncio.run(scenario()) < 0.2
+
+
+class _IntervalRecordingPipeline:
+    def __init__(self) -> None:
+        self.intervals: list[tuple[float, float]] = []
+
+    def predict(self, session: Any, input_images: dict[str, str], params: dict[str, Any]) -> dict[str, Any]:
+        started = time.monotonic()
+        time.sleep(0.3)
+        self.intervals.append((started, time.monotonic()))
+        return {"type": "FeatureCollection", "features": []}
+
+
+def test_concurrent_requests_run_predictions_one_at_a_time(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    from fair.serve import base as serve_base
+
+    _patch_fetch_chips(monkeypatch, tmp_path)
+    monkeypatch.setattr(serve_base, "load_session", lambda model_uri: object())
+    pipeline = _IntervalRecordingPipeline()
+
+    async def scenario() -> None:
+        await asyncio.gather(
+            serve_base._predict(_request(client_disconnects=False), pipeline, False),
+            serve_base._predict(_request(client_disconnects=False), pipeline, False),
+        )
+
+    asyncio.run(scenario())
+
+    first, second = sorted(pipeline.intervals)
+    assert first[1] <= second[0]

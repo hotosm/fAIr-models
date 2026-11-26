@@ -129,6 +129,45 @@ def test_compatible_pair(tmp_path):
     assert validate_compatibility(_model(), _dataset(tmp_path)) == []
 
 
+@pytest.mark.parametrize(
+    ("accepted", "dataset_geometry", "compatible"),
+    [
+        (["point", "polygon"], "point", True),
+        (["point", "polygon"], "line", False),
+        (None, "point", False),
+    ],
+)
+def test_declared_label_geometry_types_decide_compatibility(tmp_path, accepted, dataset_geometry, compatible):
+    model = _model(keywords=["building", "polygon"])
+    if accepted:
+        model.properties["fair:label_geometry_types"] = accepted
+    dataset = _dataset(tmp_path, keywords=["building", "polygon"])
+    dataset.properties["fair:geometry_type"] = dataset_geometry
+
+    mismatch = any("Geometry type mismatch" in e for e in validate_compatibility(model, dataset))
+
+    assert mismatch is not compatible
+
+
+def test_dataset_without_geometry_field_falls_back_to_its_keywords(tmp_path):
+    model = _model(keywords=["building", "polygon"])
+    model.properties["fair:label_geometry_types"] = ["point", "polygon"]
+    dataset = _dataset(tmp_path, keywords=["building", "line"])
+    dataset.properties.pop("fair:geometry_type", None)
+
+    assert any("Geometry type mismatch" in e for e in validate_compatibility(model, dataset))
+
+
+def test_label_geometry_types_must_include_the_geometry_keyword():
+    model = _model(keywords=["building", "polygon"])
+    model.properties["fair:label_geometry_types"] = ["point"]
+
+    with patch.object(model, "validate", return_value=None):
+        errors = validate_item(model)
+
+    assert any("must include the geometry keyword" in e for e in errors)
+
+
 @pytest.mark.parametrize("name", ["RGB chips", "pre/event", "Pre"])
 def test_input_names_must_be_slugs(name):
     model = _model()
@@ -583,16 +622,30 @@ class TestPredictionVariables:
     def test_item_with_declared_variables_is_valid(self):
         assert validate_item(_model_with_prediction_variables()) == []
 
+    def test_base_model_without_a_confidence_output_is_rejected(self):
+        model = _model_with_prediction_variables()
+        output = next(o for o in model.properties["mlm:output"] if o.get("variables"))
+        output["variables"] = ["class"]
+        del model.properties["cube:variables"]["confidence"]
+
+        assert "mlm:output 'buildings' must declare a 'confidence' variable" in validate_item(model)
+
+    def test_base_model_confidence_outside_zero_to_one_is_rejected(self):
+        model = _model_with_prediction_variables()
+        model.properties["cube:variables"]["confidence"]["extent"] = [0, 100]
+
+        assert "cube:variables 'confidence' must have an extent of [0, 1]" in validate_item(model)
+
     def test_item_rejects_output_variable_missing_from_cube_variables(self):
         model = _model_with_prediction_variables()
-        del model.properties["cube:variables"]["score"]
+        del model.properties["cube:variables"]["confidence"]
 
-        assert "mlm:output 'buildings' variable 'score' has no entry in cube:variables" in validate_item(model)
+        assert "mlm:output 'buildings' variable 'confidence' has no entry in cube:variables" in validate_item(model)
 
     def test_predictions_carrying_every_declared_variable_pass(self):
         model = _model_with_prediction_variables()
         model.properties["cube:variables"]["class"]["nodata"] = -1
-        predictions = _polygon_predictions({"class": 1, "score": 0.9}, {"class": -1, "score": 0.1})
+        predictions = _polygon_predictions({"class": 1, "confidence": 0.9}, {"class": -1, "confidence": 0.1})
 
         assert validate_predictions_geojson(predictions, model) == []
 
@@ -600,20 +653,20 @@ class TestPredictionVariables:
         predictions = _polygon_predictions({"class": 1})
 
         assert validate_predictions_geojson(predictions, _model_with_prediction_variables()) == [
-            "features[0].properties missing declared variable 'score'"
+            "features[0].properties missing declared variable 'confidence'"
         ]
 
     def test_predictions_with_null_properties_fail(self):
-        predictions = _polygon_predictions({"class": 1, "score": 0.5})
+        predictions = _polygon_predictions({"class": 1, "confidence": 0.5})
         predictions["features"][0]["properties"] = None
 
         assert validate_predictions_geojson(predictions, _model_with_prediction_variables()) == [
             "features[0].properties missing declared variable 'class'",
-            "features[0].properties missing declared variable 'score'",
+            "features[0].properties missing declared variable 'confidence'",
         ]
 
     def test_predictions_with_undeclared_class_value_fail(self):
-        predictions = _polygon_predictions({"class": 7, "score": 0.5})
+        predictions = _polygon_predictions({"class": 7, "confidence": 0.5})
 
         assert validate_predictions_geojson(predictions, _model_with_prediction_variables()) == [
             "features[0].properties.class=7 not in declared values [1]"
@@ -961,3 +1014,77 @@ class TestPredictionOnlyBaseModel:
     def test_only_the_onnx_url_is_required_without_a_training_runtime(self):
         assert required_model_asset_keys(_prediction_only_base_model()) == ("model",)
         assert required_model_asset_keys(_valid_base_model()) == ("checkpoint", "model")
+
+
+@pytest.mark.parametrize(
+    ("tags", "valid"),
+    [({"natural": ["tree"]}, True), ({"natural": "tree"}, False), ({"natural": []}, False), (["tree"], False)],
+)
+def test_osm_tags_map_each_key_to_a_list_of_values(tags, valid):
+    model = _model()
+    model.properties["mlm:output"] = [{"classification:classes": [{"name": "tree", "value": 1, "fair:osm_tags": tags}]}]
+
+    with patch.object(model, "validate", return_value=None):
+        errors = validate_item(model)
+
+    assert any("fair:osm_tags must map" in e for e in errors) is not valid
+
+
+_SKLEARN_STAC_ITEM = Path(__file__).parents[1] / "models" / "sklearn_rgb_segmentation" / "stac-item.json"
+
+
+def _model_declaring(resources: dict[str, str]) -> pystac.Item:
+    model = pystac.Item.from_file(str(_SKLEARN_STAC_ITEM))
+    model.properties.update(resources)
+    return model
+
+
+@pytest.mark.parametrize(
+    "resources",
+    [
+        {"fair:cpu_request": "500m", "fair:cpu_limit": "4"},
+        {"fair:cpu_request": "0.5", "fair:cpu_limit": "4000m"},
+        {"fair:memory_request": "4Gi", "fair:memory_limit": "8Gi"},
+        {"fair:memory_request": "0.5Gi", "fair:memory_limit": "16Gi", "fair:cpu_limit": "1"},
+    ],
+)
+def test_resources_within_the_accepted_range_are_valid(resources):
+    assert validate_item(_model_declaring(resources)) == []
+
+
+@pytest.mark.parametrize(
+    ("resources", "key"),
+    [
+        ({"fair:memory_request": "4Gi", "fair:memory_limit": "32Gi"}, "32Gi"),
+        ({"fair:memory_request": "100Mi", "fair:memory_limit": "1Gi"}, "100Mi"),
+        ({"fair:cpu_limit": "8"}, "'8'"),
+        ({"fair:cpu_limit": "4001m"}, "4001m"),
+        ({"fair:cpu_limit": "50m"}, "50m"),
+        ({"fair:cpu_limit": "1.0005"}, "1.0005"),
+    ],
+)
+def test_resources_outside_the_accepted_range_are_rejected(resources, key):
+    assert any(key in error for error in validate_item(_model_declaring(resources)))
+
+
+@pytest.mark.parametrize(
+    ("resources", "missing"),
+    [
+        ({"fair:memory_request": "4Gi"}, "fair:memory_limit"),
+        ({"fair:memory_limit": "4Gi"}, "fair:memory_request"),
+        ({"fair:cpu_request": "1"}, "fair:cpu_limit"),
+    ],
+)
+def test_a_paired_resource_needs_its_pair(resources, missing):
+    assert any(missing in error for error in validate_item(_model_declaring(resources)))
+
+
+@pytest.mark.parametrize(
+    "resources",
+    [
+        {"fair:memory_request": "8Gi", "fair:memory_limit": "4Gi"},
+        {"fair:cpu_request": "2", "fair:cpu_limit": "500m"},
+    ],
+)
+def test_a_limit_below_its_request_is_rejected(resources):
+    assert any("below" in error for error in validate_item(_model_declaring(resources)))

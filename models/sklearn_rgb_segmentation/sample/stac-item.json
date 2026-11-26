@@ -1,0 +1,77 @@
+{
+  "type": "Feature",
+  "stac_version": "1.1.0",
+  "stac_extensions": [
+    "https://stac-extensions.github.io/label/v1.0.1/schema.json",
+    "https://stac-extensions.github.io/file/v2.1.0/schema.json",
+    "https://stac-extensions.github.io/version/v1.2.0/schema.json",
+    "https://hotosm.github.io/fAIr-models/schemas/v1.0.0/dataset/schema.json"
+  ],
+  "id": "sklearn-rgb-segmentation-sample",
+  "geometry": {
+    "type": "MultiPolygon",
+    "coordinates": [
+      [
+        [
+          [85.5182716369629, 27.628188999603513],
+          [85.5223777770996, 27.628188999603513],
+          [85.5223777770996, 27.63182531278955],
+          [85.5182716369629, 27.63182531278955],
+          [85.5182716369629, 27.628188999603513]
+        ]
+      ]
+    ]
+  },
+  "bbox": [85.5182716369629, 27.628188999603513, 85.5223777770996, 27.63182531278955],
+  "properties": {
+    "title": "sklearn-rgb-segmentation-sample",
+    "description": "Sample for the sklearn_rgb_segmentation pipeline: OSM buildings over OpenAerialMap imagery of Banepa, Nepal.",
+    "label:type": "vector",
+    "label:tasks": ["semantic-segmentation"],
+    "label:classes": [
+      {
+        "name": "building",
+        "classes": ["commercial", "house", "residential", "school", "yes"]
+      }
+    ],
+    "label:properties": ["building"],
+    "keywords": ["building", "semantic-segmentation", "polygon"],
+    "fair:user_id": "anonymous",
+    "version": "1",
+    "deprecated": false,
+    "providers": [
+      {
+        "name": "anonymous",
+        "roles": ["producer"]
+      }
+    ],
+    "fair:source_imagery": "https://tiles.openaerialmap.org/62d85d11d8499800053796c1/0/62d85d11d8499800053796c2/{z}/{x}/{y}",
+    "fair:geometry_type": "polygon",
+    "license": "ODbL-1.0",
+    "label:description": "OSM buildings with their tags.",
+    "created": "2026-11-15T09:37:20.662776+00:00",
+    "updated": "2026-11-15T09:37:20.662776+00:00",
+    "datetime": "2026-11-15T09:37:20.662776Z"
+  },
+  "links": [
+    {
+      "rel": "source",
+      "href": "https://tiles.openaerialmap.org/62d85d11d8499800053796c1/0/62d85d11d8499800053796c2/{z}/{x}/{y}",
+      "title": "Imagery for input image"
+    }
+  ],
+  "assets": {
+    "chips-image": {
+      "href": "chips-image",
+      "type": "image/tiff; application=geotiff",
+      "title": "Chips for input image",
+      "roles": ["data"]
+    },
+    "labels": {
+      "href": "labels/labels.geojson",
+      "type": "application/geo+json",
+      "title": "Training labels",
+      "roles": ["labels"]
+    }
+  }
+}

@@ -8,6 +8,7 @@ from typing import Any, Literal
 
 import pystac
 
+from fair.bundle import LABELS_LAYER
 from fair.stac.constants import (
     BASE_MODEL_EXTENSIONS,
     CONTAINER_REGISTRIES,
@@ -15,6 +16,9 @@ from fair.stac.constants import (
     DATASET_EXTENSIONS,
     LOCAL_MODEL_EXTENSIONS,
     OCI_IMAGE_INDEX_TYPE,
+    PARQUET_MEDIA_TYPE,
+    PMTILES_MEDIA_TYPE,
+    WEB_MAP_LINKS_SCHEMA,
 )
 from fair.stac.inputs import input_chips_asset, input_imagery_title
 from fair.stac.location import coverage_from_bbox, place_from_center
@@ -50,6 +54,7 @@ class DatasetItemParams:
     self_href: str | None = None
     predecessor_version_href: str | None = None
     geometry_type: Literal["point", "line", "polygon"] | None = None
+    bundle_hrefs: dict[str, str] | None = None
 
 
 CheckpointArtifactType = Literal[
@@ -202,6 +207,28 @@ def _raster_bands_from_model_input(mlm_input: list[dict[str, Any]]) -> list[dict
     return bands or None
 
 
+_BUNDLE_ASSETS: dict[str, tuple[str, list[str], str]] = {
+    "labels_parquet": (PARQUET_MEDIA_TYPE, ["labels"], "Labels (GeoParquet)"),
+    "tiles_parquet": (PARQUET_MEDIA_TYPE, ["metadata"], "Tile index (GeoParquet)"),
+    "imagery_pmtiles": (PMTILES_MEDIA_TYPE, ["data"], "Imagery (PMTiles)"),
+    "labels_pmtiles": (PMTILES_MEDIA_TYPE, ["labels", "overview"], "Labels (PMTiles)"),
+}
+
+
+def add_bundle_links(item: pystac.Item) -> None:
+    """Link the bundle's PMTiles assets as Web Map Links, at their final hrefs."""
+    for key, asset in item.assets.items():
+        if asset.media_type != PMTILES_MEDIA_TYPE:
+            continue
+        # No link type: stac-pydantic 3.1 (stac-fastapi-pgstac 5.0.2) limits Link.type to its MimeTypes enum.
+        link = pystac.Link(rel="pmtiles", target=asset.href, title=asset.title)
+        if key == "labels_pmtiles":
+            link.extra_fields["pmtiles:layers"] = [LABELS_LAYER]
+        item.add_link(link)
+    if any(link.rel == "pmtiles" for link in item.links) and WEB_MAP_LINKS_SCHEMA not in item.stac_extensions:
+        item.stac_extensions = [*item.stac_extensions, WEB_MAP_LINKS_SCHEMA]
+
+
 def build_dataset_item(
     label_type: Literal["vector", "raster"],
     label_tasks: list[str],
@@ -230,6 +257,7 @@ def build_dataset_item(
     self_href: str | None = None,
     predecessor_version_href: str | None = None,
     geometry_type: Literal["point", "line", "polygon"] | None = None,
+    bundle_hrefs: dict[str, str] | None = None,
 ) -> pystac.Item:
     _validate_providers(providers)
     if not chips_hrefs:
@@ -245,9 +273,11 @@ def build_dataset_item(
 
     resolved_id = item_id if item_id is not None else _slugify(title)
 
-    resolved_label_properties = (
-        label_properties if label_properties is not None else (None if label_type == "raster" else ["class"])
-    )
+    if label_type == "vector" and not label_properties:
+        # https://github.com/stac-extensions/label#class-object: each class `name` is a feature property.
+        label_properties = [cls["name"] for cls in label_classes]
+        if not label_properties:
+            raise ValueError("vector labels need label_classes naming the feature properties that hold the classes")
 
     properties: dict[str, Any] = {
         "title": title,
@@ -255,7 +285,7 @@ def build_dataset_item(
         "label:type": label_type,
         "label:tasks": label_tasks,
         "label:classes": label_classes,
-        "label:properties": resolved_label_properties,
+        "label:properties": label_properties,
         "keywords": keywords,
         "fair:user_id": user_id,
         "version": version,
@@ -310,6 +340,12 @@ def build_dataset_item(
             title="Training labels",
         ),
     )
+    for key, href in (bundle_hrefs or {}).items():
+        base = "imagery_pmtiles" if key.startswith("imagery_pmtiles") else key
+        media_type, roles, asset_title = _BUNDLE_ASSETS[base]
+        if key != base:
+            asset_title = f"{asset_title}, input {key.removeprefix('imagery_pmtiles_')}"
+        item.add_asset(key, pystac.Asset(href=href, media_type=media_type, roles=roles, title=asset_title))
     if download_href:
         item.add_asset(
             "download",
@@ -598,6 +634,7 @@ def build_local_model_item(
         "mlm:accelerator_count",
         "fair:metrics_spec",
         "fair:hyperparameters_spec",
+        "fair:category",
     ):
         if field in base_props:
             properties[field] = base_props[field]
@@ -702,7 +739,7 @@ def build_local_model_item(
         ),
     )
 
-    for key in ("source-code", "mlm:training", "mlm:inference", "mlm:inference-endpoint"):
+    for key in ("source-code", "readme", "mlm:training", "mlm:inference", "mlm:inference-endpoint"):
         if key in base_model_item.assets:
             item.add_asset(key, base_model_item.assets[key].clone())
 

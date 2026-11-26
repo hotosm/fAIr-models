@@ -1,0 +1,95 @@
+{
+  "type": "Feature",
+  "stac_version": "1.1.0",
+  "id": "chesapeake-rsc-v2-sample",
+  "stac_extensions": [
+    "https://stac-extensions.github.io/label/v1.0.1/schema.json"
+  ],
+  "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+      [
+        [
+          85.52,
+          27.634680000000003
+        ],
+        [
+          85.52192,
+          27.634680000000003
+        ],
+        [
+          85.52192,
+          27.635
+        ],
+        [
+          85.52,
+          27.635
+        ],
+        [
+          85.52,
+          27.634680000000003
+        ]
+      ]
+    ]
+  },
+  "bbox": [
+    85.52,
+    27.634680000000003,
+    85.52192,
+    27.635
+  ],
+  "properties": {
+    "datetime": "2026-11-06T00:00:00Z",
+    "description": "Synthetic roads for integration testing",
+    "label:type": "vector",
+    "label:properties": [
+      "highway"
+    ],
+    "label:tasks": [
+      "semantic-segmentation"
+    ],
+    "label:classes": [
+      {
+        "name": "highway",
+        "classes": [
+          "unclassified"
+        ]
+      }
+    ],
+    "label:description": "Synthetic road centerlines",
+    "keywords": [
+      "road",
+      "semantic-segmentation",
+      "line"
+    ],
+    "fair:user_id": "test",
+    "version": "1",
+    "deprecated": false,
+    "license": "CC0-1.0",
+    "providers": [
+      {
+        "name": "Isaac Corley",
+        "roles": [
+          "producer"
+        ]
+      }
+    ]
+  },
+  "assets": {
+    "chips-image": {
+      "href": "chips",
+      "type": "image/tiff",
+      "roles": [
+        "data"
+      ]
+    },
+    "labels": {
+      "href": "labels/labels.geojson",
+      "type": "application/geo+json",
+      "roles": [
+        "labels"
+      ]
+    }
+  },
+  "links": []
+}

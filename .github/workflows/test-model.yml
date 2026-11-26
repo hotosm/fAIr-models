@@ -85,8 +85,11 @@ jobs:
           uv sync --extra k8s --extra serve
           docker pull ghcr.io/hotosm/fair-models/fair-dev-cli:latest
           docker tag ghcr.io/hotosm/fair-models/fair-dev-cli:latest fair-dev-cli:latest
+          sed -i "s#\"ghcr.io/hotosm/fair-models/$MODEL:latest\"#\"ghcr.io/hotosm/fair-models/$MODEL:ci\"#" "models/$MODEL/stac-item.json"
+          ref=$(python3 scripts/stac_asset.py "models/$MODEL/stac-item.json" mlm:training)
+          [[ "$ref" == "ghcr.io/hotosm/fair-models/$MODEL:ci" ]] || { echo "mlm:training must be ghcr.io/hotosm/fair-models/$MODEL:latest, got $ref"; exit 1; }
           just build "$MODEL"
-          kind load docker-image "$(python3 scripts/stac_asset.py "models/$MODEL/stac-item.json" mlm:training)" --name fair
+          kind load docker-image "$ref" --name fair
 
       - name: Deploy stack + register
         run: |

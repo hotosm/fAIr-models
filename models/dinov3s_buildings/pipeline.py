@@ -35,10 +35,14 @@ DEFAULT_INFERENCE_PARAMS: dict[str, Any] = {
 
 
 def predict(session: Any, input_images: dict[str, str], params: dict[str, Any]) -> dict[str, Any]:
-    """Module-level predict for `fair.serve.base`. Delegates to `predict_session`."""
+    """Run `predict_session`, keeping `class` and `confidence` on each feature."""
     from dinov3_hot.serve import predict_session
 
-    return predict_session(session, Path(resolve_directory(input_images[IMAGE_INPUT])), params)
+    collection = predict_session(session, Path(resolve_directory(input_images[IMAGE_INPUT])), params)
+    for feature in collection["features"]:
+        props = feature["properties"]
+        feature["properties"] = {"class": props["class"], "confidence": round(float(props["score"]), 4)}
+    return collection
 
 
 def preprocess(image_path: Any) -> Any:
@@ -261,16 +265,10 @@ def run_inference(
     input_images: dict[str, str],
     inference_params: dict[str, Any],
 ) -> Annotated[dict[str, Any], "predictions"]:
-    """ONNX inference via `dinov3_hot.serve.predict_session`."""
-    from dinov3_hot.serve import predict_session
-
+    """ONNX inference through `predict`, the same path as live serving."""
     from fair.serve.base import load_session
 
-    return predict_session(
-        load_session(model_uri),
-        Path(resolve_directory(input_images[IMAGE_INPUT])),
-        inference_params,
-    )
+    return predict(load_session(model_uri), input_images, inference_params)
 
 
 @step(output_materializers={"onnx_model": ONNXMaterializer})

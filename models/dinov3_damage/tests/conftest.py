@@ -13,7 +13,8 @@ CHIP_SIZE = 256
 ZOOM = 18
 BLOCK_COUNT = 8
 TILE_X, TILE_Y = 193232, 109610
-LABEL_CYCLE = (1, 4)
+LABEL_CYCLE = (0, 3)
+DAMAGE_NAMES = ("no-damage", "minor-damage", "major-damage", "destroyed")
 
 
 def _tiles() -> list[tuple[int, int]]:
@@ -51,7 +52,6 @@ def _center_square(x: int, y: int) -> list[list[float]]:
 
 
 def create_toy_data(root: Path) -> dict[str, Any]:
-    """Post chips, pre chips of the same tiles, and damage labels 1 and 4."""
     chips_dir, pre_chips_dir, labels_dir = root / "chips", root / "chips-pre", root / "labels"
     for directory in (chips_dir, pre_chips_dir, labels_dir):
         directory.mkdir()
@@ -64,7 +64,10 @@ def create_toy_data(root: Path) -> dict[str, Any]:
         features.append(
             {
                 "type": "Feature",
-                "properties": {"label": LABEL_CYCLE[index % len(LABEL_CYCLE)]},
+                "properties": {
+                    "class": DAMAGE_NAMES[LABEL_CYCLE[index % len(LABEL_CYCLE)]],
+                    "label": LABEL_CYCLE[index % len(LABEL_CYCLE)],
+                },
                 "geometry": {"type": "Polygon", "coordinates": [_center_square(x, y)]},
             }
         )
@@ -127,12 +130,8 @@ def _build_dataset_stac_item(chips_dir: Path, pre_chips_dir: Path, labels_dir: P
             "description": "Toy building damage dataset",
             "label:type": "vector",
             "label:tasks": ["segmentation"],
-            "label:classes": [
-                {"name": "damage", "classes": ["no-damage"]},
-                {"name": "damage", "classes": ["minor-damage"]},
-                {"name": "damage", "classes": ["major-damage"]},
-                {"name": "damage", "classes": ["destroyed"]},
-            ],
+            "label:properties": ["class"],
+            "label:classes": [{"name": "class", "classes": list(DAMAGE_NAMES)}],
             "label:description": "Building damage labels",
             "keywords": ["building"],
             "fair:user_id": "test",

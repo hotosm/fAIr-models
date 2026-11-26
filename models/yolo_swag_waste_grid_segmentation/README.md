@@ -52,12 +52,10 @@ The [extra-large checkpoint](https://raw.githubusercontent.com/GIScience/solid-w
 
 Each output feature is one 10 m × 10 m grid cell by default (`cell_size_m` can change this size):
 
-| Output part  | Meaning                                                                                                                                                                              |
-| ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Geometry     | The geographic extent of the grid cell in WGS84, not the boundary of a waste pile.                                                                                                   |
-| `cell_id`    | The cell's identifier within this inference run.                                                                                                                                     |
-| `label`      | `waste` when the waste confidence meets the selected threshold; otherwise `background`. A `waste` label means the cell is a candidate for review, not that all of the cell is waste. |
-| `confidence` | The model's estimated probability, from 0 to 1, that the cell contains the target waste class.                                                                                       |
+| Output part  | Meaning                                                                                        |
+| ------------ | ---------------------------------------------------------------------------------------------- |
+| Geometry     | The geographic extent of the grid cell in WGS84, not the boundary of a waste pile.             |
+| `confidence` | The model's estimated probability, from 0 to 1, that the cell contains the target waste class. |
 
 SWAG does not identify waste material types, trace exact pile boundaries, or estimate waste mass or volume.
 

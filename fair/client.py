@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import dataclasses
+import hashlib
 import importlib
+import json
 import logging
 import os
 import subprocess
@@ -23,6 +25,7 @@ from fair.stac.api_backend import StacApiBackend
 from fair.stac.builders import (
     BaseModelItemParams,
     DatasetItemParams,
+    add_bundle_links,
     build_base_model_item,
     build_dataset_item,
 )
@@ -35,6 +38,7 @@ from fair.stac.inputs import (
     input_imagery_title,
     require_imagery_for_inputs,
 )
+from fair.stac.label_classes import LabelClassError, adapt_features
 from fair.stac.location import derive_location_props
 from fair.stac.validators import (
     is_trainable,
@@ -47,7 +51,11 @@ from fair.stac.versioning import archive_previous_version, delete_item_with_arch
 from fair.utils.data import (
     count_chips,
     create_dataset_archive,
+    http_url_to_s3_uri,
+    is_remote,
     mirror,
+    resolve_directory,
+    resolve_path,
     s3_uri_to_http_url,
     upload_item_assets,
     upload_local_directory,
@@ -215,6 +223,7 @@ class FairClient:
         *,
         knative_template: str | None = None,
         knative_namespace: str | None = None,
+        pin_images: bool = True,
     ) -> str:
         cat = self._get_backend()
         if isinstance(stac_item, str):
@@ -228,7 +237,7 @@ class FairClient:
             raise FairClientError(f"Schema validation failed: {errs}")
         if errs := validate_model_asset_urls(item):
             raise FairClientError(f"Asset URL validation failed: {errs}")
-        if self._stac_api_url:
+        if self._stac_api_url and pin_images:
             try:
                 registry.pin_image_digests(item)
             except registry.RegistryError as exc:
@@ -445,6 +454,7 @@ class FairClient:
 
         collection_root = paths.ROOT if paths is not None else DATASETS_COLLECTION
         self._upload_assets_if_remote(dataset_item, collection_root)
+        add_bundle_links(dataset_item)
 
         if prev:
             successor_href = cat.item_href(DATASETS_COLLECTION, dataset_item.id)
@@ -474,6 +484,7 @@ class FairClient:
         model_name: str,
         overrides: dict[str, Any] | None,
         config_dir: Path | str | None = None,
+        class_map: dict[str, str] | None = None,
     ) -> tuple[Any, Path]:
         cat = self._get_backend()
         base = cat.get_item(BASE_MODELS_COLLECTION, base_model_id)
@@ -490,17 +501,59 @@ class FairClient:
         if errs := validate_compatibility(base, ds):
             raise FairClientError(f"Incompatible: {errs}")
 
+        cfg_dir = Path(config_dir) if config_dir else self._config_dir
+        labels_href = self._adapt_labels(base, ds, model_name, class_map, cfg_dir)
+
         pipeline_module = self._pipeline_module_from_item(base)
         trackers = Client().active_stack_model.components.get(StackComponentType.EXPERIMENT_TRACKER, [])
         tracker_name = trackers[0].name if trackers else None
 
-        cfg_data = generate_training_config(base, ds, model_name, overrides, experiment_tracker=tracker_name)
-        cfg_dir = Path(config_dir) if config_dir else self._config_dir
+        cfg_data = generate_training_config(
+            base, ds, model_name, overrides, experiment_tracker=tracker_name, labels_href=labels_href
+        )
         cfg_dir.mkdir(parents=True, exist_ok=True)
         train_cfg = cfg_dir / f"train_{model_name}.yaml"
         train_cfg.write_text(yaml.dump(cfg_data, sort_keys=False))
 
         return importlib.import_module(pipeline_module), train_cfg
+
+    def _adapt_labels(
+        self,
+        base: pystac.Item,
+        ds: pystac.Item,
+        model_name: str,
+        class_map: dict[str, str] | None,
+        cfg_dir: Path,
+    ) -> str:
+        labels_asset = ds.assets.get("labels")
+        if labels_asset is None:
+            raise FairClientError(f"Dataset '{ds.id}' has no 'labels' asset")
+        source = http_url_to_s3_uri(labels_asset.href)
+        if source.lower().endswith(".geojson"):
+            files = [resolve_path(source)]
+        else:
+            files = sorted(resolve_directory(source, "*.geojson").glob("*.geojson"))
+        if len(files) != 1:
+            raise FairClientError(f"Dataset '{ds.id}' needs one labels GeoJSON, found {len(files)} at {source}")
+        collection = json.loads(files[0].read_text())
+        try:
+            features = adapt_features(collection.get("features", []), ds.properties, base.properties, class_map)
+        except LabelClassError as exc:
+            raise FairClientError(f"Dataset '{ds.id}' does not fit base model '{base.id}': {exc}") from exc
+        text = json.dumps({**collection, "features": features}, separators=(",", ":"))
+        digest = hashlib.sha256(text.encode()).hexdigest()[:16]
+
+        local_dir = cfg_dir / "labels" / model_name / digest
+        local_dir.mkdir(parents=True, exist_ok=True)
+        (local_dir / "labels.geojson").write_text(text)
+        if not (is_remote(source) or self._upload_artifacts):
+            return str(local_dir)
+        prefix = self._artifact_store_prefix()
+        if prefix is None:
+            raise FairClientError("remote dataset labels need a remote artifact store for the adapted labels")
+        remote_dir = f"{prefix}/training-labels/{model_name}/{digest}"
+        mirror(local_dir, remote_dir)
+        return remote_dir
 
     def finetune(
         self,
@@ -509,12 +562,15 @@ class FairClient:
         dataset_id: str,
         model_name: str,
         overrides: dict[str, Any] | None = None,
+        class_map: dict[str, str] | None = None,
     ) -> str:
+        """Train `model_name`; `class_map` maps dataset classes (`property=value`) to model class names."""
         mod, train_cfg = self._prepare_training_pipeline(
             base_model_id=base_model_id,
             dataset_id=dataset_id,
             model_name=model_name,
             overrides=overrides,
+            class_map=class_map,
         )
         run = mod.training_pipeline.with_options(
             config_path=str(train_cfg),
@@ -593,7 +649,7 @@ class FairClient:
             base_model_item_id=resolved_base_id,
             dataset_item_id=resolved_dataset_id,
             user_id=effective_user_id,
-            description=description or f"{model_name} finetuned on {resolved_dataset_id}",
+            description=description,
             title=title,
             keywords=keywords,
             artifact_store_prefix=self._artifact_store_prefix() if self._upload_artifacts else None,
@@ -658,13 +714,7 @@ class FairClient:
         if predict_base_url:
             return predict_base_url
 
-        if collection == BASE_MODELS_COLLECTION:
-            base_item = model_item
-        else:
-            base_id = model_item.properties.get("fair:base_model_id")
-            if not base_id:
-                raise FairClientError(f"Local model '{model_item.id}' missing 'fair:base_model_id'")
-            base_item = self._get_backend().get_item(BASE_MODELS_COLLECTION, base_id)
+        base_item = model_item if collection == BASE_MODELS_COLLECTION else self._base_model_of(model_item)
 
         endpoint_asset = base_item.assets.get("mlm:inference-endpoint")
         if endpoint_asset is None:
@@ -674,6 +724,12 @@ class FairClient:
                 "predict URL is recorded in STAC."
             )
         return endpoint_asset.href
+
+    def _base_model_of(self, local_model_item: pystac.Item) -> pystac.Item:
+        base_id = local_model_item.properties.get("fair:base_model_id")
+        if not base_id:
+            raise FairClientError(f"Local model '{local_model_item.id}' missing 'fair:base_model_id'")
+        return self._get_backend().get_item(BASE_MODELS_COLLECTION, base_id)
 
     def _predict_verify_ssl(self) -> bool:
         value = os.environ.get("FAIR_PREDICT_VERIFY_SSL")
@@ -691,6 +747,7 @@ class FairClient:
         model_name: str,
         overrides: dict[str, Any] | None = None,
         config_dir: Path | str | None = None,
+        class_map: dict[str, str] | None = None,
     ) -> str:
         """Non-blocking variant of finetune. Returns the ZenML pipeline run id immediately."""
         mod, train_cfg = self._prepare_training_pipeline(
@@ -699,6 +756,7 @@ class FairClient:
             model_name=model_name,
             overrides=overrides,
             config_dir=config_dir,
+            class_map=class_map,
         )
         run = mod.training_pipeline.with_options(
             config_path=str(train_cfg),
@@ -722,6 +780,7 @@ class FairClient:
     ) -> tuple[Any, Path]:
         cat = self._get_backend()
         model_item = None
+        collection = LOCAL_MODELS_COLLECTION
         for collection in (LOCAL_MODELS_COLLECTION, BASE_MODELS_COLLECTION):
             try:
                 model_item = cat.get_item(collection, local_model_id)
@@ -738,6 +797,8 @@ class FairClient:
         require_imagery_for_inputs(model_item, input_images)
         if params:
             validate_inference_params(params, model_item)
+        # Resources are declared once, on the base model that every local model is trained from.
+        resources_item = model_item if collection == BASE_MODELS_COLLECTION else self._base_model_of(model_item)
 
         prefix = self._artifact_store_prefix()
         if self._upload_artifacts and prefix:
@@ -747,7 +808,7 @@ class FairClient:
                 upload_local_directory(Path(path), uploaded[name])
             input_images = {**input_images, **uploaded}
 
-        cfg_data = generate_inference_config(model_item, input_images, params)
+        cfg_data = generate_inference_config(model_item, input_images, params, resources_item=resources_item)
         cfg_dir = Path(config_dir) if config_dir else self._config_dir
         cfg_dir.mkdir(parents=True, exist_ok=True)
         inf_cfg = cfg_dir / f"inference_{local_model_id[:8]}.yaml"
@@ -860,6 +921,7 @@ class UserScopedFairClient:
         model_name: str,
         overrides: dict[str, Any] | None = None,
         config_dir: Path | str | None = None,
+        class_map: dict[str, str] | None = None,
     ) -> str:
         return self._client.submit_finetune(
             base_model_id=base_model_id,
@@ -867,6 +929,7 @@ class UserScopedFairClient:
             model_name=model_name,
             overrides=overrides,
             config_dir=config_dir,
+            class_map=class_map,
         )
 
     def submit_predict(

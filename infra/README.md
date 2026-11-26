@@ -16,8 +16,8 @@ chart releases (env-aware), `justfile` holds all commands, `kind-config.yaml`
 defines the local cluster, and `ports.conf` maps the dev port-forwards.
 Per-env values sit in `environments/` (`dev.yaml`, `cluster.yaml.gotmpl`),
 chart values in `values/` (env-templated), raw k8s manifests (postgres,
-ingress, knative, and so on) in `manifests/`, and helper scripts
-(`seed_data.py`, `zenml-token.sh`) in `scripts/`.
+ingress, knative, and so on) in `manifests/`, and the helper script
+`zenml-token.sh` in `scripts/`.
 
 ## Prerequisites
 
@@ -31,7 +31,7 @@ ingress, knative, and so on) in `manifests/`, and helper scripts
 ```bash
 just up           # spin up local stack (kind)
 just up cluster   # deploy to the cluster kubectl points at
-just example      # run both example pipelines on the active stack
+just example      # run the example pipeline of every trainable model
 just predict      # smoke-test live KNative endpoints
 just urls         # show service URLs
 just status       # cluster + pod health

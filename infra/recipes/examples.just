@@ -41,20 +41,6 @@ predict:
         if curl -sfk --max-time 30 "$url" >/dev/null; then echo "ok"; else echo "fail ($url)"; fi
     done
 
-[doc('Seed sample data into MinIO (the fair-data bucket the example pipelines read from)')]
-seed:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    kubectl port-forward -n {{ ns }} svc/minio 9001:9000 >/dev/null 2>&1 &
-    PF_PID=$!
-    trap "kill $PF_PID 2>/dev/null || true" EXIT
-    for i in $(seq 1 20); do nc -z localhost 9001 2>/dev/null && break; sleep 1; done
-    AWS_ENDPOINT_URL=http://localhost:9001 \
-    AWS_ACCESS_KEY_ID=minioadmin \
-    AWS_SECRET_ACCESS_KEY=minioadmin \
-    S3_BUCKET=fair-data \
-        uv run --with boto3 python scripts/seed_data.py
-
 [doc('Register the cluster stack with the local ZenML CLI (so pipelines run against the cluster)')]
 stack-register:
     #!/usr/bin/env bash

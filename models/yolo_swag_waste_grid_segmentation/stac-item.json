@@ -37,21 +37,21 @@
     "mlm:framework_version": "2.10.0",
     "mlm:pretrained": true,
     "mlm:pretrained_source": "https://raw.githubusercontent.com/GIScience/solid-waste-detection-for-fAIr/9f62fd1e4de6905a38620c195a6e62bcef280956/data/checkpoint/checkpoint_v1_extra_large.pt",
-    "mlm:accelerator": "cuda",
+    "mlm:accelerator": "amd64",
     "mlm:accelerator_count": 1,
     "fair:recommended_zoom": 22,
     "fair:min_zoom": 20,
     "fair:max_zoom": 22,
     "fair:pinned": true,
     "fair:preview": {
-      "center": [-13.05, 8.3381],
+      "center": [-0.22, 5.5464],
       "zoom": { "recommended": 18, "min": 14, "max": 22 },
       "imagery": {
-        "url": "https://api.imagery.hotosm.org/raster/collections/openaerialmap/items/6aae46379ed4c3b5f2d117f9/tiles/WebMercatorQuad/{z}/{x}/{y}?assets=visual",
+        "url": "https://api.imagery.hotosm.org/raster/collections/openaerialmap/items/66e40ff3cd0baa0001b6212f/tiles/WebMercatorQuad/{z}/{x}/{y}?assets=visual",
         "type": "tms",
         "attribution": "OpenAerialMap"
       },
-      "place": { "name": "Waterloo", "country": "Sierra Leone", "country_code": "SL" }
+      "place": { "name": "Old Fadama, Accra", "country": "Ghana", "country_code": "GH" }
     },
     "keywords": ["solid-waste", "semantic-segmentation", "polygon"],
     "license": "MIT",
@@ -111,12 +111,12 @@
           {
             "name": "background",
             "value": 0,
-            "description": "Grid cell selected from label=0 features, or randomly sampled from cells with zero waste overlap when no label=0 features are provided"
+            "description": "Grid cell selected from background-class features, or randomly sampled from cells with zero waste overlap when the labels don't include background-class features"
           },
           {
             "name": "waste",
             "value": 1,
-            "description": "Grid cell is covered by label=1 features above waste_overlap_threshold"
+            "description": "Grid cell is covered by waste-class features above waste_overlap_threshold"
           }
         ],
         "post_processing_function": {
@@ -129,8 +129,8 @@
         "name": "waste cells",
         "description": "Grid cells whose waste probability meets confidence_threshold, one row per feature.",
         "tasks": ["semantic-segmentation"],
-        "result": { "shape": [-1, 4], "dim_order": ["batch", "variables"], "data_type": "float32" },
-        "variables": ["class", "confidence", "cell_id", "label"],
+        "result": { "shape": [-1, 2], "dim_order": ["batch", "variables"], "data_type": "float32" },
+        "variables": ["class", "confidence"],
         "classification:classes": [
           { "name": "waste", "value": 1, "description": "Grid cell covered by solid waste" }
         ],
@@ -149,12 +149,6 @@
       }
     },
     "cube:variables": {
-      "label": {
-        "dimensions": ["features"],
-        "type": "data",
-        "description": "Class name of the predicted class (waste).",
-        "values": ["waste"]
-      },
       "class": {
         "dimensions": ["features"],
         "type": "data",
@@ -168,12 +162,6 @@
         "description": "Waste probability of the grid cell.",
         "extent": [0, 1],
         "data_type": "float32"
-      },
-      "cell_id": {
-        "dimensions": ["features"],
-        "type": "auxiliary",
-        "description": "Grid cell identifier.",
-        "data_type": "int64"
       }
     },
     "mlm:hyperparameters": {
@@ -197,7 +185,7 @@
       "strategy": "grid_5m_stratified_grouped",
       "default_ratio": 0.1,
       "seed": 42,
-      "description": "Mosaic chips and build a 5 m x 5 m grid. Cells from each label=1 waste polygon and each label=0 background polygon remain in one split."
+      "description": "Mosaic chips and build a 5 m x 5 m grid. Cells from each waste polygon and each background polygon remain in one split."
     },
     "fair:hyperparameters_spec": [
       {
@@ -291,7 +279,7 @@
         "default": 0.8,
         "min": 0.0,
         "max": 1.0,
-        "description": "Minimum fractional area of a grid cell covered by label=1 features for the cell to be labeled 'waste'"
+        "description": "Minimum fractional area of a grid cell covered by waste-class features for the cell to be labeled 'waste'"
       },
       {
         "key": "cell_size_m",
@@ -358,13 +346,16 @@
       "href": "ghcr.io/hotosm/fair-models/yolo_swag_waste_grid_segmentation:latest",
       "type": "application/vnd.oci.image.index.v1+json",
       "title": "Training Docker Image",
-      "roles": ["mlm:training-runtime"]
+      "roles": ["mlm:training-runtime"],
+      "mlm:accelerator": "cuda",
+      "mlm:accelerator_count": 1
     },
     "mlm:inference": {
       "href": "ghcr.io/hotosm/fair-models/yolo_swag_waste_grid_segmentation:latest-inference",
       "type": "application/vnd.oci.image.index.v1+json",
       "title": "Inference Docker Image",
-      "roles": ["mlm:inference-runtime"]
+      "roles": ["mlm:inference-runtime"],
+      "mlm:accelerator": "amd64"
     },
     "readme": {
       "href": "https://raw.githubusercontent.com/GIScience/fAIr-models/refs/heads/master/models/yolo_swag_waste_grid_segmentation/README.md",

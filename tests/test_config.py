@@ -5,6 +5,7 @@ from typing import Any
 
 import pystac
 import pytest
+from zenml.config.pipeline_run_configuration import PipelineRunConfiguration
 
 from fair.stac.builders import build_base_model_item, build_dataset_item
 from fair.zenml.config import (
@@ -152,7 +153,7 @@ def _local_model(**kw: Any):
 
 
 def test_training_config(tmp_path):
-    cfg = generate_training_config(_base_model(), _dataset(tmp_path), model_name="finetuned")
+    cfg = generate_training_config(_base_model(), _dataset(tmp_path), model_name="finetuned", labels_href="labels/")
     p = cfg["parameters"]
     hp = p["hyperparameters"]
     assert cfg["model"]["name"] == "finetuned"
@@ -169,21 +170,25 @@ def test_training_config(tmp_path):
 
 def test_training_config_passes_the_chips_of_each_model_input_by_name(tmp_path):
     dataset = _dataset(tmp_path, chips_hrefs={"post": "data/post/", "pre": "data/pre/"})
-    cfg = generate_training_config(_with_inputs(_base_model(), "post", "pre"), dataset, model_name="damage")
+    cfg = generate_training_config(
+        _with_inputs(_base_model(), "post", "pre"), dataset, model_name="damage", labels_href="labels/"
+    )
     assert cfg["parameters"]["dataset_chips"] == {"post": "data/post/", "pre": "data/pre/"}
 
 
 def test_training_config_reads_a_legacy_chips_asset_for_a_single_input_model(tmp_path):
     dataset = _dataset(tmp_path)
     dataset.add_asset("chips", dataset.assets.pop("chips-image"))
-    cfg = generate_training_config(_base_model(), dataset, model_name="buildings")
+    cfg = generate_training_config(_base_model(), dataset, model_name="buildings", labels_href="labels/")
     assert cfg["parameters"]["dataset_chips"] == {"image": "data/oam/"}
 
 
 def test_training_config_raises_when_the_dataset_lacks_chips_for_a_model_input(tmp_path):
     dataset = _dataset(tmp_path, chips_hrefs={"post": "data/post/"})
     with pytest.raises(KeyError, match="pre"):
-        generate_training_config(_with_inputs(_base_model(), "post", "pre"), dataset, model_name="damage")
+        generate_training_config(
+            _with_inputs(_base_model(), "post", "pre"), dataset, model_name="damage", labels_href="labels/"
+        )
 
 
 def test_training_overrides(tmp_path):
@@ -191,6 +196,7 @@ def test_training_overrides(tmp_path):
         _base_model(),
         _dataset(tmp_path),
         model_name="t",
+        labels_href="labels/",
         overrides={"epochs": 1},
     )
     hp = cfg["parameters"]["hyperparameters"]
@@ -314,6 +320,50 @@ def test_k8s_settings_default_count():
     assert settings["orchestrator.kubernetes"]["pod_settings"]["resources"]["limits"]["nvidia.com/gpu"] == "1"
 
 
+def _with_runtime_accelerator(item: pystac.Item, asset: str, accelerator: str, count: int = 1) -> pystac.Item:
+    item.add_asset(
+        asset,
+        pystac.Asset(
+            href="ghcr.io/hotosm/model:latest",
+            extra_fields={"mlm:accelerator": accelerator, "mlm:accelerator_count": count},
+        ),
+    )
+    return item
+
+
+def _gpu_request(settings: dict) -> str | None:
+    return settings["orchestrator.kubernetes"]["pod_settings"]["resources"].get("requests", {}).get("nvidia.com/gpu")
+
+
+def test_training_and_inference_read_their_own_runtime_asset():
+    item = _with_runtime_accelerator(_item_with_accelerator("amd64"), "mlm:training", "cuda")
+
+    assert (
+        _gpu_request(_scheduling_settings(item, "training")),
+        _gpu_request(_scheduling_settings(item, "inference")),
+    ) == ("1", None)
+
+
+def test_inference_asset_keeps_a_cuda_trained_model_on_cpu():
+    item = _with_runtime_accelerator(_item_with_accelerator("cuda"), "mlm:inference", "amd64")
+
+    assert _gpu_request(_scheduling_settings(item, "inference")) is None
+
+
+def test_inference_asset_switches_offline_prediction_to_gpu():
+    item = _with_runtime_accelerator(_item_with_accelerator("amd64"), "mlm:inference", "cuda", count=2)
+
+    assert _gpu_request(_scheduling_settings(item, "inference")) == "2"
+
+
+def test_published_local_model_keeps_the_base_inference_accelerator():
+    base = _with_runtime_accelerator(_item_with_accelerator("cuda"), "mlm:inference", "amd64")
+
+    local = _local_model(base_model_item=base)
+
+    assert _gpu_request(_scheduling_settings(local, "inference")) is None
+
+
 def test_k8s_resources_global_env_override(monkeypatch):
     monkeypatch.setenv("FAIR_K8S_MEMORY_REQUEST", "8Gi")
     monkeypatch.setenv("FAIR_K8S_MEMORY_LIMIT", "12Gi")
@@ -365,7 +415,7 @@ def test_workload_selectors_use_label_domain():
 def test_training_config_includes_k8s_settings(tmp_path):
     item = _item_with_accelerator("cuda", 1)
     ds = _dataset(tmp_path)
-    cfg = generate_training_config(item, ds, model_name="gpu-test")
+    cfg = generate_training_config(item, ds, model_name="gpu-test", labels_href="labels/")
     assert "orchestrator.kubernetes" in cfg["steps"]["train_model"]["settings"]
     assert "orchestrator.kubernetes" in cfg["steps"]["evaluate_model"]["settings"]
     assert "orchestrator.kubernetes" not in cfg.get("settings", {})
@@ -382,13 +432,64 @@ def test_inference_config_includes_k8s_settings():
 def test_a_lone_chips_asset_feeds_only_an_image_input(tmp_path):
     dataset = _dataset(tmp_path)
     dataset.assets["chips"] = dataset.assets.pop("chips-image")
-    assert generate_training_config(_base_model(), dataset, model_name="m")["parameters"]["dataset_chips"] == {
-        "image": "data/oam/"
-    }
+    assert generate_training_config(_base_model(), dataset, model_name="m", labels_href="labels/")["parameters"][
+        "dataset_chips"
+    ] == {"image": "data/oam/"}
     with pytest.raises(KeyError, match="rgb"):
-        generate_training_config(_with_inputs(_base_model(), "rgb"), dataset, model_name="m")
+        generate_training_config(_with_inputs(_base_model(), "rgb"), dataset, model_name="m", labels_href="labels/")
 
 
 def test_inference_config_rejects_a_model_whose_input_names_are_not_slugs():
     with pytest.raises(ValueError, match="not slugs"):
         generate_inference_config(_with_inputs(_local_model(), "RGB chips"), {"RGB chips": "s3://chips"})
+
+
+def test_offline_prediction_takes_the_memory_and_cpu_the_model_declares():
+    item = _item_with_accelerator("amd64")
+    item.properties.update(
+        {"fair:cpu_request": "1", "fair:cpu_limit": "2", "fair:memory_request": "4Gi", "fair:memory_limit": "8Gi"}
+    )
+
+    resources = _scheduling_settings(item, "inference")["orchestrator.kubernetes"]["pod_settings"]["resources"]
+
+    assert resources == {"requests": {"cpu": "1", "memory": "4Gi"}, "limits": {"cpu": "2", "memory": "8Gi"}}
+
+
+def test_offline_prediction_resources_ignore_the_environment(monkeypatch):
+    monkeypatch.setenv("FAIR_K8S_MEMORY_LIMIT", "12Gi")
+    monkeypatch.setenv("FAIR_INFERENCE_MEMORY_LIMIT", "16Gi")
+
+    resources = _scheduling_settings(_item_with_accelerator(), "inference")["orchestrator.kubernetes"]["pod_settings"][
+        "resources"
+    ]
+
+    assert resources == {"requests": {"memory": "1Gi"}, "limits": {"memory": "2Gi"}}
+
+
+def test_offline_prediction_defaults_each_resource_the_model_leaves_out():
+    item = _item_with_accelerator("amd64")
+    item.properties.update({"fair:cpu_request": "1", "fair:cpu_limit": "2"})
+
+    resources = _scheduling_settings(item, "inference")["orchestrator.kubernetes"]["pod_settings"]["resources"]
+
+    assert resources == {"requests": {"cpu": "1", "memory": "1Gi"}, "limits": {"cpu": "2", "memory": "2Gi"}}
+
+
+def test_offline_prediction_of_a_local_model_takes_the_base_model_resources():
+    base = _base_model()
+    base.properties.update({"fair:memory_request": "4Gi", "fair:memory_limit": "8Gi"})
+
+    config = generate_inference_config(_local_model(), {"image": "/data/input/"}, resources_item=base)
+
+    resources = config["steps"]["run_inference"]["settings"]["orchestrator.kubernetes"]["pod_settings"]["resources"]
+    assert resources == {"requests": {"memory": "4Gi"}, "limits": {"memory": "8Gi"}}
+
+
+def test_offline_prediction_retries_a_failed_step_and_training_does_not(tmp_path):
+    training = generate_training_config(_base_model(), _dataset(tmp_path), model_name="t", labels_href="labels/")
+    inference = generate_inference_config(_local_model(), {"image": "/data/input/"})
+
+    assert "retry" not in training
+    retry = PipelineRunConfiguration.model_validate(inference).retry
+    assert retry is not None
+    assert retry.max_retries == 2

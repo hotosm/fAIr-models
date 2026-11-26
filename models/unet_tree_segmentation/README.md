@@ -13,11 +13,11 @@ vectorised into GeoJSON polygons.
 
 ## Inputs and outputs
 
-| Stage      | Shape                      | Notes                                         |
-| ---------- | -------------------------- | --------------------------------------------- |
-| Input      | `[batch, 3, 256, 256]` float32 | RGB values divided by 255                 |
-| Output     | `[batch, 2, 256, 256]` float32 | Background and tree logits per pixel      |
-| Prediction | GeoJSON                    | Tree crown polygons in EPSG:4326              |
+| Stage      | Shape                          | Notes                                                          |
+| ---------- | ------------------------------ | -------------------------------------------------------------- |
+| Input      | `[batch, 3, 256, 256]` float32 | RGB values divided by 255                                      |
+| Output     | `[batch, 2, 256, 256]` float32 | Background and tree logits per pixel                           |
+| Prediction | GeoJSON                        | Tree crown polygons in EPSG:4326 with `class` and `confidence` |
 
 `confidence_threshold` (default 0.5) is the minimum tree probability for a pixel
 to count as tree.

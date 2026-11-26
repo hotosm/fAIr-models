@@ -38,7 +38,7 @@ logger = logging.getLogger(__name__)
 _DEFAULT_CACHE = Path(os.environ.get("FAIR_CACHE_DIR", Path(tempfile.gettempdir()) / "fair-data"))
 
 
-def _is_remote(href: str) -> bool:
+def is_remote(href: str) -> bool:
     return "://" in href
 
 
@@ -111,7 +111,7 @@ def resolve_path(href: str, local_dir: Path | None = None) -> Path:
         href: Local path or s3://bucket/key URI.
         local_dir: Download target directory. Defaults to /tmp/fair-data.
     """
-    if not _is_remote(href):
+    if not is_remote(href):
         return Path(href)
 
     # Derive cache path from URI without instantiating UPath (avoids remote access)
@@ -145,7 +145,7 @@ def resolve_directory(href: str, pattern: str = "*", local_dir: Path | None = No
         pattern: Glob pattern to filter files (e.g. "OAM-*.tif").
         local_dir: Download target root. Defaults to /tmp/fair-data.
     """
-    if not _is_remote(href):
+    if not is_remote(href):
         return Path(href)
 
     uris = list_files(href, pattern)
@@ -173,7 +173,7 @@ def create_dataset_archive(chips_dirs: dict[str, str], labels_dir: str, output_p
 
     with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as zf:
         for name, source in folders.items():
-            directory = Path(source) if not _is_remote(source) else resolve_directory(source)
+            directory = Path(source) if not is_remote(source) else resolve_directory(source)
             for file_path in sorted(directory.rglob("*")):
                 if file_path.is_file():
                     zf.write(file_path, Path(name) / file_path.relative_to(directory))
@@ -258,7 +258,7 @@ def upload_item_assets(
     Returns the item with rewritten hrefs.
     """
     for key, asset in item.assets.items():
-        if _is_remote(asset.href) or key in IMAGE_ASSET_KEYS:
+        if is_remote(asset.href) or key in IMAGE_ASSET_KEYS:
             continue
 
         version = item.properties.get("version", "1")

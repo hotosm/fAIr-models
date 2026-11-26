@@ -473,6 +473,7 @@ def test_finetune_and_promote_error_paths(monkeypatch: pytest.MonkeyPatch, tmp_p
         "Client",
         lambda: SimpleNamespace(active_stack_model=SimpleNamespace(components={})),
     )
+    monkeypatch.setattr(client, "_adapt_labels", lambda *args: "labels")
     monkeypatch.setattr(client_module, "generate_training_config", lambda *args, **kwargs: {"steps": {}})
 
     class _TrainingPipeline:

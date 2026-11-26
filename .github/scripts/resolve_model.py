@@ -28,7 +28,7 @@ def changed_model_dirs() -> list[str]:
         text=True,
         check=True,
     ).stdout.splitlines()
-    return sorted({Path(p).parts[1] for p in out if p.startswith("models/") and len(Path(p).parts) > 1})
+    return sorted({Path(p).parts[1] for p in out if p.startswith("models/") and len(Path(p).parts) > 2})
 
 
 def main() -> int:

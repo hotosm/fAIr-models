@@ -370,6 +370,7 @@ def test_config_helpers_cover_edge_cases(monkeypatch: pytest.MonkeyPatch, tmp_pa
         _base_model(),
         _dataset_item(tmp_path),
         model_name="tracked",
+        labels_href="labels/",
         experiment_tracker="mlflow_tracker",
     )
     assert tracker_config["steps"]["train_model"]["experiment_tracker"] == "mlflow_tracker"
@@ -380,17 +381,12 @@ def test_config_helpers_cover_edge_cases(monkeypatch: pytest.MonkeyPatch, tmp_pa
     dataset_item = _dataset_item(tmp_path)
     del dataset_item.assets["chips-image"]
     with pytest.raises(KeyError, match="has no chips for model input"):
-        generate_training_config(base_item, dataset_item, model_name="demo")
-
-    dataset_item = _dataset_item(tmp_path)
-    del dataset_item.assets["labels"]
-    with pytest.raises(KeyError, match="missing 'labels' asset"):
-        generate_training_config(base_item, dataset_item, model_name="demo")
+        generate_training_config(base_item, dataset_item, model_name="demo", labels_href="labels/")
 
     base_item = _base_model()
     del base_item.assets["checkpoint"]
     with pytest.raises(KeyError, match="missing 'checkpoint' asset"):
-        generate_training_config(base_item, _dataset_item(tmp_path), model_name="demo")
+        generate_training_config(base_item, _dataset_item(tmp_path), model_name="demo", labels_href="labels/")
 
     local_model = _local_model()
     del local_model.assets["model"]

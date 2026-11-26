@@ -1,5 +1,6 @@
 """Focused contracts for the published classifier and grid prediction output."""
 
+import json
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -40,8 +41,8 @@ def test_predict_returns_unique_wgs84_polygons(toy_chips: Path) -> None:
 
     assert predictions["type"] == "FeatureCollection"
     assert predictions["features"]
-    cell_ids = [feature["properties"]["cell_id"] for feature in predictions["features"]]
-    assert len(cell_ids) == len(set(cell_ids))
+    cells = [json.dumps(feature["geometry"]) for feature in predictions["features"]]
+    assert len(cells) == len(set(cells))
     feature = predictions["features"][0]
     ring = feature["geometry"]["coordinates"][0]
     assert feature["geometry"]["type"] == "Polygon"
@@ -50,22 +51,22 @@ def test_predict_returns_unique_wgs84_polygons(toy_chips: Path) -> None:
 
 
 @pytest.mark.parametrize(
-    ("waste_confidence", "expected_labels"),
-    [(0.1, set()), (0.5, {"waste"}), (0.9, {"waste"})],
+    ("waste_confidence", "expected_classes"),
+    [(0.1, set()), (0.5, {1}), (0.9, {1})],
 )
 def test_predict_returns_only_waste_cells_at_or_above_threshold(
     toy_chips: Path,
     waste_confidence: float,
-    expected_labels: set[str],
+    expected_classes: set[int],
 ) -> None:
-    """Cells below the inclusive threshold are dropped; kept cells are labeled 'waste'."""
     from models.yolo_swag_waste_grid_segmentation.pipeline import predict
 
     session = _StubSession(_probabilities_for_waste_confidence(waste_confidence))
     predictions = predict(session, {"image": str(toy_chips)}, {"confidence_threshold": 0.5})
 
     assert predictions["type"] == "FeatureCollection"
-    assert {feature["properties"]["label"] for feature in predictions["features"]} == expected_labels
+    assert {feature["properties"]["class"] for feature in predictions["features"]} == expected_classes
+    assert all(feature["properties"]["confidence"] == waste_confidence for feature in predictions["features"])
 
 
 def test_predict_clips_grid_to_bbox(toy_chips: Path) -> None:
@@ -78,10 +79,10 @@ def test_predict_clips_grid_to_bbox(toy_chips: Path) -> None:
     full = predict(session, {"image": str(toy_chips)}, params)
     clipped = predict(session, {"image": str(toy_chips)}, params, bbox=[85.5, 27.6, 85.5002, 27.6004])
 
-    full_ids = {feature["properties"]["cell_id"] for feature in full["features"]}
-    clipped_ids = {feature["properties"]["cell_id"] for feature in clipped["features"]}
-    assert 0 < len(clipped_ids) < len(full_ids)
-    assert clipped_ids <= full_ids
+    full_cells = {json.dumps(feature["geometry"]) for feature in full["features"]}
+    clipped_cells = {json.dumps(feature["geometry"]) for feature in clipped["features"]}
+    assert 0 < len(clipped_cells) < len(full_cells)
+    assert clipped_cells <= full_cells
 
     def max_longitude(collection: dict) -> float:
         return max(pt[0] for f in collection["features"] for pt in f["geometry"]["coordinates"][0])

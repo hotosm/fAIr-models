@@ -34,7 +34,55 @@ def validate_item(item: pystac.Item) -> list[str]:
     errors.extend(_validate_keyword_vocabulary(item))
     errors.extend(_validate_hyperparameters_spec_coverage(item))
     errors.extend(_validate_prediction_variables_declared(item))
+    errors.extend(_validate_prediction_confidence(item))
     errors.extend(_validate_input_names(item))
+    errors.extend(_validate_label_geometry_types(item))
+    errors.extend(_validate_osm_tags(item))
+    errors.extend(_validate_resource_limits(item))
+    return errors
+
+
+def _quantity(value: str) -> float:
+    # The base-model schema admits only plain cores, millicores and Gi.
+    if value.endswith("Gi"):
+        return float(value[:-2])
+    if value.endswith("m"):
+        return float(value[:-1]) / 1000
+    return float(value)
+
+
+def _validate_resource_limits(item: pystac.Item) -> list[str]:
+    errors: list[str] = []
+    for resource in ("cpu", "memory"):
+        request = item.properties.get(f"fair:{resource}_request")
+        limit = item.properties.get(f"fair:{resource}_limit")
+        if not (isinstance(request, str) and isinstance(limit, str)):
+            continue
+        try:
+            below = _quantity(limit) < _quantity(request)
+        except ValueError:
+            # The schema check already reports a value that is not a quantity.
+            continue
+        if below:
+            errors.append(f"fair:{resource}_limit {limit} is below fair:{resource}_request {request}")
+    return errors
+
+
+def _validate_osm_tags(item: pystac.Item) -> list[str]:
+    errors: list[str] = []
+    for output in item.properties.get("mlm:output", []):
+        for cls in output.get("classification:classes", []):
+            tags = cls.get("fair:osm_tags")
+            if tags is None:
+                continue
+            valid = isinstance(tags, dict) and all(
+                isinstance(values, list) and values and all(isinstance(v, str) for v in values)
+                for values in tags.values()
+            )
+            if not valid:
+                errors.append(
+                    f"class {cls.get('name')!r}: fair:osm_tags must map each OSM key to a list of values, got {tags!r}"
+                )
     return errors
 
 
@@ -64,6 +112,18 @@ def prediction_output(properties: dict) -> dict | None:
 
 def _variable_names(output: dict) -> list[str]:
     return [variable if isinstance(variable, str) else variable["name"] for variable in output["variables"]]
+
+
+def _validate_prediction_confidence(item: pystac.Item) -> list[str]:
+    output = prediction_output(item.properties)
+    # A local model carries its base model's outputs, which may predate this rule.
+    if output is None or FAIR_LOCAL_MODEL_SCHEMA in item.stac_extensions:
+        return []
+    if "confidence" not in _variable_names(output):
+        return [f"mlm:output '{output['name']}' must declare a 'confidence' variable"]
+    if item.properties.get("cube:variables", {}).get("confidence", {}).get("extent") != [0, 1]:
+        return ["cube:variables 'confidence' must have an extent of [0, 1]"]
+    return []
 
 
 def _validate_prediction_variables_declared(item: pystac.Item) -> list[str]:
@@ -178,6 +238,27 @@ def _load_keywords_schema() -> dict:
     return json.loads(ref.read_text(encoding="utf-8"))
 
 
+def geometry_keywords() -> set[str]:
+    return set(_load_keywords_schema()["allowed_geometry_types"])
+
+
+def accepted_label_geometries(properties: Mapping[str, Any]) -> list[str]:
+    """Label geometries a model trains on: `fair:label_geometry_types`, else its geometry keyword."""
+    declared = properties.get("fair:label_geometry_types")
+    if declared:
+        return list(declared)
+    allowed = geometry_keywords()
+    return [keyword for keyword in properties.get("keywords", []) if keyword in allowed]
+
+
+def _validate_label_geometry_types(item: pystac.Item) -> list[str]:
+    declared = item.properties.get("fair:label_geometry_types")
+    keyword = geometry_keywords() & set(item.properties.get("keywords", []))
+    if declared and keyword and not keyword & set(declared):
+        return [f"fair:label_geometry_types {declared} must include the geometry keyword {sorted(keyword)}"]
+    return []
+
+
 def validate_compatibility(
     base_model_item: pystac.Item,
     dataset_item: pystac.Item,
@@ -212,8 +293,9 @@ def validate_compatibility(
         )
 
     geom_types = set(schema.get("allowed_geometry_types", []))
-    model_geom = model_keywords & geom_types
-    dataset_geom = dataset_keywords & geom_types
+    model_geom = set(accepted_label_geometries(base_model_item.properties))
+    dataset_geometry = dataset_item.properties.get("fair:geometry_type")
+    dataset_geom = {dataset_geometry} if dataset_geometry else dataset_keywords & geom_types
     if model_geom and dataset_geom and not model_geom & dataset_geom:
         errors.append(f"Geometry type mismatch: model={sorted(model_geom)}, dataset={sorted(dataset_geom)}")
 
@@ -310,7 +392,7 @@ def _validate_feature_variables(index: int, feature_properties: dict, model_prop
     return errors
 
 
-_KEYWORD_TO_GEOJSON_TYPES: dict[str, set[str]] = {
+GEOMETRY_GEOJSON_TYPES: dict[str, set[str]] = {
     "polygon": {"Polygon", "MultiPolygon"},
     "line": {"LineString", "MultiLineString"},
     "point": {"Point", "MultiPoint"},
@@ -325,7 +407,7 @@ def _allowed_geometry_geojson_types(item: pystac.Item) -> set[str] | None:
         return None
     result: set[str] = set()
     for kw in declared:
-        result |= _KEYWORD_TO_GEOJSON_TYPES.get(kw, set())
+        result |= GEOMETRY_GEOJSON_TYPES.get(kw, set())
     return result
 
 

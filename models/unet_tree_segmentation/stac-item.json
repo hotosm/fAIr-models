@@ -40,7 +40,7 @@
     "mlm:accelerator": "amd64",
     "fair:recommended_zoom": 19,
     "fair:preview": {
-      "center": [-13.298, 8.4947],
+      "center": [-13.24755, 8.44965],
       "zoom": { "recommended": 19, "min": 18, "max": 20 },
       "imagery": {
         "url": "https://tiles.openaerialmap.org/690585b76415e43597ffd7ea/0/690585b76415e43597ffd7eb/{z}/{x}/{y}",
@@ -110,7 +110,12 @@
         },
         "classification:classes": [
           { "name": "background", "value": 0, "description": "Non-tree pixels" },
-          { "name": "tree", "value": 1, "description": "Tree crown pixels" }
+          {
+            "name": "tree",
+            "value": 1,
+            "description": "Tree crown pixels",
+            "fair:osm_tags": { "natural": ["tree"] }
+          }
         ],
         "post_processing_function": {
           "format": "python",
@@ -122,8 +127,10 @@
         "description": "Tree crown polygons traced from the thresholded pixel mask, one row per feature.",
         "tasks": ["semantic-segmentation"],
         "result": { "shape": [-1, 2], "dim_order": ["batch", "variables"], "data_type": "float32" },
-        "variables": ["class", "label"],
-        "classification:classes": [{ "name": "tree", "value": 1, "description": "Tree crown pixels" }],
+        "variables": ["class", "confidence"],
+        "classification:classes": [
+          { "name": "tree", "value": 1, "description": "Tree crown pixels" }
+        ],
         "post_processing_function": {
           "format": "python",
           "expression": "models.unet_tree_segmentation.pipeline:postprocess"
@@ -139,18 +146,19 @@
       }
     },
     "cube:variables": {
-      "label": {
-        "dimensions": ["features"],
-        "type": "data",
-        "description": "Class name of the predicted class (tree).",
-        "values": ["tree"]
-      },
       "class": {
         "dimensions": ["features"],
         "type": "data",
         "description": "Predicted class value (1 = tree).",
         "values": [1],
         "data_type": "uint8"
+      },
+      "confidence": {
+        "dimensions": ["features"],
+        "type": "data",
+        "description": "Mean tree probability over the polygon.",
+        "extent": [0, 1],
+        "data_type": "float32"
       }
     },
     "mlm:hyperparameters": {
@@ -174,7 +182,8 @@
     "mlm:inference": {
       "href": "ghcr.io/hotosm/fair-models/unet_tree_segmentation:latest-inference",
       "type": "application/vnd.oci.image.index.v1+json",
-      "roles": ["mlm:inference-runtime"]
+      "roles": ["mlm:inference-runtime"],
+      "mlm:accelerator": "amd64"
     },
     "batch-inference": {
       "href": "ghcr.io/hotosm/fair-models/unet_tree_segmentation:latest",

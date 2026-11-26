@@ -76,7 +76,6 @@ orchestrator.
     | MLflow runs | <http://localhost:5000> |
     | MinIO objects | <http://localhost:9001> (login: `minioadmin` / `minioadmin`) |
     | Trained weights | `artifacts/` |
-    | Predictions | `data/sample/test/predictions/` |
 
 ## Project Structure
 

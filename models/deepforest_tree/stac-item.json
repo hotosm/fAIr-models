@@ -37,11 +37,11 @@
     "mlm:framework_version": "2.14.1",
     "mlm:pretrained": true,
     "mlm:pretrained_source": "https://huggingface.co/AbdelrahmanU3/NEON_OAM",
-    "mlm:accelerator": "cuda",
+    "mlm:accelerator": "amd64",
     "mlm:accelerator_count": 1,
     "fair:recommended_zoom": 20,
     "fair:preview": {
-      "center": [-13.23723, 8.47532],
+      "center": [-13.24755, 8.44965],
       "zoom": { "recommended": 20, "min": 19, "max": 22 },
       "imagery": {
         "url": "https://tiles.openaerialmap.org/690585b76415e43597ffd7ea/0/690585b76415e43597ffd7eb/{z}/{x}/{y}",
@@ -52,6 +52,7 @@
       "place": { "name": "Freetown", "country": "Sierra Leone", "country_code": "SL" }
     },
     "keywords": ["tree", "object-detection", "polygon"],
+    "fair:label_geometry_types": ["point", "polygon"],
     "license": "MIT",
     "version": "1",
     "deprecated": false,
@@ -117,7 +118,14 @@
           "dim_order": ["detections", "coordinate"],
           "data_type": "float32"
         },
-        "classification:classes": [{ "name": "tree", "value": 1, "description": "Tree crown" }],
+        "classification:classes": [
+          {
+            "name": "tree",
+            "value": 1,
+            "description": "Tree crown",
+            "fair:osm_tags": { "natural": ["tree"] }
+          }
+        ],
         "post_processing_function": {
           "format": "python",
           "expression": "models.deepforest_tree.pipeline:postprocess"
@@ -152,8 +160,8 @@
         "name": "tree crowns",
         "description": "Tree crown boxes after confidence filtering and non-maximum suppression, one polygon per feature.",
         "tasks": ["object-detection"],
-        "result": { "shape": [-1, 4], "dim_order": ["batch", "variables"], "data_type": "float32" },
-        "variables": ["class", "label", "confidence", "source"],
+        "result": { "shape": [-1, 2], "dim_order": ["batch", "variables"], "data_type": "float32" },
+        "variables": ["class", "confidence"],
         "classification:classes": [{ "name": "tree", "value": 1, "description": "Tree crown" }],
         "post_processing_function": {
           "format": "python",
@@ -177,23 +185,12 @@
         "values": [1],
         "data_type": "uint8"
       },
-      "label": {
-        "dimensions": ["features"],
-        "type": "data",
-        "description": "Class name of the predicted class (tree).",
-        "values": ["tree"]
-      },
       "confidence": {
         "dimensions": ["features"],
         "type": "data",
         "description": "Sigmoid score of the detection.",
         "extent": [0, 1],
         "data_type": "float32"
-      },
-      "source": {
-        "dimensions": ["features"],
-        "type": "auxiliary",
-        "description": "File name of the chip the box was detected in."
       }
     },
     "mlm:hyperparameters": {
@@ -379,13 +376,16 @@
       "href": "ghcr.io/hotosm/fair-models/deepforest_tree:latest",
       "type": "application/vnd.oci.image.index.v1+json",
       "title": "Training Docker Image",
-      "roles": ["mlm:training-runtime"]
+      "roles": ["mlm:training-runtime"],
+      "mlm:accelerator": "cuda",
+      "mlm:accelerator_count": 1
     },
     "mlm:inference": {
       "href": "ghcr.io/hotosm/fair-models/deepforest_tree:latest-inference",
       "type": "application/vnd.oci.image.index.v1+json",
       "title": "Inference Docker Image",
-      "roles": ["mlm:inference-runtime"]
+      "roles": ["mlm:inference-runtime"],
+      "mlm:accelerator": "amd64"
     },
     "readme": {
       "href": "https://raw.githubusercontent.com/hotosm/fAIr-models/refs/heads/develop/models/deepforest_tree/README.md",

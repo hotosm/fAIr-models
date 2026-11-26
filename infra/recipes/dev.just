@@ -53,7 +53,6 @@ _seed-minio:
         pgsty/mc:RELEASE.2026-10-18T00-00-00Z -c '
             mc alias set --quiet fair http://localhost:9000 minioadmin minioadmin
             mc mb --ignore-existing fair/fair-data
-            mc cp --quiet --recursive /workspace/data/sample/ fair/fair-data/sample/
         '
 
 _down-dev:

@@ -98,14 +98,7 @@ def postprocess(output: Any) -> list[dict[str, Any]]:
 
     probs = np.atleast_2d(np.asarray(output))
     class_ids = probs.argmax(axis=1)
-    return [
-        {
-            "class": int(cls),
-            "label": CLASS_NAMES[int(cls)],
-            "confidence": float(probs[i, int(cls)]),
-        }
-        for i, cls in enumerate(class_ids)
-    ]
+    return [{"class": int(cls), "confidence": round(float(probs[i, int(cls)]), 4)} for i, cls in enumerate(class_ids)]
 
 
 def predict(
@@ -191,12 +184,7 @@ def predict(
             features.append(
                 {
                     "type": "Feature",
-                    "properties": {
-                        "cell_id": int(grid.loc[idx, "cell_id"]),
-                        "class": 1,
-                        "label": "waste",
-                        "confidence": round(waste_confidence, 4),
-                    },
+                    "properties": {"class": 1, "confidence": round(waste_confidence, 4)},
                     "geometry": mapping(geom_wgs84),
                 }
             )
@@ -279,7 +267,7 @@ def load_labels(labels_path: Path, target_crs) -> Any:
     labels = labels.to_crs(target_crs)
 
     if "label" not in labels.columns:
-        labels["label"] = 1
+        raise ValueError(f"labels in {labels_path} have no `label` column; fine-tune through FairClient to set it")
     return labels.reset_index(drop=True)
 
 

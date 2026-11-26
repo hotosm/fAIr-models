@@ -77,7 +77,11 @@ Catalog: fair-models
     ### Dataset item
 
     Label + file extensions. Properties: `label:type`, `label:tasks`, `label:classes`, `keywords`.
-    Assets: `chips` (image directory), `labels` (GeoJSON).
+    Assets: `chips-<input>` (image directory per input), `labels` (GeoJSON). With `bundle_hrefs`
+    from `fair.bundle.write_bundle` (needs `fair-py-ops[bundle]` and `tippecanoe`), it also has
+    `labels_parquet`, `tiles_parquet` (one row per chip), `labels_pmtiles` and, for web-mercator
+    tile chips, `imagery_pmtiles` (`imagery_pmtiles_<input>` per input). Each PMTiles asset is
+    also a `rel: pmtiles` [Web Map Link](https://github.com/stac-extensions/web-map-links).
 
 ## Tagging and Classification
 

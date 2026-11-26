@@ -59,7 +59,7 @@
       "place": { "name": "Freetown", "country": "Sierra Leone", "country_code": "SL" }
     },
     "keywords": ["building", "semantic-segmentation", "polygon"],
-    "license": "Apache-2.0",
+    "license": "other",
     "version": "1",
     "deprecated": false,
     "providers": [
@@ -140,7 +140,12 @@
         },
         "classification:classes": [
           { "name": "background", "value": 0, "description": "Non-building pixels" },
-          { "name": "building", "value": 1, "description": "Building footprints" }
+          {
+            "name": "building",
+            "value": 1,
+            "description": "Building footprints",
+            "fair:osm_tags": { "building": ["*"] }
+          }
         ],
         "post_processing_function": {
           "format": "python",
@@ -153,7 +158,7 @@
         "description": "Building polygons after watershed post-processing, one row per feature.",
         "tasks": ["semantic-segmentation"],
         "result": { "shape": [-1, 2], "dim_order": ["batch", "variables"], "data_type": "float32" },
-        "variables": ["class", "score"],
+        "variables": ["class", "confidence"],
         "classification:classes": [
           { "name": "building", "value": 1, "description": "Building footprints" }
         ],
@@ -179,7 +184,7 @@
         "values": [1],
         "data_type": "uint8"
       },
-      "score": {
+      "confidence": {
         "dimensions": ["features"],
         "type": "data",
         "description": "Mean building probability over the polygon.",
@@ -412,13 +417,16 @@
       "href": "ghcr.io/hotosm/fair-models/dinov3s_buildings:latest",
       "type": "application/vnd.oci.image.index.v1+json",
       "title": "Training Docker Image",
-      "roles": ["mlm:training-runtime"]
+      "roles": ["mlm:training-runtime"],
+      "mlm:accelerator": "cuda",
+      "mlm:accelerator_count": 1
     },
     "mlm:inference": {
       "href": "ghcr.io/hotosm/fair-models/dinov3s_buildings:latest-inference",
       "type": "application/vnd.oci.image.index.v1+json",
       "title": "Inference Docker Image",
-      "roles": ["mlm:inference-runtime"]
+      "roles": ["mlm:inference-runtime"],
+      "mlm:accelerator": "amd64"
     },
     "readme": {
       "href": "https://raw.githubusercontent.com/hotosm/fAIr-models/refs/heads/develop/models/dinov3s_buildings/README.md",
@@ -430,9 +438,9 @@
   "links": [
     {
       "rel": "license",
-      "href": "https://www.apache.org/licenses/LICENSE-2.0",
+      "href": "https://github.com/facebookresearch/dinov3/blob/main/LICENSE.md",
       "type": "text/html",
-      "title": "Apache License 2.0"
+      "title": "DINOv3 License"
     },
     {
       "rel": "cite-as",

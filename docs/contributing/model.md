@@ -104,14 +104,14 @@ list, a `result.dim_order` of `["batch", "variables"]`, and the
 `cube:dimensions`, and list the
 [datacube extension](https://github.com/stac-extensions/datacube) in
 `stac_extensions`. The class variable holds the class `value` and declares
-those values in its `values` list. A model can declare more variables, such as
-a confidence score with an `extent` of `[0, 1]`. Declare every property the
-features carry, including descriptive ones such as a class name `label`.
+those values in its `values` list. Every model also declares a `confidence`
+variable with an `extent` of `[0, 1]`. Declare every property the features
+carry, and leave out properties that repeat the class, such as a class name.
 
 The output's `result.data_type` is one type for the whole row. When the
 variables differ in type, give each variable its own `data_type` in
-`cube:variables` and read types from there. A variable holding text, such as
-`label`, omits `data_type` and lists its allowed text in `values`.
+`cube:variables` and read types from there. A variable holding text omits
+`data_type` and lists its allowed text in `values`.
 
 ```json title="Prediction variables in stac-item.json"
 "cube:dimensions": {
@@ -119,7 +119,7 @@ variables differ in type, give each variable its own `data_type` in
 },
 "cube:variables": {
   "class": { "dimensions": ["features"], "type": "data", "values": [1], "data_type": "uint8" },
-  "score": { "dimensions": ["features"], "type": "data", "extent": [0, 1], "data_type": "float32" }
+  "confidence": { "dimensions": ["features"], "type": "data", "extent": [0, 1], "data_type": "float32" }
 }
 ```
 
@@ -128,22 +128,25 @@ variable or carries an undeclared class value. The fAIr frontend colours
 predictions by `color_hint`, builds the legend from class titles, and shows the
 declared variables on hover.
 
-### Sample Data Layout
+### Sample Dataset
 
-```text title="data/sample/"
-data/sample/
-  train/
-    oam/             # RGB GeoTIFF chips (OAM-{x}-{y}-{z}.tif, ≥30cm GSD)
-    osm/             # GeoJSON labels (labels.geojson)
-  test/
-    oam/             # Input chips for inference
-    osm/             # GeoJSON labels (labels.geojson)
-    predictions/     # Output directory (model writes here)
+Each trainable model ships a small sample in `models/<your_model>/sample/`
+that CI trains and predicts on. Build it from the model's
+[`fair:preview`](#fairpreview) after `uv sync --extra serve`:
+
+```bash
+fair dataset build \
+  --from-preview models/your_model/stac-item.json \
+  --out models/your_model/sample
 ```
 
-Chip filenames follow the pattern `OAM-{x}-{y}-{z}.tif` where x, y, z are
-tile coordinates. Your model must accept these as input during both training
-and inference.
+Labels come from OSM, filtered by your classes'
+[`fair:osm_tags`](#fairosm_tags). To use your own, add `--labels labels.geojson
+--labels-license <SPDX>`; each feature names its class in a `class` property,
+such as `"class": "waste"`.
+
+Commit the folder with the model. `just validate` checks it and keeps it under
+5 MiB.
 
 ## Prerequisites
 
@@ -171,9 +174,11 @@ Before starting, ensure you have:
     | Creative Commons Attribution-NonCommercial-ShareAlike 4.0 | `CC-BY-NC-SA-4.0` |
     | Creative Commons Zero 1.0 | `CC0-1.0` |
     | Open Data Commons Open Database License 1.0 | `ODbL-1.0` |
+    | Any other license, linked with `rel: license` | `other` |
 
     The license is declared in your `stac-item.json` under `properties.license`.
-    CI rejects any other license value. Local models fine-tuned from a model
+    For a license outside this list, set `other` and add a `license` link to
+    its text. CI rejects any other value. Local models fine-tuned from a model
     carry its `license`.
 
 ## Directory Structure
@@ -187,6 +192,7 @@ models/your_model/
   Dockerfile           # Self-contained runtime environment
   stac-item.json       # STAC MLM item (model metadata)
   README.md            # Model overview, limitations, citation
+  sample/              # Sample dataset for CI (trainable models)
   tests/
     conftest.py        # generate_toy_dataset fixture
     test_steps.py      # Step-level tests
@@ -777,7 +783,7 @@ validated by CI against the platform's requirements schema.
 | `mlm:hyperparameters`   | object   | Default training hyperparameters                                                                                              |
 | `keywords`              | string[] | Feature tags + task + output geometry type                                                                                    |
 | `version`               | string   | Semantic version (start with `"1"`)                                                                                           |
-| `license`               | string   | SPDX license identifier                                                                                                       |
+| `license`               | string   | SPDX license identifier, or `other` with a `license` link                                                                     |
 | `fair:metrics_spec`     | object[] | Evaluation metrics vocabulary (see below)                                                                                     |
 | `fair:split_spec`       | object   | Train/val split specification (see below)                                                                                     |
 
@@ -790,11 +796,11 @@ what `"accuracy"` means (pixel accuracy? per-class? mean IoU?).
 
 Each entry must declare:
 
-| Field         | Type   | Description                                                                                 |
-| ------------- | ------ | ------------------------------------------------------------------------------------------- |
-| `key`         | string | Key in the local model's `fair:metrics`, as `evaluate_model` returns it (e.g. `accuracy`)   |
-| `name`        | string | Human-readable metric name                                                                  |
-| `description` | string | Precise definition including averaging strategy                                             |
+| Field         | Type   | Description                                                                               |
+| ------------- | ------ | ----------------------------------------------------------------------------------------- |
+| `key`         | string | Key in the local model's `fair:metrics`, as `evaluate_model` returns it (e.g. `accuracy`) |
+| `name`        | string | Human-readable metric name                                                                |
+| `description` | string | Precise definition including averaging strategy                                           |
 
 === "Building segmentation"
 
@@ -844,12 +850,6 @@ indices like `iou_class_0`).
     - The **test split** of [`hotosm/vhr-building-segmentation`](https://huggingface.co/datasets/hotosm/vhr-building-segmentation)
       on Hugging Face (recommended for building models). Run inference over
       the test fraction only and score against its labels.
-    - The Banepa test AOI shipped in this repo: ground-truth labels under
-      `data/sample/buildings-banepa-*/` and matching imagery under
-      `data/sample/test/oam/`. Generate predictions with
-      `just example <your_model>` followed by `just test-serve <your_model>`,
-      then compare the output GeoJSON against the relevant
-      `buildings-banepa-*` labels.
 
 ### fair:split_spec
 
@@ -891,7 +891,7 @@ The split strategy depends on the task type:
         "strategy": "grid_5m_stratified_grouped",
         "default_ratio": 0.1,
         "seed": 42,
-        "description": "Mosaic chips and build a 5 m x 5 m grid. Cells from each label=1 waste polygon and each label=0 background polygon remain in one split."
+        "description": "Mosaic chips and build a 5 m x 5 m grid. Cells from each waste polygon and each background polygon remain in one split."
     }
     ```
 
@@ -904,12 +904,16 @@ override the defaults at finetuning time.
 
 The optional `fair:preview` object carries the standardized preview metadata the
 try-now page uses to center the map, pick a zoom, and load the right imagery.
+Set it to the place and imagery where the model performs best;
+`fair dataset build --from-preview` builds the [sample dataset](#sample-dataset)
+there.
 
 | Field            | Type    | Description                                             |
 | ---------------- | ------- | ------------------------------------------------------- |
 | `center`         | float[] | Map center as `[lon, lat]`                              |
 | `zoom`           | object  | `recommended`, and optional `min` and `max` zoom levels |
 | `imagery`        | object  | Tile source: `url`, `type`, `name`, `attribution`       |
+| `pre_imagery`    | object  | Tile source for a `pre` input, same fields as `imagery` |
 | `bbox`           | float[] | Optional bounding box `[minx, miny, maxx, maxy]`        |
 | `thumbnail_href` | string  | Optional URL to a static preview image                  |
 | `place`          | object  | Optional `name`, `country`, `country_code`              |
@@ -934,9 +938,51 @@ The `keywords` array must include:
 
 1. **At least one feature keyword**: `building`, `road`, `tree`, `water`, `landuse`
 2. **At least one task keyword**: matches `mlm:tasks` values
-3. **Exactly one geometry type**: `polygon`, `line`, or `point`
+3. **Exactly one geometry type**: `polygon`, `line`, or `point`, the geometry the model predicts
 
 Example: `["building", "semantic-segmentation", "polygon"]`
+
+### fair:label_geometry_types
+
+The geometry keyword is the geometry the model predicts and, by default, the
+only label geometry it accepts. A model that trains on more label geometries
+lists all of them, its keyword included, in `fair:label_geometry_types`.
+Datasets with any other geometry fail the compatibility check that runs when a
+fine-tune starts and in `just validate`.
+[MLM](https://github.com/stac-extensions/mlm#task-enum) and the
+[Label extension](https://github.com/stac-extensions/label) don't define a
+field for the label geometry a model accepts.
+
+```json title="fair:label_geometry_types (deepforest_tree)"
+"keywords": ["tree", "object-detection", "polygon"],
+"fair:label_geometry_types": ["point", "polygon"]
+```
+
+### fair:osm_tags
+
+Datasets keep their source labels: OSM tags, or a `class` property in your own
+labels. When a fine-tune starts, fAIr sets `label` on each label to the `value`
+of its matching class, taken from the first `mlm:output` with
+`classification:classes`. Your pipeline reads `label` from `dataset_labels`.
+
+A label matches a class through the class's `fair:osm_tags`, or when a label
+property's value equals the class `name`. `["*"]` accepts any value of the
+tag.
+
+```json title="fair:osm_tags (dinov3s_buildings)"
+"classification:classes": [
+  { "name": "background", "value": 0 },
+  { "name": "building", "value": 1, "fair:osm_tags": { "building": ["*"] } }
+]
+```
+
+When a dataset class matches nothing, the fine-tune stops and lists the classes
+on both sides. Map them with `class_map`: each key is a dataset class as
+`property=value`, from the dataset's `label:classes`, and each value is a model
+class `name`. For example
+`fair model train ... --class-map '{"roof=iron": "metal_sheet"}'`. The
+[Classification extension](https://github.com/stac-extensions/classification#class-object)
+doesn't define a field that links a class to OSM tags.
 
 ### Hyperparameters
 
@@ -1139,13 +1185,16 @@ data_type), `classification:classes` (one entry per output class with
             "href": "ghcr.io/hotosm/fair-models/dinov3s_buildings:dev",
             "type": "application/vnd.oci.image.index.v1+json",
             "title": "Training runtime image",
-            "roles": ["mlm:training-runtime"]
+            "roles": ["mlm:training-runtime"],
+            "mlm:accelerator": "cuda",
+            "mlm:accelerator_count": 1
         },
         "mlm:inference": {
             "href": "ghcr.io/hotosm/fair-models/dinov3s_buildings:dev-inference",
             "type": "application/vnd.oci.image.index.v1+json",
             "title": "Inference runtime image",
-            "roles": ["mlm:inference-runtime"]
+            "roles": ["mlm:inference-runtime"],
+            "mlm:accelerator": "amd64"
         },
         "readme": {
             "href": "https://raw.githubusercontent.com/hotosm/fAIr-models/refs/heads/develop/models/dinov3s_buildings/README.md",
@@ -1155,6 +1204,11 @@ data_type), `classification:classes` (one entry per output class with
         }
     }
     ```
+
+Each runtime asset declares its hardware with `mlm:accelerator` and `mlm:accelerator_count`
+([MLM allows these on an asset](https://github.com/stac-extensions/mlm#item-properties-and-collection-fields)).
+Training reads `mlm:training`, offline prediction reads `mlm:inference`, each falling back to
+the item-level fields. Try-now serving ignores these fields.
 
 The `checkpoint` asset `href` **must** be a direct HTTPS URL pointing to
 the pretrained weights file (e.g. a HuggingFace commit-pinned URL, a GitHub
@@ -1235,6 +1289,7 @@ Before opening a PR, make sure:
     - [ ] `models/your_model/` includes `pipeline.py`, `Dockerfile`, `stac-item.json`, and `README.md`
     - [ ] `README.md` explains the model clearly enough for another developer to use it
     - [ ] `README.md` contains prose only (no code snippets)
+    - [ ] A trainable model ships `sample/`, built with `fair dataset build --from-preview`
 
 === "Pipeline"
 
@@ -1261,7 +1316,8 @@ Before opening a PR, make sure:
 
     - [ ] `stac-item.json` declares `fair:metrics_spec`, `fair:split_spec`, and `fair:hyperparameters_spec`
     - [ ] `keywords` includes a feature tag, a task value, and exactly one geometry type
-    - [ ] `license` is a supported SPDX identifier
+    - [ ] Classes trained from OSM labels declare `fair:osm_tags`
+    - [ ] `license` is a supported SPDX identifier, or `other` with a `license` link
     - [ ] `just validate` passes for the model and STAC item
 
 The full requirements are described in the sections above, especially the STAC metadata, pipeline structure, assets, and README guidance. CI checks the detailed metadata, pipeline exports, Docker build, and consistency rules for you.
@@ -1288,7 +1344,7 @@ flowchart LR
 On PR submission, the workflows above run:
 
 1. **Style and core tests** ([style.yml](https://github.com/hotosm/fAIr-models/blob/develop/.github/workflows/style.yml)) : `ruff check`, `ruff format --diff`, `ty check`, and `pytest` with coverage reporting on the `fair/` package.
-2. **STAC + model validation** ([validate-stac.yml](https://github.com/hotosm/fAIr-models/blob/develop/.github/workflows/validate-stac.yml)) : runs `just validate`, which calls `scripts/validate_stac_items.py` (pystac + fAIr schema: `fair:metrics_spec`, `fair:split_spec`, MLM fields, assets, keywords including a geometry type, a supported license) and `scripts/validate_model.py` (AST checks for `training_pipeline`/`inference_pipeline` `@pipeline`, `split_dataset` `@step`, and the four required `tests/test_steps.py` functions).
+2. **STAC + model validation** ([validate-stac.yml](https://github.com/hotosm/fAIr-models/blob/develop/.github/workflows/validate-stac.yml)) : runs `just validate`, which calls `scripts/validate_stac_items.py` (pystac + fAIr schema: `fair:metrics_spec`, `fair:split_spec`, MLM fields, assets, keywords including a geometry type, a supported license, and the sample dataset of a trainable model) and `scripts/validate_model.py` (AST checks for `training_pipeline`/`inference_pipeline` `@pipeline`, `split_dataset` `@step`, and the four required `tests/test_steps.py` functions).
 3. **Build + test in Docker** ([build-model-images.yml](https://github.com/hotosm/fAIr-models/blob/develop/.github/workflows/build-model-images.yml)) : builds `--target test`, runs `pytest models/<name>/tests/`, then runs `pytest models/test_integration.py -m slow`, builds `--target runtime`, pushes the runtime image as `pr-<num>` (production tags `:latest` and `:v<version>` are gated on default branch), builds `--target inference`, smoke-tests it against the Banepa OAM bbox with baseline + finetuned ONNX, and pushes the inference image as `pr-<num>-inference`.
 4. **kind-cluster E2E** ([test-model.yml](https://github.com/hotosm/fAIr-models/blob/develop/.github/workflows/test-model.yml)) : spins up a kind cluster with the full helmfile stack (ZenML, MLflow, STAC, MinIO) and runs `just example <model>` + `scripts/test_serve.py` against the model. This is the per-PR parity check for `K8s Integration Test`, which only runs on `push: develop`.
 

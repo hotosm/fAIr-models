@@ -8,7 +8,13 @@ from typing import Any
 import pystac
 
 from fair.params import inference_params, training_params
-from fair.stac.constants import BATCH_INFERENCE_ASSET, CONTAINER_REGISTRIES, OCI_IMAGE_INDEX_TYPE, TRAINING_ASSET
+from fair.stac.constants import (
+    BATCH_INFERENCE_ASSET,
+    CONTAINER_REGISTRIES,
+    INFERENCE_ASSET,
+    OCI_IMAGE_INDEX_TYPE,
+    TRAINING_ASSET,
+)
 from fair.stac.inputs import dataset_chips_assets, input_names, require_imagery_for_inputs
 from fair.stac.validators import batch_runtime, validate_inference_params
 from fair.utils.data import http_url_to_s3_uri
@@ -52,13 +58,20 @@ def _workload_toleration(workload: str) -> dict[str, str]:
     return {"key": f"{LABEL_DOMAIN}/{workload}", "operator": "Equal", "value": "true", "effect": "NoSchedule"}
 
 
+# ZenML's Kubernetes orchestrator sets the step Job backoffLimit from max_retries and ignores delay and backoff.
+_INFERENCE_STEP_RETRY = {"max_retries": 2}
+
 _WORKLOAD_RESOURCE_DEFAULTS: dict[str, dict[str, str]] = {
     "training": {"memory_request": "2Gi", "memory_limit": "2.5Gi"},
     "inference": {"memory_request": "1Gi", "memory_limit": "2Gi"},
 }
 
 
-def _resource_value(workload: str, resource: str) -> str | None:
+def _resource_value(item: pystac.Item, workload: str, resource: str) -> str | None:
+    if workload == "inference":
+        # Same STAC keys as the Knative service (fair/infra/knative.py).
+        value = item.properties.get(f"fair:{resource}")
+        return str(value) if value is not None else _WORKLOAD_RESOURCE_DEFAULTS["inference"].get(resource)
     upper_workload = workload.upper()
     upper_resource = resource.upper()
     return (
@@ -68,12 +81,12 @@ def _resource_value(workload: str, resource: str) -> str | None:
     )
 
 
-def _cpu_resources(workload: str) -> dict[str, dict[str, str]]:
+def _cpu_resources(item: pystac.Item, workload: str) -> dict[str, dict[str, str]]:
     resources: dict[str, dict[str, str]] = {"requests": {}, "limits": {}}
-    memory_request = _resource_value(workload, "memory_request")
-    memory_limit = _resource_value(workload, "memory_limit")
-    cpu_request = _resource_value(workload, "cpu_request")
-    cpu_limit = _resource_value(workload, "cpu_limit")
+    memory_request = _resource_value(item, workload, "memory_request")
+    memory_limit = _resource_value(item, workload, "memory_limit")
+    cpu_request = _resource_value(item, workload, "cpu_request")
+    cpu_limit = _resource_value(item, workload, "cpu_limit")
     if memory_request:
         resources["requests"]["memory"] = memory_request
     if memory_limit:
@@ -85,8 +98,20 @@ def _cpu_resources(workload: str) -> dict[str, dict[str, str]]:
     return resources
 
 
-def _scheduling_settings(item: pystac.Item, workload: str) -> dict[str, Any]:
-    cpu_resources = _cpu_resources(workload)
+_WORKLOAD_ASSETS = {"training": TRAINING_ASSET, "inference": INFERENCE_ASSET}
+
+
+def _accelerator(item: pystac.Item, workload: str) -> tuple[str | None, str]:
+    """Accelerator fields of the workload's runtime asset, else the item's; MLM allows both levels."""
+    asset = item.assets.get(_WORKLOAD_ASSETS[workload])
+    fields = asset.extra_fields if asset is not None else {}
+    accelerator = fields.get("mlm:accelerator", item.properties.get("mlm:accelerator"))
+    count = fields.get("mlm:accelerator_count", item.properties.get("mlm:accelerator_count", 1))
+    return accelerator, str(count)
+
+
+def _scheduling_settings(item: pystac.Item, workload: str, resources_item: pystac.Item | None = None) -> dict[str, Any]:
+    cpu_resources = _cpu_resources(resources_item or item, workload)
 
     if _force_cpu_mode():
         return {
@@ -99,7 +124,7 @@ def _scheduling_settings(item: pystac.Item, workload: str) -> dict[str, Any]:
             }
         }
 
-    accelerator = item.properties.get("mlm:accelerator")
+    accelerator, count = _accelerator(item, workload)
     if not accelerator or accelerator in ("amd64", "cpu"):
         return {
             "orchestrator.kubernetes": {
@@ -110,7 +135,6 @@ def _scheduling_settings(item: pystac.Item, workload: str) -> dict[str, Any]:
                 }
             }
         }
-    count = str(item.properties.get("mlm:accelerator_count", 1))
     return {
         "orchestrator.kubernetes": {
             "pod_settings": {
@@ -130,8 +154,11 @@ def generate_training_config(
     dataset_item: pystac.Item,
     model_name: str,
     overrides: dict[str, Any] | None = None,
+    *,
+    labels_href: str,
     experiment_tracker: str | None = None,
 ) -> dict[str, Any]:
+    """ZenML training config; `labels_href` points at labels already adapted to the model's class values."""
     # ZenML config schema: https://docs.zenml.io/concepts/steps_and_pipelines/yaml_configuration
     props = base_model_item.properties
 
@@ -144,11 +171,6 @@ def generate_training_config(
     if missing := [name for name in input_names(base_model_item) if name not in chips_assets]:
         msg = f"Dataset item '{dataset_item.id}' has no chips for model input(s): {', '.join(missing)}"
         raise KeyError(msg)
-    labels_asset = ds_props.get("labels")
-    if labels_asset is None:
-        msg = f"Dataset item '{dataset_item.id}' missing 'labels' asset"
-        raise KeyError(msg)
-    labels_href = http_url_to_s3_uri(labels_asset.href)
 
     checkpoint_asset = base_model_item.assets.get("checkpoint")
     if checkpoint_asset is None:
@@ -169,7 +191,7 @@ def generate_training_config(
     parameters: dict[str, Any] = {
         "base_model_weights": http_url_to_s3_uri(checkpoint_asset.href),
         "dataset_chips": {name: http_url_to_s3_uri(ds_props[key].href) for name, key in chips_assets.items()},
-        "dataset_labels": labels_href,
+        "dataset_labels": http_url_to_s3_uri(labels_href),
         "hyperparameters": hyperparams,
     }
     if num_classes is not None:
@@ -251,8 +273,10 @@ def generate_inference_config(
     model_item: pystac.Item,
     input_images: Mapping[str, str],
     overrides: dict[str, Any] | None = None,
+    *,
+    resources_item: pystac.Item | None = None,
 ) -> dict[str, Any]:
-    """`input_images` maps each of the model's input names to its chips path."""
+    """`input_images` maps input names to chips paths; `resources_item` declares the pod resources."""
     # Works for both base-model and local-model items (same MLM structure)
     props = model_item.properties
 
@@ -295,7 +319,8 @@ def generate_inference_config(
         }
         config["settings"] = {"docker": docker_cfg}
 
-    k8s = _scheduling_settings(model_item, "inference")
+    config["retry"] = dict(_INFERENCE_STEP_RETRY)
+    k8s = _scheduling_settings(model_item, "inference", resources_item)
     if k8s:
         config.setdefault("steps", {}).setdefault("run_inference", {}).setdefault("settings", {}).update(k8s)
 

@@ -61,7 +61,12 @@ def _discover_pipeline_modules() -> list[str]:
 
 
 @pytest.fixture(autouse=True)
-def mock_instrumentation():
+def mock_instrumentation(request: pytest.FixtureRequest):
+    # Promotion reads real ZenML metrics in the shared end-to-end test.
+    if request.node.get_closest_marker("slow") is not None:
+        yield
+        return
+
     import importlib
 
     patches = [

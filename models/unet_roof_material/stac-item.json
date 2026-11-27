@@ -1,0 +1,402 @@
+{
+  "type": "Feature",
+  "stac_version": "1.1.0",
+  "stac_extensions": [
+    "https://stac-extensions.github.io/mlm/v1.5.1/schema.json",
+    "https://stac-extensions.github.io/version/v1.2.0/schema.json",
+    "https://stac-extensions.github.io/classification/v2.0.0/schema.json",
+    "https://stac-extensions.github.io/file/v2.1.0/schema.json",
+    "https://stac-extensions.github.io/raster/v1.1.0/schema.json",
+    "https://stac-extensions.github.io/datacube/v2.3.0/schema.json",
+    "https://hotosm.github.io/fAIr-models/schemas/v1.0.0/base-model/schema.json"
+  ],
+  "id": "unet-roof-material",
+  "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+      [
+        [-180, -90],
+        [180, -90],
+        [180, 90],
+        [-180, 90],
+        [-180, -90]
+      ]
+    ]
+  },
+  "bbox": [-180, -90, 180, 90],
+  "properties": {
+    "datetime": "2026-11-04T00:00:00Z",
+    "created": "2026-11-04T00:00:00Z",
+    "updated": "2026-11-04T00:00:00Z",
+    "title": "Roof Material",
+    "description": "A U-Net with a ResNet-34 encoder that maps roofs in RGB drone and aerial imagery as metal sheet, thatch or other roof (asbestos, concrete) and returns them as polygons. Trained on OpenAerialMap drone imagery of Nacala, Mozambique, with OpenStreetMap roof:material tags, and finetunable in fAIr on roofs labelled in a new area.",
+    "mlm:name": "unet-roof-material",
+    "mlm:architecture": "U-Net",
+    "mlm:tasks": ["semantic-segmentation"],
+    "mlm:framework": "PyTorch",
+    "mlm:framework_version": "2.11.0",
+    "mlm:pretrained": true,
+    "mlm:pretrained_source": "ImageNet",
+    "mlm:accelerator": "amd64",
+    "fair:recommended_zoom": 20,
+    "fair:preview": {
+      "center": [40.68602, -14.52389],
+      "zoom": { "recommended": 20, "min": 19, "max": 20 },
+      "imagery": {
+        "url": "https://tiles.openaerialmap.org/61b0cd230348c500089be90c/0/61b0cd230348c500089be90d/{z}/{x}/{y}",
+        "type": "tms",
+        "name": "OpenAerialMap - Nacala",
+        "attribution": "#MapeandoMeuBairro via OpenAerialMap, CC BY-SA 4.0"
+      },
+      "place": { "name": "Nacala", "country": "Mozambique", "country_code": "MZ" }
+    },
+    "keywords": ["building", "roof", "roof-material", "housing", "semantic-segmentation", "polygon"],
+    "license": "CC-BY-SA-4.0",
+    "version": "1",
+    "deprecated": false,
+    "providers": [
+      {
+        "name": "Oluwasola Oyinloye",
+        "roles": ["producer", "licensor"],
+        "url": "https://github.com/Dexsholex",
+        "description": "Trained the U-Net on OpenAerialMap imagery and OpenStreetMap roof tags of Nacala and exported it to ONNX."
+      },
+      {
+        "name": "HOTOSM",
+        "roles": ["host"],
+        "url": "https://www.hotosm.org",
+        "description": "Humanitarian OpenStreetMap Team"
+      }
+    ],
+    "fair:metrics_spec": [
+      {
+        "key": "iou_metal_sheet",
+        "name": "Metal sheet IoU",
+        "description": "Intersection over union of predicted and labelled metal sheet roof pixels, summed over all validation chips."
+      },
+      {
+        "key": "precision_metal_sheet",
+        "name": "Metal sheet precision",
+        "description": "Share of pixels predicted as metal sheet that are labelled metal sheet."
+      },
+      {
+        "key": "recall_metal_sheet",
+        "name": "Metal sheet recall",
+        "description": "Share of labelled metal sheet pixels that the model predicts as metal sheet."
+      },
+      {
+        "key": "iou_thatch",
+        "name": "Thatch IoU",
+        "description": "Intersection over union of predicted and labelled thatch roof pixels, summed over all validation chips."
+      },
+      {
+        "key": "precision_thatch",
+        "name": "Thatch precision",
+        "description": "Share of pixels predicted as thatch that are labelled thatch."
+      },
+      {
+        "key": "recall_thatch",
+        "name": "Thatch recall",
+        "description": "Share of labelled thatch pixels that the model predicts as thatch."
+      },
+      {
+        "key": "iou_other_roof",
+        "name": "Other roof IoU",
+        "description": "Intersection over union of predicted and labelled other roof (asbestos, concrete) pixels, summed over all validation chips."
+      },
+      {
+        "key": "precision_other_roof",
+        "name": "Other roof precision",
+        "description": "Share of pixels predicted as other roof that are labelled other roof."
+      },
+      {
+        "key": "recall_other_roof",
+        "name": "Other roof recall",
+        "description": "Share of labelled other roof pixels that the model predicts as other roof."
+      },
+      {
+        "key": "mean_iou_roof",
+        "name": "Mean roof IoU",
+        "description": "Mean of the metal sheet, thatch and other roof IoU. Pixels of roofs with an unknown material are left out of every score."
+      }
+    ],
+    "fair:split_spec": {
+      "strategy": "spatial",
+      "default_ratio": 0.2,
+      "seed": 42,
+      "block_size": 4,
+      "description": "Chips named OAM-<x>-<y>-<z>.tif are grouped into block_size x block_size tile blocks, and whole blocks go to train or validation, so the model is scored on areas it did not train on. Of 200 seeded shuffles of the blocks, the one that holds out each roof class closest to the validation ratio is kept, so a rare material is still scored. Other chip names, or a dataset inside a single block, are held out chip by chip."
+    },
+    "fair:hyperparameters_spec": [
+      {
+        "key": "epochs",
+        "name": "Epochs",
+        "description": "Passes over the training chips.",
+        "type": "int",
+        "default": 15,
+        "min": 1,
+        "max": 200
+      },
+      {
+        "key": "batch_size",
+        "name": "Batch size",
+        "description": "Chips per training step.",
+        "type": "int",
+        "default": 8,
+        "min": 1,
+        "max": 64
+      },
+      {
+        "key": "learning_rate",
+        "name": "Learning rate",
+        "description": "AdamW learning rate.",
+        "type": "float",
+        "default": 0.0001,
+        "min": 0.000001,
+        "max": 0.01
+      },
+      {
+        "key": "scheduler",
+        "name": "Learning rate schedule",
+        "description": "Cosine decay of the learning rate to zero over training, or a constant rate.",
+        "type": "str",
+        "default": "cosine",
+        "values": ["cosine", "none"]
+      },
+      {
+        "key": "max_grad_norm",
+        "name": "Gradient clipping",
+        "description": "Maximum gradient norm per training step.",
+        "type": "float",
+        "default": 1.0,
+        "min": 0.1,
+        "max": 10.0
+      },
+      {
+        "key": "freeze_encoder",
+        "name": "Freeze encoder",
+        "description": "Train only the U-Net decoder, which suits very small datasets.",
+        "type": "bool",
+        "default": false
+      },
+      {
+        "key": "max_class_weight",
+        "name": "Maximum class weight",
+        "description": "Cap on the cross-entropy weight of a rare roof class, which is the square root of background share over class share in the training pixels.",
+        "type": "float",
+        "default": 5.0,
+        "min": 1.0,
+        "max": 20.0
+      },
+      {
+        "key": "val_ratio",
+        "name": "Validation ratio",
+        "description": "Share of chips held out for validation.",
+        "type": "float",
+        "default": 0.2,
+        "min": 0.05,
+        "max": 0.5
+      },
+      {
+        "key": "split_seed",
+        "name": "Split seed",
+        "description": "Random seed for the train and validation split and for training.",
+        "type": "int",
+        "default": 42,
+        "min": 0,
+        "max": 100000
+      },
+      {
+        "key": "block_size",
+        "name": "Split block size",
+        "description": "Width in tiles of the square blocks the spatial split keeps together.",
+        "type": "int",
+        "default": 4,
+        "min": 1,
+        "max": 64
+      },
+      {
+        "key": "confidence_threshold",
+        "name": "Confidence threshold",
+        "description": "Minimum probability of a pixel's most likely roof class for the pixel to be kept as roof; 0 keeps every pixel whose most likely class is a roof.",
+        "type": "float",
+        "default": 0.0,
+        "min": 0.0,
+        "max": 1.0
+      }
+    ],
+    "mlm:input": [
+      {
+        "name": "image",
+        "bands": [{ "name": "red" }, { "name": "green" }, { "name": "blue" }],
+        "input": {
+          "shape": [-1, 3, 256, 256],
+          "dim_order": ["batch", "bands", "height", "width"],
+          "data_type": "float32"
+        },
+        "value_scaling": [
+          { "type": "min-max", "minimum": 0, "maximum": 255 },
+          { "type": "min-max", "minimum": 0, "maximum": 255 },
+          { "type": "min-max", "minimum": 0, "maximum": 255 }
+        ],
+        "pre_processing_function": {
+          "format": "python",
+          "expression": "models.unet_roof_material.pipeline:preprocess"
+        }
+      }
+    ],
+    "mlm:output": [
+      {
+        "name": "class logits",
+        "description": "One logit per class for every pixel; their softmax gives the class probabilities.",
+        "tasks": ["semantic-segmentation"],
+        "result": {
+          "shape": [-1, 4, 256, 256],
+          "dim_order": ["batch", "class", "height", "width"],
+          "data_type": "float32"
+        },
+        "classification:classes": [
+          {
+            "name": "background",
+            "title": "Background",
+            "value": 0,
+            "color_hint": "9e9e9e",
+            "description": "Pixels that are not roofs"
+          },
+          {
+            "name": "metal_sheet",
+            "title": "Metal sheet",
+            "value": 1,
+            "color_hint": "1e88e5",
+            "description": "Corrugated or flat metal sheet roofs"
+          },
+          {
+            "name": "thatch",
+            "title": "Thatch",
+            "value": 2,
+            "color_hint": "fdd835",
+            "description": "Thatched roofs of grass or palm"
+          },
+          {
+            "name": "other_roof",
+            "title": "Other roof",
+            "value": 3,
+            "color_hint": "e53935",
+            "description": "Roofs of other materials, in the training data asbestos cement and concrete"
+          }
+        ],
+        "post_processing_function": {
+          "format": "python",
+          "expression": "models.unet_roof_material.pipeline:postprocess"
+        }
+      },
+      {
+        "name": "roofs",
+        "description": "Roof polygons traced from the class map, one row per feature.",
+        "tasks": ["semantic-segmentation"],
+        "result": { "shape": [-1, 2], "dim_order": ["batch", "variables"], "data_type": "other" },
+        "variables": ["class", "label"],
+        "classification:classes": [
+          {
+            "name": "metal_sheet",
+            "title": "Metal sheet",
+            "value": 1,
+            "color_hint": "1e88e5",
+            "description": "Corrugated or flat metal sheet roofs"
+          },
+          {
+            "name": "thatch",
+            "title": "Thatch",
+            "value": 2,
+            "color_hint": "fdd835",
+            "description": "Thatched roofs of grass or palm"
+          },
+          {
+            "name": "other_roof",
+            "title": "Other roof",
+            "value": 3,
+            "color_hint": "e53935",
+            "description": "Roofs of other materials, in the training data asbestos cement and concrete"
+          }
+        ],
+        "post_processing_function": {
+          "format": "python",
+          "expression": "models.unet_roof_material.pipeline:postprocess"
+        }
+      }
+    ],
+    "cube:dimensions": {
+      "features": {
+        "type": "geometry",
+        "bbox": [-180, -90, 180, 90],
+        "geometry_types": ["Polygon"],
+        "reference_system": 4326
+      }
+    },
+    "cube:variables": {
+      "class": {
+        "dimensions": ["features"],
+        "type": "data",
+        "description": "Predicted class value (1 metal sheet, 2 thatch, 3 other roof).",
+        "values": [1, 2, 3],
+        "data_type": "uint8"
+      },
+      "label": {
+        "dimensions": ["features"],
+        "type": "data",
+        "description": "Name of the predicted class.",
+        "values": ["metal_sheet", "thatch", "other_roof"]
+      }
+    },
+    "mlm:hyperparameters": {
+      "training.epochs": 15,
+      "training.batch_size": 8,
+      "training.learning_rate": 0.0001,
+      "training.scheduler": "cosine",
+      "training.max_grad_norm": 1.0,
+      "training.freeze_encoder": false,
+      "training.max_class_weight": 5.0,
+      "training.val_ratio": 0.2,
+      "training.split_seed": 42,
+      "training.block_size": 4,
+      "inference.confidence_threshold": 0.0
+    }
+  },
+  "assets": {
+    "checkpoint": {
+      "href": "https://huggingface.co/dexsholex/unet-roof-material/resolve/main/unet_roof_material.pt",
+      "type": "application/octet-stream; framework=pytorch",
+      "roles": ["mlm:model", "mlm:weights"],
+      "mlm:artifact_type": "torch.save",
+      "raster:bands": [{ "name": "red" }, { "name": "green" }, { "name": "blue" }]
+    },
+    "model": {
+      "href": "https://huggingface.co/dexsholex/unet-roof-material/resolve/main/unet_roof_material.onnx",
+      "type": "application/octet-stream; framework=onnx",
+      "roles": ["mlm:model", "mlm:compiled"],
+      "mlm:artifact_type": "onnx",
+      "raster:bands": [{ "name": "red" }, { "name": "green" }, { "name": "blue" }]
+    },
+    "source-code": {
+      "href": "https://github.com/hotosm/fAIr-models/tree/develop/models/unet_roof_material",
+      "type": "text/html",
+      "roles": ["code"],
+      "mlm:entrypoint": "models.unet_roof_material.pipeline:predict"
+    },
+    "mlm:training": {
+      "href": "ghcr.io/hotosm/fair-models/unet_roof_material:latest",
+      "type": "application/vnd.oci.image.index.v1+json",
+      "roles": ["mlm:training-runtime"]
+    },
+    "mlm:inference": {
+      "href": "ghcr.io/hotosm/fair-models/unet_roof_material:latest-inference",
+      "type": "application/vnd.oci.image.index.v1+json",
+      "roles": ["mlm:inference-runtime"]
+    },
+    "readme": {
+      "href": "https://raw.githubusercontent.com/hotosm/fAIr-models/refs/heads/develop/models/unet_roof_material/README.md",
+      "type": "text/markdown",
+      "roles": ["metadata"]
+    }
+  }
+}

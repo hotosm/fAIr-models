@@ -1,0 +1,587 @@
+{
+  "type": "Feature",
+  "stac_version": "1.1.0",
+  "stac_extensions": [
+    "https://stac-extensions.github.io/mlm/v1.5.1/schema.json",
+    "https://stac-extensions.github.io/version/v1.2.0/schema.json",
+    "https://stac-extensions.github.io/classification/v2.0.0/schema.json",
+    "https://stac-extensions.github.io/file/v2.1.0/schema.json",
+    "https://stac-extensions.github.io/raster/v1.1.0/schema.json",
+    "https://stac-extensions.github.io/datacube/v2.3.0/schema.json",
+    "https://hotosm.github.io/fAIr-models/schemas/v1.0.0/base-model/schema.json"
+  ],
+  "id": "unet-drainage-channels",
+  "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+      [
+        [
+          -180,
+          -90
+        ],
+        [
+          180,
+          -90
+        ],
+        [
+          180,
+          90
+        ],
+        [
+          -180,
+          90
+        ],
+        [
+          -180,
+          -90
+        ]
+      ]
+    ]
+  },
+  "bbox": [
+    -180,
+    -90,
+    180,
+    90
+  ],
+  "properties": {
+    "datetime": "2026-11-11T00:00:00Z",
+    "created": "2026-11-11T00:00:00Z",
+    "updated": "2026-11-11T00:00:00Z",
+    "title": "Drainage Channels",
+    "description": "A U-Net with a ResNet-34 encoder that finds open drainage channels (drains and ditches) in RGB drone imagery and returns their centrelines as lines. Trained on OpenAerialMap drone imagery of Dar es Salaam, Tanzania, with OpenStreetMap waterway=drain and waterway=ditch lines, most of them surveyed by Ramani Huria, and finetunable in fAIr on drains mapped in a new town. Culverts and covered drains cannot be seen from above and are out of scope.",
+    "mlm:name": "unet-drainage-channels",
+    "mlm:architecture": "U-Net",
+    "mlm:tasks": [
+      "semantic-segmentation"
+    ],
+    "mlm:framework": "PyTorch",
+    "mlm:framework_version": "2.11.0",
+    "mlm:pretrained": true,
+    "mlm:pretrained_source": "ImageNet",
+    "mlm:accelerator": "amd64",
+    "fair:recommended_zoom": 20,
+    "fair:preview": {
+      "center": [
+        39.23733,
+        -6.83048
+      ],
+      "zoom": {
+        "recommended": 20,
+        "min": 20,
+        "max": 20
+      },
+      "imagery": {
+        "url": "https://tiles.openaerialmap.org/6a7c34e1a45360fc942a6cd1/0/6a7c34e1a45360fc942a6cd2/{z}/{x}/{y}",
+        "type": "tms",
+        "name": "OpenAerialMap - Msimbazi River Delta",
+        "attribution": "OMDTZ & HeiGIT gGmbH via OpenAerialMap, CC BY 4.0"
+      },
+      "place": {
+        "name": "Dar es Salaam",
+        "country": "Tanzania",
+        "country_code": "TZ"
+      }
+    },
+    "keywords": [
+      "waterway",
+      "water",
+      "drain",
+      "drainage",
+      "flood",
+      "semantic-segmentation",
+      "line"
+    ],
+    "license": "CC-BY-4.0",
+    "version": "1",
+    "deprecated": false,
+    "providers": [
+      {
+        "name": "Oluwasola Oyinloye",
+        "roles": [
+          "producer",
+          "licensor"
+        ],
+        "url": "https://github.com/Dexsholex",
+        "description": "Trained the U-Net on OpenAerialMap imagery and OpenStreetMap drains of Dar es Salaam and exported it to ONNX."
+      },
+      {
+        "name": "HOTOSM",
+        "roles": [
+          "host"
+        ],
+        "url": "https://www.hotosm.org",
+        "description": "Humanitarian OpenStreetMap Team"
+      }
+    ],
+    "fair:metrics_spec": [
+      {
+        "key": "completeness_1m",
+        "name": "Completeness within 1 m",
+        "description": "Share of the labelled drain length that has a predicted line within 1 m, over all validation chips."
+      },
+      {
+        "key": "correctness_1m",
+        "name": "Correctness within 1 m",
+        "description": "Share of the predicted line length that has a labelled drain centreline within 1 m. Predicted line over a covered drain or at the edge of the image counts as neither right nor wrong."
+      },
+      {
+        "key": "f1_1m",
+        "name": "F1 within 1 m",
+        "description": "Harmonic mean of completeness and correctness within 1 m."
+      },
+      {
+        "key": "completeness_2m",
+        "name": "Completeness within 2 m",
+        "description": "Share of the labelled drain length that has a predicted line within 2 m."
+      },
+      {
+        "key": "correctness_2m",
+        "name": "Correctness within 2 m",
+        "description": "Share of the predicted line length that has a labelled drain centreline within 2 m."
+      },
+      {
+        "key": "f1_2m",
+        "name": "F1 within 2 m",
+        "description": "Harmonic mean of completeness and correctness within 2 m."
+      },
+      {
+        "key": "completeness_4m",
+        "name": "Completeness within 4 m",
+        "description": "Share of the labelled drain length that has a predicted line within 4 m, which allows for drains mapped a few metres off the channel in the imagery."
+      },
+      {
+        "key": "correctness_4m",
+        "name": "Correctness within 4 m",
+        "description": "Share of the predicted line length that has a labelled drain centreline within 4 m."
+      },
+      {
+        "key": "f1_4m",
+        "name": "F1 within 4 m",
+        "description": "Harmonic mean of completeness and correctness within 4 m."
+      },
+      {
+        "key": "pixel_iou",
+        "name": "Pixel IoU",
+        "description": "Intersection over union of the predicted drain mask and the labelled drains drawn at their width. The margin beside each drain, covered drains and image edges are left out."
+      },
+      {
+        "key": "pixel_precision",
+        "name": "Pixel precision",
+        "description": "Share of predicted drain pixels that are labelled drain."
+      },
+      {
+        "key": "pixel_recall",
+        "name": "Pixel recall",
+        "description": "Share of labelled drain pixels that the model predicts as drain."
+      }
+    ],
+    "fair:split_spec": {
+      "strategy": "spatial",
+      "default_ratio": 0.2,
+      "seed": 42,
+      "block_size": 8,
+      "description": "Chips named OAM-<x>-<y>-<z>.tif are grouped into block_size x block_size tile blocks, and whole blocks go to train or validation, so the model is scored on areas it did not train on. Of 200 seeded shuffles of the blocks, the one that holds out the share of drain length closest to the validation ratio is kept. Other chip names, or a dataset inside a single block, are held out chip by chip."
+    },
+    "fair:hyperparameters_spec": [
+      {
+        "key": "epochs",
+        "name": "Epochs",
+        "description": "Passes over the training chips.",
+        "type": "int",
+        "default": 15,
+        "min": 1,
+        "max": 200
+      },
+      {
+        "key": "batch_size",
+        "name": "Batch size",
+        "description": "Chips per training step.",
+        "type": "int",
+        "default": 8,
+        "min": 1,
+        "max": 64
+      },
+      {
+        "key": "learning_rate",
+        "name": "Learning rate",
+        "description": "AdamW learning rate.",
+        "type": "float",
+        "default": 0.0001,
+        "min": 1e-06,
+        "max": 0.01
+      },
+      {
+        "key": "scheduler",
+        "name": "Learning rate schedule",
+        "description": "Cosine decay of the learning rate to zero over training, or a constant rate.",
+        "type": "str",
+        "default": "cosine",
+        "values": [
+          "cosine",
+          "none"
+        ]
+      },
+      {
+        "key": "max_grad_norm",
+        "name": "Gradient clipping",
+        "description": "Maximum gradient norm per training step.",
+        "type": "float",
+        "default": 1.0,
+        "min": 0.1,
+        "max": 10.0
+      },
+      {
+        "key": "freeze_encoder",
+        "name": "Freeze encoder",
+        "description": "Train only the U-Net decoder, which suits very small datasets.",
+        "type": "bool",
+        "default": false
+      },
+      {
+        "key": "max_drain_weight",
+        "name": "Maximum drain weight",
+        "description": "Cap on how much more a drain pixel counts than a background pixel in the cross-entropy; the weight is the square root of background share over drain share in the training pixels.",
+        "type": "float",
+        "default": 10.0,
+        "min": 1.0,
+        "max": 50.0
+      },
+      {
+        "key": "slide_tolerance_m",
+        "name": "Label slide tolerance",
+        "description": "How far, in metres, a chip's drain labels may slide during training to where they fit the image best, which absorbs drains mapped a little off the channel. 0 trains on the labels exactly as mapped.",
+        "type": "float",
+        "default": 2.0,
+        "min": 0.0,
+        "max": 5.0
+      },
+      {
+        "key": "slide_warmup_epochs",
+        "name": "Slide warm-up epochs",
+        "description": "Epochs trained on the labels as mapped before they start to slide.",
+        "type": "int",
+        "default": 1,
+        "min": 0,
+        "max": 200
+      },
+      {
+        "key": "val_ratio",
+        "name": "Validation ratio",
+        "description": "Share of chips held out for validation.",
+        "type": "float",
+        "default": 0.2,
+        "min": 0.05,
+        "max": 0.5
+      },
+      {
+        "key": "split_seed",
+        "name": "Split seed",
+        "description": "Random seed for the train and validation split and for training.",
+        "type": "int",
+        "default": 42,
+        "min": 0,
+        "max": 100000
+      },
+      {
+        "key": "block_size",
+        "name": "Split block size",
+        "description": "Width in tiles of the square blocks the spatial split keeps together.",
+        "type": "int",
+        "default": 8,
+        "min": 1,
+        "max": 64
+      },
+      {
+        "key": "confidence_threshold",
+        "name": "Confidence threshold",
+        "description": "Minimum drain probability for a pixel to be kept as drain before lines are traced.",
+        "type": "float",
+        "default": 0.3,
+        "min": 0.0,
+        "max": 1.0
+      },
+      {
+        "key": "min_length_m",
+        "name": "Minimum line length",
+        "description": "Predicted lines with a loose end that are shorter than this many metres are dropped.",
+        "type": "float",
+        "default": 2.0,
+        "min": 0.0,
+        "max": 50.0
+      }
+    ],
+    "mlm:input": [
+      {
+        "name": "image",
+        "bands": [
+          {
+            "name": "red"
+          },
+          {
+            "name": "green"
+          },
+          {
+            "name": "blue"
+          }
+        ],
+        "input": {
+          "shape": [
+            -1,
+            3,
+            256,
+            256
+          ],
+          "dim_order": [
+            "batch",
+            "bands",
+            "height",
+            "width"
+          ],
+          "data_type": "float32"
+        },
+        "value_scaling": [
+          {
+            "type": "min-max",
+            "minimum": 0,
+            "maximum": 255
+          },
+          {
+            "type": "min-max",
+            "minimum": 0,
+            "maximum": 255
+          },
+          {
+            "type": "min-max",
+            "minimum": 0,
+            "maximum": 255
+          }
+        ],
+        "pre_processing_function": {
+          "format": "python",
+          "expression": "models.unet_drainage_channels.pipeline:preprocess"
+        }
+      }
+    ],
+    "mlm:output": [
+      {
+        "name": "drain logits",
+        "description": "One logit for every pixel; its sigmoid gives the probability that the pixel is open drain.",
+        "tasks": [
+          "semantic-segmentation"
+        ],
+        "result": {
+          "shape": [
+            -1,
+            1,
+            256,
+            256
+          ],
+          "dim_order": [
+            "batch",
+            "class",
+            "height",
+            "width"
+          ],
+          "data_type": "float32"
+        },
+        "classification:classes": [
+          {
+            "name": "background",
+            "title": "Background",
+            "value": 0,
+            "color_hint": "9e9e9e",
+            "description": "Pixels that are not open drain"
+          },
+          {
+            "name": "drain",
+            "title": "Open drain",
+            "value": 1,
+            "color_hint": "00b8d4",
+            "description": "Open drainage channels: drains and ditches"
+          }
+        ],
+        "post_processing_function": {
+          "format": "python",
+          "expression": "models.unet_drainage_channels.pipeline:postprocess"
+        }
+      },
+      {
+        "name": "drains",
+        "description": "Drain centrelines traced from the thresholded pixel mask, one row per line.",
+        "tasks": [
+          "semantic-segmentation"
+        ],
+        "result": {
+          "shape": [
+            -1,
+            3
+          ],
+          "dim_order": [
+            "batch",
+            "variables"
+          ],
+          "data_type": "other"
+        },
+        "variables": [
+          "class",
+          "label",
+          "score"
+        ],
+        "classification:classes": [
+          {
+            "name": "drain",
+            "title": "Open drain",
+            "value": 1,
+            "color_hint": "00b8d4",
+            "description": "Open drainage channels: drains and ditches"
+          }
+        ],
+        "post_processing_function": {
+          "format": "python",
+          "expression": "models.unet_drainage_channels.pipeline:postprocess"
+        }
+      }
+    ],
+    "cube:dimensions": {
+      "features": {
+        "type": "geometry",
+        "bbox": [
+          -180,
+          -90,
+          180,
+          90
+        ],
+        "geometry_types": [
+          "LineString"
+        ],
+        "reference_system": 4326
+      }
+    },
+    "cube:variables": {
+      "class": {
+        "dimensions": [
+          "features"
+        ],
+        "type": "data",
+        "description": "Predicted class value (1 open drain).",
+        "values": [
+          1
+        ],
+        "data_type": "uint8"
+      },
+      "label": {
+        "dimensions": [
+          "features"
+        ],
+        "type": "data",
+        "description": "Name of the predicted class.",
+        "values": [
+          "drain"
+        ]
+      },
+      "score": {
+        "dimensions": [
+          "features"
+        ],
+        "type": "data",
+        "description": "Mean drain probability along the line.",
+        "extent": [
+          0,
+          1
+        ],
+        "data_type": "float32"
+      }
+    },
+    "mlm:hyperparameters": {
+      "training.epochs": 15,
+      "training.batch_size": 8,
+      "training.learning_rate": 0.0001,
+      "training.scheduler": "cosine",
+      "training.max_grad_norm": 1.0,
+      "training.freeze_encoder": false,
+      "training.max_drain_weight": 10.0,
+      "training.slide_tolerance_m": 2.0,
+      "training.slide_warmup_epochs": 1,
+      "training.val_ratio": 0.2,
+      "training.split_seed": 42,
+      "training.block_size": 8,
+      "inference.confidence_threshold": 0.3,
+      "inference.min_length_m": 2.0
+    }
+  },
+  "assets": {
+    "checkpoint": {
+      "href": "https://huggingface.co/dexsholex/unet-drainage-channels/resolve/main/unet_drainage_channels.pt",
+      "type": "application/octet-stream; framework=pytorch",
+      "roles": [
+        "mlm:model",
+        "mlm:weights"
+      ],
+      "mlm:artifact_type": "torch.save",
+      "raster:bands": [
+        {
+          "name": "red"
+        },
+        {
+          "name": "green"
+        },
+        {
+          "name": "blue"
+        }
+      ]
+    },
+    "model": {
+      "href": "https://huggingface.co/dexsholex/unet-drainage-channels/resolve/main/unet_drainage_channels.onnx",
+      "type": "application/octet-stream; framework=onnx",
+      "roles": [
+        "mlm:model",
+        "mlm:compiled"
+      ],
+      "mlm:artifact_type": "onnx",
+      "raster:bands": [
+        {
+          "name": "red"
+        },
+        {
+          "name": "green"
+        },
+        {
+          "name": "blue"
+        }
+      ]
+    },
+    "source-code": {
+      "href": "https://github.com/hotosm/fAIr-models/tree/develop/models/unet_drainage_channels",
+      "type": "text/html",
+      "roles": [
+        "code"
+      ],
+      "mlm:entrypoint": "models.unet_drainage_channels.pipeline:predict"
+    },
+    "mlm:training": {
+      "href": "ghcr.io/hotosm/fair-models/unet_drainage_channels:latest",
+      "type": "application/vnd.oci.image.index.v1+json",
+      "roles": [
+        "mlm:training-runtime"
+      ],
+      "mlm:accelerator": "cuda",
+      "mlm:accelerator_count": 1
+    },
+    "mlm:inference": {
+      "href": "ghcr.io/hotosm/fair-models/unet_drainage_channels:latest-inference",
+      "type": "application/vnd.oci.image.index.v1+json",
+      "roles": [
+        "mlm:inference-runtime"
+      ],
+      "mlm:accelerator": "amd64"
+    },
+    "readme": {
+      "href": "https://raw.githubusercontent.com/hotosm/fAIr-models/refs/heads/develop/models/unet_drainage_channels/README.md",
+      "type": "text/markdown",
+      "roles": [
+        "metadata"
+      ]
+    }
+  }
+}

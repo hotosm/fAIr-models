@@ -1,0 +1,77 @@
+{
+  "type": "Feature",
+  "stac_version": "1.1.0",
+  "stac_extensions": [
+    "https://stac-extensions.github.io/label/v1.0.1/schema.json",
+    "https://stac-extensions.github.io/file/v2.1.0/schema.json",
+    "https://stac-extensions.github.io/version/v1.2.0/schema.json",
+    "https://hotosm.github.io/fAIr-models/schemas/v1.0.0/dataset/schema.json"
+  ],
+  "id": "retinanet-tree-groups-sample",
+  "geometry": {
+    "type": "MultiPolygon",
+    "coordinates": [
+      [
+        [
+          [-13.171230697631836, 8.446567069119613],
+          [-13.168490982055664, 8.446567069119613],
+          [-13.168490982055664, 8.449276983740836],
+          [-13.171230697631836, 8.449276983740836],
+          [-13.171230697631836, 8.446567069119613]
+        ]
+      ]
+    ]
+  },
+  "bbox": [-13.171230697631836, 8.446567069119613, -13.168490982055664, 8.449276983740836],
+  "properties": {
+    "title": "retinanet-tree-groups-sample",
+    "description": "Sample for the retinanet_tree_groups pipeline: OSM tree points over the OpenAerialMap image 'Freetown Urban with Sensitive Areas Blurred' (DroneTM, CC-BY 4.0) of Freetown, Sierra Leone. Labels © OpenStreetMap contributors (ODbL-1.0).",
+    "label:type": "vector",
+    "label:tasks": ["object-detection"],
+    "label:classes": [
+      {
+        "name": "natural",
+        "classes": ["tree"]
+      }
+    ],
+    "label:properties": ["natural"],
+    "keywords": ["tree", "object-detection", "point"],
+    "fair:user_id": "anonymous",
+    "version": "1",
+    "deprecated": false,
+    "providers": [
+      {
+        "name": "anonymous",
+        "roles": ["producer"]
+      }
+    ],
+    "fair:source_imagery": "https://tiles.openaerialmap.org/690585b76415e43597ffd7ea/0/690585b76415e43597ffd7eb/{z}/{x}/{y}",
+    "fair:geometry_type": "point",
+    "license": "ODbL-1.0",
+    "label:description": "OSM `natural=tree` points with their tags; `diameter_crown` sets the side of the square crown box. A dataset holds one geometry type, so the tree-group polygons of this area are not in it.",
+    "created": "2026-11-16T16:03:37.625329+00:00",
+    "updated": "2026-11-16T16:03:37.625329+00:00",
+    "datetime": "2026-11-16T16:03:37.625329Z"
+  },
+  "links": [
+    {
+      "rel": "source",
+      "href": "https://tiles.openaerialmap.org/690585b76415e43597ffd7ea/0/690585b76415e43597ffd7eb/{z}/{x}/{y}",
+      "title": "Imagery for input image"
+    }
+  ],
+  "assets": {
+    "chips-image": {
+      "href": "chips-image",
+      "type": "image/tiff; application=geotiff",
+      "title": "Chips for input image",
+      "roles": ["data"]
+    },
+    "labels": {
+      "href": "labels/labels.geojson",
+      "type": "application/geo+json",
+      "title": "Training labels",
+      "roles": ["labels"]
+    }
+  }
+}
